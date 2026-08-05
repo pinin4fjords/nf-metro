@@ -76,6 +76,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     reserved_row_band_between,
     resolve_section,
+    right_normal_axis_sign,
     row_bottom_edge,
     row_top_edge,
     section_header_top,
@@ -4254,6 +4255,20 @@ def _wrap_fan_geometry(
     return fan, pos_n, delta, corner_x
 
 
+def _entry_wrap_run_displacement(
+    delta: float, corner_x: float, descent_x: float
+) -> float:
+    """Signed Y a member of :func:`_route_entry_wrap` sits off its centreline
+    along the horizontal channel run.
+
+    The loop's member carries ``-delta`` on the bundle's right-hand normal, so
+    which side of the centreline it draws on depends on which way the traverse
+    travels.
+    """
+    run = Direction.R if descent_x >= corner_x else Direction.L
+    return -delta * right_normal_axis_sign(run)
+
+
 def _route_entry_wrap(
     edge: Edge,
     src: Station,
@@ -4912,6 +4927,13 @@ def _route_around_section_below(
         corner_x = _clear_channel_x_in_band(
             ctx.graph, corner_x, sy, by, clearance, exclude, bound_left=corner_x
         )
+
+    if channel_y is not None:
+        # ``by`` holds the level the branch feeders drop onto and the gap was
+        # reserved to hold, but ``_route_entry_wrap`` reads its channel Y as the
+        # bundle centreline and draws this member ``delta`` off it.  Seat the
+        # centreline the other way so the trunk's own track lands on that level.
+        by -= _entry_wrap_run_displacement(delta, corner_x, vx)
 
     # R-D-L-U-R loop: down past the target row's bottom (by), left of the target
     # column (vx), up to the entry Y, and into the LEFT port from below.

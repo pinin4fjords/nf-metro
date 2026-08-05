@@ -21,6 +21,11 @@ generalises beyond the one repro.
 same-row RIGHT-entry wrap whose over-top channel, derived from the target's own
 top, would run inside a taller upstream row-mate protruding into the band above
 the target unless it is dropped below that box's bottom edge.
+
+``reportho`` is the merge-trunk cousin (#1593), where the reclaimed reservation
+belongs to a cross-row merge trunk rather than a wrap: its channel is bounded by
+the row envelopes, not by any column-overlapping section pair, so tightening a
+lower row against its local column floor collapses the corridor.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ FIXTURES = [
     TOPOLOGIES / "packed_cell_cellmate_bypass.mmd",
     TOPOLOGIES / "lr_bottom_exit_rl_top_entry_jog.mmd",
     TOPOLOGIES / "right_entry_over_top_tall_upstream.mmd",
+    FIXTURES_DIR / "route_reservations" / "reportho.metro",
 ]
 IDS = [p.stem for p in FIXTURES]
 

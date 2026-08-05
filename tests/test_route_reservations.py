@@ -223,7 +223,7 @@ def _reservation_order(plan, reservation):
     )
 
 
-def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> None:
+def test_reportho_preserves_the_full_authored_corridor() -> None:
     graph, _routes, plan = _observe(REPORT_HO)
     reservation = _report_reservation(plan)
     query = build_route_plan_query(plan)
@@ -250,28 +250,26 @@ def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> 
     assert all(len(str(item)) < 64 for item in reservation.demand_ids)
     assert len(str(reservation.id)) < 64
 
-    assert realised.coordinate == pytest.approx(347.8)
+    assert realised.coordinate == pytest.approx(492.0)
     assert realised.longitudinal_axis.value == "x"
     assert realised.longitudinal_start == pytest.approx(356.0)
     assert realised.longitudinal_end == pytest.approx(2314.0)
     assert realised.region_start == pytest.approx(466.0)
-    assert realised.region_end == pytest.approx(397.8)
-    assert realised.available_width == pytest.approx(-68.2)
+    assert realised.region_end == pytest.approx(544.0)
+    assert realised.available_width == pytest.approx(78.0)
     assert realised.required_width == pytest.approx(78.0)
-    assert realised.capacity_slack == pytest.approx(-146.2)
-    assert realised.negative_side_slack == pytest.approx(-144.2)
-    assert realised.positive_side_slack == pytest.approx(-2.0)
+    assert realised.capacity_slack == pytest.approx(0.0)
+    assert realised.negative_side_slack == pytest.approx(0.0)
+    assert realised.positive_side_slack == pytest.approx(0.0)
     assert realised.negative_blocker_ids == ("section-bottom:fetch_ortho",)
     assert realised.positive_blocker_ids == ("section-header:report",)
 
-    (diagnostic,) = tuple(
+    # A satisfied corridor publishes no shortfall record.
+    assert not [
         item
         for item in plan.reservation_diagnostics
         if item.reservation_id == reservation.id
-    )
-    assert diagnostic.capacity_slack == pytest.approx(-146.2)
-    assert "available -68.20px" in diagnostic.message
-    assert "required 78.00px" in diagnostic.message
+    ]
 
     assert graph.route_topology is not None
     connector_by_id = {

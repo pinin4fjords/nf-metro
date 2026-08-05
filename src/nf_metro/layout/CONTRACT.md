@@ -1130,7 +1130,11 @@ in pipeline order.
   `PERP_PORT_EDGE_CLEARANCE`, both measured from the port's outermost lane
   rather than the port station (`port_bundle_edge_reach`).  For each row pair,
   the row gap is `section_y_gap` (no more, no less, except where rowspan
-  sections filled their full row claim).
+  sections filled their full row claim).  A row pair claimed by
+  `_merge_trunk_row_minimums` keeps that wider minimum between the two row
+  *envelopes*: the trunk's channel crosses the whole boundary, so no
+  column-overlapping section pair bounds it and none records the two rows as
+  related (its connectors are rewritten through fan and merge nodes).
 - **Invariants preserved**: Bbox tops. Within-row trunk Ys. Bbox
   heights of upper rows.
 - **Related tests**: `test_section_bbox_has_bottom_padding`,
