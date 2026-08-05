@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
     from nf_metro.layout.route_reservations import (
         CorridorRegion,
+        GapCorridorBand,
         ReservationCoordinateTranslation,
         RouteReservation,
     )
@@ -83,6 +84,45 @@ def held_in_reserved_band(coordinate: float, band: ReservedBand | None) -> float
     bare coordinate.
     """
     return coordinate if band is None else band.hold(coordinate)
+
+
+def corridor_clearance_band(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    section_ids: Sequence[str],
+    coordinate: float,
+    run_start: float,
+    run_end: float,
+) -> GapCorridorBand | None:
+    """The gap boundary a run occupies, and the clearance band it owes there.
+
+    Read from live geometry through the ledger's own arithmetic
+    (:func:`~nf_metro.layout.route_reservations.gap_corridor_clearance_band`), so
+    a run held inside the band satisfies the reservation raised over it on either
+    routing pass -- including the first, which publishes the ledger and so has
+    none to read.
+
+    *axis* is the run's own coordinate index, which is what picks the boundary's
+    orientation: a horizontal run (``1``) sits in a row gap, a vertical one
+    (``0``) in a column gap.  *section_ids* are the run's own endpoint sections,
+    whose grid extent is the span the boundary's blockers are selected over; at
+    least one is required, since a run between no sections spans no grid.
+    """
+    from nf_metro.layout.route_plan import grid_span_for_sections
+    from nf_metro.layout.route_reservations import (
+        CorridorOrientation,
+        gap_corridor_clearance_band,
+    )
+
+    return gap_corridor_clearance_band(
+        graph,
+        CorridorOrientation.HORIZONTAL if axis == 1 else CorridorOrientation.VERTICAL,
+        grid_span_for_sections(graph, section_ids),
+        coordinate,
+        min(run_start, run_end),
+        max(run_start, run_end),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +226,25 @@ def _measured_gap_bands(
         )
 
 
+def resolved_band(lo: float, hi: float) -> ReservedBand | None:
+    """``ReservedBand(lo, hi)``, or ``None`` where the two claims disagree.
+
+    Every intersection of claims in this module resolves through here, so the
+    one case that publishes nothing has one definition.  An inverted pair means
+    two claims over one corridor demand disjoint bands: the corridor is sized for
+    fewer lanes than it carries, and no coordinate satisfies both.
+
+    Publishing nothing is not licence to place a claimed corridor from the row or
+    column edges instead.  Containment of the drawn geometry does not rest on
+    these views at all -- it is closed by
+    :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`,
+    which measures each leg's own gap directly -- and a conflict that survives
+    is reported by name, with both claimants and both widths, by
+    :func:`~nf_metro.layout.phases.guards.assert_reservations_are_settled`.
+    """
+    return ReservedBand(lo, hi) if hi >= lo - COORD_TOLERANCE else None
+
+
 def _axis_bands(
     measured: Sequence[tuple[RouteReservation, float, float]],
     boundary_of: Callable[[CorridorRegion], int | None],
@@ -194,10 +253,9 @@ def _axis_bands(
 
     Several corridors can claim one boundary over different spans, so a
     boundary's band is the intersection of what each of them leaves clear: a
-    channel there has to satisfy every claim, not the most generous one.  An
-    empty intersection describes no single corridor, so that boundary is left
-    unclaimed and the router derives its own band as it does for any gap the
-    ledger never reached.
+    channel there has to satisfy every claim, not the most generous one.  A
+    boundary whose claims :func:`resolved_band` cannot reconcile publishes
+    nothing.
     """
     spans: dict[int, tuple[float, float]] = {}
     for reservation, lo, hi in measured:
@@ -210,9 +268,9 @@ def _axis_bands(
         )
     return ReservedBands(
         {
-            boundary: ReservedBand(lo, hi)
+            boundary: band
             for boundary, (lo, hi) in sorted(spans.items())
-            if hi >= lo - COORD_TOLERANCE
+            if (band := resolved_band(lo, hi)) is not None
         }
     )
 
@@ -230,12 +288,11 @@ def _claim_views(
 ) -> _ClaimViews:
     """Each gap claim's own realised band, keyed by the segments it covers.
 
-    Two claims naming one segment must both hold there, so a duplicate key
-    keeps the intersection; an empty intersection publishes no band for that
-    segment, exactly as :func:`_axis_bands` treats a contested boundary.  The
-    per-edge view collects each edge's distinct row bands; equal bands collapse,
-    so an edge whose corridor several reservations describe alike reads as one
-    allocation.
+    Two claims naming one segment must both hold there, so a duplicate key keeps
+    the intersection, and :func:`resolved_band` decides what an irreconcilable
+    pair publishes.  The per-edge view collects each edge's distinct row bands;
+    equal bands collapse, so an edge whose corridor several reservations describe
+    alike reads as one allocation.
     """
     from nf_metro.layout.route_reservations import RowGapRegion
 
@@ -259,15 +316,15 @@ def _claim_views(
                     (lo, hi) if held is None else (max(held[0], lo), min(held[1], hi))
                 )
     per_claim = {
-        key: ReservedBand(lo, hi)
+        key: band
         for key, (lo, hi) in spans.items()
-        if hi >= lo - COORD_TOLERANCE
+        if (band := resolved_band(lo, hi)) is not None
     }
     row_bands = {
         edge_key: tuple(
-            ReservedBand(lo, hi)
+            band
             for lo, hi in bands.values()
-            if hi >= lo - COORD_TOLERANCE
+            if (band := resolved_band(lo, hi)) is not None
         )
         for edge_key, bands in by_edge.items()
     }

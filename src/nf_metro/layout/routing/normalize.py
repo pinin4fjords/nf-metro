@@ -6,8 +6,9 @@ import functools
 import itertools
 import math
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from math import inf, isfinite
 from typing import NamedTuple, TypeVar
 
 from nf_metro.layout.constants import (
@@ -609,17 +610,20 @@ def _locate_slot_channel(
     return None
 
 
-def _planner_owns_channel(channel: _VChannel) -> bool:
-    """Whether a pre-routing plan owns this channel's final geometry."""
-    route = channel.route
+def _planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+    """Whether a pre-routing plan owns the final geometry of one route segment."""
     return (
-        convergence_owns_segment_boundary(route, channel.idx)
+        convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
         or (
-            route.exit_turn_axis_id is not None
-            and route.exit_turn_segment_rank == channel.idx
+            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
     )
+
+
+def _planner_owns_channel(channel: _VChannel) -> bool:
+    """Whether a pre-routing plan owns this channel's final geometry."""
+    return _planner_owns_segment(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -3824,3 +3828,361 @@ def _v_segment_crosses_other_section(
         if s.bbox_x - margin <= x <= s.bbox_x + s.bbox_w + margin:
             return True
     return False
+
+
+class _CorridorRun(NamedTuple):
+    """One straight leg of a route, and the band its corridor leaves it.
+
+    ``lo``/``hi`` are ``None`` for a leg that may not be reseated -- one whose
+    coordinate a plan owns, whose flanks would break, or whose boundary offers no
+    coordinate satisfying both clearances -- and for a leg in no gap at all.  It
+    takes part all the same: it occupies a stretch of its corridor, and so bounds
+    where the legs beside it may sit.
+    """
+
+    route: RoutedPath
+    idx: int
+    axis: int
+    coordinate: float
+    run_lo: float
+    run_hi: float
+    lo: float | None
+    hi: float | None
+
+    @property
+    def movable(self) -> bool:
+        return self.lo is not None and self.hi is not None
+
+
+def _iter_axis_aligned_legs(
+    rp: RoutedPath,
+) -> Iterator[tuple[int, int, float, float, float, bool]]:
+    """``(idx, axis, coordinate, run_start, run_end, turning)`` for each straight leg.
+
+    Every axis-aligned leg is yielded: a leg that may not move occupies its
+    corridor all the same, and so bounds where the legs around it may sit.
+    *axis* is the leg's own coordinate index (``1`` for a horizontal leg's Y,
+    ``0`` for a vertical leg's X).
+
+    *turning* says the leg is interior and both its flanking legs run
+    perpendicular to it, which together are the condition for moving its
+    coordinate: the flanks then stretch along their own length and stay
+    straight.  A leg flanked by a diagonal would break that diagonal's angle,
+    and an end leg is attached to a port or station marker, so neither may
+    move.
+    """
+    pts = rp.points
+    for k in range(len(pts) - 1):
+        x0, y0 = pts[k]
+        x1, y1 = pts[k + 1]
+        along_x = abs(x1 - x0) > COORD_TOLERANCE
+        along_y = abs(y1 - y0) > COORD_TOLERANCE
+        if along_x is along_y:
+            continue
+        interior = 1 <= k <= len(pts) - 3
+        if along_x:
+            turning = interior and (
+                abs(pts[k - 1][0] - x0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][0] - x1) <= COORD_TOLERANCE
+            )
+            yield k, 1, y0, x0, x1, turning
+        else:
+            turning = interior and (
+                abs(pts[k - 1][1] - y0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][1] - y1) <= COORD_TOLERANCE
+            )
+            yield k, 0, x0, y0, y1, turning
+
+
+def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str, ...]:
+    """The sections this route runs between, which span its corridor claims."""
+    return tuple(
+        station.section_id
+        for station_id in (rp.edge.source, rp.edge.target)
+        if (station := graph.stations.get(station_id)) is not None
+        and station.section_id in graph.sections
+    )
+
+
+def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
+    """Every straight leg of every inter-section route, with the band it may hold.
+
+    Legs outside any gap, and legs nothing may reseat, are collected without a
+    band: the bundles are read off the drawn geometry, so a leg left out of the
+    reading is one whose mates could be moved off it.
+    """
+    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
+
+    graph = ctx.graph
+    out: list[_CorridorRun] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        section_ids = _route_endpoint_section_ids(graph, rp)
+        for idx, axis, coordinate, start, end, turning in _iter_axis_aligned_legs(rp):
+            run_lo, run_hi = min(start, end), max(start, end)
+            band = (
+                corridor_clearance_band(
+                    graph,
+                    axis=axis,
+                    section_ids=section_ids,
+                    coordinate=coordinate,
+                    run_start=run_lo,
+                    run_end=run_hi,
+                )
+                if turning and section_ids and not _planner_owns_segment(rp, idx)
+                else None
+            )
+            out.append(
+                _CorridorRun(
+                    rp,
+                    idx,
+                    axis,
+                    coordinate,
+                    run_lo,
+                    run_hi,
+                    band.lo if band is not None else None,
+                    band.hi if band is not None else None,
+                )
+            )
+    return out
+
+
+def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> bool:
+    """Whether two legs are drawn as one bundle of co-travelling runs.
+
+    Legs within one bundle-to-bundle clearance of each other over a shared
+    stretch of their corridor are what a reader sees as a single bundle: fused
+    same-line tracks sit on one coordinate, nested distinct lines sit a *step*
+    apart, and separate bundles keep :data:`BUNDLE_TO_BUNDLE_CLEARANCE` between
+    them.  Anything closer than that clearance is one group, and every one of
+    those relationships is destroyed by moving one member alone.
+
+    Overlap is read as bare interval overlap rather than through
+    :func:`spans_share_corridor`: two legs that share only the length of an elbow
+    are free to spread apart, but they are not free to be driven *together*, and
+    grouping them costs only the freedom to move them independently.
+    """
+    reach = max(step, BUNDLE_TO_BUNDLE_CLEARANCE) + COORD_TOLERANCE
+    return abs(first.coordinate - second.coordinate) <= reach and (
+        min(first.run_hi, second.run_hi) > max(first.run_lo, second.run_lo)
+    )
+
+
+def _corridor_bundles(
+    runs: list[_CorridorRun], step: float
+) -> list[list[_CorridorRun]]:
+    """Group one axis's legs into the bundles that have to travel together.
+
+    Bundles are the connected components of :func:`_legs_co_travel`, so a bundle
+    holds every leg transitively co-travelling with any of its members and moves
+    rigidly or not at all.  Grouping on geometry rather than on which boundary
+    each leg was assigned is what keeps two fused tracks together when they were
+    measured against different boundaries.
+    """
+    ordered = sorted(runs, key=lambda item: item.coordinate)
+    owner = list(range(len(ordered)))
+
+    def root(index: int) -> int:
+        while owner[index] != index:
+            owner[index] = owner[owner[index]]
+            index = owner[index]
+        return index
+
+    for i, first in enumerate(ordered):
+        for j in range(i + 1, len(ordered)):
+            second = ordered[j]
+            if second.coordinate - first.coordinate > step + COORD_TOLERANCE:
+                break
+            if _legs_co_travel(first, second, step):
+                owner[root(j)] = root(i)
+    grouped: dict[int, list[_CorridorRun]] = {}
+    for index, run in enumerate(ordered):
+        grouped.setdefault(root(index), []).append(run)
+    return sorted(
+        grouped.values(), key=lambda bundle: min(run.coordinate for run in bundle)
+    )
+
+
+def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | None:
+    """How far *bundle* may travel with every member inside its own band.
+
+    ``None`` where a member may not move at all: a bundle keeps the spacing that
+    draws its members as separate strokes, so one pinned member pins all of them.
+    ``None`` too where no single shift satisfies every member, which is a boundary
+    narrower than the clearances its corridors ask of it, or two lanes each owed
+    one coordinate.  Such a bundle stands where the passes above put it, and the
+    shortfall is left to the closing guard to report: seating it against either
+    edge picks which blocker to crowd, and the one a later widening of the
+    boundary would repair is not the one a reader would forgive -- the positive
+    side of a row gap is the next row's title badge.
+    """
+    if any(not run.movable for run in bundle):
+        return None
+    lower = max(run.lo - run.coordinate for run in bundle)  # type: ignore[operator]
+    upper = min(run.hi - run.coordinate for run in bundle)  # type: ignore[operator]
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    return lower, upper
+
+
+def _hold_runs_in_corridor_clearance(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Hold every gap-crossing run inside the clearance its corridor owes.
+
+    A leg drawn in a row or column gap earns a
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` over that
+    boundary, and that reservation's band is measurable from live geometry alone
+    (:func:`~nf_metro.layout.routing.reserved_bands.corridor_clearance_band`).
+    Handlers and the passes above derive a channel's depth from whichever grid
+    edges they have to hand, which over-states the obstruction wherever a
+    section spans the boundary or sits outside the corridor's run.  This closes
+    that difference on the drawn geometry, so a corridor is contained by the
+    reservation raised over it on the pass that publishes the ledger as well as
+    the pass that reads it.
+
+    A bundle travels only through the shifts its peers leave it, each of them
+    taken at its settled position, so no move crowds another lane or leapfrogs
+    it into a different order.  Bundles are visited in coordinate order, which is
+    what makes an already-moved peer a settled obstacle for the rest.
+    """
+    by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
+    for run in _corridor_runs(routes, ctx):
+        by_axis[run.axis].append(run)
+    for runs in by_axis.values():
+        bundles = _corridor_bundles(runs, ctx.offset_step)
+        settled = [0.0] * len(bundles)
+        for index, bundle in enumerate(bundles):
+            allowed = _bundle_shift_range(bundle)
+            if allowed is None:
+                continue
+            peers = [
+                (peer, settled[other])
+                for other, other_bundle in enumerate(bundles)
+                if other != index
+                for peer in other_bundle
+            ]
+            lower, upper = allowed
+            shift = _least_uncrowded_shift(
+                lower, upper, _crowding_windows(bundle, peers, ctx)
+            )
+            if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
+                continue
+            _shift_corridor_bundle(bundle, shift, ctx)
+            settled[index] = shift
+
+
+class _CrowdingWindow(NamedTuple):
+    """The open range of shifts one peer leg denies a bundle.
+
+    The range reaches away past its peer, so it denies crowding the peer's lane
+    and leapfrogging it into another order alike; the finite end is the closest
+    the two may settle, and is itself allowed.
+    """
+
+    lo: float
+    hi: float
+
+    def excludes(self, shift: float) -> bool:
+        return self.lo < shift < self.hi
+
+    @property
+    def bound(self) -> float:
+        return self.hi if isfinite(self.hi) else self.lo
+
+
+def _crowding_windows(
+    bundle: list[_CorridorRun],
+    peers: Sequence[tuple[_CorridorRun, float]],
+    ctx: _RoutingCtx,
+) -> list[_CrowdingWindow]:
+    """One window per pair of legs that would crowd each other, over all *peers*.
+
+    A peer constrains only the legs it shares a stretch of corridor with: legs
+    that merely pass each other's ends occupy different parts of the gap.  How
+    close a pair may settle is what the two of them have to read as: distinct
+    lines nest one offset step apart, which is what draws them as neighbouring
+    tracks, while two legs of one line are duplicates of a single stroke and draw
+    as one thick doubled corner anywhere inside a curve radius of each other.
+    Two such legs in separate bundles were not fused onto one coordinate by the
+    passes that fuse same-line tracks, so a curve radius is the whole of the room
+    they need.
+
+    *peers* carry the shift already applied to them, since a peer's lane is where
+    it has settled rather than where the passes above left it.
+    """
+    windows: list[_CrowdingWindow] = []
+    for run in bundle:
+        for peer, applied in peers:
+            if not spans_share_corridor(
+                run.run_lo, run.run_hi, peer.run_lo, peer.run_hi
+            ):
+                continue
+            keep = (
+                ctx.curve_radius + COORD_TOLERANCE
+                if peer.route.edge.line_id == run.route.edge.line_id
+                else ctx.offset_step
+            )
+            onto = peer.coordinate + applied - run.coordinate
+            windows.append(
+                _CrowdingWindow(-inf, onto + keep)
+                if onto < 0
+                else _CrowdingWindow(onto - keep, inf)
+            )
+    return windows
+
+
+def _least_uncrowded_shift(
+    lower: float, upper: float, windows: Sequence[_CrowdingWindow]
+) -> float | None:
+    """The smallest shift in ``[lower, upper]`` no window in *windows* denies.
+
+    ``None`` where every shift the band asks for is denied: the bundle then holds
+    its place, and the shortfall is left to the closing guard to report rather
+    than paid for by drawing two lanes as one.  The feasible shifts form a closed
+    set whose extremes are the band's own ends, the windows' finite bounds and the
+    least move the band asks for, so the smallest of those is the smallest of all.
+    """
+    candidates = {min(max(0.0, lower), upper), lower, upper}
+    candidates.update(window.bound for window in windows)
+    return min(
+        (
+            candidate
+            for candidate in sorted(candidates)
+            if lower - COORD_TOLERANCE_FINE <= candidate <= upper + COORD_TOLERANCE_FINE
+            and not any(window.excludes(candidate) for window in windows)
+        ),
+        key=abs,
+        default=None,
+    )
+
+
+def _shift_corridor_bundle(
+    bundle: list[_CorridorRun], shift: float, ctx: _RoutingCtx
+) -> None:
+    """Translate one bundle of co-travelling legs by *shift*.
+
+    A leg's flanking corners are re-derived against the radius each already
+    carries as their reference, which is what keeps a concentric loop -- every
+    corner sized as one family -- a single family across the move.  Taking the
+    base radius instead would pinch two corners of such a loop to a radius the
+    rest of the loop does not share.
+    """
+    for run in bundle:
+        radii = run.route.curve_radii
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            run.coordinate + shift,
+            axis=run.axis,
+            base_radius=_held_corner_radius(radii, run.idx - 1, ctx.curve_radius),
+            base_radius_out=_held_corner_radius(radii, run.idx, ctx.curve_radius),
+        )
+
+
+def _held_corner_radius(
+    radii: list[float] | None, index: int, fallback: float
+) -> float:
+    """The radius already drawn at *index*, or *fallback* where there is none."""
+    return radii[index] if radii and 0 <= index < len(radii) else fallback

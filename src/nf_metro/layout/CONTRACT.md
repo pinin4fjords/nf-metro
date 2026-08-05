@@ -1569,25 +1569,37 @@ in pipeline order.
   be split, and never moving a track a plan owns.
   `check_no_fused_cotravelling_lines` is its postcondition on the render
   chokepoint.
-- **Consumption is not yet claim-level**: `ReservedCorridors` answers "what is
-  clear at this boundary", which is the intersection of every claim crossing it.
-  That cannot separate two corridors crossing one boundary in opposite
-  directions -- their intersection is narrower than either, sometimes a single
-  coordinate -- so a pass allocating several corridors across one boundary at
-  once (`_materialize_gap_slots`) keeps the raw gap instead. Eight post-passes
-  therefore still position channels without reading the ledger:
-  `_separate_opposing_inter_row_trunks`, `_materialize_trunk_slots`,
+- **Containment is closed on the drawn geometry, not in the handlers**:
+  `ReservedCorridors` answers "what is clear at this boundary", which is the
+  intersection of every claim crossing it. That cannot separate two corridors
+  crossing one boundary in opposite directions -- their intersection is narrower
+  than either, sometimes a single coordinate -- so a pass allocating several
+  corridors across one boundary at once (`_materialize_gap_slots`) keeps the raw
+  gap instead. Eight post-passes therefore position channels without reading the
+  ledger: `_separate_opposing_inter_row_trunks`, `_materialize_trunk_slots`,
   `_spread_diagonal_bundles`, `_bundle_divergent_distinct_traverses`,
   `_coincide_fanout_opening_descents`, `_stagger_convergent_distinct_lines`,
-  `_coincide_same_line_tracks`, `_materialize_gap_slots`. Measured on the
-  corpus, 82 of the 1003 claims carried by 557 realised gap reservations are
-  drawn outside the band their own reservation realises;
-  `tests/test_reserved_claim_consumption.py` holds that count, so the unit here
-  is claims and not corridors. Closing that means keying bands by a claim's
-  `(path_rank, segment_rank)` -- which the frozen plan and the settled re-route
-  agree on, because the re-route is asserted to reproduce route order and
-  topology exactly -- and giving `_layout_gap_bundle` a band per bundle rather
-  than one pair of gap edges for all of them.
+  `_coincide_same_line_tracks`, `_materialize_gap_slots`.
+  `_hold_runs_in_corridor_clearance` closes the difference last instead, on the
+  routed geometry: it reads every straight leg's own gap and clearance band
+  through `gap_corridor_clearance_band`, which states the reservation's
+  arithmetic against live geometry, so the first routing pass -- the one that
+  publishes the ledger and has none to read -- satisfies the same postcondition
+  as the re-route that consumes it. Bands are keyed by nothing: the pass measures
+  each leg where it stands, which is why it needs no `(path_rank,
+  segment_rank)` correspondence between the frozen plan and the settled
+  re-route. Bundles move rigidly and only into the space their gap-mates leave
+  them, so no move fuses two lines onto one stroke.
+  Measured on the corpus, 23 of the 1003 claims carried by 557 realised gap
+  reservations are drawn more than `COORD_TOLERANCE` outside the band their own
+  reservation realises, and 25 outside it at exact precision;
+  `tests/test_reserved_claim_consumption.py` holds those per fixture. Each is a
+  leg the pass may not reseat -- a segment a pre-routing plan owns and validates,
+  a route's end leg pinned to its port marker, or one of two corridors that need
+  one coordinate in a boundary sized for a single lane. The first two need the
+  planners and port placement to read the same band; the third needs the
+  boundary widened for the corridors it carries together, which is a demand no
+  single reservation states.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.

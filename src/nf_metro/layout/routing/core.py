@@ -89,6 +89,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _gap_channel_base,
     _group_channel_trunks,
     _h_segment_crosses_other_section,
+    _hold_runs_in_corridor_clearance,
     _HTrunk,
     _inter_row_gap_band,
     _land_merge_feeders_on_trunk,
@@ -420,6 +421,13 @@ def _route_edges(
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
+    # Every pass above sizes a channel from the grid edges it has to hand, which
+    # over-states the obstruction wherever a section spans a boundary or sits
+    # outside the corridor's run.  Close that difference last, against the
+    # blockers the corridor actually has, so the geometry this pass leaves is
+    # what the reservation raised over it measures.
+    _hold_runs_in_corridor_clearance(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "corridor clearance holding")
     _unify_coincident_corner_radii(routes)
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
     covered_merge_hops = _drop_covered_merge_entry_hops(
