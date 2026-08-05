@@ -1827,27 +1827,34 @@ def _peer_widths(
 ) -> dict[int, float]:
     """How much room each group's boundary owes the corridors confined with it.
 
-    One boundary carries every corridor observed across it.  Two of them running
-    over disjoint stretches never meet, and two whose own bands can already hold
-    them apart are settled whatever this boundary does; the rest have to be drawn
-    clear of one another *inside* one boundary, and no single corridor's own
-    lanes say how wide that makes it.  This states that width, so the boundary is
-    asked for the room all of them take together.
+    Two corridors running over disjoint stretches never meet, and two whose own
+    bands can already hold them apart are settled whatever their boundaries do;
+    the rest have to be drawn clear of one another inside the room their
+    boundaries leave, and no single corridor's own lanes say how wide that makes
+    it.  This states that width, so a boundary is asked for the room all of them
+    take together.
+
+    Corridors are gathered by the axis they are drawn on rather than by the grid
+    boundary each was measured against.  Which boundary bounds a corridor says
+    where its band was read from, not which strokes it is drawn beside: a run
+    measured across one boundary and a run measured across the next can be drawn
+    in one stretch of the canvas, their bands meeting exactly at the edge the two
+    share.  Whether two lanes compete is :func:`_lanes_are_confined`'s question
+    alone, settled by the stretch of corridor they share and the reach their two
+    bands have between them.
     """
     bands = {index: _group_band(graph, group) for index, group in enumerate(groups)}
-    by_boundary: defaultdict[tuple[str, int, int], list[_BoundaryLane]] = defaultdict(
-        list
-    )
+    by_axis: defaultdict[CorridorOrientation, list[_BoundaryLane]] = defaultdict(list)
     for index, group in enumerate(groups):
         band = bands[index]
         if band is None:
             continue
         for claim in group:
-            by_boundary[_region_key(claim.region)].append(
+            by_axis[claim.orientation].append(
                 _BoundaryLane(index, claim, band[0], band[1])
             )
     widths: defaultdict[int, float] = defaultdict(float)
-    for lanes in by_boundary.values():
+    for lanes in by_axis.values():
         for index in {item.group_index for item in lanes}:
             own = [item for item in lanes if item.group_index == index]
             confined = [
