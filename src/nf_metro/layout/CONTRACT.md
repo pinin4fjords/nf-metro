@@ -1496,9 +1496,29 @@ in pipeline order.
   measure one. A run is filed against a canvas side only when it lies beyond the
   extreme of every placed section, so the margin it is measured within is the one
   it occupies, and its clearance on that side is `CANVAS_EDGE_CLEARANCE`: the
-  stroke's half-width plus a direction chevron, which is what is drawn there. A
-  turn radius is not, because an arc beside the canvas is inscribed inboard of
-  the centreline. The corpus carries no canvas deficit.
+  stroke's half-width plus a direction chevron, which is what is drawn there,
+  scaled through `canvas_edge_clearance()` because `stroke_scale` multiplies the
+  stroke but not the chevron's arms. A turn radius is not, because an arc beside
+  the canvas is inscribed inboard of the centreline. The guard gates on that
+  margin -- `canvas_edge_slack`, the room between the ink and the edge -- and on
+  total capacity, which are different claims: a corridor can hold every pixel it
+  reserved and bank all of it on the side facing content, leaving its stroke and
+  chevron drawn through the margin and clipped by the viewport. Across the
+  `examples` and `tests/fixtures` corpus, 144 canvas corridors are realised and
+  none is short of its canvas margin or of total capacity. A canvas corridor's
+  *content*-facing side is not gated here, because no growth of the canvas moves
+  a section box edge or header badge. 29 of those 144 keep less than the
+  inter-row clearance they claim from that content, 18 of them an over-top band
+  within the band `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That
+  clearance is a longitudinally blind envelope, and it assumes the badge
+  protrudes above `bbox_y` as `section_header_top` states; where a section draws
+  its caption below its box, or at an x the band does not reach, the reserved
+  band holds no badge. Measured over all 29, the count of fixtures in which route
+  ink enters a drawn badge's own box is zero, so gating this side would refuse 29
+  renders for clearance from something not drawn there. Each is instead published
+  as an attributed `reservation-deficit` record on the plan for the box-edge and
+  header guards to own, and tightening the claim to the badge actually drawn is
+  #1693.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
