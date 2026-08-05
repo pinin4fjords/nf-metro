@@ -21,6 +21,10 @@ from nf_metro.layout.constants import (
     INTER_ROW_HEADER_CLEARANCE,
     SAME_COORD_TOLERANCE,
 )
+from nf_metro.layout.geometry import (
+    cotravelling_lane_clearance,
+    spans_share_corridor,
+)
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.route_plan import (
     BindingKind,
@@ -226,6 +230,14 @@ class RouteReservation:
     lanes: tuple[RouteReservationLane, ...]
     lane_count: int
     bundle_width: float
+    peer_width: float
+    """Width beyond this corridor's own lanes that its boundary has to carry.
+
+    A boundary carries every corridor confined with this one over a shared
+    stretch of it, and each of those has to be drawn clear of the others.  This
+    is the room that takes, over and above ``bundle_width``, so the width the
+    boundary is asked for holds all of them rather than this corridor alone.
+    """
     peer_clearance: float
     negative_side_clearance: float
     positive_side_clearance: float
@@ -256,6 +268,7 @@ class RouteReservation:
             raise ValueError("reservation claim belongs to multiple physical lanes")
         if (
             self.bundle_width < 0
+            or self.peer_width < 0
             or self.peer_clearance < 0
             or self.negative_side_clearance < 0
             or self.positive_side_clearance < 0
@@ -265,6 +278,7 @@ class RouteReservation:
         expected = (
             self.negative_side_clearance
             + self.bundle_width
+            + self.peer_width
             + self.positive_side_clearance
         )
         if abs(self.minimum_width - expected) > COORD_TOLERANCE:
@@ -1652,6 +1666,162 @@ def _allocate_physical_lanes(
     return lanes, maximum_bundle_width
 
 
+def _group_band(
+    graph: MetroGraph, group: tuple[_ObservedClaim, ...]
+) -> tuple[float, float] | None:
+    """Where in its boundary *group*'s claims may sit, as the region stands now.
+
+    The same measurement :func:`_realise_one` makes, so a group's freedom is read
+    from the region its own reservation is scored against.  ``None`` for a canvas
+    corridor, whose far edge is not a grid neighbour, and for a boundary with no
+    side to measure.
+    """
+    first = group[0]
+    region = first.region
+    if isinstance(region, CanvasRegion):
+        return None
+    longitudinal_start = min(item.travel_start for item in group)
+    longitudinal_end = max(item.travel_end for item in group)
+    try:
+        measurement = (
+            _row_region_measurement(
+                graph,
+                region,
+                first.measurement_scope,
+                _union_span(group),
+                longitudinal_start,
+                longitudinal_end,
+            )
+            if isinstance(region, RowGapRegion)
+            else _column_region_measurement(
+                graph,
+                region,
+                first.measurement_scope,
+                _union_span(group),
+                longitudinal_start,
+                longitudinal_end,
+            )
+        )
+    except ValueError:
+        return None
+    negative, positive, _keepouts = _clearances(first.orientation, region)
+    return measurement.start + negative, measurement.end - positive
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundaryLane:
+    """One claim as its boundary sees it: where it sits, and what confines it."""
+
+    group_index: int
+    claim: _ObservedClaim
+    band_low: float
+    band_high: float
+
+
+def _lane_separation(first: _BoundaryLane, second: _BoundaryLane) -> float:
+    """The clearance these two lanes need to draw as two strokes."""
+    return cotravelling_lane_clearance(
+        same_line=first.claim.member.line_id == second.claim.member.line_id,
+        counter_running=first.claim.direction is not second.claim.direction,
+        curve_radius=CURVE_RADIUS,
+    )
+
+
+def _lanes_overlap(first: _BoundaryLane, second: _BoundaryLane) -> bool:
+    return spans_share_corridor(
+        first.claim.travel_start,
+        first.claim.travel_end,
+        second.claim.travel_start,
+        second.claim.travel_end,
+    )
+
+
+def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
+    """Whether these two lanes compete for one coordinate at their boundary.
+
+    They do when they run alongside each other over a shared stretch of it, need
+    a clearance between them, and their own bands cannot reach that far apart.
+    Widening the boundary raises the far edge of every band across it by the same
+    amount, so a pair whose bands already reach far enough is settled however the
+    boundary grows and asks nothing of it; a pair that cannot reach that far has
+    no seating that satisfies both claims and draws two strokes.
+    """
+    separation = _lane_separation(first, second)
+    if separation <= 0.0 or not _lanes_overlap(first, second):
+        return False
+    reach = max(
+        first.band_high - second.band_low,
+        second.band_high - first.band_low,
+    )
+    return reach < separation - COORD_TOLERANCE_FINE
+
+
+def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
+    """The width *lanes* need to sit in one boundary at their own separations.
+
+    Read as a stack in drawn order, since that is the order the router keeps:
+    each neighbouring pair contributes the clearance it needs, and a pair that
+    occupies a different stretch of the boundary contributes nothing.
+
+    A pair drawn further apart than its clearance contributes what it is drawn
+    at, so the width asked for holds the arrangement that exists.  Asking for
+    only the clearance would state a boundary too narrow for the stack standing
+    in it, and every pass that seats a channel relative to the boundary's edges
+    would then have to bring the pair together to fit.
+    """
+    ordered = sorted(lanes, key=lambda item: item.claim.coordinate)
+    return sum(
+        max(
+            _lane_separation(first, second),
+            second.claim.coordinate - first.claim.coordinate,
+        )
+        if _lanes_overlap(first, second)
+        else 0.0
+        for first, second in zip(ordered, ordered[1:])
+    )
+
+
+def _peer_widths(
+    graph: MetroGraph, groups: tuple[tuple[_ObservedClaim, ...], ...]
+) -> dict[int, float]:
+    """How much room each group's boundary owes the corridors confined with it.
+
+    One boundary carries every corridor observed across it.  Two of them running
+    over disjoint stretches never meet, and two whose own bands can already hold
+    them apart are settled whatever this boundary does; the rest have to be drawn
+    clear of one another *inside* one boundary, and no single corridor's own
+    lanes say how wide that makes it.  This states that width, so the boundary is
+    asked for the room all of them take together.
+    """
+    bands = {index: _group_band(graph, group) for index, group in enumerate(groups)}
+    by_boundary: defaultdict[tuple[str, int, int], list[_BoundaryLane]] = defaultdict(
+        list
+    )
+    for index, group in enumerate(groups):
+        band = bands[index]
+        if band is None:
+            continue
+        for claim in group:
+            by_boundary[_region_key(claim.region)].append(
+                _BoundaryLane(index, claim, band[0], band[1])
+            )
+    widths: defaultdict[int, float] = defaultdict(float)
+    for lanes in by_boundary.values():
+        for index in {item.group_index for item in lanes}:
+            own = [item for item in lanes if item.group_index == index]
+            confined = [
+                peer
+                for peer in lanes
+                if peer.group_index != index
+                and any(_lanes_are_confined(mine, peer) for mine in own)
+            ]
+            if confined:
+                widths[index] = max(
+                    widths[index], _confined_stack_width([*own, *confined])
+                )
+    return dict(widths)
+
+
 def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -1664,8 +1834,9 @@ def _build_symbolic_records(
     member_rank = {member.id: rank for rank, member in enumerate(plan.members)}
     system_rank = {system.id: rank for rank, system in enumerate(plan.systems)}
     system_by_id = {system.id: system for system in plan.systems}
+    peer_widths = _peer_widths(graph, groups)
     records: list[tuple[SharedReference, SymbolicDemand, RouteReservation]] = []
-    for group in groups:
+    for group_index, group in enumerate(groups):
         first = group[0]
         if any(item.measurement_scope is not first.measurement_scope for item in group):
             raise ValueError("one reservation cannot mix blocker measurement scopes")
@@ -1714,6 +1885,7 @@ def _build_symbolic_records(
         demand_id = DemandId(_stable_id("corridor-demand", reservation_id))
         lane_count = len(lanes)
         negative, positive, keepouts = _clearances(first.orientation, first.region)
+        peer_width = max(0.0, peer_widths.get(group_index, 0.0) - bundle_width)
         families = tuple(
             family
             for family in RouteFamilyId
@@ -1739,10 +1911,11 @@ def _build_symbolic_records(
             lanes,
             lane_count,
             bundle_width,
+            peer_width,
             BUNDLE_TO_BUNDLE_CLEARANCE,
             negative,
             positive,
-            negative + bundle_width + positive,
+            negative + bundle_width + peer_width + positive,
             None,
             keepouts,
             families,
@@ -2167,7 +2340,12 @@ def _validate_reservation_record(
             expected_negative = reserved_margin
         else:
             expected_positive = reserved_margin
-    expected_minimum = expected_negative + expected_bundle_width + expected_positive
+    expected_minimum = (
+        expected_negative
+        + expected_bundle_width
+        + reservation.peer_width
+        + expected_positive
+    )
     if (
         not _same_measurement(reservation.negative_side_clearance, expected_negative)
         or not _same_measurement(reservation.positive_side_clearance, expected_positive)

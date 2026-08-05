@@ -1439,6 +1439,29 @@ in pipeline order.
   if it did, the widening never reached them. That is asserted on the settled
   geometry, together with the monotone claim, by re-measuring every facing pair
   of boxes and every straddling section's corridors.
+- **The width a boundary is asked for holds every corridor confined with each
+  one**: a reservation's `minimum_width` is
+  `negative_side_clearance + bundle_width + peer_width + positive_side_clearance`,
+  and `peer_width` (`_peer_widths` in `layout/route_reservations.py`) is what the
+  corridors sharing the boundary take beside this one. Two corridors crossing one
+  boundary compete only when both hold: their runs overlap along it
+  (`spans_share_corridor`), and neither one's own measured band can hold them the
+  distance apart they need -- a pair whose bands already reach that far is settled
+  however the boundary grows, and asks nothing of it. Where they do compete, the
+  demand is the stack in drawn order: each neighbouring pair contributes
+  `cotravelling_lane_clearance` (`layout/geometry.py`), which states in one place
+  what `_required_channel_clearance` asks of counter-running channels and
+  `_overlays_distinct_line` of co-travelling ones -- nothing between two tracks of
+  one line running together, `OFFSET_STEP` between distinct co-travelling lines, a
+  turn radius between a line and its own return leg, `BUNDLE_TO_BUNDLE_CLEARANCE`
+  between counter-running distinct lines -- and never less than the pair is
+  already drawn at, so a widening cannot be answered by bringing the pair
+  together. Each competing reservation states the same stack, so settlement's
+  per-boundary maximum widens the boundary once for all of them and the
+  single-sweep argument below is untouched: a larger `minimum_width` is a larger
+  capacity deficit and nothing else. Measured on the corpus, 5 of the 369
+  fixtures state a peer width their boundary lacks; all five grow in height only,
+  by 12 to 16px.
 - **Postcondition**: Every row-gap and column-gap reservation *contains* the run
   drawn in it, measured against the ledger settlement was handed. Containment is
   three counts, all of which `assert_reservations_are_settled` refuses on the
@@ -1590,16 +1613,20 @@ in pipeline order.
   segment_rank)` correspondence between the frozen plan and the settled
   re-route. Bundles move rigidly and only into the space their gap-mates leave
   them, so no move fuses two lines onto one stroke.
-  Measured on the corpus, 23 of the 1003 claims carried by 557 realised gap
+  Measured on the corpus, 16 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 25 outside it at exact precision;
+  reservation realises, and 18 outside it at exact precision;
   `tests/test_reserved_claim_consumption.py` holds those per fixture. Each is a
-  leg the pass may not reseat -- a segment a pre-routing plan owns and validates,
-  a route's end leg pinned to its port marker, or one of two corridors that need
-  one coordinate in a boundary sized for a single lane. The first two need the
-  planners and port placement to read the same band; the third needs the
-  boundary widened for the corridors it carries together, which is a demand no
-  single reservation states.
+  leg the pass may not reseat: 9 are segments a pre-routing plan owns and
+  validates, 3 are end legs pinned to the port marker they land on, 2 are flanked
+  by a diagonal whose angle a reseat would change, 1 is a pair needing one
+  coordinate between them whose bands are measured at two *different* boundaries,
+  so no single boundary's width states the room the pair takes, and 1 is a leg the
+  pass holds inside the band its own endpoint sections measure, which is wider
+  than the band its reservation realises from the corridor's topology span. The
+  first two need the planners and port placement to read the same band. Two
+  corridors confined at one boundary are no longer among them: `peer_width` states
+  the room they take together, so settlement widens the boundary for both.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.

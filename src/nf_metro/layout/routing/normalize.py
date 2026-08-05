@@ -24,7 +24,11 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
-from nf_metro.layout.geometry import cotravelling_lanes_fuse, spans_share_corridor
+from nf_metro.layout.geometry import (
+    cotravelling_lane_clearance,
+    cotravelling_lanes_fuse,
+    spans_share_corridor,
+)
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -355,15 +359,21 @@ def _layout_gap_bundle(
 def _required_channel_clearance(
     a: _VChannel, b: _VChannel, curve_radius: float
 ) -> float:
-    """Required spacing for counter-running channels in one corridor."""
+    """Required spacing for counter-running channels in one corridor.
+
+    Same-direction channels are nested by the bundle passes rather than spaced
+    here, so this asks nothing of them.
+    """
     if a.down is b.down:
         return 0.0
     overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
     if overlap <= MIN_CORRIDOR_Y_OVERLAP:
         return 0.0
-    if a.route.line_id == b.route.line_id:
-        return curve_radius + COORD_TOLERANCE
-    return BUNDLE_TO_BUNDLE_CLEARANCE
+    return cotravelling_lane_clearance(
+        same_line=a.route.line_id == b.route.line_id,
+        counter_running=True,
+        curve_radius=curve_radius,
+    )
 
 
 def _overlays_distinct_line(
