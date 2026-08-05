@@ -10,13 +10,14 @@ positioned by a geometry-derived fallback instead of its reservation, which is
 exactly what the reservation ledger exists to forbid.
 
 Most of the corpus satisfies that outright, and those fixtures are held to it.
-The rest are enumerated in ``KNOWN_UNCONSUMED`` with the count each one carries,
-which ratchets two ways: a fixture that gains an out-of-band claim fails, and so
-does one that loses every one of them without the entry being removed.
+The rest are enumerated in ``KNOWN_UNCONSUMED`` by the ``(path_rank,
+segment_rank)`` of the claim itself, so the bound names which leg is out rather
+than how many are: an unrecorded claim fails, a recorded one that comes into
+band fails until its entry goes, and swapping one leg for another fails too.
 
 What those remaining claims are is measured, not assumed.  Each one is a leg
 :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
-cannot reseat, and there are exactly five reasons for that:
+cannot reseat, and there are exactly six reasons for that:
 
 * A pre-routing plan owns the segment's coordinates and validates the emitted
   geometry against them, so no post-pass may write it (9 claims).
@@ -30,12 +31,21 @@ cannot reseat, and there are exactly five reasons for that:
 * The band the pass measures from the leg's own endpoint sections is wider than
   the band its reservation realises from the corridor's topology span, so the
   pass holds the leg inside a band the ledger scores it outside of (1 claim).
+* Two same-line trunks counter-run through one boundary: the band is widened for
+  the pair, the first is re-centred in it, and the second is then held at the
+  band edge because the centring reads a band rather than the peer sharing it
+  (1 claim, ``dogleg_exempt_sameline``).
 
-None of the five is a router that fails to read the ledger, and none is closed
+None of the six is a router that fails to read the ledger, and none is closed
 by moving a leg the pass already reaches.  Two corridors confined at one
 boundary, each needing a coordinate the other cannot leave it, are absent from
 that list because ``RouteReservation.peer_width`` states the room the pair takes
 and settlement widens the boundary for both.
+
+Longitudinal blindness in the band's blockers is measured and is *not* among the
+reasons: on the violated side of all 17 claims, 16 have every blocker overlapping
+or abutting the drawn leg, and the one that does not (``fan_bypass_shared_band``)
+has its violated edge set by a blocker that abuts it.
 """
 
 from __future__ import annotations
@@ -90,29 +100,44 @@ KNOWN_NOT_RENDERING = frozenset(
     }
 )
 
-# Fixture -> how many of its realised gap claims are drawn outside their own
-# reservation's band by more than ``COORD_TOLERANCE``.  Regenerate by running
-# this module's ``_out_of_band_claims`` over ``_CORPUS``; closing a fixture means
-# deleting its entry.  Two further claims sit within one tolerance of their band,
-# which is the width this codebase treats two coordinates as equal within, so
-# they are not counted here.
-KNOWN_UNCONSUMED = {
-    "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": 2,
-    "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": 3,
-    "examples/topologies/convergence_stacked_sink.mmd": 1,
-    "examples/topologies/exit_lane_settlement_without_crossings.mmd": 1,
-    "examples/topologies/fan_bypass_shared_band.mmd": 1,
-    "examples/topologies/peeloff_straight_drop_near_wall.mmd": 1,
-    "examples/topologies/top_entry_bundle_offset_seam.mmd": 1,
-    "examples/variantbenchmarking_auto.mmd": 1,
-    "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": 2,
-    "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd": 1,
-    "tests/fixtures/tb_exit_terminal_on_carrier.mmd": 2,
+# Fixture -> the ``(path_rank, segment_rank)`` of each realised gap claim drawn
+# outside its own reservation's band by more than ``COORD_TOLERANCE``.
+# Regenerate by running this module's ``_out_of_band_claims`` over ``_CORPUS``;
+# closing a fixture means deleting its entry.  Four further claims sit within one
+# tolerance of their band, which is the width this codebase treats two
+# coordinates as equal within, so they are not recorded here.
+KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
+    "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": frozenset(
+        {(10, 1), (11, 1)}
+    ),
+    "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": (
+        frozenset({(15, 1), (16, 1), (17, 1)})
+    ),
+    "examples/topologies/convergence_stacked_sink.mmd": frozenset({(21, 2)}),
+    "examples/topologies/dogleg_exempt_sameline.mmd": frozenset({(8, 2)}),
+    "examples/topologies/exit_lane_settlement_without_crossings.mmd": frozenset(
+        {(25, 1)}
+    ),
+    "examples/topologies/fan_bypass_shared_band.mmd": frozenset({(9, 3)}),
+    "examples/topologies/peeloff_straight_drop_near_wall.mmd": frozenset({(12, 1)}),
+    "examples/topologies/top_entry_bundle_offset_seam.mmd": frozenset({(17, 2)}),
+    "examples/variantbenchmarking_auto.mmd": frozenset({(93, 2)}),
+    "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
+        {(216, 2), (217, 2)}
+    ),
+    "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd": frozenset(
+        {(9, 2)}
+    ),
+    "tests/fixtures/tb_exit_terminal_on_carrier.mmd": frozenset({(34, 2), (35, 2)}),
 }
 
 
-def _out_of_band_claims(path: Path) -> list[str] | None:
-    """Each claim of *path* drawn outside its band, or ``None`` if it cannot render."""
+def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
+    """*path*'s claims drawn outside their band, or ``None`` if it cannot render.
+
+    Keyed by the claim's own ``(path_rank, segment_rank)`` so the bound names the
+    leg, with the measured band and drawn interval as the value.
+    """
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -123,10 +148,10 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
 
     route_plan = observed.route_plan
     if route_plan is None:
-        return []
+        return {}
     query = build_route_plan_query(route_plan)
     polylines = observed.plan.route_polylines
-    violations: list[str] = []
+    violations: dict[tuple[int, int], str] = {}
     for reservation in route_plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
@@ -142,7 +167,7 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
                 >= -COORD_TOLERANCE
             ):
                 continue
-            violations.append(
+            violations[claim.path_rank, claim.segment_rank] = (
                 f"{reservation.id} claim {claim.member_id} "
                 f"(path {claim.path_rank}, segments {claim.segment_rank}.."
                 f"{claim.segment_end_rank}): drawn "
@@ -167,12 +192,14 @@ def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> Non
             "the regression or add it to KNOWN_NOT_RENDERING with the reason it "
             "cannot render."
         )
-    allowed = KNOWN_UNCONSUMED.get(rel, 0)
-    assert len(violations) == allowed, (
-        f"{len(violations)} claimed corridor(s) drawn outside their reserved band, "
-        f"{allowed} recorded. Gaining one is a regression; losing one means "
-        "tightening this fixture's KNOWN_UNCONSUMED count, or deleting the entry "
-        "once it reaches zero:\n" + "\n".join(violations)
+    recorded = KNOWN_UNCONSUMED.get(rel, frozenset())
+    assert set(violations) == recorded, (
+        "the claims drawn outside their reserved band are not the ones recorded: "
+        f"unrecorded {sorted(set(violations) - recorded)}, recorded but in band "
+        f"{sorted(recorded - set(violations))}. An unrecorded claim is a "
+        "regression; one that comes into band means dropping its "
+        "KNOWN_UNCONSUMED entry, and the fixture's key once the set empties:\n"
+        + "\n".join(violations[key] for key in sorted(violations))
     )
 
 

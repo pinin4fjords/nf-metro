@@ -1463,11 +1463,29 @@ in pipeline order.
   fixtures state a peer width their boundary lacks; all five grow in height only,
   by 12 to 16px.
 - **Postcondition**: Every row-gap and column-gap reservation *contains* the run
-  drawn in it, measured against the ledger settlement was handed. Containment is
-  three counts, all of which `assert_reservations_are_settled` refuses on the
-  strict path: non-negative capacity slack (the region is wide enough at all),
-  and non-negative slack on each side (the run is drawn inside it, not seated off
-  centre with one side absorbing the whole surplus and the other overrun).
+  drawn in it. Containment is three counts, all of which
+  `assert_reservations_are_settled` refuses on the strict path: non-negative
+  capacity slack (the region is wide enough at all), and non-negative slack on
+  each side (the run is drawn inside it, not seated off centre with one side
+  absorbing the whole surplus and the other overrun). The two counts read
+  different evidence, and must. Capacity is a property of the reservation and the
+  settled envelopes, so it is measured by re-realising the reservation against the
+  ledger settlement was handed. Where in the region the run *sits* is only
+  knowable from the emitted polylines: the published ledger records the demand --
+  frozen claims projected through the translations -- so its occupied interval
+  states where the first pass observed the run, not where the settled re-route
+  drew it, and a boundary widened so that the re-route can move into the new room
+  leaves that interval untouched. The side slacks are therefore measured by
+  `drawn_corridor_containment` on the polylines the renderer is about to draw,
+  through each claim's own `(path_rank, segment_rank .. segment_end_rank + 1)`
+  point range; `_settle_render_geometry` builds them once and hands the same list
+  to the guard and to the renderer. That the frozen plan's ranks still name the
+  re-routed geometry's points is what `_assert_settlement_decisions_frozen`
+  already guarantees: it compares one signature entry per point pair, in route
+  order, so equal fingerprints mean equal route order and equal point counts, and
+  `apply_route_offsets` maps points one for one. Measured on the corpus, reading
+  the drawn coordinate is the difference between 37 fixtures refused on the strict
+  path and 11.
   Capacity holds unconditionally, for every arrangement an author can express, by
   the **ownership lemma**: `_row_region_measurement` splits the sections beside
   boundary `b` into an upper set `{row_end(s) <= b-1}` and a lower set
@@ -1528,23 +1546,29 @@ in pipeline order.
   reserved and bank all of it on the side facing content, leaving its stroke and
   chevron drawn through the margin and clipped by the viewport. Across the
   `examples` and `tests/fixtures` corpus, 144 canvas corridors are realised and
-  none is short of its canvas margin or of total capacity. A canvas corridor's
+  none is short of its canvas margin or of total capacity, measured either from
+  the published claim interval or from the drawn polylines. A canvas corridor's
   *content*-facing side is not gated here, because no growth of the canvas moves
-  a section box edge or header badge. 29 of those 144 keep less than the
-  inter-row clearance they claim from that content, 18 of them an over-top band
-  within the band `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That
-  clearance is a longitudinally blind envelope, and it assumes the badge
-  protrudes above `bbox_y` as `section_header_top` states; where a section draws
-  its caption below its box, or at an x the band does not reach, the reserved
-  band holds no badge. Of the 18, 12 have an attributed header blocker whose
-  caption is drawn outside the band entirely and 6 have every attributed blocker
-  drawn inside it, so for those 6 the longitudinal blindness is the whole of the
-  remaining cause. Measured over all 29, the count of fixtures in which route
-  ink enters a drawn badge's own box is zero, so gating this side would refuse 29
-  renders for clearance from something not drawn there. Each is instead published
-  as an attributed `reservation-deficit` record on the plan for the box-edge and
-  header guards to own, and tightening the claim to the badge actually drawn is
-  #1693.
+  a section box edge or header badge. 28 of those 144 keep less than the
+  clearance they claim from that content when their drawn ink is measured (29 from
+  the published claim interval), 18 of them an over-top band within the band
+  `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That clearance is a
+  longitudinally blind envelope, and it assumes the badge protrudes above `bbox_y`
+  as `section_header_top` states; where a section draws its caption below its box,
+  or at an x the band does not reach, the reserved band holds no badge. Measured
+  over all 28, the count of fixtures in which route ink enters a drawn badge's own
+  box is zero, so gating this side today would refuse renders for clearance from
+  something not drawn there. Each is instead published as an attributed
+  `reservation-deficit` record on the plan for the box-edge and header guards to
+  own, and tightening the claim to the badge actually drawn is #1693. That issue
+  is not closed by localising the claim alone: `INTER_ROW_HEADER_CLEARANCE` is
+  `SECTION_HEADER_PROTRUSION + INTER_ROW_EDGE_CLEARANCE`, and charging only the
+  edge clearance where no badge is drawn under the run still leaves 10 of the 18
+  short, because they keep 22px of the 26px edge clearance rather than the full
+  26 that 8 of them keep. The remaining 10 deficits are 2 to 6px short of
+  `EDGE_TO_BUNDLE_CLEARANCE` or `INTER_ROW_EDGE_CLEARANCE` against a box edge with
+  no badge involved. Gating the content side therefore needs those corridors moved
+  off the box edges they hug, not a narrower claim.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
@@ -1613,20 +1637,36 @@ in pipeline order.
   segment_rank)` correspondence between the frozen plan and the settled
   re-route. Bundles move rigidly and only into the space their gap-mates leave
   them, so no move fuses two lines onto one stroke.
-  Measured on the corpus, 16 of the 1003 claims carried by 557 realised gap
+  Measured on the corpus, 17 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 18 outside it at exact precision;
-  `tests/test_reserved_claim_consumption.py` holds those per fixture. Each is a
-  leg the pass may not reseat: 9 are segments a pre-routing plan owns and
+  reservation realises, and 21 outside it at exact precision;
+  `tests/test_reserved_claim_consumption.py` holds each one by its own
+  `(path_rank, segment_rank)` so the bound names the leg rather than a count. Each
+  is a leg the pass may not reseat: 9 are segments a pre-routing plan owns and
   validates, 3 are end legs pinned to the port marker they land on, 2 are flanked
   by a diagonal whose angle a reseat would change, 1 is a pair needing one
   coordinate between them whose bands are measured at two *different* boundaries,
-  so no single boundary's width states the room the pair takes, and 1 is a leg the
+  so no single boundary's width states the room the pair takes, 1 is a leg the
   pass holds inside the band its own endpoint sections measure, which is wider
-  than the band its reservation realises from the corridor's topology span. The
-  first two need the planners and port placement to read the same band. Two
-  corridors confined at one boundary are no longer among them: `peer_width` states
-  the room they take together, so settlement widens the boundary for both.
+  than the band its reservation realises from the corridor's topology span, and 1
+  is the second of two same-line trunks counter-running through one boundary: the
+  band is widened for the pair, the first is re-centred in it, and the second is
+  held at the band edge because the centring reads a band rather than the peer
+  sharing it. The first two need the planners and port placement to read the same
+  band. Two corridors confined at one boundary are not among them: `peer_width`
+  states the room they take together, so settlement widens the boundary for both.
+  Neither is longitudinal blindness in the band's blockers, which was measured
+  and ruled out: on the violated side of the 17, 16 have every blocking section
+  overlapping or abutting the drawn leg, and the one that does not
+  (`fan_bypass_shared_band`, whose two 148px-away blockers bound the side it
+  holds) has its violated edge set by a section abutting the run. Selecting
+  blockers by longitudinal overlap alone was measured over the corpus and is a
+  regression, not a fix: it drops the box a corridor's own elbow turns beside
+  (16 to 26px past the run's end in 4 of the 17), whose removal widens the band
+  enough that the re-route re-centres the run in it, changing 8 renders and
+  flipping one vertical leg's direction, which
+  `_assert_settlement_decisions_frozen` refuses outright; out-of-band claims rise
+  from 21 to 32 as region selection reclassifies corridors onto other boundaries.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
