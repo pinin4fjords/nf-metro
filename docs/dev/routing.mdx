@@ -168,6 +168,24 @@ parallel track and the station markers it must pass through.
 
 <Metro src="examples/guide/03_fan_out.mmd" debug mmd={false} />
 
+## Reserved inter-row corridors
+
+An ordinary horizontal channel between stacked rows derives its Y band from
+the bottom edge of the upper row and the header edge of the lower row. Those
+whole-row edges can name sections outside the route's span, so they are only a
+proxy for the corridor's real blockers.
+
+Envelope settlement supplies the final reroute with the immutable reservation
+ledger it consumed. `build_reserved_row_bands` re-measures each row-gap claim
+against settled geometry, including the recorded row and column translations,
+and intersects the clear spans claimed at each boundary. Routing helpers place
+their channel inside that realised band. Routes at unclaimed boundaries keep
+the ordinary row-edge derivation.
+
+Only the reroute after a real envelope translation receives reserved bands.
+The first routing pass remains the observer that publishes the ledger, and a
+render with no settlement work does not route again.
+
 ## Render-time guards
 
 `validate_exit_turn_plans` runs before the generic render guards. It checks

@@ -1427,8 +1427,9 @@ in pipeline order.
 - **Allowed writes**: `Section.bbox_x` / `Section.bbox_y` and the `x` / `y` of
   the stations and ports those sections own, all by one shared per-boundary
   amount. Junctions live in inter-section space and are reproduced by one final
-  coordinate rederivation. Absolute reservation and plan coordinates are
-  projected through the same translation records.
+  coordinate rederivation. The one final reroute reads realised row-gap bands
+  from the immutable input ledger, measured through the same translation
+  records.
 - **Postcondition**: Every row-gap and column-gap reservation whose far-side
   blockers all belong to the translated band has non-negative capacity slack.
   Any remaining deficit carries a `SettlementObstruction` naming the sections
@@ -1440,9 +1441,11 @@ in pipeline order.
   order, port sides, corner radii, route skeletons, route ownership metadata,
   and author-pinned grid relationships are unchanged. The final coordinate
   rederivation is guarded against any route-turn, family, fan, convergence,
-  binding, disposition, or ownership change. The final plan adopts the initial
-  row-gap and column-gap reservations, references, and demands unchanged;
-  canvas claims are observed against the final canvas only.
+  binding, disposition, or ownership change. The final plan is observed from
+  the rerouted coordinates. The closing guard checks the translated input
+  ledger for required capacity and the final routed ledger for any new capacity
+  deficit. Reservation-aware channel helpers hold the channels they own inside
+  their realised bands.
 - **Idempotence**: A second pass over settled geometry finds no positive
   deficit and writes nothing, so running settlement twice is an exact
   geometry no-op.
@@ -1450,8 +1453,9 @@ in pipeline order.
   ascending order. Translating everything from boundary `b` onward widens `b`
   by exactly that amount, leaves earlier boundaries' blockers stationary, and
   moves later boundaries' blockers together, so boundaries do not interfere and
-  the sweep is finite in the number of boundaries. Routing does not rebuild the
-  ledger and cannot admit another claimant after settlement.
+  the sweep is finite in the number of boundaries. The final reroute publishes
+  a new ledger for verification, but it does not start another settlement
+  sweep.
 - **Transactionality**: Settlement snapshots every mutable section, station,
   and port coordinate before its first write. Any exception restores that
   snapshot exactly before propagating the failure.
@@ -1461,7 +1465,8 @@ in pipeline order.
   publishes a non-blocking `convergence-settlement-exit` diagnostic assigning
   the remaining shared-channel, opposing-opening, whole-system, or chained
   emission work to #1658.
-- **Related tests**: `tests/test_envelope_settlement.py`, and
+- **Related tests**: `tests/test_envelope_settlement.py`,
+  `tests/test_reserved_corridor_placement.py`, and
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation
   settlement owns, and re-running it changes nothing.

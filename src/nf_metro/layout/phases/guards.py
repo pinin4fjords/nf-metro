@@ -6274,17 +6274,15 @@ def assert_reservations_are_settled(
     plan: RoutePlan,
     settlement: EnvelopeSettlement,
     *,
+    routed_plan: RoutePlan | None = None,
     strict: bool = False,
 ) -> None:
-    """Guard that no route is drawn through a corridor narrower than it claimed.
+    """Guard settlement's input ledger and the routed ledger it produced.
 
-    Runs on the settled geometry, once envelope settlement has widened every row
-    and column boundary it owns.  A deficit settlement already attributed to a
-    blocker outside its ownership -- typically a section spanning across the
-    boundary -- is reported and left to that blocker's owner.  A deficit with no
-    such attribution bounds a corridor settlement was free to widen, which is a
-    broken postcondition rather than a placement someone else owns, so the
-    strict path refuses to draw through it.
+    ``plan`` is the immutable ledger settlement consumed, so its coordinates are
+    projected through the recorded translations before its required capacity is
+    checked. ``routed_plan`` is the ledger observed from final route geometry and
+    is checked without projection for any new capacity deficit.
     """
     from nf_metro.layout.route_reservations import (
         ColumnGapRegion,
@@ -6357,3 +6355,33 @@ def assert_reservations_are_settled(
             category=LayoutGeometryWarning,
             stacklevel=2,
         )
+
+    routed_worst: tuple[float, str] | None = None
+    if routed_plan is not None:
+        for reservation in routed_plan.reservations:
+            if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+                continue
+            realised = realise_reservation(graph, reservation)
+            if realised is None:
+                continue
+            if (
+                realised.capacity_slack >= -COORD_TOLERANCE
+                or reservation.id in obstruction_by_reservation
+            ):
+                continue
+            detail = (
+                f"system {reservation.system_id}, reservation {reservation.id}, "
+                f"{reservation.description}, requires "
+                f"{realised.required_width:.1f}px and has "
+                f"{realised.available_width:.1f}px"
+            )
+            if routed_worst is None or realised.capacity_slack < routed_worst[0]:
+                routed_worst = (realised.capacity_slack, detail)
+    if routed_worst is not None:
+        msg = (
+            "the settled reroute published a corridor narrower than its final "
+            f"reservation requires: {routed_worst[1]}"
+        )
+        if strict:
+            raise LayoutInvariantError(msg)
+        warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)

@@ -75,18 +75,6 @@ DIRECTION_CORPUS = {
     "BT": TOPOLOGIES / "bt_perp_left_entry_right_exit.mmd",
 }
 
-LEDGER_STABILITY_CORPUS = (
-    ROOT / "examples" / "longread_variant_calling.mmd",
-    TOPOLOGIES / "bypass_fan_in_outer_slot.mmd",
-    TOPOLOGIES / "complex_multipath.mmd",
-    TOPOLOGIES / "convergence_fold_diamond.mmd",
-    TOPOLOGIES / "convergence_sink_fold.mmd",
-    TOPOLOGIES / "fold_split_targets.mmd",
-    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
-    ROOT / "tests" / "fixtures" / "planned_compatibility_channel_collision.mmd",
-    ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
-)
-
 
 def _observe(path: Path):
     with warnings.catch_warnings():
@@ -386,9 +374,7 @@ def test_translation_names_every_deficient_claim_at_its_boundary() -> None:
     assert translated == expected
 
 
-@pytest.mark.parametrize("path", LEDGER_STABILITY_CORPUS, ids=lambda item: item.name)
-def test_render_keeps_the_initial_grid_reservation_ledger(
-    path: Path,
+def test_settled_reroute_returns_the_final_ledger_inside_the_reserved_band(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = []
@@ -399,66 +385,63 @@ def test_render_keeps_the_initial_grid_reservation_ledger(
         return settle(graph, plan)
 
     monkeypatch.setattr(svg_render, "settle_route_envelopes", capture_plan)
-    final = _rendered_plan(path, permissive=True).route_plan
+    final = _rendered_plan(
+        ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+        permissive=True,
+    ).route_plan
     assert len(captured) == 1
     frozen = captured[0]
-    frozen_grid = tuple(
-        item
-        for item in frozen.reservations
-        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    frozen_by_id = {item.id: item for item in frozen.reservations}
+    final_by_id = {item.id: item for item in final.reservations}
+    common_ids = frozen_by_id.keys() & final_by_id.keys()
+    assert any(
+        frozen_by_id[item].claims != final_by_id[item].claims for item in common_ids
     )
-    final_grid = tuple(
+
+    query = build_route_plan_query(final)
+    row_claims = tuple(
         item
         for item in final.reservations
-        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 2
     )
-    assert final_grid == frozen_grid
-
-    reference_ids = {item.reference_id for item in frozen_grid}
-    demand_ids = {
-        demand_id for reservation in frozen_grid for demand_id in reservation.demand_ids
-    }
-    assert {
-        item.id: item for item in final.shared_references if item.id in reference_ids
-    } == {
-        item.id: item for item in frozen.shared_references if item.id in reference_ids
-    }
-    assert {item.id: item for item in final.demands if item.id in demand_ids} == {
-        item.id: item for item in frozen.demands if item.id in demand_ids
-    }
+    assert row_claims
+    for reservation in row_claims:
+        realised = query.realised_reservation(reservation.id)
+        assert realised is not None
+        assert realised.capacity_slack >= -0.01
+        assert realised.negative_side_slack >= -0.01
+        assert realised.positive_side_slack >= -0.01
 
 
-def test_final_canvas_claims_are_not_projected_twice() -> None:
+def test_final_claims_are_already_in_final_coordinate_space() -> None:
     plan = _rendered_plan(
         TOPOLOGIES / "convergent_offrow_exit_climb.mmd", permissive=True
     ).route_plan
     region_by_id = {item.id: item.region for item in plan.reservations}
-    canvas = tuple(
-        item
+    assert any(
+        isinstance(region_by_id[item.reservation_id], CanvasRegion)
         for item in plan.realised_reservations
-        if isinstance(region_by_id[item.reservation_id], CanvasRegion)
     )
-    grid = tuple(
-        item
-        for item in plan.realised_reservations
-        if isinstance(region_by_id[item.reservation_id], RowGapRegion | ColumnGapRegion)
-    )
-
-    assert canvas
-    assert all(not item.coordinate_translations for item in canvas)
-    assert any(item.coordinate_translations for item in grid)
+    assert all(not item.coordinate_translations for item in plan.realised_reservations)
 
 
-def test_deficit_free_render_skips_ledger_adoption(
+def test_deficit_free_render_skips_reserved_reroute(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def unexpected_adoption(*_args, **_kwargs):
-        raise AssertionError("deficit-free render rebuilt its reservation ledger")
+    reservations = []
+    route = svg_render.observe_route_edges_centred
+
+    def capture_reservations(*args, **kwargs):
+        reservations.append(kwargs.get("reservations"))
+        return route(*args, **kwargs)
 
     monkeypatch.setattr(
-        svg_render, "adopt_route_reservation_ledger", unexpected_adoption
+        svg_render,
+        "observe_route_edges_centred",
+        capture_reservations,
     )
     _rendered_plan(SETTLED_CORPUS[0])
+    assert reservations and all(item is None for item in reservations)
 
 
 def test_authored_spanning_grid_is_a_precise_strict_failure() -> None:

@@ -275,15 +275,14 @@ with the stations and ports they contain. Section sizes, a station's place
 inside its section, plan frames, lane order, port sides, and author pins are
 all frozen inputs.
 
-Each pass visits every adjacent-index boundary once in ascending order.
+The row sweep and then the column sweep each visit every adjacent-index
+boundary once in ascending order.
 Translating everything from boundary `b` onward widens `b` by exactly that
 amount, leaves the blockers before `b` stationary, and moves the blockers on
 both sides of any later boundary together. Boundaries therefore do not
-interfere, no separation ever decreases, and the pass is finite in the number
-of boundaries rather than iterating toward a fixpoint. A second pass becomes
-reachable only when the extra width let the router admit a further line into a
-bundle crossing that corridor, raising its demand; `settlement_pass_bound`
-bounds that escalation by the number of lines the graph defines.
+interfere, no separation ever decreases, and settlement is finite in the
+number of boundaries rather than iterating toward a fixpoint. Both sweeps
+consume one immutable ledger observed before any translation.
 
 Settlement declines a deficit whose far side is bounded by a section outside
 the band it would translate -- typically a row-spanning section straddling the
@@ -292,7 +291,18 @@ corridor, so it publishes a `SettlementObstruction` naming those sections
 instead. `assert_reservations_are_settled` reports those as attributed
 warnings and fails the strict path only for a deficit with no such
 attribution, which would mean a corridor settlement was free to widen and did
-not.
+not. The one final reroute receives the realised row-gap bands from that input
+ledger. It places claimed inter-row channels inside the space their own
+blockers leave, rather than re-deriving the channel from unrelated whole-row
+edges. The final `RoutePlan` is observed from those routed coordinates.
+
+The closing guard checks the two ledgers for different purposes. It projects
+the immutable input claims through the recorded translations and proves that
+settlement delivered their required capacity. It reads the final routed claims
+without projection and rejects any new capacity deficit. Reserved-band routing
+places the channels it owns inside their realised side clearances by
+construction. No demand emitted by the final reroute can cause another
+settlement sweep.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final

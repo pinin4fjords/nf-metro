@@ -143,6 +143,7 @@ if TYPE_CHECKING:
         RoutePlan,
         RoutePlanObserver,
     )
+    from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
 
 
 def _route_edges(
@@ -153,6 +154,8 @@ def _route_edges(
     *,
     observe_plan: bool,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -211,6 +214,8 @@ def _route_edges(
         curve_radius,
         station_offsets,
         offset_step=offset_step,
+        reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
     from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
@@ -521,6 +526,8 @@ def observe_route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -532,6 +539,8 @@ def observe_route_edges_centred(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None

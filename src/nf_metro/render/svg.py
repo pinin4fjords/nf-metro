@@ -60,7 +60,7 @@ from nf_metro.layout.route_plan import (
     RouteSystem,
 )
 from nf_metro.layout.route_reservations import (
-    adopt_route_reservation_ledger,
+    ReservationCoordinateTranslation,
     realise_route_reservations,
 )
 from nf_metro.layout.routing import (
@@ -1071,11 +1071,15 @@ def _settle_render_geometry(
 
     def _route(
         station_offsets: dict[tuple[str, str], float],
+        reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     ) -> tuple[list[RoutedPath], RoutePlan]:
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
             offset_step=offset_step,
+            reservations=reservations,
+            reservation_translations=reservation_translations,
         )
         return observation.routes, observation.plan
 
@@ -1083,14 +1087,21 @@ def _settle_render_geometry(
         if graph.line_spread is not LineSpread.RAILS:
             _position_junctions(graph)
 
-    def _resettle() -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
+    def _resettle(
+        reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
         # The shift moved section-anchored geometry; refresh the bypass-label
         # obstacle boxes (derived from station Ys, read by the router) so the
         # re-route does not seat a bypass corner against a stale box.
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
         _reanchor_junctions()
         offsets = compute_station_offsets(graph, offset_step=offset_step)
-        moved_routes, moved_plan = _route(offsets)
+        moved_routes, moved_plan = _route(
+            offsets,
+            reservations,
+            reservation_translations,
+        )
         return offsets, moved_routes, moved_plan
 
     _reanchor_junctions()
@@ -1113,7 +1124,10 @@ def _settle_render_geometry(
     frozen_route_plan = route_plan
     settlement = settle_route_envelopes(graph, frozen_route_plan)
     if settlement.translations:
-        station_offsets, routes, route_plan = _resettle()
+        station_offsets, routes, route_plan = _resettle(
+            frozen_route_plan,
+            settlement.coordinate_translations,
+        )
         _restore_settlement_curve_radii(frozen_routes, routes)
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
@@ -1123,15 +1137,13 @@ def _settle_render_geometry(
             routes,
             route_plan,
         )
-        route_plan = adopt_route_reservation_ledger(
-            route_plan,
-            frozen_route_plan,
-            graph,
-            settlement.coordinate_translations,
-        )
     route_plan = attach_compatibility_exit_diagnostics(route_plan, settlement)
     assert_reservations_are_settled(
-        graph, route_plan, settlement, strict=effective_strict
+        graph,
+        frozen_route_plan,
+        settlement,
+        routed_plan=route_plan if settlement.translations else None,
+        strict=effective_strict,
     )
 
     assert_render_header_clearance(graph, strict=effective_strict)

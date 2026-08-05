@@ -61,8 +61,11 @@ from nf_metro.parser.route_topology import (
 )
 
 if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import RoutePlan
+    from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
+    from nf_metro.layout.routing.reserved_bands import ReservedRowBands
 
 _EdgeKey = tuple[str, str, str]
 
@@ -227,6 +230,7 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
+    reserved_bands: ReservedRowBands
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
@@ -376,8 +380,20 @@ def _build_routing_context(
     station_offsets: dict[tuple[str, str], float] | None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
+    from nf_metro.layout.routing.reserved_bands import (
+        ReservedRowBands,
+        build_reserved_row_bands,
+    )
+
+    reserved_bands = (
+        build_reserved_row_bands(graph, reservations, reservation_translations)
+        if reservations is not None
+        else ReservedRowBands()
+    )
     topology = build_route_topology_query(graph)
     junction_ids = graph.junction_ids
     divergence_sources = divergence_junction_sources(graph, topology)
@@ -467,6 +483,7 @@ def _build_routing_context(
         station_offsets=station_offsets,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
+        reserved_bands=reserved_bands,
         junction_fan_info=junction_fan_info,
         fan_corridors=fan_corridors,
         skip_edges=merge.skip_edges,

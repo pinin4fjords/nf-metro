@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -30,6 +30,9 @@ from nf_metro.layout.route_topology import (
     merge_fanout_junction_ids,
 )
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
+
+if TYPE_CHECKING:
+    from nf_metro.layout.routing.reserved_bands import ReservedBand, ReservedRowBands
 
 
 class OffsetRegime(Enum):
@@ -1825,6 +1828,7 @@ def bypass_bottom_y(
     src_row: int | None = None,
     cross_row: bool = False,
     tgt_row: int | None = None,
+    reserved: ReservedRowBands | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
@@ -1856,7 +1860,11 @@ def bypass_bottom_y(
             # and loop back up to the entry port).
             upper_bottom = row_bottom_edge(graph, tgt_row - 1, default=0.0)
             lower_top = row_top_edge(graph, tgt_row, default=upper_bottom)
-            return _center_inter_row_channel(upper_bottom, lower_top)
+            return _center_inter_row_channel(
+                upper_bottom,
+                lower_top,
+                reserved=None if reserved is None else reserved.at(tgt_row),
+            )
         # Route below ALL sections in the column range.
         all_in_range = [
             s
@@ -2091,6 +2099,7 @@ def inter_row_channel_y(
     dy: float,
     max_r: float,
     offset: float = 0.0,
+    reserved: ReservedRowBands | None = None,
 ) -> float:
     """Compute Y for a horizontal channel in an inter-row gap.
 
@@ -2121,7 +2130,14 @@ def inter_row_channel_y(
             else:
                 upper_bottom = row_bottom_edge(graph, tgt_row, default=ty)
                 lower_top = row_top_edge(graph, src_row, default=sy)
-            return _center_inter_row_channel(upper_bottom, lower_top, offset)
+            return _center_inter_row_channel(
+                upper_bottom,
+                lower_top,
+                offset,
+                reserved=(
+                    None if reserved is None else reserved.at(max(src_row, tgt_row))
+                ),
+            )
 
         # Multi-row crossing: an intervening row sits between source and
         # target.  Keep the legacy midpoint so ``_route_around_section_below``
@@ -2209,7 +2225,11 @@ def merge_fanout_pivot_reference(
 
 
 def _center_inter_row_channel(
-    upper_bottom: float, lower_top: float, offset: float = 0.0
+    upper_bottom: float,
+    lower_top: float,
+    offset: float = 0.0,
+    *,
+    reserved: ReservedBand | None = None,
 ) -> float:
     """Y for a horizontal channel in the gap between two stacked rows.
 
@@ -2228,6 +2248,8 @@ def _center_inter_row_channel(
     too-narrow band the stagger is applied unclamped so co-travelling lines
     stay distinct rather than collapsing onto one Y.
     """
+    if reserved is not None:
+        return reserved.place(offset)
     lo = upper_bottom + INTER_ROW_EDGE_CLEARANCE
     hi = lower_top - INTER_ROW_HEADER_CLEARANCE
     if _inter_row_band_fits(upper_bottom, lower_top):
