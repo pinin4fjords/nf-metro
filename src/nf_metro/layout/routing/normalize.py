@@ -6,7 +6,7 @@ import functools
 import itertools
 import math
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from math import inf, isfinite
 from typing import NamedTuple, TypeVar
@@ -3848,6 +3848,9 @@ class _CorridorRun(NamedTuple):
     coordinate satisfying both clearances -- and for a leg in no gap at all.  It
     takes part all the same: it occupies a stretch of its corridor, and so bounds
     where the legs beside it may sit.
+
+    ``forward`` is whether the leg travels toward increasing coordinates, which
+    with its line identity is what says how much room it and a neighbour need.
     """
 
     route: RoutedPath
@@ -3858,6 +3861,7 @@ class _CorridorRun(NamedTuple):
     run_hi: float
     lo: float | None
     hi: float | None
+    forward: bool
 
     @property
     def movable(self) -> bool:
@@ -3990,6 +3994,7 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
                     run_hi,
                     band[0] if band is not None else None,
                     band[1] if band is not None else None,
+                    end >= start,
                 )
             )
     return out
@@ -4093,6 +4098,13 @@ def _hold_runs_in_corridor_clearance(
     taken at its settled position, so no move crowds another lane or leapfrogs
     it into a different order.  Bundles are visited in coordinate order, which is
     what makes an already-moved peer a settled obstacle for the rest.
+
+    A bundle every shift is denied to retries with the peers denying it, as one
+    rigid group: two corridors owed one boundary between them are seated by the
+    same widening and neither can reach it alone, so allocating them together is
+    the whole of what makes that widening usable.  Moving a group rigidly leaves
+    every separation inside it exactly as drawn, so the joint move can neither
+    fuse two lanes nor reorder them.
     """
     by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
     for run in _corridor_runs(routes, ctx):
@@ -4101,23 +4113,102 @@ def _hold_runs_in_corridor_clearance(
         bundles = _corridor_bundles(runs, ctx.offset_step)
         settled = [0.0] * len(bundles)
         for index, bundle in enumerate(bundles):
-            allowed = _bundle_shift_range(bundle)
-            if allowed is None:
+            group = _seatable_group(bundles, settled, index, ctx)
+            if group is None:
                 continue
-            peers = [
-                (peer, settled[other])
-                for other, other_bundle in enumerate(bundles)
-                if other != index
-                for peer in other_bundle
-            ]
-            lower, upper = allowed
-            shift = _least_uncrowded_shift(
-                lower, upper, _crowding_windows(bundle, peers, ctx)
-            )
-            if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
-                continue
-            _shift_corridor_bundle(bundle, shift, ctx)
-            settled[index] = shift
+            members, shift = group
+            for other in members:
+                _shift_corridor_bundle(bundles[other], shift, ctx)
+                settled[other] += shift
+
+
+def _group_shift(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    members: Collection[int],
+    ctx: _RoutingCtx,
+) -> float | None:
+    """The least shift seating every bundle in *members* inside its own band.
+
+    The group moves rigidly, so one shift has to satisfy every member's band and
+    clear every peer outside the group; a member already shifted carries that
+    into its own range, since its band is fixed and its coordinate is not.
+    """
+    ranges = [_bundle_shift_range(bundles[index]) for index in members]
+    if any(item is None for item in ranges):
+        return None
+    lower = max(
+        item[0] - settled[index]  # type: ignore[index]
+        for index, item in zip(members, ranges, strict=True)
+    )
+    upper = min(
+        item[1] - settled[index]  # type: ignore[index]
+        for index, item in zip(members, ranges, strict=True)
+    )
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    group = [run for index in members for run in bundles[index]]
+    peers = [
+        (peer, settled[other])
+        for other, bundle in enumerate(bundles)
+        if other not in members
+        for peer in bundle
+    ]
+    return _least_uncrowded_shift(lower, upper, _crowding_windows(group, peers, ctx))
+
+
+def _seatable_group(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    index: int,
+    ctx: _RoutingCtx,
+) -> tuple[frozenset[int], float] | None:
+    """The bundles to move with *index*, and the shift that seats them all.
+
+    ``None`` where the bundle is already where its band wants it, or where no
+    group reachable from it has a seating: the shortfall is then left to the
+    closing guard to report rather than paid for by crowding a lane.
+    """
+    allowed = _bundle_shift_range(bundles[index])
+    if allowed is None:
+        return None
+    shift = _group_shift(bundles, settled, (index,), ctx)
+    if shift is None:
+        blockers = _denying_bundles(bundles, settled, index, allowed, ctx)
+        if not blockers:
+            return None
+        members = frozenset({index, *blockers})
+        shift = _group_shift(bundles, settled, members, ctx)
+        if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
+            return None
+        return members, shift
+    if abs(shift) <= COORD_TOLERANCE_FINE:
+        return None
+    return frozenset({index}), shift
+
+
+def _denying_bundles(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    index: int,
+    allowed: tuple[float, float],
+    ctx: _RoutingCtx,
+) -> frozenset[int]:
+    """The bundles that deny *index* every shift its own band asks for."""
+    lower, upper = allowed
+    return frozenset(
+        other
+        for other, bundle in enumerate(bundles)
+        if other != index
+        and _least_uncrowded_shift(
+            lower,
+            upper,
+            _crowding_windows(
+                bundles[index], [(peer, settled[other]) for peer in bundle], ctx
+            ),
+        )
+        is None
+    )
 
 
 class _CrowdingWindow(NamedTuple):
@@ -4148,13 +4239,13 @@ def _crowding_windows(
 
     A peer constrains only the legs it shares a stretch of corridor with: legs
     that merely pass each other's ends occupy different parts of the gap.  How
-    close a pair may settle is what the two of them have to read as: distinct
-    lines nest one offset step apart, which is what draws them as neighbouring
-    tracks, while two legs of one line are duplicates of a single stroke and draw
-    as one thick doubled corner anywhere inside a curve radius of each other.
-    Two such legs in separate bundles were not fused onto one coordinate by the
-    passes that fuse same-line tracks, so a curve radius is the whole of the room
-    they need.
+    close a pair may settle is :func:`cotravelling_lane_clearance`, which is the
+    one statement of that rule the reservation ledger also sizes its boundaries
+    by, so a corridor is never denied a coordinate the ledger allocated it on a
+    separation the ledger did not charge for.  A pair whose clearance is nothing
+    may close right up: two tracks of one line travelling the same way are one
+    stroke by construction, and the window then stops the bundle at its peer's
+    lane rather than short of it, which is what keeps the drawn order.
 
     *peers* carry the shift already applied to them, since a peer's lane is where
     it has settled rather than where the passes above left it.
@@ -4166,10 +4257,10 @@ def _crowding_windows(
                 run.run_lo, run.run_hi, peer.run_lo, peer.run_hi
             ):
                 continue
-            keep = (
-                ctx.curve_radius + COORD_TOLERANCE
-                if peer.route.edge.line_id == run.route.edge.line_id
-                else ctx.offset_step
+            keep = cotravelling_lane_clearance(
+                same_line=peer.route.edge.line_id == run.route.edge.line_id,
+                counter_running=peer.forward is not run.forward,
+                curve_radius=ctx.curve_radius,
             )
             onto = peer.coordinate + applied - run.coordinate
             windows.append(
