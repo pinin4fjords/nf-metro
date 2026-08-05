@@ -1847,15 +1847,18 @@ def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     amount, so a pair whose bands already reach far enough is settled however the
     boundary grows and asks nothing of it; a pair that cannot reach that far has
     no seating that satisfies both claims and draws two strokes.
+
+    Reach is measured in the order the two are drawn in, because that is the only
+    order any seating may produce: the router moves a corridor up to its
+    neighbour's lane and never past it.  Taking the better of the two orderings
+    would credit the pair with a separation only a swap could realise, and report
+    a boundary settled that in fact has no seating at all.
     """
     separation = _lane_separation(first, second)
     if separation <= 0.0 or not _lanes_overlap(first, second):
         return False
-    reach = max(
-        first.band_high - second.band_low,
-        second.band_high - first.band_low,
-    )
-    return reach < separation - COORD_TOLERANCE_FINE
+    lower, upper = sorted((first, second), key=lambda lane: lane.claim.coordinate)
+    return upper.band_high - lower.band_low < separation - COORD_TOLERANCE_FINE
 
 
 def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:

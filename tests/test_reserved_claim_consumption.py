@@ -15,13 +15,14 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  Four are legs whose
-coordinate a pre-routing plan fixes and validates the emitted geometry against,
-so no post-pass may write them: a planned exit turn's column (2) and a
-convergence trunk (2).  Each plan has to choose that coordinate inside the band
-its own reservation realises, which is work at the plan, not a repair after it.
-The remaining two are legs the hold pass reaches but declines to move because a
-peer denies every shift its band allows.
+What those remaining claims are is measured, not assumed.  Two are a convergence
+trunk, whose coordinate a pre-routing plan fixes and validates the emitted
+geometry against, so no post-pass may write them; that plan has to choose the
+coordinate inside the band its own reservation realises, which is work at the
+plan, not a repair after it.  The remaining one is a leg whose boundary is a lane
+too narrow for the pair standing in it, because the two claims' declared travel
+intervals abut where the drawn legs overlap, so the pair never contributed to
+``peer_width``.
 """
 
 from __future__ import annotations
@@ -84,11 +85,6 @@ KNOWN_NOT_RENDERING = frozenset(
 # coordinates as equal within, so they are not recorded here.
 KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
     "examples/topologies/convergence_stacked_sink.mmd": frozenset({(21, 2)}),
-    "examples/topologies/dogleg_exempt_sameline.mmd": frozenset({(8, 2)}),
-    "examples/topologies/exit_lane_settlement_without_crossings.mmd": frozenset(
-        {(25, 1)}
-    ),
-    "examples/topologies/peeloff_straight_drop_near_wall.mmd": frozenset({(12, 1)}),
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
         {(216, 2), (217, 2)}
     ),

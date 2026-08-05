@@ -1483,7 +1483,11 @@ in pipeline order.
   boundary compete only when both hold: their runs overlap along it
   (`spans_share_corridor`), and neither one's own measured band can hold them the
   distance apart they need -- a pair whose bands already reach that far is settled
-  however the boundary grows, and asks nothing of it. Where they do compete, the
+  however the boundary grows, and asks nothing of it. That reach is measured in
+  the order the pair is drawn in, since that is the only order any seating may
+  produce: the router moves a corridor up to its neighbour's lane and never past
+  it, so crediting the pair with the better of the two orderings would report a
+  boundary settled that in fact has no seating at all. Where they do compete, the
   demand is the stack in drawn order: each neighbouring pair contributes
   `cotravelling_lane_clearance` (`layout/geometry.py`), which states in one place
   what `_required_channel_clearance` asks of counter-running channels and
@@ -1664,16 +1668,26 @@ in pipeline order.
   `_coincide_fanout_opening_descents`, `_stagger_convergent_distinct_lines`,
   `_coincide_same_line_tracks`, `_materialize_gap_slots`.
   `_hold_runs_in_corridor_clearance` closes the difference last instead, on the
-  routed geometry: it reads every straight leg's own gap and clearance band
-  through `gap_corridor_clearance_band`, which states the reservation's
-  arithmetic against live geometry, so the first routing pass -- the one that
-  publishes the ledger and has none to read -- satisfies the same postcondition
-  as the re-route that consumes it. Bands are keyed by nothing: the pass measures
-  each leg where it stands, which is why it needs no `(path_rank,
-  segment_rank)` correspondence between the frozen plan and the settled
-  re-route. Bundles move rigidly and only into the space their gap-mates leave
-  them, so no move fuses two lines onto one stroke.
-  Measured on the corpus, 6 of the 1003 claims carried by 557 realised gap
+  routed geometry. **A leg the ledger claims is held inside its own claim's
+  realised band**, read through `ReservedCorridors.for_segment` by the claim's
+  `(source, target, line_id, segment_rank)` identity, which is the same band the
+  closing guard scores it against. Consuming the reservation rather than
+  re-deriving one is the whole point of having allocated it: settlement widened
+  that boundary for this corridor over the corridor's own declared span, and a
+  band read back off live geometry can only ever confirm wherever the leg already
+  sits. A leg no claim names has no reservation to consume and keeps the gap
+  measurement (`gap_corridor_clearance_band`, which states the reservation's
+  arithmetic against live geometry), which is what the first routing pass -- the
+  one that publishes the ledger and has none to read -- runs on.
+  Bundles move rigidly and only into the space their gap-mates leave them, so no
+  move fuses two lines onto one stroke. How much room a pair needs is
+  `cotravelling_lane_clearance`, the same rule the ledger sizes boundaries by, so
+  a corridor is never denied a coordinate the ledger allocated it on a separation
+  the ledger did not charge for. A bundle every shift is denied retries with the
+  peers denying it as one rigid group: two corridors owed one boundary between
+  them are seated by the same widening and neither can reach it alone, and a
+  rigid move leaves every separation inside the group exactly as drawn.
+  Measured on the corpus, 14 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
   reservation realises, and 9 outside it at exact precision;
   `tests/test_reserved_claim_consumption.py` holds each one by its own
