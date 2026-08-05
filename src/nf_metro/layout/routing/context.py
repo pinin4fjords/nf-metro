@@ -43,7 +43,7 @@ from nf_metro.layout.routing.common import (
     row_top_edge,
     vertical_flow_sections,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedRowBands
+from nf_metro.layout.routing.reserved_bands import ReservedBands, ReservedCorridors
 from nf_metro.layout.routing.reversal import (
     detect_reversed_sections,
     tb_positive_fan_sections,
@@ -228,7 +228,7 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
-    reserved_bands: ReservedRowBands = field(default_factory=ReservedRowBands)
+    reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
@@ -254,7 +254,7 @@ def _classify_merge_edges(
     graph: MetroGraph,
     junction_ids: set[str],
     topology: RouteTopologyQuery | None,
-    reserved_bands: ReservedRowBands,
+    reserved_bands: ReservedBands,
 ) -> _MergeRouting:
     """Classify merge junction edges into trunk, branch, skip, and exclude.
 
@@ -380,10 +380,10 @@ def _build_routing_context(
     station_offsets: dict[tuple[str, str], float] | None,
     *,
     offset_step: float | None = None,
-    reserved_bands: ReservedRowBands | None = None,
+    reserved_bands: ReservedCorridors | None = None,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
-    bands = ReservedRowBands() if reserved_bands is None else reserved_bands
+    bands = ReservedCorridors() if reserved_bands is None else reserved_bands
     topology = build_route_topology_query(graph)
     junction_ids = graph.junction_ids
     divergence_sources = divergence_junction_sources(graph, topology)
@@ -414,7 +414,7 @@ def _build_routing_context(
     positive_fan = tb_positive_fan_sections(graph)
 
     # Merge routing classification
-    merge = _classify_merge_edges(graph, junction_ids, topology, bands)
+    merge = _classify_merge_edges(graph, junction_ids, topology, bands.rows)
 
     # Section trunk Ys: the dominant on-track Y per LR/RL section, used
     # to detect side-branch ascents (a below-trunk station feeding the
@@ -446,7 +446,7 @@ def _build_routing_context(
         offset_step if offset_step is not None else graph_offset_step(graph)
     )
     fan_corridors = _compute_fan_corridors(
-        graph, junction_fan_info, resolved_offset_step, merge.junctions, bands
+        graph, junction_fan_info, resolved_offset_step, merge.junctions, bands.rows
     )
 
     return _RoutingCtx(
@@ -492,9 +492,7 @@ def compute_junction_fan_info(graph: MetroGraph) -> dict[_EdgeKey, tuple[int, in
     """
     topology = build_route_topology_query(graph)
     junction_ids = divergence_junction_sources(graph, topology)
-    merge = _classify_merge_edges(
-        graph, graph.junction_ids, topology, ReservedRowBands()
-    )
+    merge = _classify_merge_edges(graph, graph.junction_ids, topology, ReservedBands())
     line_priority = {lid: i for i, lid in enumerate(graph.lines.keys())}
     all_exclude = merge.skip_edges | merge.index_exclude
     return _compute_junction_fan_info(
@@ -1281,7 +1279,7 @@ def _compute_fan_corridors(
     junction_fan_info: dict[_EdgeKey, tuple[int, int]],
     offset_step: float,
     merge_junctions: set[str],
-    reserved_bands: ReservedRowBands,
+    reserved_bands: ReservedBands,
 ) -> dict[str, FanCorridor]:
     """Shared traverse bands per fanning junction, one per band kind.
 
@@ -1333,7 +1331,7 @@ def _fan_bypass_band(
     src_col: int,
     src_row: int,
     merge_junctions: set[str],
-    reserved_bands: ReservedRowBands,
+    reserved_bands: ReservedBands,
 ) -> float | None:
     """Deepest below-row bypass band across a fanning junction's bypass branches.
 

@@ -132,6 +132,7 @@ EXPECTED_RESERVATION_CLAIMS = {
         (71, 1),
     ),
     "opposing_bypass_corridor.mmd": (
+        (18, 0),
         (19, 1),
         (19, 2),
         (20, 0),

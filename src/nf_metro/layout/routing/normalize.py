@@ -37,6 +37,7 @@ from nf_metro.layout.routing.common import (
     column_gap_edges,
     gap_lo_for_x,
     initial_fanout_descent_span,
+    inter_row_gap_upper_row,
     is_orthogonal_turn,
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
@@ -74,6 +75,7 @@ from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
+from nf_metro.layout.routing.reserved_bands import ReservedBand
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
@@ -2808,11 +2810,21 @@ def _suboptimal_trunk_bands(
 def _clamp_inter_row_band_top(ctx: _RoutingCtx, top: float, total: float) -> float:
     """Return the top Y at which to stack a *total*-tall direction-band stack.
 
-    Starts at the cluster *top* and slides the stack upward if its bottom would
-    breach the next row's header clearance (``INTER_ROW_HEADER_CLEARANCE`` below
-    the inter-row gap's lower edge), keeping the inter-band gap intact rather
-    than crowding the lower band into the header.
+    A gap whose corridor owns a reserved band is bounded by that band: the
+    reservation measured the blockers over the corridor's own span, so it names
+    where this stack may sit even when the raw row edges describe a different,
+    narrower gap.  The whole stack is held inside it, and a stack taller than
+    the band keeps its bottom on the band's far edge.
+
+    Without a reservation the stack starts at the cluster *top* and slides
+    upward if its bottom would breach the next row's header clearance
+    (``INTER_ROW_HEADER_CLEARANCE`` below the inter-row gap's lower edge),
+    keeping the inter-band gap intact rather than crowding the lower band into
+    the header.
     """
+    reserved = _reserved_gap_band(ctx, top)
+    if reserved is not None:
+        return min(max(top, reserved.lo), reserved.hi - total)
     band = _inter_row_gap_band(ctx, top)
     if band is None:
         return top
@@ -2821,6 +2833,12 @@ def _clamp_inter_row_band_top(ctx: _RoutingCtx, top: float, total: float) -> flo
     if top + total > limit:
         return limit - total
     return top
+
+
+def _reserved_gap_band(ctx: _RoutingCtx, y: float) -> ReservedBand | None:
+    """The reservation band for the inter-row gap holding *y*, when claimed."""
+    upper = inter_row_gap_upper_row(ctx.graph, y)
+    return None if upper is None else ctx.reserved_bands.rows.at(upper + 1)
 
 
 def _restack_trunk_band(
