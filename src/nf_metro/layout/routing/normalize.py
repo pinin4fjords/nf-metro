@@ -3806,7 +3806,6 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
                 if turning and section_ids and not _planner_owns_segment(rp, idx)
                 else None
             )
-            held = band is not None and band.hi >= band.lo - COORD_TOLERANCE_FINE
             out.append(
                 _CorridorRun(
                     rp,
@@ -3815,8 +3814,8 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
                     coordinate,
                     run_lo,
                     run_hi,
-                    band.lo if held and band is not None else None,
-                    band.hi if held and band is not None else None,
+                    band.lo if band is not None else None,
+                    band.hi if band is not None else None,
                 )
             )
     return out
@@ -3873,17 +3872,23 @@ def _corridor_bundles(
 def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | None:
     """How far *bundle* may travel with every member inside its own band.
 
-    ``None`` where a member may not move at all, or where no single shift
-    satisfies them all: the bundle then stands where it is rather than breaking
-    the spacing that keeps its members legible as separate strokes.
+    ``None`` where a member may not move at all: a bundle keeps the spacing that
+    draws its members as separate strokes, so one pinned member pins all of them.
+
+    Where no single shift satisfies every member -- a boundary narrower than the
+    clearances its corridors ask of it, or two lanes each owed one coordinate --
+    the range collapses onto the negative edge rather than vanishing.  That edge
+    is the one a widening of the boundary holds still: envelope settlement
+    translates everything from the boundary onward, which moves the positive
+    blocker away and leaves the negative one where it stands.  So a bundle seated
+    against the negative edge is the seating that widening makes correct, and one
+    seated anywhere else keeps its shortfall on the side no widening reaches.
     """
     if any(not run.movable for run in bundle):
         return None
     lower = max(run.lo - run.coordinate for run in bundle)  # type: ignore[operator]
     upper = min(run.hi - run.coordinate for run in bundle)  # type: ignore[operator]
-    if lower > upper + COORD_TOLERANCE_FINE:
-        return None
-    return lower, upper
+    return lower, max(lower, upper)
 
 
 def _hold_runs_in_corridor_clearance(
