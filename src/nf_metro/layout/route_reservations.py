@@ -953,57 +953,38 @@ def _corridor_region(
     connector_ids: tuple[ConnectorId, ...],
     member: EmissionMember,
 ) -> tuple[CorridorRegion, CorridorMeasurementScope] | None:
-    if segment.orientation is CorridorOrientation.HORIZONTAL:
-        candidates = _candidate_row_gaps(graph, connector_ids)
-        region = _region_containing_coordinate(
-            graph,
-            segment,
-            span,
-            CorridorMeasurementScope.TOPOLOGY_SPAN,
-            candidates,
-        )
-        if region is not None:
-            return region, CorridorMeasurementScope.TOPOLOGY_SPAN
-        # A run drawn outside every section beside it is a canvas corridor, and
-        # the router consumes a gap claim where its band lies.  Assigning such a
-        # run the nearest topology gap would demand a corridor the frozen route
-        # shape cannot reach -- the drawn dip cannot become a between-rows run
-        # by translation -- so the canvas classification precedes the fallback.
-        canvas_region = _canvas_region_for_segment(graph, segment)
-        if canvas_region is not None:
-            return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
-        if candidates and _topology_gap_fallback_is_proven(member, segment, segments):
-            region = _nearest_topology_region(graph, segment, span, candidates)
-            if region is not None:
-                return region, CorridorMeasurementScope.TOPOLOGY_SPAN
-        observed_region: CorridorRegion | None = _geometric_row_gap(
-            graph, segment, span
-        )
-        return (
-            (observed_region, CorridorMeasurementScope.OBSERVED_RUN)
-            if observed_region is not None
-            else None
-        )
-    column_candidates = _candidate_column_gaps(graph, connector_ids)
+    horizontal = segment.orientation is CorridorOrientation.HORIZONTAL
+    candidates: tuple[RowGapRegion | ColumnGapRegion, ...] = (
+        _candidate_row_gaps(graph, connector_ids)
+        if horizontal
+        else _candidate_column_gaps(graph, connector_ids)
+    )
     region = _region_containing_coordinate(
         graph,
         segment,
         span,
         CorridorMeasurementScope.TOPOLOGY_SPAN,
-        column_candidates,
+        candidates,
     )
     if region is not None:
         return region, CorridorMeasurementScope.TOPOLOGY_SPAN
-    canvas_column_region = _canvas_region_for_segment(graph, segment)
-    if canvas_column_region is not None:
-        return canvas_column_region, CorridorMeasurementScope.OBSERVED_RUN
-    if column_candidates and _topology_gap_fallback_is_proven(
-        member, segment, segments
-    ):
-        region = _nearest_topology_region(graph, segment, span, column_candidates)
+    # A run drawn outside every section beside it is a canvas corridor, and the
+    # router consumes a gap claim where its band lies.  Assigning such a run the
+    # nearest topology gap would demand a corridor the frozen route shape cannot
+    # reach -- the drawn dip cannot become a between-rows run by translation --
+    # so the canvas classification precedes the fallback.
+    canvas_region = _canvas_region_for_segment(graph, segment)
+    if canvas_region is not None:
+        return canvas_region, CorridorMeasurementScope.OBSERVED_RUN
+    if candidates and _topology_gap_fallback_is_proven(member, segment, segments):
+        region = _nearest_topology_region(graph, segment, span, candidates)
         if region is not None:
             return region, CorridorMeasurementScope.TOPOLOGY_SPAN
-    observed_region = _geometric_column_gap(graph, segment, span)
+    observed_region: CorridorRegion | None = (
+        _geometric_row_gap(graph, segment, span)
+        if horizontal
+        else _geometric_column_gap(graph, segment, span)
+    )
     return (
         (observed_region, CorridorMeasurementScope.OBSERVED_RUN)
         if observed_region is not None
