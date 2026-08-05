@@ -102,6 +102,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _restack_trunk_band,
     _round_junction_perp_peeloff,
     _separate_declared_opposing_gap_bundles,
+    _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _stagger_convergent_distinct_lines,
@@ -403,6 +404,13 @@ def _route_edges(
     # the settled columns, so it runs after the channel-settling passes.
     _clear_merge_trunk_opposite_arm(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "merge-arm clearance")
+    # A reserved corridor band says how much room a corridor is left, not which
+    # lane in it the corridor takes, so runs held in one band settle without
+    # seeing each other and two distinct lines can close to less than the
+    # nesting step.  Restore that step before the feeder landing reads the
+    # settled channels.
+    _separate_fused_cotravelling_runs(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
     # Settle where each merge feeder meets its trunk -- on the trunk's own
     # centreline, at or before the corner it turns away on. Runs downstream of
     # every pass that moves a trunk channel or a feeder's descent column, since
