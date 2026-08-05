@@ -34,6 +34,7 @@ import warnings
 from pathlib import Path
 
 import pytest
+from conftest import drawn_claim_coordinates
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import COORD_TOLERANCE
@@ -116,15 +117,9 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
     if route_plan is None:
         return []
     query = build_route_plan_query(route_plan)
-    polylines = observed.plan.route_polylines
     violations: list[str] = []
     for reservation in route_plan.reservations:
-        region = reservation.region
-        if isinstance(region, RowGapRegion):
-            axis = 1
-        elif isinstance(region, ColumnGapRegion):
-            axis = 0
-        else:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
         realised = query.realised_reservation(reservation.id)
         if realised is None:
@@ -132,10 +127,7 @@ def _out_of_band_claims(path: Path) -> list[str] | None:
         lo = realised.region_start + reservation.negative_side_clearance
         hi = realised.region_end - reservation.positive_side_clearance
         for claim in reservation.claims:
-            drawn = [
-                polylines[claim.path_rank][rank][axis]
-                for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
-            ]
+            drawn = drawn_claim_coordinates(observed, reservation, claim)
             if all(lo - COORD_TOLERANCE <= v <= hi + COORD_TOLERANCE for v in drawn):
                 continue
             violations.append(

@@ -14,6 +14,7 @@ import warnings
 from pathlib import Path
 
 import pytest
+from conftest import drawn_claim_coordinates
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
@@ -68,18 +69,9 @@ def _rendered(path: Path):
 
 
 def _drawn_claim_coordinates(observed, reservation):
-    """The drawn allocation-axis coordinates of every point a claim covers.
-
-    The published ledger records the demand -- frozen claims, projected -- so
-    where the router actually put the corridor is read from the drawn
-    polylines, through each claim's path and segment ranks.
-    """
-    axis = 1 if isinstance(reservation.region, RowGapRegion) else 0
-    polylines = observed.plan.route_polylines
+    """Every drawn allocation-axis coordinate across all of *reservation*'s claims."""
     for claim in reservation.claims:
-        points = polylines[claim.path_rank]
-        for rank in range(claim.segment_rank, claim.segment_end_rank + 2):
-            yield points[rank][axis]
+        yield from drawn_claim_coordinates(observed, reservation, claim)
 
 
 def _column_gap_realisations(route_plan, right_column: int):
