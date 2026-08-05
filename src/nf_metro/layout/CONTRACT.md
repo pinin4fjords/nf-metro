@@ -1455,6 +1455,26 @@ in pipeline order.
   passes bounds it for all of them. Region *selection* is unaffected -- it
   asks which boundary a run occupies, not what that boundary has room for -- so
   the corpus raises exactly the same 1003 claims on the same 557 reservations.
+- **A corridor is bounded by the station its own runs launch from**: a
+  pre-routing plan that emits its runs out of a station standing inside the gap
+  fixes the length of the opening leg and refuses emitted geometry that shortens
+  it, so no widening of the far side brings the run any nearer to that station.
+  `RouteReservation.launch_anchors` names it with the runway it owes, and
+  `_launch_anchored_measurement` folds it into the region edge on the side of
+  the run it stands on: the band the reservation states is then the band the
+  plan is free to occupy, and the width the boundary is asked for is the width
+  that band needs. Without it the measurement reads the departed box's edge, a
+  proxy that sits behind the launch station, and states a band the plan cannot
+  reach -- the mirror of the landing case above, and the reason
+  `_route_planned_bottom_exit_right_landings` can seat its traverse in the band
+  its own reservation realises instead of at a floor the ledger disagrees with.
+  The set is the intersection over the reservation's claims, for the same reason
+  `landing_section_ids` is. Settlement is unaffected by this blocker: an
+  anchor stands on the side a translation holds still, so the ownership lemma
+  below still gives the corridor the full widening it asks for. Measured on the
+  corpus, two fixtures raise an anchored corridor -- both planned bottom-exit
+  fans, whose junction stands 10px into the gap below its box -- and each grows
+  its row gap by that 10px; the other 367 renders are byte-identical.
 - **The width a boundary is asked for holds every corridor confined with each
   one**: a reservation's `minimum_width` is
   `negative_side_clearance + bundle_width + peer_width + positive_side_clearance`,
@@ -1667,12 +1687,12 @@ in pipeline order.
   peers denying it as one rigid group: two corridors owed one boundary between
   them are seated by the same widening and neither can reach it alone, and a
   rigid move leaves every separation inside the group exactly as drawn.
-  Measured on the corpus, 14 of the 1003 claims carried by 557 realised gap
+  Measured on the corpus, 3 of the 1003 claims carried by 557 realised gap
   reservations are drawn more than `COORD_TOLERANCE` outside the band their own
-  reservation realises, and 18 outside it at exact precision;
+  reservation realises, and 6 outside it at exact precision;
   `tests/test_reserved_claim_consumption.py` holds each one by its own
   `(path_rank, segment_rank)` so the bound names the leg rather than a count. Each
-  is a leg the pass may not reseat: 9 are segments a pre-routing plan owns and
+  is a leg the pass may not reseat: 2 are segments a pre-routing plan owns and
   validates, 2 are flanked by a diagonal whose angle a reseat would change, 1 is a
   pair needing one coordinate between them whose bands are measured at two
   *different* boundaries, so no single boundary's width states the room the pair
@@ -1686,13 +1706,14 @@ in pipeline order.
   confined at one boundary are not among them: `peer_width`
   states the room they take together, so settlement widens the boundary for both.
   Neither is longitudinal blindness in the band's blockers, which was measured
-  and ruled out: on the violated side of the 14, 13 have every blocking section
-  overlapping or abutting the drawn leg, and the one that does not
+  and ruled out: of the 14 out-of-band claims that measurement covered, 13 have
+  every blocking section on their violated side overlapping or abutting the
+  drawn leg, and the one that does not
   (`fan_bypass_shared_band`, whose two 148px-away blockers bound the side it
   holds) has its violated edge set by a section abutting the run. Selecting
   blockers by longitudinal overlap alone was measured over the corpus and is a
   regression, not a fix: it drops the box a corridor's own elbow turns beside
-  (16 to 26px past the run's end in 4 of the 14), whose removal widens the band
+  (16 to 26px past the run's end in 4 of those 14), whose removal widens the band
   enough that the re-route re-centres the run in it, changing 8 renders and
   flipping one vertical leg's direction, which
   `_assert_settlement_decisions_frozen` refuses outright; out-of-band claims rise

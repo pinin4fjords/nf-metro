@@ -15,14 +15,24 @@ segment_rank)`` of the claim itself, so the bound names which leg is out rather
 than how many are: an unrecorded claim fails, a recorded one that comes into
 band fails until its entry goes, and swapping one leg for another fails too.
 
-What those remaining claims are is measured, not assumed.  All seven are legs
-whose coordinate a pre-routing plan fixes and validates the emitted geometry
-against, so no post-pass may write them: the fan traverse of a planned
-bottom-exit landing (5 claims) and a convergence trunk (2).  Each plan has to
-choose that coordinate inside the band its own reservation realises, which is
-work at the plan, not a repair after it.  Every other claim in the corpus is
-drawn inside its band at exact precision, rather than merely within the
-tolerance this bound allows.
+What those remaining claims are is measured, not assumed.  Both are one
+convergence trunk, whose coordinate the convergence plan fixes and validates the
+emitted geometry against, so no post-pass may write it.  Moving it is blocked at
+the plan rather than at the geometry, and which is which was established by
+building the geometry fix and measuring what it cost: seating the merge junction
+on the perpendicular port's lead-in does put all six feeders in band, but the
+trunk then occupies the same column an *unowned* same-line member already uses to
+enter that port, `UNOWNED_MEMBER_CORRIDOR` refuses it, and all three of the
+fixture's convergences fall back from planned to compatibility.  Exempting that
+one separation was tried and falsified: the plans become planned and the render
+then dies in `_coincide_same_line_tracks` on two planners pinning different
+columns for one same-line stroke.  A plan that may state a trunk sharing a stroke
+with another planner's pinned axis, or a membership that stops calling that
+member unowned, is #1658's "plan-driven whole-system emission", which is the
+owner `ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR` already names.
+
+Every other claim in the corpus is drawn inside its band at exact precision,
+rather than merely within the tolerance this bound allows.
 """
 
 from __future__ import annotations
@@ -82,12 +92,6 @@ KNOWN_NOT_RENDERING = frozenset(
 # Regenerate by running this module's ``_out_of_band_claims`` over ``_CORPUS``;
 # closing a fixture means deleting its entry.
 KNOWN_UNCONSUMED: dict[str, frozenset[tuple[int, int]]] = {
-    "examples/topologies/bottom_exit_stacked_right_entry_fan.mmd": frozenset(
-        {(10, 1), (11, 1)}
-    ),
-    "examples/topologies/bottom_exit_stacked_right_entry_multiline_branch.mmd": (
-        frozenset({(15, 1), (16, 1), (17, 1)})
-    ),
     "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd": frozenset(
         {(216, 2), (217, 2)}
     ),

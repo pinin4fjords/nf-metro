@@ -323,7 +323,19 @@ edge before it, so neither is a clearance the boundary offers. The measurement
 therefore bounds a boundary by the sections lying wholly on each side, and a
 boundary every relevant section spans across has no side to measure and raises
 -- which is how the region search learns the corridor does not run in that gap.
-No deficit is left behind for that reason, so none is exempt:
+
+A boundary is also bounded by a station the corridor's own runs launch from. A
+pre-routing plan that emits its runs out of a station standing in the gap fixes
+how long the opening leg has to be and refuses emitted geometry that shortens
+it, so the run cannot be drawn any nearer to that station however far the
+opposite side is pushed. `RouteReservation.launch_anchors` names the station
+with the runway it owes, and the realisation folds it into the region edge on
+the side of the run it stands on, so the band the reservation publishes is the
+band the plan is free to occupy and the width the boundary is asked for is the
+width that band needs. Reading only the section edges instead states a band
+behind the launch station, which the plan can never reach.
+
+No deficit is left behind for those reasons, so none is exempt:
 `assert_reservations_are_settled` fails the strict path for every surviving
 row- or column-gap deficit, because a route drawn through a clearance it does
 not have is wrong however the claim arose.
