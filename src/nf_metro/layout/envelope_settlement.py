@@ -2,9 +2,17 @@
 
 Local station geometry, section bboxes, header keep-outs, and the immutable
 ``RouteReservation`` ledger are all final before this runs.  Settlement owns one
-thing only: the global row and column offsets needed to give every reserved
-corridor the width its ledger entry requires.  It never resizes a box, moves a
-station inside its section, or revisits a route decision.
+thing only: the global row and column offsets that give every boundary the width
+it owes.  It never resizes a box, moves a station inside its section, or revisits
+a route decision.
+
+Two kinds of demand say what a boundary owes, and both are measured, frozen
+inputs to the one sweep below.  A ``RouteReservation`` states the width a *run*
+crossing the boundary needs there.  A ``BoundaryClearanceDemand`` states the
+clearance the boundary owes between the boxes facing across it, which a local
+box resize can eat without any run being involved.  A boundary carrying both is
+widened once, by the larger: the two are deficits at the same coordinate, so one
+translation pays them both and neither needs a second owner behind this stage.
 
 Termination is structural, and it depends on settling against ONE ledger.  Each
 adjacent-index boundary (the gap between row ``b-1`` and row ``b``, or between
@@ -51,7 +59,10 @@ the measurement bounds a boundary by the sections that lie wholly on each side
 of it, so a boundary every relevant section straddles has no side to measure and
 is never chosen as a corridor's region.  A deficit that survives the sweep is an
 infeasible arrangement, not a claim outside this stage's reach, and the closing
-guard refuses it on the strict path.
+guard refuses it on the strict path.  A clearance demand is allocatable by the
+same lemma: every box it measures *from* ends above the boundary and every box it
+measures *to* starts at or beyond it, which are the two halves of
+``_translation_ownership``.
 """
 
 from __future__ import annotations
@@ -73,6 +84,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemId,
 )
 from nf_metro.layout.route_reservations import (
+    SECTION_BOTTOM_BLOCKER,
     SECTION_HEADER_BLOCKER,
     SECTION_LEFT_BLOCKER,
     ColumnGapRegion,
@@ -82,14 +94,27 @@ from nf_metro.layout.route_reservations import (
     RowGapRegion,
     realise_reservation,
 )
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceDemand,
+    ClearanceMeasurement,
+    SettlementAxis,
+)
 from nf_metro.parser.model import MetroGraph, Section
 
-
-class SettlementAxis(Enum):
-    """The grid axis a boundary separates, and the coordinate it translates."""
-
-    ROW = "row"
-    COLUMN = "column"
+__all__ = [
+    "BoundaryClearanceDemand",
+    "ClearanceMeasurement",
+    "CompatibilityOwnership",
+    "EnvelopeSettlement",
+    "SettlementAxis",
+    "SettlementReach",
+    "SettlementShortfall",
+    "SettlementTranslation",
+    "attach_reroute_ledger_delta",
+    "attach_settlement_diagnostics",
+    "attribute_compatibility_systems",
+    "settle_route_envelopes",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,17 +130,23 @@ class SettlementTranslation:
     boundary: int
     coordinate: float
     amount: float
-    reservation_id: RouteReservationId
+    reservation_id: RouteReservationId | None
     claimant_member_ids: tuple[EmissionMemberId, ...]
     blocker_ids: tuple[str, ...]
     section_ids: tuple[str, ...]
     reservation_ids: tuple[RouteReservationId, ...]
     spanning_section_ids: tuple[str, ...] = ()
     """Sections straddling the boundary, which this translation cannot own."""
+    clearance: BoundaryClearanceDemand | None = None
+    """The boundary's clearance demand, when that is what sized this move."""
 
     @property
     def message(self) -> str:
-        claimants = ", ".join(sorted(self.claimant_member_ids))
+        if self.clearance is not None:
+            demand = self.clearance.description
+        else:
+            claimants = ", ".join(sorted(self.claimant_member_ids))
+            demand = f"the corridor claimed by {claimants}"
         blockers = ", ".join(sorted(self.blocker_ids))
         held = (
             f", holding {', '.join(self.spanning_section_ids)} in place across it"
@@ -124,7 +155,7 @@ class SettlementTranslation:
         )
         return (
             f"{self.axis.value} boundary {self.boundary} widened by "
-            f"{self.amount:.2f}px for the corridor claimed by {claimants}, "
+            f"{self.amount:.2f}px for {demand}, "
             f"held from below by {blockers}; it moved "
             f"{len(self.section_ids)} section(s){held} and settled "
             f"{len(self.reservation_ids)} claim(s)"
@@ -382,12 +413,26 @@ def _reservation_coordinate_translation(
     )
 
 
+def _clearance_at(
+    graph: MetroGraph, axis: _Axis, clearance: ClearanceMeasurement | None
+) -> dict[int, BoundaryClearanceDemand]:
+    """This axis's clearance demands, keyed by boundary, on the live boxes."""
+    if clearance is None:
+        return {}
+    return {
+        demand.boundary: demand
+        for demand in clearance(graph)
+        if demand.axis is axis.axis
+    }
+
+
 def _settle_axis(
     graph: MetroGraph,
     plan: RoutePlan,
     reservations: tuple[RouteReservation, ...],
     axis: _Axis,
     prior_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    clearance: ClearanceMeasurement | None = None,
 ) -> tuple[
     list[SettlementTranslation],
     list[ReservationCoordinateTranslation],
@@ -398,10 +443,11 @@ def _settle_axis(
 
     translations: list[SettlementTranslation] = []
     coordinate_translations = list(prior_translations)
-    for boundary in sorted(by_boundary):
+    boundaries = set(by_boundary) | set(_clearance_at(graph, axis, clearance))
+    for boundary in sorted(boundaries):
         projected_prefix = tuple(coordinate_translations)
         claims: list[tuple[float, RouteReservation, tuple[str, ...]]] = []
-        for reservation in sorted(by_boundary[boundary], key=lambda item: item.id):
+        for reservation in sorted(by_boundary.get(boundary, ()), key=lambda i: i.id):
             realised = realise_reservation(
                 graph, reservation, coordinate_translations=projected_prefix
             )
@@ -411,9 +457,28 @@ def _settle_axis(
             if deficit <= COORD_TOLERANCE:
                 continue
             claims.append((deficit, reservation, realised.negative_blocker_ids))
-        if not claims:
+        demand = _clearance_at(graph, axis, clearance).get(boundary)
+        widest_claim = max(claims, key=lambda item: item[0], default=None)
+        claim_deficit = 0.0 if widest_claim is None else widest_claim[0]
+        demand_deficit = 0.0 if demand is None else demand.deficit
+        # One boundary, one translation: the wider of the two demands pays for
+        # both, and which one won is recorded so the move has a named cause.
+        if demand is not None and demand_deficit > claim_deficit:
+            deficit = demand_deficit
+            reservation_id: RouteReservationId | None = None
+            claimants: tuple[EmissionMemberId, ...] = ()
+            blockers = tuple(
+                f"{SECTION_BOTTOM_BLOCKER}:{item}"
+                for item in demand.blocker_section_ids
+            )
+            driving_demand: BoundaryClearanceDemand | None = demand
+        elif widest_claim is not None:
+            deficit, driving_reservation, blockers = widest_claim
+            reservation_id = driving_reservation.id
+            claimants = driving_reservation.claimant_member_ids
+            driving_demand = None
+        else:
             continue
-        deficit, reservation, blockers = max(claims, key=lambda item: item[0])
         amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
         ownership = _translation_ownership(graph, axis, boundary)
         if not ownership.moved_section_ids:
@@ -432,12 +497,13 @@ def _settle_axis(
                 boundary,
                 band_start,
                 amount,
-                reservation.id,
-                reservation.claimant_member_ids,
+                reservation_id,
+                claimants,
                 blockers,
                 ownership.moved_section_ids,
                 tuple(item[1].id for item in claims),
                 ownership.spanning_section_ids,
+                driving_demand,
             )
         )
         coordinate_translations.append(
@@ -892,11 +958,49 @@ def _restore_coordinate_state(
             port.x, port.y = x, y
 
 
-def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettlement:
-    """Widen row and column boundaries until every reserved corridor fits.
+def _assert_clearance_demands_are_met(
+    graph: MetroGraph, clearance: ClearanceMeasurement | None
+) -> None:
+    """No boundary still owes clearance once the sweep has visited it.
+
+    The sweep pays each boundary's demand with ``ceil(deficit / QUANTUM) *
+    QUANTUM``, and the ownership lemma applies to a clearance demand exactly as
+    it does to a corridor: every box the demand is measured *from* ends above the
+    boundary and every box it is measured *to* starts at or beyond it, which are
+    the two halves of ``_translation_ownership``.  So the translation raises the
+    boundary by its full amount and the deficit closes.  Checked rather than
+    argued, because the two predicates staying in step is a property a later edit
+    could break.
+    """
+    outstanding = _clearance_at(graph, _ROW_AXIS, clearance) | _clearance_at(
+        graph, _COLUMN_AXIS, clearance
+    )
+    if outstanding:
+        stated = "; ".join(
+            f"{item.description} is still {item.deficit:.2f}px short"
+            for item in sorted(outstanding.values(), key=lambda item: item.boundary)
+        )
+        raise ValueError(
+            f"envelope settlement left a boundary owing clearance: {stated}"
+        )
+
+
+def settle_route_envelopes(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    clearance: ClearanceMeasurement | None = None,
+) -> EnvelopeSettlement:
+    """Widen row and column boundaries until every demand at one fits.
 
     Mutates *graph* in place, translating whole rows and whole columns only.
     Returns what moved and any deficit outside this stage's ownership.
+
+    Two kinds of demand are settled, and a boundary carrying both is widened
+    once by the larger: the corridors *plan* reserved across it, and the
+    clearance *clearance* measures that its facing boxes owe each other.  Taking
+    both here is what makes this the single owner of the translation, so a
+    boundary that a render-time box grow left short of its declared gap needs no
+    second widening from anywhere else.
 
     The write is transactional.  A pass touches many sections in sequence, so a
     failure part-way through would otherwise leave the graph in a state that is
@@ -910,7 +1014,7 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
     row_reservations = _reservations_on(plan, RowGapRegion)
     try:
         row_translations, row_coordinate = _settle_axis(
-            graph, plan, row_reservations, _ROW_AXIS
+            graph, plan, row_reservations, _ROW_AXIS, clearance=clearance
         )
         row_widths = _measured_widths(graph, row_reservations, tuple(row_coordinate))
         column_translations, column_coordinate = _settle_axis(
@@ -919,6 +1023,7 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
             _reservations_on(plan, ColumnGapRegion),
             _COLUMN_AXIS,
             tuple(row_coordinate),
+            clearance=clearance,
         )
         coordinate_translations = tuple(row_coordinate + column_coordinate)
         translations = tuple(row_translations + column_translations)
@@ -935,6 +1040,7 @@ def settle_route_envelopes(graph: MetroGraph, plan: RoutePlan) -> EnvelopeSettle
         _assert_spanning_sections_bound_nothing_settled(
             graph, plan, translations, coordinate_translations
         )
+        _assert_clearance_demands_are_met(graph, clearance)
         shortfalls = _verify_against_input_ledger(graph, plan, coordinate_translations)
     except Exception:
         _restore_coordinate_state(graph, restore_point)

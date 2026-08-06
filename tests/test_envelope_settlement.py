@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from unittest import mock
 
@@ -17,9 +18,11 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIRECTIONAL_MARKER_HALF_EXTENT,
     INTER_ROW_EDGE_CLEARANCE,
+    SECTION_Y_GAP,
     WIDEST_THEME_LINE_WIDTH,
 )
 from nf_metro.layout.envelope_settlement import (
+    BoundaryClearanceDemand,
     EnvelopeSettlement,
     SettlementAxis,
     SettlementReach,
@@ -29,11 +32,13 @@ from nf_metro.layout.envelope_settlement import (
 )
 from nf_metro.layout.geometry import cotravelling_lane_clearance, shift_section
 from nf_metro.layout.pass_metrics import canvas_edge_clearance, stroke_scale_context
+from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
     assert_canvas_corridors_hold_their_claims,
     assert_reservations_are_settled,
 )
+from nf_metro.layout.phases.junctions import reanchor_junctions
 from nf_metro.layout.route_plan import GridSpan, build_route_plan_query
 from nf_metro.layout.route_reservations import (
     CanvasRegion,
@@ -46,7 +51,11 @@ from nf_metro.layout.route_reservations import (
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits, apply_route_offsets
-from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
+from nf_metro.render.svg import (
+    _route_decision_fingerprint,
+    _settled_render_graph,
+    build_observed_render_plan,
+)
 from nf_metro.themes import THEMES
 
 ROOT = Path(__file__).parents[1]
@@ -1708,3 +1717,266 @@ def test_the_settled_reroute_reports_the_widths_it_asks_for_afresh() -> None:
     assert len(resized) == 2
     assert all(not item.blocking for item in resized)
     assert all("row gap 0/1" in item.message for item in resized)
+
+
+# --- the clearance a boundary owes, as settlement's second demand -------------
+
+LABEL_WRAP_ROW_GAP = TOPOLOGIES / "render_labelwrap_row_gap.mmd"
+
+# Fixtures whose render-time bbox growth leaves a row boundary short of the
+# clearance it owes, with no corridor reserved there to state the demand.
+CLEARANCE_CORPUS = (
+    LABEL_WRAP_ROW_GAP,
+    TOPOLOGIES / "manual_rl_row_nonconsumer_bypass.mmd",
+    TOPOLOGIES / "packed_cell_cellmate_bypass.mmd",
+    TOPOLOGIES / "packed_cell_cellmate_bypass_adjacent.mmd",
+)
+
+# Rail layouts, whose row pitch is the interchange idiom's rather than the
+# declared section gap's.
+RAIL_CORPUS = (
+    ROOT / "examples" / "sarek_metro.mmd",
+    ROOT / "tests" / "fixtures" / "rail_pitch_vs_labels.mmd",
+)
+
+
+def _clearance(section_y_gap: float = SECTION_Y_GAP):
+    return partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
+
+
+def _cols_overlap(first, second) -> bool:
+    first_end = first.grid_col + first.grid_col_span - 1
+    second_end = second.grid_col + second.grid_col_span - 1
+    return not (first_end < second.grid_col or second_end < first.grid_col)
+
+
+def _facing_across_row_boundary(graph, boundary: int):
+    """The (upper, lower) box pairs whose columns overlap across *boundary*.
+
+    Only a pair sharing column space owes the boundary anything: two boxes in
+    different columns can sit closer vertically without interfering.
+    """
+    upper = [
+        s
+        for s in graph.sections.values()
+        if s.grid_row + s.grid_row_span - 1 == boundary - 1 and s.bbox_h > 0
+    ]
+    lower = [
+        s for s in graph.sections.values() if s.grid_row == boundary and s.bbox_h > 0
+    ]
+    return [(u, low) for u in upper for low in lower if _cols_overlap(u, low)]
+
+
+def _row_boundary_clearance(graph, boundary: int) -> float:
+    """The tightest drawn clearance across *boundary*, over the facing pairs."""
+    return min(
+        low.bbox_y - (u.bbox_y + u.bbox_h)
+        for u, low in _facing_across_row_boundary(graph, boundary)
+    )
+
+
+def test_a_boundary_owing_clearance_with_no_corridor_is_still_settled() -> None:
+    """The demand a reservation ledger cannot state, and settlement pays anyway.
+
+    ``render_labelwrap_row_gap`` wraps three station labels, which grows its QC
+    box downward and leaves the row below it inside the gap that boundary is
+    declared.  No route crosses the boundary, so the ledger holds no row-gap
+    reservation at all and a sweep driven by reservations alone never visits it.
+    The clearance demand is what puts the boundary in the sweep, and it is only
+    measurable at the render boundary because the growth is the wrapped text's.
+    """
+    route_plan = _rendered_plan(LABEL_WRAP_ROW_GAP).route_plan
+    assert [
+        item
+        for item in route_plan.reservations
+        if isinstance(item.region, RowGapRegion)
+    ] == []
+
+    moves = [
+        item
+        for item in route_plan.diagnostics
+        if item.code == "envelope-settlement-translation"
+    ]
+    assert len(moves) == 1
+    assert "row boundary 1 widened by" in moves[0].message
+    assert "clearance row boundary 1 owes" in moves[0].message
+
+    settled, _plan = _settled(LABEL_WRAP_ROW_GAP)
+    assert measure_row_gap_clearance(settled, SECTION_Y_GAP) == ()
+    assert _row_boundary_clearance(settled, 1) >= SECTION_Y_GAP - 0.01
+
+
+def test_the_clearance_demand_states_what_a_grown_box_ate() -> None:
+    """The measurement half, exercised on geometry that carries the shortfall.
+
+    Growing the upper box's bottom edge by hand is the same input a render-time
+    label wrap produces, and lets the demand be read without a render.
+    """
+    graph, _plan = _observe(LABEL_WRAP_ROW_GAP)
+    assert measure_row_gap_clearance(graph, SECTION_Y_GAP) == ()
+
+    upper = max(
+        (pair[0] for pair in _facing_across_row_boundary(graph, 1)),
+        key=lambda item: item.bbox_y + item.bbox_h,
+    )
+    held = _row_boundary_clearance(graph, 1)
+    upper.bbox_h += held - SECTION_Y_GAP + 12.0
+
+    (demand,) = measure_row_gap_clearance(graph, SECTION_Y_GAP)
+    assert demand.axis is SettlementAxis.ROW
+    assert demand.boundary == 1
+    assert demand.required == SECTION_Y_GAP
+    assert demand.deficit == pytest.approx(12.0)
+    assert demand.blocker_section_ids == (upper.id,)
+    assert "clearance row boundary 1 owes the box above it" in demand.description
+
+
+@pytest.mark.parametrize("path", CLEARANCE_CORPUS, ids=lambda item: item.name)
+def test_no_row_boundary_the_render_draws_still_owes_clearance(path: Path) -> None:
+    """Settlement's postcondition for its second demand, on the drawn geometry."""
+    settled, _plan = _settled(path)
+    assert measure_row_gap_clearance(settled, SECTION_Y_GAP) == ()
+
+
+def test_a_boundary_owing_both_demands_is_widened_once_by_the_larger() -> None:
+    """Two demands at one coordinate are one translation, not two.
+
+    A corridor deficit and a clearance deficit at the same boundary are paid by
+    the same move, so the amount is the maximum of the two and never their sum --
+    which is what makes settlement the single owner rather than one more owner.
+    """
+    path = TOPOLOGIES / "convergence_fold_diamond.mmd"
+
+    def settle_with(extra: float | None):
+        graph, plan = _observe(path)
+        clearance = None
+        if extra is not None:
+            boundary = min(
+                item.region.lower_row
+                for item in plan.reservations
+                if isinstance(item.region, RowGapRegion)
+            )
+            # Measured against live geometry, like the real one, so paying it
+            # closes it rather than restating a figure the sweep cannot satisfy.
+            wanted = _row_boundary_clearance(graph, boundary) + extra
+
+            def clearance(live, boundary=boundary, wanted=wanted):
+                deficit = wanted - _row_boundary_clearance(live, boundary)
+                if deficit <= 0:
+                    return ()
+                return (
+                    BoundaryClearanceDemand(
+                        SettlementAxis.ROW,
+                        boundary,
+                        wanted,
+                        deficit,
+                        (),
+                        f"a stated clearance at row boundary {boundary}",
+                    ),
+                )
+
+        return settle_route_envelopes(graph, plan, clearance=clearance)
+
+    def at_lowest_boundary(settlement):
+        return min(settlement.translations, key=lambda item: item.boundary)
+
+    corridor_only = at_lowest_boundary(settle_with(None))
+    corridor_deficit = corridor_only.amount
+
+    # A clearance demand smaller than the corridor's changes nothing.
+    smaller = at_lowest_boundary(settle_with(corridor_deficit / 4))
+    assert smaller.boundary == corridor_only.boundary
+    assert smaller.amount == corridor_deficit
+    assert smaller.clearance is None
+
+    # A larger one takes over the same single translation, and is not added to it.
+    larger = at_lowest_boundary(settle_with(corridor_deficit + 12.0))
+    assert larger.boundary == corridor_only.boundary
+    assert larger.clearance is not None
+    assert larger.amount == pytest.approx(corridor_deficit + 12.0)
+    assert larger.amount < 2 * corridor_deficit + 12.0
+    assert larger.reservation_ids == corridor_only.reservation_ids
+
+
+def test_a_clearance_demand_settlement_cannot_close_is_refused() -> None:
+    """The postcondition is checked, not assumed from the ownership lemma."""
+    graph, plan = _observe(LABEL_WRAP_ROW_GAP)
+    before = _geometry(graph)
+
+    def insatiable(_graph):
+        return (
+            BoundaryClearanceDemand(
+                SettlementAxis.ROW, 1, SECTION_Y_GAP, 8.0, (), "an unpayable clearance"
+            ),
+        )
+
+    with pytest.raises(ValueError, match="left a boundary owing clearance"):
+        settle_route_envelopes(graph, plan, clearance=insatiable)
+    assert _geometry(graph) == before
+
+
+@pytest.mark.parametrize("path", CLEARANCE_CORPUS, ids=lambda item: item.name)
+def test_settling_a_clearance_demand_twice_is_an_exact_no_op(path: Path) -> None:
+    graph, plan = _observe(path)
+    settle_route_envelopes(graph, plan, clearance=_clearance())
+    settled = _geometry(graph)
+    second = settle_route_envelopes(graph, plan, clearance=_clearance())
+    assert second.translations == ()
+    assert _geometry(graph) == settled
+
+
+@pytest.mark.parametrize("path", CLEARANCE_CORPUS, ids=lambda item: item.name)
+def test_a_clearance_translation_never_narrows_a_separation(path: Path) -> None:
+    graph, plan = _observe(path)
+    before_rows, before_columns = _row_gaps(graph), _column_gaps(graph)
+    settle_route_envelopes(graph, plan, clearance=_clearance())
+    for key, gap in _row_gaps(graph).items():
+        assert gap >= before_rows[key] - 0.01, f"row gap {key} narrowed"
+    for key, gap in _column_gaps(graph).items():
+        assert gap >= before_columns[key] - 0.01, f"column gap {key} narrowed"
+
+
+@pytest.mark.parametrize("path", RAIL_CORPUS, ids=lambda item: item.name)
+def test_a_rail_layout_keeps_the_row_pitch_its_idiom_set(path: Path) -> None:
+    """Why the clearance demand is not raised for a rail layout.
+
+    Rail mode pitches adjacent rows so that a line runs between them without
+    turning.  Widening one of those boundaries to the declared section gap breaks
+    that collinearity -- the inter-row runs acquire a diagonal, which is a route
+    topology change and not the coordinate translation this stage is allowed -- so
+    the render refuses it outright.  Defeating the exclusion is how that is
+    measured rather than asserted, and it is what keeps the exclusion from being
+    a vacuous one.
+    """
+
+    def observe(graph):
+        reanchor_junctions(graph)
+        offsets = compute_station_offsets(graph)
+        return observe_route_edges(graph, station_offsets=offsets)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        source = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        assert source.has_rail_sections
+        settled = _settled_render_graph(source, resolve_theme(None, source))
+        held = observe(settled)
+        before = _route_decision_fingerprint(held.routes)
+
+        # The exclusion is load-bearing: the boundary really does owe clearance.
+        (demand,) = measure_row_gap_clearance(settled, SECTION_Y_GAP)
+        assert demand.deficit > 0
+
+        settlement = settle_route_envelopes(settled, held.plan, clearance=_clearance())
+        after = _route_decision_fingerprint(observe(settled).routes)
+
+    (translation,) = settlement.translations
+    assert translation.clearance is not None
+    assert translation.boundary == demand.boundary
+
+    # Flat inter-row runs the idiom drew become staircases, which is a decision
+    # change the settlement contract forbids rather than a translation.
+    changed = [(was, now) for was, now in zip(before, after) if was != now]
+    assert changed, "paying the demand changed no route, so nothing was protected"
+    for was, now in changed:
+        assert len(was[4]) == 1, "the held run was not a single flat segment"
+        assert len(now[4]) == 3, "the run did not become a staircase"
