@@ -348,8 +348,26 @@ Settlement also attributes ownership it cannot take. A convergence system left
 on the compatibility path whose corridors all reach their required width gets a
 `CompatibilityOwnership` record carrying its system id, the reason it is still
 on compatibility, its corridor count, its tightest slack, and the owner of the
-decision it is actually short of. That record is the evidence that what limits
-the system is a channel decision rather than envelope allocation.
+decision it is actually short of.
+
+That record on its own is weaker evidence than it reads, because
+`SettlementReach` can only return `WITHIN_REACH` for a conflict whose relief is
+not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
+evidence that actually settles the question is `layout/capacity_probe.py`, which
+asks the counterfactual directly: it grants a boundary generous capacity on a
+deep copy of the settled geometry, re-plans, and reports whether the disposition
+changes. Thirteen of the corpus's fourteen compatibility systems do not change at
+any capacity up to 4464px, which is what proves their limit is a channel decision
+rather than envelope allocation. One, `merge_around_below_leftmost`, does change,
+and is the reason the settlement work is not finished.
+
+A grant goes through `translate_boundaries`, which widens _and_ re-derives the
+junctions the widened sections carry. Widening alone measures the probe rather
+than the pipeline: a junction's coordinates are a function of the ports it joins,
+so a section translation that skips `reanchor_junctions` strands every junction
+behind its sections, and a stranded junction that sets a shared opening turn
+separates two fan arms past `COORD_TOLERANCE` until the conflict predicate stops
+matching them at all.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final
