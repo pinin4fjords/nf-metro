@@ -3657,60 +3657,57 @@ def _perp_entry_bundle_members(
     edge_by_line: dict[str, Edge],
     src_geom: Callable[[str], float],
     ctx: _RoutingCtx,
+    side: PortSide,
 ) -> tuple[float, list[tuple[Edge, str, float, float]]]:
     """Landing X and per-line bundle members for a perpendicular (TOP or
     BOTTOM) entry port, shared by :func:`_route_top_entry_l_shape` and
     :func:`_route_bottom_entry_l_shape`.
 
-    Into a TB/BT trunk each line lands on its trunk X offset so the bundle
-    flows straight on rather than converging on the shared port and re-fanning
-    (a boundary pinch); the target spread is the trunk's, not the source fan's,
-    so the bundle tapers.  A single-line LR/RL drop lands on the port-crossing X
-    its intra-section drop departs from (:func:`_perp_entry_crossing_x`,
-    the single source that drop also reads), so the approach and departure meet
-    as one stroke at the boundary.  A sole line arriving with an inbound bundle
-    offset the port does not carry (it split off a shared trunk upstream) bakes
-    that offset into its lone lane, parting it from the drop at the port -- the
-    boundary jitter; tapering to the crossing reconciles them.  A multi-line
-    bundle instead defers its per-line fan uniformly onto the port and needs no
-    such correction, so the source offset stands (and with no bundled feeder to
-    align to the crossing is undefined).
+    Every line lands on one X, and the members carry that X as the lateral the
+    bundle builder needs.  Into a TB/BT trunk the landing X is the line's own
+    trunk lane, so the bundle flows straight on rather than converging on the
+    shared port and re-fanning (a boundary pinch); the target spread is the
+    trunk's, not the source fan's, so the bundle tapers.  Into an LR/RL section
+    it is the port-crossing X the intra-section drop departs from
+    (:func:`_perp_entry_crossing_x`, the single source that drop also reads), so
+    the approach and the departure meet as one stroke at the boundary however
+    many lines share the bundle and whether or not a merge stands on the port's
+    lead-in.  Landing on the arriving fan instead bakes each line's inbound
+    offset into its lane, which for a line the section draws on the other side
+    of the port is the boundary jitter: the stroke steps sideways as it crosses
+    the section edge.  The source offset stands only where no bundled feeder
+    reaches the port and the crossing is undefined.
     """
+    # The bundle builder fans a leg along its own right-hand normal, and the
+    # landing leg descends into a TOP port but ascends into a BOTTOM one, so
+    # one landing X reads as opposite laterals on the two sides.
+    landing_normal_x = -1.0 if side is PortSide.TOP else 1.0
+
     if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
 
-        def tb_offset(line_id: str) -> float:
-            return _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
+        def tb_landing_x(line_id: str) -> float:
+            return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
 
-        ref_tb = tb_offset(ref_lid)
-        final_x = tx + ref_tb
-        members = [
-            (edge_by_line[lid], lid, src_geom(lid), ref_tb - tb_offset(lid))
-            for lid in line_ids
-        ]
+        landing_x: Callable[[str], float | None] = tb_landing_x
+        final_x = tb_landing_x(ref_lid)
     else:
         final_x = tx
         # A merge feeder's boundary is the port the merge feeds, not the merge
         # station standing on that port's lead-in.
         entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
-        # Where a merge converges on this port, its trunk and the port's direct
-        # feeders draw one line as one stroke, so they cannot land on lanes the
-        # port's own drop into the section does not depart from: every feeder
-        # lands on that drop's lane.  The landing leg runs into the port, and
-        # its stagger rides that leg's normal, so it takes the opposite sign to
-        # the lane's own draw.
-        merge_fed = entry_port_id in ctx.merge.entry_port_for.values()
 
-        def tgt_offset(line_id: str) -> float:
-            if merge_fed:
-                return -_get_offset(ctx, entry_port_id, line_id)
-            if len(line_ids) > 1:
-                return src_geom(line_id)
-            crossing = _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
-            return src_geom(line_id) if crossing is None else tx - crossing
+        def crossing_landing_x(line_id: str) -> float | None:
+            return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
 
-        members = [
-            (edge_by_line[lid], lid, src_geom(lid), tgt_offset(lid)) for lid in line_ids
-        ]
+        landing_x = crossing_landing_x
+
+    def tgt_offset(line_id: str) -> float:
+        lx = landing_x(line_id)
+        return src_geom(line_id) if lx is None else landing_normal_x * (lx - final_x)
+
+    members = [
+        (edge_by_line[lid], lid, src_geom(lid), tgt_offset(lid)) for lid in line_ids
+    ]
     return final_x, members
 
 
@@ -3893,7 +3890,7 @@ def _route_top_entry_l_shape(
                 lx0 = _v1_corner_x(ctx, src, sx, lx0)
 
     final_x, members = _perp_entry_bundle_members(
-        edge, tgt_sec, tx, ref_lid, line_ids, edge_by_line, src_geom, ctx
+        edge, tgt_sec, tx, ref_lid, line_ids, edge_by_line, src_geom, ctx, PortSide.TOP
     )
 
     # A feeder rising from a row below the target cannot drop straight into a
@@ -4152,7 +4149,15 @@ def _route_bottom_entry_l_shape(
                 lx0 = _v1_corner_x(ctx, src, sx, lx0)
 
     final_x, members = _perp_entry_bundle_members(
-        edge, tgt_sec, tx, ref_lid, line_ids, edge_by_line, src_geom, ctx
+        edge,
+        tgt_sec,
+        tx,
+        ref_lid,
+        line_ids,
+        edge_by_line,
+        src_geom,
+        ctx,
+        PortSide.BOTTOM,
     )
 
     # A feeder descending from a row above the target cannot rise straight into a

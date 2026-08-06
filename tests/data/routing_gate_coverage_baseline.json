@@ -331,7 +331,6 @@
   "inter_section_handlers.py::if lead is Direction.R:::#1",
   "inter_section_handlers.py::if lead is Direction.R:::#2",
   "inter_section_handlers.py::if len(landing_sections) != len(plan.branches):::#1",
-  "inter_section_handlers.py::if merge_fed:::#1",
   "inter_section_handlers.py::if mid_y is None:::#1",
   "inter_section_handlers.py::if mid_y is None:::#2",
   "inter_section_handlers.py::if min(drop_xs) < _section_right_edge(graph, tgt) - COORD_TOLERANCE:::#1",

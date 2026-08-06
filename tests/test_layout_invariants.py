@@ -9590,31 +9590,37 @@ def test_cross_row_top_entry_bundle_corners_are_concentric():
     corner and the two trunk corners: their arc centres must coincide there
     (the final jog onto the shared port point is exempt, as both lines must
     converge on one marker).
+
+    Measured on the settled render geometry, which is where the pair's lane
+    separation is resolved: the lead-in laterals are the settlement's, and the
+    landing laterals are the port's own crossing Xs.
     """
     import math
 
-    graph = _layout("topologies/cross_row_gap_wrap.mmd")
-    routes = route_edges(graph)
-    offsets = compute_station_offsets(graph)
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
 
-    from nf_metro.render.svg import apply_route_offsets
+    path = _resolve_fixture("topologies/cross_row_gap_wrap.mmd")
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph))
 
-    bundle = [
-        r
-        for r in routes
-        if r.edge.source == "__junction_8" and r.edge.target == "merge_pt__entry_top_6"
-    ]
+    bundle = []
+    for record in observed.plan.routes:
+        values = dict(record.values.entries)
+        edge = dict(values["edge"].values.entries)
+        if (edge["source"], edge["target"]) == (
+            "__junction_8",
+            "merge_pt__entry_top_6",
+        ):
+            bundle.append((values["line_id"], values["points"], values["curve_radii"]))
     assert len(bundle) == 2, f"expected 2 lines, got {len(bundle)}"
-    bundle.sort(key=lambda r: r.line_id)
+    bundle.sort()
 
-    rendered = [(r, apply_route_offsets(r, offsets)) for r in bundle]
-    # The reference line drops straight into the port (no jog, 5 points); the
-    # offset line steps across with a converging jog (6 points).  Compare the
-    # three shared bends C1 (lead-in), C2 and C3 (trunk).
+    # C1 is the lead-in bend and C2/C3 the two trunk bends.
     centers = []
-    for r, pts in rendered:
+    for _line_id, pts, radii in bundle:
         cs = [
-            _corner_arc_center(pts[k - 1], pts[k], pts[k + 1], r.curve_radii[k - 1])
+            _corner_arc_center(pts[k - 1], pts[k], pts[k + 1], radii[k - 1])
             for k in range(1, 4)
         ]
         centers.append(cs)
