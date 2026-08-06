@@ -13,8 +13,10 @@ from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout import envelope_settlement, route_reservations
 from nf_metro.layout.constants import (
     CANVAS_EDGE_CLEARANCE,
+    COORD_TOLERANCE,
     CURVE_RADIUS,
     DIRECTIONAL_MARKER_HALF_EXTENT,
+    INTER_ROW_EDGE_CLEARANCE,
     WIDEST_THEME_LINE_WIDTH,
 )
 from nf_metro.layout.envelope_settlement import (
@@ -25,7 +27,7 @@ from nf_metro.layout.envelope_settlement import (
     attribute_compatibility_systems,
     settle_route_envelopes,
 )
-from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.geometry import cotravelling_lane_clearance, shift_section
 from nf_metro.layout.pass_metrics import canvas_edge_clearance, stroke_scale_context
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
@@ -571,20 +573,21 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
     """Two corridors starved at one boundary are one widening, not two.
 
     ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1, each 2px short, and both are satisfied by
-    moving row 1 onward once.
+    observed-run claim in row gap 0/1, short by 2px and by 6px, and one
+    translation of row 1 onward -- sized to the deeper of the two -- satisfies
+    both.
     """
     path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
     graph, plan = _observe(path)
     starved = _capacity_deficits(plan)
     assert len(starved) == 2
-    assert set(starved.values()) == {-2.0}
+    assert set(starved.values()) == {-2.0, -6.0}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
     assert translation.axis is SettlementAxis.ROW
     assert translation.boundary == 1
-    assert translation.amount == pytest.approx(2.0)
+    assert translation.amount == pytest.approx(6.0)
     assert {str(item) for item in translation.reservation_ids} == set(starved)
 
     for reservation_id in starved:
@@ -598,6 +601,64 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
         )
         assert realised is not None
         assert realised.capacity_slack >= -0.01
+
+
+def test_a_boundary_is_charged_for_the_unfiled_leg_drawn_in_it() -> None:
+    """A stroke takes room whether or not a claim names it.
+
+    ``merge_around_below_leftmost`` draws a merge trunk and that trunk's own
+    return leg in row gap 0/1.  The return leg's connector begins and ends in row
+    0, so it crosses no boundary and the region search files it against none; it
+    is drawn in the gap regardless, and reading the boundary as holding one stroke
+    leaves it hugging the box edge above with no clearance the gap can be widened
+    to give it.
+    """
+    path = TOPOLOGIES / "merge_around_below_leftmost.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        graph.strict = True
+        theme = resolve_theme(None, graph)
+        drawn = _settled_render_graph(graph, theme)
+        observed = build_observed_render_plan(graph, theme)
+
+    upper = max(
+        section.bbox_y + section.bbox_h
+        for section in drawn.sections.values()
+        if section.grid_row == 0
+    )
+    lower = min(
+        section.bbox_y for section in drawn.sections.values() if section.grid_row == 1
+    )
+    lanes = sorted(
+        {
+            first[1]
+            for points in observed.plan.route_polylines
+            for first, second in zip(points, points[1:])
+            if abs(first[1] - second[1]) <= COORD_TOLERANCE
+            and abs(first[0] - second[0]) > COORD_TOLERANCE
+            and upper < first[1] < lower
+        }
+    )
+    assert len(lanes) == 2, lanes
+    assert lanes[0] - upper == pytest.approx(INTER_ROW_EDGE_CLEARANCE)
+    assert lanes[1] - lanes[0] >= cotravelling_lane_clearance(
+        same_line=True, counter_running=True, curve_radius=CURVE_RADIUS
+    )
+
+    reservation = next(
+        item
+        for item in observed.route_plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.upper_row == 0
+    )
+    assert reservation.peer_width == pytest.approx(lanes[1] - lanes[0])
+    assert reservation.minimum_width == pytest.approx(
+        reservation.negative_side_clearance
+        + reservation.bundle_width
+        + reservation.peer_width
+        + reservation.positive_side_clearance
+    )
+    assert lower - upper >= reservation.minimum_width
 
 
 @pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))

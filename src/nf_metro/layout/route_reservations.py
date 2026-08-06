@@ -576,6 +576,36 @@ class _ObservedClaim:
     travel_end: float
     coordinate: float
 
+    @property
+    def line_id(self) -> str:
+        return self.member.line_id
+
+
+@dataclass(frozen=True, slots=True)
+class _UnfiledRun:
+    """A drawn leg the region search could file against no boundary.
+
+    The search asks which boundary a leg *crosses*, and a leg that dips into a
+    gap and returns to the row it left crosses none.  It is drawn in that gap all
+    the same, so the boundary carrying it owes it room beside the corridors it is
+    drawn beside, and this is the reading those boundaries are charged from.
+    """
+
+    orientation: CorridorOrientation
+    direction: Direction
+    line_id: str
+    travel_start: float
+    travel_end: float
+    coordinate: float
+
+
+@dataclass(frozen=True, slots=True)
+class _ObservedGeometry:
+    """Every drawn leg of the emitted routes, filed and unfiled."""
+
+    claims: tuple[_ObservedClaim, ...]
+    unfiled_runs: tuple[_UnfiledRun, ...]
+
 
 @dataclass(frozen=True, slots=True)
 class _RegionMeasurement:
@@ -1329,17 +1359,18 @@ def _route_launch_anchor(
     return None
 
 
-def _observed_claims(
+def _observe_route_geometry(
     graph: MetroGraph,
     routes: list[RoutedPath],
     plan: RoutePlan,
     station_offsets: dict[tuple[str, str], float],
-) -> tuple[_ObservedClaim, ...]:
+) -> _ObservedGeometry:
     member_by_id = {member.id: member for member in plan.members}
     binding_by_member = {binding.member_id: binding for binding in plan.bindings}
     system_by_id = {system.id: system for system in plan.systems}
     extents = _ContentExtents.of(graph)
     claims: list[_ObservedClaim] = []
+    unfiled: list[_UnfiledRun] = []
     for member in plan.members:
         binding = binding_by_member[member.id]
         if binding.kind is not BindingKind.EMITTED:
@@ -1372,6 +1403,16 @@ def _observed_claims(
                 graph, segment, segments, span, connector_ids, member, extents
             )
             if corridor is None:
+                unfiled.append(
+                    _UnfiledRun(
+                        segment.orientation,
+                        segment.direction,
+                        member.line_id,
+                        segment.travel_start,
+                        segment.travel_end,
+                        segment.coordinate,
+                    )
+                )
                 continue
             region, measurement_scope = corridor
             landing_section_ids = (
@@ -1419,7 +1460,7 @@ def _observed_claims(
                     segment.coordinate,
                 )
             )
-    return tuple(claims)
+    return _ObservedGeometry(tuple(claims), tuple(unfiled))
 
 
 def _region_key(region: CorridorRegion) -> tuple[str, int, int]:
@@ -1768,9 +1809,24 @@ def _allocate_physical_lanes(
     return lanes, maximum_bundle_width
 
 
+@dataclass(frozen=True, slots=True)
+class _GroupBand:
+    """A boundary as one group's reservation reads it.
+
+    *gap_start* and *gap_end* are the facing box edges; *low* and *high* the
+    coordinates left once each side's clearance is taken off them, which is
+    where the group's own claims may sit.
+    """
+
+    gap_start: float
+    gap_end: float
+    low: float
+    high: float
+
+
 def _group_band(
     graph: MetroGraph, group: tuple[_ObservedClaim, ...]
-) -> tuple[float, float] | None:
+) -> _GroupBand | None:
     """Where in its boundary *group*'s claims may sit, as the region stands now.
 
     The same measurement :func:`_realise_one` makes, so a group's freedom is read
@@ -1807,34 +1863,60 @@ def _group_band(
     except ValueError:
         return None
     negative, positive, _keepouts = _clearances(first.orientation, region)
-    return measurement.start + negative, measurement.end - positive
+    return _GroupBand(
+        measurement.start,
+        measurement.end,
+        measurement.start + negative,
+        measurement.end - positive,
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class _BoundaryLane:
-    """One claim as its boundary sees it: where it sits, and what confines it."""
+    """One drawn leg as its boundary sees it: where it sits, and what confines it."""
 
     group_index: int
-    claim: _ObservedClaim
+    orientation: CorridorOrientation
+    direction: Direction
+    line_id: str
+    travel_start: float
+    travel_end: float
+    coordinate: float
     band_low: float
     band_high: float
+
+
+def _claimed_lane(
+    group_index: int, claim: _ObservedClaim, band: _GroupBand
+) -> _BoundaryLane:
+    return _BoundaryLane(
+        group_index,
+        claim.orientation,
+        claim.direction,
+        claim.line_id,
+        claim.travel_start,
+        claim.travel_end,
+        claim.coordinate,
+        band.low,
+        band.high,
+    )
 
 
 def _lane_separation(first: _BoundaryLane, second: _BoundaryLane) -> float:
     """The clearance these two lanes need to draw as two strokes."""
     return cotravelling_lane_clearance(
-        same_line=first.claim.member.line_id == second.claim.member.line_id,
-        counter_running=first.claim.direction is not second.claim.direction,
+        same_line=first.line_id == second.line_id,
+        counter_running=first.direction is not second.direction,
         curve_radius=CURVE_RADIUS,
     )
 
 
 def _lanes_overlap(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     return spans_share_corridor(
-        first.claim.travel_start,
-        first.claim.travel_end,
-        second.claim.travel_start,
-        second.claim.travel_end,
+        first.travel_start,
+        first.travel_end,
+        second.travel_start,
+        second.travel_end,
     )
 
 
@@ -1857,7 +1939,7 @@ def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     separation = _lane_separation(first, second)
     if separation <= 0.0 or not _lanes_overlap(first, second):
         return False
-    lower, upper = sorted((first, second), key=lambda lane: lane.claim.coordinate)
+    lower, upper = sorted((first, second), key=lambda lane: lane.coordinate)
     return upper.band_high - lower.band_low < separation - COORD_TOLERANCE_FINE
 
 
@@ -1874,11 +1956,11 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     in it, and every pass that seats a channel relative to the boundary's edges
     would then have to bring the pair together to fit.
     """
-    ordered = sorted(lanes, key=lambda item: item.claim.coordinate)
+    ordered = sorted(lanes, key=lambda item: item.coordinate)
     return sum(
         max(
             _lane_separation(first, second),
-            second.claim.coordinate - first.claim.coordinate,
+            second.coordinate - first.coordinate,
         )
         if _lanes_overlap(first, second)
         else 0.0
@@ -1886,10 +1968,57 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     )
 
 
+def _unfiled_lanes_in_band(
+    group_index: int,
+    group: tuple[_ObservedClaim, ...],
+    band: _GroupBand,
+    unfiled_runs: Sequence[_UnfiledRun],
+) -> list[_BoundaryLane]:
+    """The unfiled legs drawn in *group*'s boundary, as lanes of that boundary.
+
+    A leg is drawn in the boundary when its coordinate falls between the two box
+    edges the group's region was measured from and it travels along a stretch of
+    the corridor one of the group's own claims travels.  It reads the boundary's
+    band because it holds no reservation of its own: the room it may take is the
+    room the boundary publishes, and it is drawn wherever inside the gap the
+    passes that placed it left it.
+
+    They are indexed apart from every group so the boundary reads them as peers
+    standing in it rather than as claims of its own.
+    """
+    orientation = group[0].orientation
+    return [
+        _BoundaryLane(
+            -1 - group_index,
+            run.orientation,
+            run.direction,
+            run.line_id,
+            run.travel_start,
+            run.travel_end,
+            run.coordinate,
+            band.low,
+            band.high,
+        )
+        for run in unfiled_runs
+        if run.orientation is orientation
+        and band.gap_start - COORD_TOLERANCE
+        <= run.coordinate
+        <= band.gap_end + COORD_TOLERANCE
+        and any(
+            spans_share_corridor(
+                run.travel_start, run.travel_end, item.travel_start, item.travel_end
+            )
+            for item in group
+        )
+    ]
+
+
 def _peer_widths(
-    graph: MetroGraph, groups: tuple[tuple[_ObservedClaim, ...], ...]
+    graph: MetroGraph,
+    groups: tuple[tuple[_ObservedClaim, ...], ...],
+    unfiled_runs: tuple[_UnfiledRun, ...],
 ) -> dict[int, float]:
-    """How much room each group's boundary owes the corridors confined with it.
+    """How much room each group's boundary owes the lanes confined with it.
 
     Two corridors running over disjoint stretches never meet, and two whose own
     bands can already hold them apart are settled whatever their boundaries do;
@@ -1906,24 +2035,36 @@ def _peer_widths(
     share.  Whether two lanes compete is :func:`_lanes_are_confined`'s question
     alone, settled by the stretch of corridor they share and the reach their two
     bands have between them.
+
+    A boundary is charged for every stroke drawn in it, and a claim is not what
+    makes a stroke take room: an :class:`_UnfiledRun` crosses no boundary yet is
+    drawn inside one, so it stands in the stack that boundary has to hold.
+    Charging only the filed lanes states a boundary wide enough for one stroke
+    where two are drawn, and the second is then left at whatever coordinate the
+    narrow gap forced it to, short of every clearance the boundary's own edges
+    ask for.  It is charged as a peer rather than filed as a claim because a
+    reservation is a corridor a run may be *seated in*, and a leg the region
+    search files against no boundary has no such corridor to be held inside.
     """
     bands = {index: _group_band(graph, group) for index, group in enumerate(groups)}
     by_axis: defaultdict[CorridorOrientation, list[_BoundaryLane]] = defaultdict(list)
+    unfiled_by_group: dict[int, list[_BoundaryLane]] = {}
     for index, group in enumerate(groups):
         band = bands[index]
         if band is None:
             continue
         for claim in group:
-            by_axis[claim.orientation].append(
-                _BoundaryLane(index, claim, band[0], band[1])
-            )
+            by_axis[claim.orientation].append(_claimed_lane(index, claim, band))
+        unfiled_by_group[index] = _unfiled_lanes_in_band(
+            index, group, band, unfiled_runs
+        )
     widths: defaultdict[int, float] = defaultdict(float)
     for lanes in by_axis.values():
         for index in {item.group_index for item in lanes}:
             own = [item for item in lanes if item.group_index == index]
             confined = [
                 peer
-                for peer in lanes
+                for peer in (*lanes, *unfiled_by_group[index])
                 if peer.group_index != index
                 and any(_lanes_are_confined(mine, peer) for mine in own)
             ]
@@ -1961,6 +2102,7 @@ def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
     groups: tuple[tuple[_ObservedClaim, ...], ...],
+    unfiled_runs: tuple[_UnfiledRun, ...],
 ) -> tuple[
     tuple[SharedReference, ...],
     tuple[SymbolicDemand, ...],
@@ -1969,7 +2111,7 @@ def _build_symbolic_records(
     member_rank = {member.id: rank for rank, member in enumerate(plan.members)}
     system_rank = {system.id: rank for rank, system in enumerate(plan.systems)}
     system_by_id = {system.id: system for system in plan.systems}
-    peer_widths = _peer_widths(graph, groups)
+    peer_widths = _peer_widths(graph, groups, unfiled_runs)
     records: list[tuple[SharedReference, SymbolicDemand, RouteReservation]] = []
     for group_index, group in enumerate(groups):
         first = group[0]
@@ -3385,14 +3527,14 @@ def attach_route_reservations(
     if not plan.systems:
         return plan
     offsets = station_offsets or {}
-    claims = _observed_claims(graph, routes, plan, offsets)
+    observed = _observe_route_geometry(graph, routes, plan, offsets)
     groups = _group_claims(
-        claims,
+        observed.claims,
         {system.id: rank for rank, system in enumerate(plan.systems)},
         {member.id: rank for rank, member in enumerate(plan.members)},
     )
     observed_references, observed_demands, reservations = _build_symbolic_records(
-        graph, plan, groups
+        graph, plan, groups, observed.unfiled_runs
     )
     plan_with_corridors = replace(
         plan,
