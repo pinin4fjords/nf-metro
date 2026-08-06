@@ -559,6 +559,18 @@ class _AxisSegment:
 
 
 @dataclass(frozen=True, slots=True)
+class _DrawnLeg:
+    """One straight stretch of emitted geometry: where it runs, and along what."""
+
+    orientation: CorridorOrientation
+    direction: Direction
+    line_id: str
+    travel_start: float
+    travel_end: float
+    coordinate: float
+
+
+@dataclass(frozen=True, slots=True)
 class _ObservedClaim:
     system_id: RouteSystemId
     member: EmissionMember
@@ -581,23 +593,25 @@ class _ObservedClaim:
     def line_id(self) -> str:
         return self.member.line_id
 
+    @property
+    def leg(self) -> _DrawnLeg:
+        return _DrawnLeg(
+            self.orientation,
+            self.direction,
+            self.line_id,
+            self.travel_start,
+            self.travel_end,
+            self.coordinate,
+        )
 
-@dataclass(frozen=True, slots=True)
-class _UnfiledRun:
-    """A drawn leg the region search could file against no boundary.
 
-    The search asks which boundary a leg *crosses*, and a leg that dips into a
-    gap and returns to the row it left crosses none.  It is drawn in that gap all
-    the same, so the boundary carrying it owes it room beside the corridors it is
-    drawn beside, and this is the reading those boundaries are charged from.
-    """
+_UnfiledRun: TypeAlias = _DrawnLeg
+"""A drawn leg the region search could file against no boundary.
 
-    orientation: CorridorOrientation
-    direction: Direction
-    line_id: str
-    travel_start: float
-    travel_end: float
-    coordinate: float
+The search asks which boundary a leg *crosses*, and a leg that dips into a gap
+and returns to the row it left crosses none.  It is drawn in that gap all the
+same, so the boundary carrying it owes it room beside the corridors it is drawn
+beside, and this is the reading those boundaries are charged from."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1876,48 +1890,28 @@ def _group_band(
 class _BoundaryLane:
     """One drawn leg as its boundary sees it: where it sits, and what confines it."""
 
-    group_index: int
-    orientation: CorridorOrientation
-    direction: Direction
-    line_id: str
-    travel_start: float
-    travel_end: float
-    coordinate: float
+    leg: _DrawnLeg
+    group_index: int | None
+    """The group whose claim this lane is, or ``None`` for a leg no group filed."""
     band_low: float
     band_high: float
-
-
-def _claimed_lane(
-    group_index: int, claim: _ObservedClaim, band: _GroupBand
-) -> _BoundaryLane:
-    return _BoundaryLane(
-        group_index,
-        claim.orientation,
-        claim.direction,
-        claim.line_id,
-        claim.travel_start,
-        claim.travel_end,
-        claim.coordinate,
-        band.low,
-        band.high,
-    )
 
 
 def _lane_separation(first: _BoundaryLane, second: _BoundaryLane) -> float:
     """The clearance these two lanes need to draw as two strokes."""
     return cotravelling_lane_clearance(
-        same_line=first.line_id == second.line_id,
-        counter_running=first.direction is not second.direction,
+        same_line=first.leg.line_id == second.leg.line_id,
+        counter_running=first.leg.direction is not second.leg.direction,
         curve_radius=CURVE_RADIUS,
     )
 
 
 def _lanes_overlap(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     return spans_share_corridor(
-        first.travel_start,
-        first.travel_end,
-        second.travel_start,
-        second.travel_end,
+        first.leg.travel_start,
+        first.leg.travel_end,
+        second.leg.travel_start,
+        second.leg.travel_end,
     )
 
 
@@ -1940,7 +1934,7 @@ def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     separation = _lane_separation(first, second)
     if separation <= 0.0 or not _lanes_overlap(first, second):
         return False
-    lower, upper = sorted((first, second), key=lambda lane: lane.coordinate)
+    lower, upper = sorted((first, second), key=lambda lane: lane.leg.coordinate)
     return upper.band_high - lower.band_low < separation - COORD_TOLERANCE_FINE
 
 
@@ -1957,11 +1951,11 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     in it, and every pass that seats a channel relative to the boundary's edges
     would then have to bring the pair together to fit.
     """
-    ordered = sorted(lanes, key=lambda item: item.coordinate)
+    ordered = sorted(lanes, key=lambda item: item.leg.coordinate)
     return sum(
         max(
             _lane_separation(first, second),
-            measured_distance(first.coordinate, second.coordinate),
+            measured_distance(first.leg.coordinate, second.leg.coordinate),
         )
         if _lanes_overlap(first, second)
         else 0.0
@@ -1970,7 +1964,6 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
 
 
 def _unfiled_lanes_in_band(
-    group_index: int,
     group: tuple[_ObservedClaim, ...],
     band: _GroupBand,
     unfiled_runs: Sequence[_UnfiledRun],
@@ -1984,22 +1977,12 @@ def _unfiled_lanes_in_band(
     room the boundary publishes, and it is drawn wherever inside the gap the
     passes that placed it left it.
 
-    They are indexed apart from every group so the boundary reads them as peers
-    standing in it rather than as claims of its own.
+    They carry no group index, so the boundary reads them as peers standing in it
+    rather than as claims of its own.
     """
     orientation = group[0].orientation
     return [
-        _BoundaryLane(
-            -1 - group_index,
-            run.orientation,
-            run.direction,
-            run.line_id,
-            run.travel_start,
-            run.travel_end,
-            run.coordinate,
-            band.low,
-            band.high,
-        )
+        _BoundaryLane(run, None, band.low, band.high)
         for run in unfiled_runs
         if run.orientation is orientation
         and band.gap_start - COORD_TOLERANCE
@@ -2055,13 +2038,15 @@ def _peer_widths(
         if band is None:
             continue
         for claim in group:
-            by_axis[claim.orientation].append(_claimed_lane(index, claim, band))
-        unfiled_by_group[index] = _unfiled_lanes_in_band(
-            index, group, band, unfiled_runs
-        )
+            by_axis[claim.orientation].append(
+                _BoundaryLane(claim.leg, index, band.low, band.high)
+            )
+        unfiled_by_group[index] = _unfiled_lanes_in_band(group, band, unfiled_runs)
     widths: defaultdict[int, float] = defaultdict(float)
     for lanes in by_axis.values():
-        for index in {item.group_index for item in lanes}:
+        for index in {
+            item.group_index for item in lanes if item.group_index is not None
+        }:
             own = [item for item in lanes if item.group_index == index]
             confined = [
                 peer
