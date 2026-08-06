@@ -52,6 +52,7 @@ from nf_metro.layout.constants import CURVE_RADIUS, SETTLEMENT_QUANTUM
 from nf_metro.layout.envelope_settlement import (
     _COLUMN_AXIS,
     _ROW_AXIS,
+    _apply_translation,
     _Axis,
     _translation_ownership,
 )
@@ -118,10 +119,13 @@ class CapacityGrant:
 
 @dataclass(frozen=True, slots=True)
 class CapacityProbe:
-    """What boundary capacity does to one system on the compatibility path."""
+    """What boundary capacity does to one system on the compatibility path.
+
+    The grants are the record and the verdict is read back off them, so the
+    published conclusion cannot drift from the counterfactuals behind it.
+    """
 
     system_id: RouteSystemId
-    verdict: CapacityVerdict
     unit: float
     """The largest single distance the system's own limit is measured against:
     the widest corridor it reserves, the offset step between lanes, or the turn
@@ -130,9 +134,45 @@ class CapacityProbe:
     """``unit`` plus the separation the conflict recorded, quantised to a
     translation settlement could express.  Each grant is a multiple of this."""
     grants: tuple[CapacityGrant, ...]
-    sufficient_capacity: float | None
-    sufficient_scope: CapacityScope | None
+    control_reproduced: bool
     control_conflict: ConvergenceConflictKind | None
+
+    @property
+    def sufficient(self) -> tuple[CapacityScope, float] | None:
+        """The cheapest capacity planned at, and at every larger one granted."""
+        return _least_sufficient(self.grants)
+
+    @property
+    def sufficient_scope(self) -> CapacityScope | None:
+        cheapest = self._cheapest_planned()
+        return None if cheapest is None else cheapest[0]
+
+    @property
+    def sufficient_capacity(self) -> float | None:
+        cheapest = self._cheapest_planned()
+        return None if cheapest is None else cheapest[1]
+
+    @property
+    def verdict(self) -> CapacityVerdict:
+        if not self.control_reproduced:
+            return CapacityVerdict.CONTROL_DIVERGED
+        if self.sufficient is not None:
+            return CapacityVerdict.ALLOCATION_REACHES
+        if any(item.planned for item in self.grants):
+            return CapacityVerdict.ALLOCATION_UNSTABLE
+        return CapacityVerdict.BEYOND_ALLOCATION
+
+    def _cheapest_planned(self) -> tuple[CapacityScope, float] | None:
+        """Where the verdict's quoted capacity comes from, for either verdict
+        that has one: the tail's threshold where there is a tail, and otherwise
+        the cheapest grant that was planned at all."""
+        if self.sufficient is not None:
+            return self.sufficient
+        planned = [item for item in self.grants if item.planned]
+        if not planned:
+            return None
+        cheapest = min(planned, key=lambda item: (item.capacity, item.scope.value))
+        return cheapest.scope, cheapest.capacity
 
     @property
     def message(self) -> str:
@@ -186,10 +226,34 @@ def probe_settlement_capacity(
     if not compatibility:
         return ()
     control, offset_step = _replan(copy.deepcopy(graph))
+    baseline = _Baseline(
+        graph,
+        plan,
+        control,
+        offset_step,
+        tuple(sorted({item.grid_row for item in graph.sections.values()})),
+        tuple(sorted({item.grid_col for item in graph.sections.values()})),
+    )
     return tuple(
-        _probe_system(graph, plan, system_id, conflict, control, offset_step)
+        _probe_system(baseline, system_id, conflict)
         for system_id, conflict in compatibility
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _Baseline:
+    """What every system's counterfactuals are measured against.
+
+    The control re-plan and the grid's boundaries are properties of the map
+    rather than of one system, so they are established once and read by each.
+    """
+
+    graph: MetroGraph
+    plan: RoutePlan
+    control: dict[RouteSystemId, tuple[ConvergencePlan, ...]]
+    offset_step: float
+    every_row: tuple[int, ...]
+    every_column: tuple[int, ...]
 
 
 def _ordered_compatibility_systems(
@@ -209,80 +273,48 @@ def _ordered_compatibility_systems(
 
 
 def _probe_system(
-    graph: MetroGraph,
-    plan: RoutePlan,
+    baseline: _Baseline,
     system_id: RouteSystemId,
     conflict: ConvergenceConflictKind | None,
-    control: dict[RouteSystemId, tuple[ConvergencePlan, ...]],
-    offset_step: float,
 ) -> CapacityProbe:
-    if _is_planned(control, system_id) is not False:
-        return CapacityProbe(
-            system_id, CapacityVerdict.CONTROL_DIVERGED, 0.0, 0.0, (), None, None, None
-        )
-    rows, columns, unit = _demand(plan, system_id, offset_step)
+    if _is_planned(baseline.control, system_id) is not False:
+        return CapacityProbe(system_id, 0.0, 0.0, (), False, None)
+    rows, columns, widths = claimed_boundaries(baseline.plan, system_id)
+    unit = max(CURVE_RADIUS, baseline.offset_step, max(widths, default=0.0))
     separation = max(
         (
             item.conflict.separation
-            for item in plan.convergence_plans
+            for item in baseline.plan.convergence_plans
             if item.system_id == system_id and item.conflict is not None
         ),
         default=0.0,
     )
     capacity = math.ceil((separation + unit) / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
-    every_row = tuple(sorted({item.grid_row for item in graph.sections.values()}))
-    every_column = tuple(sorted({item.grid_col for item in graph.sections.values()}))
-
-    grants: list[CapacityGrant] = []
-    for scope, at_rows, at_columns in (
-        (CapacityScope.CLAIMED_BOUNDARIES, rows, columns),
-        (CapacityScope.EVERY_BOUNDARY, every_row, every_column),
-    ):
-        for multiple in CAPACITY_MULTIPLES:
-            amount = round(capacity * multiple, 6)
-            grants.append(
-                CapacityGrant(
-                    scope,
-                    amount,
-                    _plans_with_capacity(graph, system_id, at_rows, at_columns, amount),
-                )
-            )
-    sufficient = _least_sufficient(grants)
-    sufficient_scope: CapacityScope | None = None
-    sufficient_capacity: float | None = None
-    if sufficient is not None:
-        verdict = CapacityVerdict.ALLOCATION_REACHES
-        sufficient_scope, sufficient_capacity = sufficient
-    elif any(item.planned for item in grants):
-        verdict = CapacityVerdict.ALLOCATION_UNSTABLE
-        cheapest = min(
-            (item for item in grants if item.planned),
-            key=lambda item: (item.capacity, item.scope.value),
+    grants = tuple(
+        CapacityGrant(
+            scope,
+            amount,
+            _plans_with_capacity(
+                baseline.graph, system_id, at_rows, at_columns, amount
+            ),
         )
-        sufficient_scope, sufficient_capacity = cheapest.scope, cheapest.capacity
-    else:
-        verdict = CapacityVerdict.BEYOND_ALLOCATION
-    return CapacityProbe(
-        system_id,
-        verdict,
-        unit,
-        capacity,
-        tuple(grants),
-        sufficient_capacity,
-        sufficient_scope,
-        conflict,
+        for scope, at_rows, at_columns in (
+            (CapacityScope.CLAIMED_BOUNDARIES, rows, columns),
+            (CapacityScope.EVERY_BOUNDARY, baseline.every_row, baseline.every_column),
+        )
+        for amount in (round(capacity * item, 6) for item in CAPACITY_MULTIPLES)
     )
+    return CapacityProbe(system_id, unit, capacity, grants, True, conflict)
 
 
-def _demand(
-    plan: RoutePlan, system_id: RouteSystemId, offset_step: float
-) -> tuple[tuple[int, ...], tuple[int, ...], float]:
-    """The boundaries one system is measured at, and what one pair of runs costs.
+def claimed_boundaries(
+    plan: RoutePlan, system_id: RouteSystemId
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[float, ...]]:
+    """The boundaries one system's corridors are filed against, and their widths.
 
-    A conflict is always a distance two runs need between them, and the planner
-    compares against the turn radius or the offset step; a corridor the system
-    reserves states a width the ledger sizes a boundary by.  The largest of
-    those is the unit no allocation smaller than could be called generous.
+    A conflict is always a distance two runs need between them, and a corridor
+    the system reserves states a width the ledger sizes a boundary by, so the
+    widths are what says how much room one competing pair costs here.
     """
     rows: set[int] = set()
     columns: set[int] = set()
@@ -298,8 +330,7 @@ def _demand(
         else:
             continue
         widths.append(reservation.minimum_width)
-    unit = max(CURVE_RADIUS, offset_step, max(widths, default=0.0))
-    return tuple(sorted(rows)), tuple(sorted(columns)), unit
+    return tuple(sorted(rows)), tuple(sorted(columns)), tuple(sorted(widths))
 
 
 def _least_sufficient(
@@ -337,14 +368,17 @@ def _plans_with_capacity(
     columns: tuple[int, ...],
     amount: float,
 ) -> bool:
-    """Whether the planner plans *system_id* once those boundaries carry *amount*."""
+    """Whether the planner plans *system_id* once those boundaries carry *amount*.
+
+    A re-plan that raises is left to propagate.  Folding it into "not planned"
+    would let a defect in the counterfactual geometry read as the one conclusion
+    this module asks to be trusted, so a probe that cannot run is a failure
+    rather than a verdict.
+    """
     probe_graph = copy.deepcopy(graph)
     for axis, boundaries in ((_ROW_AXIS, rows), (_COLUMN_AXIS, columns)):
         _widen(probe_graph, axis, boundaries, amount)
-    try:
-        replanned, _offset_step = _replan(probe_graph)
-    except Exception:  # noqa: BLE001
-        return False
+    replanned, _offset_step = _replan(probe_graph)
     return _is_planned(replanned, system_id) is True
 
 
@@ -358,9 +392,9 @@ def _widen(
     ``amount`` rather than the last one alone.
     """
     for boundary in sorted(boundaries):
-        ownership = _translation_ownership(graph, axis, boundary)
-        for section_id in ownership.moved_section_ids:
-            axis.shift(graph, graph.sections[section_id], amount)
+        _apply_translation(
+            graph, axis, _translation_ownership(graph, axis, boundary), amount
+        )
 
 
 def _replan(

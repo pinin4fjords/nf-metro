@@ -16,9 +16,9 @@ from nf_metro.layout.capacity_probe import (
     CapacityScope,
     CapacityVerdict,
     _widen,
+    claimed_boundaries,
     probe_settlement_capacity,
 )
-from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
 
@@ -96,18 +96,6 @@ def _sole(items: tuple):
     return items[0]
 
 
-def _claimed_boundaries(plan, system_id) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    rows, columns = set(), set()
-    for reservation in plan.reservations:
-        if reservation.system_id != system_id:
-            continue
-        if isinstance(reservation.region, RowGapRegion):
-            rows.add(reservation.region.lower_row)
-        elif isinstance(reservation.region, ColumnGapRegion):
-            columns.add(reservation.region.right_column)
-    return tuple(sorted(rows)), tuple(sorted(columns))
-
-
 def _starved(path: Path, amount: float):
     """*path*'s settled map with its planned system's boundaries taken in.
 
@@ -124,7 +112,8 @@ def _starved(path: Path, amount: float):
         }
     )
     system_id = _sole(tuple(planned))
-    rows, columns = _claimed_boundaries(plan, system_id)
+    rows, columns, _widths = claimed_boundaries(plan, system_id)
+    graph = copy.deepcopy(graph)
     _widen(graph, _ROW_AXIS, rows, amount)
     _widen(graph, _COLUMN_AXIS, columns, amount)
     with warnings.catch_warnings():
@@ -145,7 +134,12 @@ def test_every_compatibility_system_is_probed_against_boundary_capacity(
 ) -> None:
     """#1657 lets a system stay compatible only where its limit is not an
     envelope allocation, and the only way to establish that is to give the
-    planner the room and see what it decides."""
+    planner the room and see what it decides.
+
+    The published sentence is what a reader acts on, so the grants behind it are
+    checked too: which capacities were planned at, and that the message quotes
+    the one the verdict rests on.
+    """
     graph, plan = _settled(path)
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.verdict is expected
@@ -154,19 +148,6 @@ def test_every_compatibility_system_is_probed_against_boundary_capacity(
     assert probe.control_conflict is not None
     assert probe.control_conflict.reason in probe.message
 
-
-@pytest.mark.parametrize(
-    ("path", "expected"),
-    COMPATIBILITY_CORPUS,
-    ids=lambda item: getattr(item, "name", item),
-)
-def test_a_probed_verdict_is_re_derivable_from_the_grants_it_records(
-    path: Path, expected: CapacityVerdict
-) -> None:
-    """The verdict is the evidence, so every number in it has to follow from the
-    grants rather than from a remembered classification."""
-    graph, plan = _settled(path)
-    probe = _sole(probe_settlement_capacity(graph, plan))
     planned = [item for item in probe.grants if item.planned]
     if expected is CapacityVerdict.BEYOND_ALLOCATION:
         assert not planned
