@@ -1720,7 +1720,18 @@ in pipeline order.
   map: the two conflicting runs are the same column, 0.00px apart in one
   translated column band (`SettlementReach.SEPARATION_FIXED`), so no offset this
   stage owns separates them, and the corpus publishes no `WITHIN_REACH`
-  compatibility system at all. Two corridors confined at one boundary are not a source of
+  compatibility system at all. That last figure is weaker than it reads and
+  should not be quoted without this qualification: `_settlement_reach` returns
+  `WITHIN_REACH` only for a conflict whose relief is not
+  `ConflictRelief.SHARED_CHANNEL`, and 10 of the corpus's 14 compatibility
+  systems carry `SHARED_CHANNEL` relief, so for those the verdict follows from
+  the conflict kind rather than from geometry. What the measurement does
+  establish, on the 4 that could answer either way, is that a row or column
+  offset does not change the distance between the two drawn coordinates. It does
+  **not** establish that a wider boundary would still leave the planner unable to
+  allocate both members, which is the question #1657's exit criteria asked and
+  which `peer_width` is the machinery for. Deciding which of the 14 are migration
+  work on that stronger reading is #1658's. Two corridors confined at one boundary are not a source of
   residue either: `peer_width`
   states the room they take together, so settlement widens the boundary for both.
   Nor is it longitudinal blindness in the band's blockers, which was measured
