@@ -2,7 +2,8 @@
 
 A line entering a section through an edge under its top-left header would cross
 the title text.  The placement chain relocates the header (below, rotated onto a
-side, or nudged past the trunk) instead of routing the line around the title.
+side, or shifted along the band above the box) instead of routing the line around
+the title.
 
 Covers:
 
@@ -11,6 +12,11 @@ Covers:
 * Meaningfulness: with header relocation disabled (the resolver pinned to its
   default above-left position) the new fixtures clash, proving the chain - not
   coincidence - is what keeps them clear.
+* Ranking: a caption held in the band above its box keeps at least the room from
+  route ink that the bottom edge it declined would have given it, measured off
+  the drawn map rather than by re-running the resolver's own search.
+* Accounting: whichever side a caption takes, the room the placed boxes leave on
+  that side holds its ink.
 """
 
 from __future__ import annotations
@@ -169,117 +175,173 @@ def test_section_header_never_crosses_box_border_in_gallery(path: Path) -> None:
     assert not crossings, f"headers crossing their box border: {crossings}"
 
 
-def _rightmost_route_in_band(
-    polylines: list, band_top: float, band_bottom: float
-) -> float | None:
-    """How far right a routed segment reaches inside a horizontal band.
+def _min_route_distance(keepout, polylines) -> float:
+    """Least distance from any routed segment to ``keepout``, sampled densely.
 
-    Clipped to the band rather than tested for a corner hit, so a diagonal
-    crossing it contributes the x it actually occupies there.
+    Sampling rather than a closed form keeps this independent of the resolver's
+    own distance function, so a bug shared with it cannot hide here.
     """
-    reach: float | None = None
+    x0, y0, x1, y1 = keepout
+    best = float("inf")
     for poly in polylines:
-        for (x1, y1), (x2, y2) in zip(poly, poly[1:]):
-            if max(y1, y2) < band_top or min(y1, y2) > band_bottom:
-                continue
-            if y1 == y2:
-                inside = (x1, x2)
-            else:
-                inside = tuple(
-                    x1 + (x2 - x1) * (edge - y1) / (y2 - y1)
-                    for edge in (
-                        max(band_top, min(y1, y2)),
-                        min(band_bottom, max(y1, y2)),
-                    )
-                )
-            reach = max(inside) if reach is None else max(reach, *inside)
-    return reach
+        for (ax, ay), (bx, by) in zip(poly, poly[1:]):
+            for i in range(129):
+                t = i / 128
+                px, py = ax + t * (bx - ax), ay + t * (by - ay)
+                dx = max(x0 - px, 0.0, px - x1)
+                dy = max(y0 - py, 0.0, py - y1)
+                best = min(best, (dx * dx + dy * dy) ** 0.5)
+    return best
+
+
+def _side_room(graph: MetroGraph, section: Section, mode: str) -> float:
+    """Room the placed boxes leave on the side ``mode`` hangs off.
+
+    Re-derived here from the section rectangles alone: down to the nearest box
+    above (never below the reserved protrusion, which the layout guarantees and
+    the badge occupies whatever else stands there), up to the nearest box below
+    less the badge protrusion that box reserves for its own header, or out to the
+    nearest box beside.  Unbounded where nothing stands that way and the canvas
+    grows to fit.
+    """
+    left, top = section.bbox_x, section.bbox_y
+    right, bottom = left + section.bbox_w, top + section.bbox_h
+    others = [
+        o
+        for o in graph.sections.values()
+        if o.id != section.id and o.bbox_w > 0 and o.bbox_h > 0
+    ]
+    cols = [o for o in others if o.bbox_x < right - 0.5 and left < o.bbox_x + o.bbox_w]
+    rows = [o for o in others if o.bbox_y < bottom - 0.5 and top < o.bbox_y + o.bbox_h]
+    if mode in ("above", "nudge"):
+        ceilings = [o.bbox_y + o.bbox_h for o in cols if o.bbox_y + o.bbox_h <= top]
+        return max(SECTION_HEADER_PROTRUSION, top - max(ceilings, default=0.0))
+    if mode == "below":
+        floors = [o.bbox_y for o in cols if o.bbox_y >= bottom]
+        if not floors:
+            return float("inf")
+        return min(floors) - SECTION_HEADER_PROTRUSION - bottom
+    if mode == "left":
+        walls = [o.bbox_x + o.bbox_w for o in rows if o.bbox_x + o.bbox_w <= left]
+        return left - max(walls, default=0.0)
+    walls = [o.bbox_x for o in rows if o.bbox_x >= right]
+    return min(walls) - right if walls else float("inf")
+
+
+def _protrusion(section: Section, placement) -> float:
+    """How far ``placement``'s ink reaches past the box edge it hangs off."""
+    x0, y0, x1, y1 = placement.keepout
+    if placement.mode in ("above", "nudge"):
+        return section.bbox_y - y0
+    if placement.mode == "below":
+        return y1 - (section.bbox_y + section.bbox_h)
+    if placement.mode == "left":
+        return section.bbox_x - x0
+    return x1 - (section.bbox_x + section.bbox_w)
 
 
 @pytest.mark.parametrize(
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
-def test_relocated_headers_had_no_room_in_the_reserved_band(path: Path) -> None:
-    """A header only leaves its reserved band once a route has taken the room.
+def test_every_caption_fits_the_band_its_own_side_leaves(path: Path) -> None:
+    """Whichever side a caption takes, the room on that side holds it.
 
-    ``SECTION_HEADER_PROTRUSION`` above a box top is the only room reserved for
-    that box's header, and it runs the width of the box.  A header drawn below or
-    beside the box therefore has to be accounted for by a route standing in that
-    band far enough right that no start within the box width clears it.  Both
-    quantities come off the drawn map here - the header's own extent
-    and the routed polylines - so this is a measurement of the geometry rather
-    than a second run of the placement search the resolver already made.
+    The clearance claim follows the caption: a caption below or beside its box is
+    accounted for by the gap it actually occupies, so what has to hold is that
+    the gap is deep enough - no other box, and no badge protrusion another box
+    reserves for its own header, standing in the caption's ink.
     """
     graph, polylines, font_size, title_font_size = _polylines_and_font(path)
     placements = resolve_all_section_headers(
         graph, font_size, polylines, title_font_size
     )
-    pad = SECTION_HEADER_ROUTE_PAD
     for section_id, placement in placements.items():
-        if placement.mode in ("above", "nudge"):
-            continue
         section = graph.sections[section_id]
-        # A rotated header runs down a side column, so its drawn footprint says
-        # nothing about the width the same title needs along the band.
-        rotated = bool(placement.label_rotation)
-        length = (
-            section_header._header_length(section.name, font_size)
-            if rotated
-            else placement.keepout[2] - placement.keepout[0]
-        )
-        depth = (
-            SECTION_HEADER_PROTRUSION
-            if rotated
-            else placement.keepout[3] - placement.keepout[1]
-        )
-        reach = _rightmost_route_in_band(
-            polylines, section.bbox_y - depth - pad, section.bbox_y + pad
-        )
-        latest_start = section.bbox_x + section.bbox_w - length
-        assert reach is not None and reach > latest_start - pad, (
-            f"{section_id} left its reserved band with room in it: the band "
-            f"holds a header starting up to {latest_start:.2f} and the "
-            f"rightmost route in it reaches {reach}"
+        room = _side_room(graph, section, placement.mode)
+        reach = _protrusion(section, placement)
+        assert reach <= room + 0.5, (
+            f"{section_id} caption reaches {reach:.2f}px past its "
+            f"{placement.mode} edge into {room:.2f}px of room"
         )
 
 
-def test_a_header_that_could_stay_in_the_band_is_reported(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Denying the resolver its in-band shift strands headers the check reports,
-    so the check is what holds the ranking rather than coincidence."""
-    path = EXAMPLE_TOPOLOGIES / "cross_col_top_entry.mmd"
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_a_band_caption_is_never_tighter_than_the_edge_it_declined(path: Path) -> None:
+    """A caption kept in the band above its box keeps at least as much room from
+    route ink as the bottom edge it passed over would have given it.
+
+    This is the ranking read back off the drawn map.  A caption squeezed into a
+    contested band beside a descending stroke fails it whenever the bottom edge
+    stands clear, which is the whole of the top-entry family.
+    """
     graph, polylines, font_size, title_font_size = _polylines_and_font(path)
-
-    real = section_header._reserved_band_placements
-
-    def _no_room(*args, **kwargs):
-        above, nudged, _ = real(*args, **kwargs)
-        return above, nudged, False
-
-    monkeypatch.setattr(section_header, "_reserved_band_placements", _no_room)
     placements = resolve_all_section_headers(
         graph, font_size, polylines, title_font_size
     )
-    monkeypatch.undo()
+    for section_id, placement in placements.items():
+        if placement.mode != "nudge":
+            continue
+        section = graph.sections[section_id]
+        taken = _min_route_distance(placement.keepout, polylines)
+        length = placement.keepout[2] - placement.keepout[0]
+        depth = placement.keepout[3] - placement.keepout[1]
+        box_bottom = section.bbox_y + section.bbox_h
+        below = (
+            section.bbox_x,
+            box_bottom,
+            section.bbox_x + length,
+            box_bottom + depth,
+        )
+        if depth > _side_room(graph, section, "below") + 0.5:
+            continue
+        rival = _min_route_distance(below, polylines)
+        if rival < SECTION_HEADER_ROUTE_PAD:
+            continue
+        assert taken >= rival - 0.5, (
+            f"{section_id} was held in its band with {taken:.2f}px of route "
+            f"clearance while the bottom edge offered {rival:.2f}px"
+        )
 
-    assert placements["consumer"].mode == "below"
-    stranded = check_section_headers_hold_the_reserved_band(
-        graph, placements, font_size, polylines, title_font_size
-    )
-    assert "consumer" in stranded
 
-
-def test_in_band_shift_outranks_leaving_the_band() -> None:
-    """A route crossing the header's default position shifts it along the band
-    rather than dropping it below the box, while the shift fits the box width."""
+def test_a_contested_band_loses_to_the_roomier_bottom_edge() -> None:
+    """A stroke descending through the default position and leaving only a
+    pinched slot in the band drops the caption to the clear bottom edge."""
     graph = MetroGraph()
     section = Section(id="s", name="Work")
     section.bbox_x, section.bbox_y = 0.0, 100.0
-    section.bbox_w, section.bbox_h = 400.0, 80.0
+    section.bbox_w, section.bbox_h = 200.0, 80.0
     graph.sections["s"] = section
 
-    # Descends through the default header's footprint into the box top.
+    # Two risers straddling the box width: each crosses the band, and the gap
+    # between them is only just wide enough for the header.
+    header_width = section_header._header_length("Work", 13.0)
+    left_riser = [(4.0, 60.0), (4.0, 140.0)]
+    right_riser = [(header_width + 14.0, 60.0), (header_width + 14.0, 140.0)]
+    placement = resolve_section_header_placement(
+        graph,
+        section,
+        label_font_size=13.0,
+        polylines=[left_riser, right_riser],
+        title_font_size=13.0,
+    )
+
+    assert placement.mode == "below"
+    assert placement.keepout[1] >= section.bbox_y + section.bbox_h - 0.01
+    below_clearance = _min_route_distance(placement.keepout, [left_riser, right_riser])
+    assert below_clearance > 3.0 * SECTION_HEADER_ROUTE_PAD
+
+
+def test_a_roomy_band_slot_keeps_the_caption_above_its_box() -> None:
+    """A band with a wide clear stretch keeps the caption above its box, centred
+    in that stretch rather than hugging the stroke it stepped past."""
+    graph = MetroGraph()
+    section = Section(id="s", name="Work")
+    section.bbox_x, section.bbox_y = 0.0, 100.0
+    section.bbox_w, section.bbox_h = 600.0, 80.0
+    graph.sections["s"] = section
+
     riser = [(10.0, 60.0), (10.0, 140.0)]
     placement = resolve_section_header_placement(
         graph, section, label_font_size=13.0, polylines=[riser], title_font_size=13.0
@@ -291,6 +353,41 @@ def test_in_band_shift_outranks_leaving_the_band() -> None:
     )
     assert placement.keepout[3] <= section.bbox_y + 0.01
     assert placement.keepout[2] <= section.bbox_x + section.bbox_w + 0.5
+    # Centred in the gap the riser leaves, not parked one pad's width past it.
+    clearance = _min_route_distance(placement.keepout, [riser])
+    assert clearance > 10.0 * SECTION_HEADER_ROUTE_PAD
+
+
+def test_the_band_guard_reports_a_caption_deeper_than_its_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pinning the resolver to the bottom edge of a box whose gap below is too
+    shallow strands a caption the guard names, so the guard is what holds the
+    accounting rather than the ranking happening to agree with it."""
+    graph = MetroGraph()
+    upper = Section(id="u", name="Upper work")
+    upper.bbox_x, upper.bbox_y, upper.bbox_w, upper.bbox_h = 0.0, 100.0, 300.0, 80.0
+    lower = Section(id="l", name="Lower work")
+    lower.bbox_x, lower.bbox_y, lower.bbox_w, lower.bbox_h = 0.0, 210.0, 300.0, 80.0
+    graph.sections["u"] = upper
+    graph.sections["l"] = lower
+
+    placements = {
+        "u": section_header._below(
+            upper.bbox_x,
+            upper.bbox_y + upper.bbox_h,
+            SECTION_NUM_CIRCLE_R_LARGE,
+            4.0,
+            120.0,
+            10.4,
+            ["Upper work"],
+            0.0,
+            False,
+        )
+    }
+    assert check_section_headers_hold_the_reserved_band(graph, placements, 13.0) == [
+        "u"
+    ]
 
 
 def test_narrow_section_header_wraps_onto_multiple_lines() -> None:

@@ -1387,7 +1387,6 @@ def _build_render_plan_scaled(
         graph,
         header_placements,
         theme.section_label_font_size,
-        header_polylines,
         theme.title_font_size,
     )
 
@@ -2150,18 +2149,16 @@ def _guard_section_headers_hold_the_reserved_band(
     graph: MetroGraph,
     placements: dict[str, SectionHeaderPlacement],
     label_font_size: float,
-    polylines: list[list[tuple[float, float]]],
     title_font_size: float,
 ) -> None:
-    """Fail loudly if a header left its reserved band with room left inside it."""
-    stranded = check_section_headers_hold_the_reserved_band(
-        graph, placements, label_font_size, polylines, title_font_size
+    """Fail loudly if a caption reaches past the band its own side leaves free."""
+    overreaching = check_section_headers_hold_the_reserved_band(
+        graph, placements, label_font_size, title_font_size
     )
-    if stranded:
+    if overreaching:
         raise SectionHeaderBandError(
-            "section header(s) drawn outside the band reserved above their box "
-            "while a position inside it was clear of every route: "
-            + ", ".join(sorted(stranded))
+            "section caption(s) reach past the band the layout leaves free on "
+            "the side they hang off: " + ", ".join(overreaching)
         )
 
 
