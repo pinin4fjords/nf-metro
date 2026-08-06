@@ -94,6 +94,20 @@ class CapacityScope(Enum):
     lies outside the system's own claims is still offered the room."""
 
 
+class _ReplanOutcome(Enum):
+    """What re-planning one system's convergences on a copy came back with."""
+
+    PLANNED = "planned"
+    """Every convergence of the system came back planned."""
+
+    COMPATIBLE = "compatible"
+    """Every one came back on the compatibility path."""
+
+    LOST = "lost"
+    """The system did not come back whole -- it vanished, or its convergences
+    disagree about which path they took -- so there is nothing to measure."""
+
+
 class CapacityVerdict(Enum):
     """What granting boundary capacity did to one compatibility system."""
 
@@ -150,16 +164,6 @@ class CapacityProbe:
         return _least_sufficient(self.grants)
 
     @property
-    def sufficient_scope(self) -> CapacityScope | None:
-        cheapest = self._cheapest_planned()
-        return None if cheapest is None else cheapest[0]
-
-    @property
-    def sufficient_capacity(self) -> float | None:
-        cheapest = self._cheapest_planned()
-        return None if cheapest is None else cheapest[1]
-
-    @property
     def verdict(self) -> CapacityVerdict:
         if not self.control_reproduced:
             return CapacityVerdict.CONTROL_DIVERGED
@@ -169,10 +173,14 @@ class CapacityProbe:
             return CapacityVerdict.ALLOCATION_UNSTABLE
         return CapacityVerdict.BEYOND_ALLOCATION
 
-    def _cheapest_planned(self) -> tuple[CapacityScope, float] | None:
-        """Where the verdict's quoted capacity comes from, for either verdict
-        that has one: the tail's threshold where there is a tail, and otherwise
-        the cheapest grant that was planned at all."""
+    @property
+    def quoted(self) -> tuple[CapacityScope, float] | None:
+        """The scope and capacity the published verdict rests on.
+
+        The tail's threshold where there is a tail, and otherwise the cheapest
+        grant that was planned at all.  ``None`` where nothing was planned, which
+        is the one verdict with no capacity to quote.
+        """
         if self.sufficient is not None:
             return self.sufficient
         planned = [item for item in self.grants if item.planned]
@@ -202,20 +210,21 @@ class CapacityProbe:
                 f"{len(self.grants)} boundary allocations; what holds it is "
                 f"{held}, and no envelope allocation supplies it"
             )
-        assert self.sufficient_capacity is not None
-        assert self.sufficient_scope is not None
+        quoted = self.quoted
+        assert quoted is not None
+        scope, capacity = quoted
         if self.verdict is CapacityVerdict.ALLOCATION_REACHES:
             return (
                 f"route system {self.system_id} is planned once its "
-                f"{self.sufficient_scope.value} carry {self.sufficient_capacity:.2f}px "
+                f"{scope.value} carry {capacity:.2f}px "
                 f"more, and at every larger capacity granted, so what holds it "
                 f"({held}) is an envelope allocation and not a decision to "
                 f"attribute elsewhere"
             )
         return (
             f"route system {self.system_id} is planned at "
-            f"{self.sufficient_capacity:.2f}px more across its "
-            f"{self.sufficient_scope.value} but not at the largest capacity "
+            f"{capacity:.2f}px more across its "
+            f"{scope.value} but not at the largest capacity "
             f"granted, so capacity changes what the planner decides about it "
             f"({held}) without a threshold above which the decision holds"
         )
@@ -284,8 +293,15 @@ def _probe_system(
     system_id: RouteSystemId,
     conflict: ConvergenceConflictKind | None,
 ) -> CapacityProbe:
-    if _is_planned(baseline.control, system_id) is not False:
-        return CapacityProbe(system_id, 0.0, 0.0, (), False, None)
+    if _replan_outcome(baseline.control, system_id) is not _ReplanOutcome.COMPATIBLE:
+        return CapacityProbe(
+            system_id=system_id,
+            unit=0.0,
+            capacity=0.0,
+            grants=(),
+            control_reproduced=False,
+            control_conflict=None,
+        )
     rows, columns, widths = claimed_boundaries(baseline.plan, system_id)
     unit = max(CURVE_RADIUS, baseline.offset_step, max(widths, default=0.0))
     separation = max(
@@ -341,7 +357,7 @@ def claimed_boundaries(
 
 
 def _least_sufficient(
-    grants: tuple[CapacityGrant, ...] | list[CapacityGrant],
+    grants: tuple[CapacityGrant, ...],
 ) -> tuple[CapacityScope, float] | None:
     """The smallest capacity planned at, and at every larger capacity granted.
 
@@ -385,7 +401,7 @@ def _plans_with_capacity(
     probe_graph = copy.deepcopy(graph)
     translate_boundaries(probe_graph, rows, columns, amount)
     replanned, _offset_step = _replan(probe_graph)
-    return _is_planned(replanned, system_id) is True
+    return _replan_outcome(replanned, system_id) is _ReplanOutcome.PLANNED
 
 
 def translate_boundaries(
@@ -460,11 +476,11 @@ def _replan(
     return by_system, context.offset_step
 
 
-def _is_planned(
+def _replan_outcome(
     by_system: dict[RouteSystemId, tuple[ConvergencePlan, ...]],
     system_id: RouteSystemId,
-) -> bool | None:
-    """Whether a re-plan owns the whole system, or ``None`` if it lost it.
+) -> _ReplanOutcome:
+    """What a re-plan made of the whole system.
 
     A system is planned or compatible as a whole, so a mixed result is a
     disagreement with that rule rather than a capacity answer, and is reported
@@ -472,10 +488,10 @@ def _is_planned(
     """
     plans = by_system.get(system_id)
     if not plans:
-        return None
+        return _ReplanOutcome.LOST
     dispositions = {item.disposition for item in plans}
     if dispositions == {ConvergenceDisposition.PLANNED}:
-        return True
+        return _ReplanOutcome.PLANNED
     if dispositions == {ConvergenceDisposition.LEGACY}:
-        return False
-    return None
+        return _ReplanOutcome.COMPATIBLE
+    return _ReplanOutcome.LOST

@@ -23,7 +23,10 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
+    grid_spans_overlap,
     measured_distance,
+    section_column_span,
+    section_row_span,
     spans_share_corridor,
 )
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
@@ -721,21 +724,21 @@ def _section_y_overlaps(section: Section, lo: float, hi: float) -> bool:
 
 
 def _row_end(section: Section) -> int:
-    return section.grid_row + section.grid_row_span - 1
+    return section_row_span(section)[1]
 
 
 def _column_end(section: Section) -> int:
-    return section.grid_col + section.grid_col_span - 1
+    return section_column_span(section)[1]
 
 
 def _span_overlaps_section_columns(span: GridSpan, section: Section) -> bool:
-    return (
-        span.min_column <= _column_end(section) and section.grid_col <= span.max_column
+    return grid_spans_overlap(
+        (span.min_column, span.max_column), section_column_span(section)
     )
 
 
 def _span_overlaps_section_rows(span: GridSpan, section: Section) -> bool:
-    return span.min_row <= _row_end(section) and section.grid_row <= span.max_row
+    return grid_spans_overlap((span.min_row, span.max_row), section_row_span(section))
 
 
 def _edge_blockers(

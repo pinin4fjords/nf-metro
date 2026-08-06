@@ -370,6 +370,31 @@ def flow_port_sides(direction: str) -> tuple[PortSide, PortSide]:
     return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
 
 
+def section_row_span(section: Section) -> tuple[int, int]:
+    """*section*'s first and last grid row, both inclusive."""
+    return section.grid_row, section.grid_row + section.grid_row_span - 1
+
+
+def section_column_span(section: Section) -> tuple[int, int]:
+    """*section*'s first and last grid column, both inclusive."""
+    return section.grid_col, section.grid_col + section.grid_col_span - 1
+
+
+def grid_spans_overlap(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    """Whether two inclusive integer grid intervals share at least one index.
+
+    The one statement of "do these occupy a common row or column", so a caller
+    asking it of a section pair, of a topology span against a section, or of a
+    bypass run's column range gets the same answer to the same question.
+    """
+    return first[0] <= second[1] and second[0] <= first[1]
+
+
+def sections_share_a_column(first: Section, second: Section) -> bool:
+    """Whether two section boxes stand in any common grid column."""
+    return grid_spans_overlap(section_column_span(first), section_column_span(second))
+
+
 def packed_section_visual_order(
     sections: Mapping[str, Section], member_ids: Iterable[str]
 ) -> tuple[str, ...]:

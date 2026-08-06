@@ -19,7 +19,12 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
 )
-from nf_metro.layout.geometry import measured_distance
+from nf_metro.layout.geometry import (
+    grid_spans_overlap,
+    measured_distance,
+    section_column_span,
+    sections_share_a_column,
+)
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases._common import (
@@ -122,19 +127,28 @@ def _predicted_bypass_bottom_in_row(
 
 
 def _aggregate_bypass_spans(
-    graph: MetroGraph, upper_sections: list[Section]
+    graph: MetroGraph,
+    upper_sections: list[Section],
+    memo: dict[int, dict[tuple[int, int], float]] | None = None,
 ) -> dict[tuple[int, int], float]:
     """Aggregate bypass span->bottom predictions across upper sections.
 
     A row-spanning section carries its bypass routes from its start row
     down to the row below its end row, so the prediction must key off
     ``grid_row`` (start), not the end row.
+
+    The per-row prediction reads section boxes and nothing else, so *memo* may
+    carry it between calls that share one frozen geometry; a caller that moves a
+    box between calls must not pass the same one.
     """
+    predicted = {} if memo is None else memo
     combined: dict[tuple[int, int], float] = {}
     for upper_start_row in {s.grid_row for s in upper_sections}:
-        for span, bot in _predicted_bypass_bottom_in_row(
-            graph, upper_start_row
-        ).items():
+        if upper_start_row not in predicted:
+            predicted[upper_start_row] = _predicted_bypass_bottom_in_row(
+                graph, upper_start_row
+            )
+        for span, bot in predicted[upper_start_row].items():
             if bot > combined.get(span, 0.0):
                 combined[span] = bot
     return combined
@@ -219,13 +233,7 @@ def measure_row_gap_clearance(
     if not sections_by_row_start:
         return ()
     max_row = max(s.grid_row + s.grid_row_span - 1 for s in graph.sections.values())
-
-    def _cols_overlap(a: Section, b: Section) -> bool:
-        a_start = a.grid_col
-        a_end = a_start + a.grid_col_span - 1
-        b_start = b.grid_col
-        b_end = b_start + b.grid_col_span - 1
-        return not (a_end < b_start or b_end < a_start)
+    bypass_memo: dict[int, dict[tuple[int, int], float]] = {}
 
     demands: list[BoundaryClearanceDemand] = []
     for r in range(1, max_row + 1):
@@ -239,56 +247,70 @@ def measure_row_gap_clearance(
         ]
         if not ending_at_prev:
             continue
-        bypass_by_span = _aggregate_bypass_spans(graph, ending_at_prev)
+        bypass_by_span = _aggregate_bypass_spans(graph, ending_at_prev, bypass_memo)
         target_gap = max(section_y_gap, routing_min.get((r - 1, r), 0.0))
 
-        deficit = 0.0
-        blockers: tuple[str, ...] = ()
-        source = ""
+        # (deficit, the clearance it is measured against, its blockers, its
+        # description).  The leading entry is what an unblocked boundary owes, so
+        # the widest wins outright; ``max`` keeps the first of equal deficits,
+        # which is the order they are measured in.
+        candidates: list[tuple[float, float, tuple[str, ...], str]] = [
+            (0.0, target_gap, (), "")
+        ]
         for us in ending_at_prev:
             for ls in lower:
-                if ls.bbox_h <= 0 or not _cols_overlap(us, ls):
+                if ls.bbox_h <= 0 or not sections_share_a_column(us, ls):
                     continue
-                d = target_gap - measured_distance(us.bbox_y + us.bbox_h, ls.bbox_y)
-                if d > deficit:
-                    deficit, blockers, source = d, (us.id,), "the box above it"
+                candidates.append(
+                    (
+                        target_gap
+                        - measured_distance(us.bbox_y + us.bbox_h, ls.bbox_y),
+                        target_gap,
+                        (us.id,),
+                        "the box above it",
+                    )
+                )
         for (lo, hi), bypass_bot in bypass_by_span.items():
             for ls in lower:
-                if ls.bbox_h <= 0:
+                if ls.bbox_h <= 0 or not grid_spans_overlap(
+                    section_column_span(ls), (lo, hi)
+                ):
                     continue
-                ls_lo = ls.grid_col
-                ls_hi = ls.grid_col + ls.grid_col_span - 1
-                if ls_hi < lo or ls_lo > hi:
-                    continue
-                d = target_gap - measured_distance(bypass_bot, ls.bbox_y)
-                if d > deficit:
-                    deficit = d
-                    blockers = ()
-                    source = f"a bypass route across columns {lo}-{hi}"
+                candidates.append(
+                    (
+                        target_gap - measured_distance(bypass_bot, ls.bbox_y),
+                        target_gap,
+                        (),
+                        f"a bypass route across columns {lo}-{hi}",
+                    )
+                )
         envelope_gap = envelope_min.get((r - 1, r), 0.0)
         if envelope_gap:
             envelope_bottom = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
             envelope_top = min(ls.bbox_y for ls in lower if ls.bbox_h > 0)
-            d = envelope_gap - measured_distance(envelope_bottom, envelope_top)
-            if d > deficit:
-                deficit = d
-                blockers = tuple(
-                    s.id
-                    for s in ending_at_prev
-                    if abs(s.bbox_y + s.bbox_h - envelope_bottom) <= COORD_TOLERANCE
+            candidates.append(
+                (
+                    envelope_gap - measured_distance(envelope_bottom, envelope_top),
+                    envelope_gap,
+                    tuple(
+                        s.id
+                        for s in ending_at_prev
+                        if abs(s.bbox_y + s.bbox_h - envelope_bottom) <= COORD_TOLERANCE
+                    ),
+                    "the row envelope above it",
                 )
-                source = "the row envelope above it"
-                target_gap = envelope_gap
+            )
+        deficit, required, blockers, source = max(candidates, key=lambda item: item[0])
         if deficit <= SAME_COORD_TOLERANCE:
             continue
         demands.append(
             BoundaryClearanceDemand(
                 SettlementAxis.ROW,
                 r,
-                target_gap,
+                required,
                 deficit,
                 tuple(sorted(blockers)),
-                f"the {target_gap:.2f}px clearance row boundary {r} owes {source}",
+                f"the {required:.2f}px clearance row boundary {r} owes {source}",
             )
         )
     return tuple(demands)
