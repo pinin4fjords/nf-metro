@@ -8,6 +8,7 @@ from functools import partial
 
 from nf_metro.layout.constants import (
     BYPASS_CLEARANCE,
+    COORD_TOLERANCE,
     CURVE_RADIUS,
     DIAGONAL_RUN,
     MIN_BUNDLE_EDGE_CLEARANCE,
@@ -17,6 +18,12 @@ from nf_metro.layout.constants import (
     MIN_STRAIGHT_PORT,
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
+)
+from nf_metro.layout.geometry import (
+    grid_spans_overlap,
+    measured_distance,
+    sections_share_a_column,
+    shift_section,
 )
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
@@ -39,9 +46,14 @@ from nf_metro.layout.phases._common import (
     port_edge_inset,
     section_anchor_edge,
 )
+from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.single_section import (
     _terminus_y_overhang,
     angled_label_reach,
+)
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceDemand,
+    SettlementAxis,
 )
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station, is_bypass_v
 
@@ -115,90 +127,107 @@ def _predicted_bypass_bottom_in_row(
 
 
 def _aggregate_bypass_spans(
-    graph: MetroGraph, upper_sections: list[Section]
+    graph: MetroGraph,
+    upper_sections: list[Section],
+    memo: dict[int, dict[tuple[int, int], float]] | None = None,
 ) -> dict[tuple[int, int], float]:
     """Aggregate bypass span->bottom predictions across upper sections.
 
     A row-spanning section carries its bypass routes from its start row
     down to the row below its end row, so the prediction must key off
     ``grid_row`` (start), not the end row.
+
+    The per-row prediction reads section boxes and nothing else, so *memo* may
+    carry it between calls that share one frozen geometry; a caller that moves a
+    box between calls must not pass the same one.
     """
+    predicted = {} if memo is None else memo
     combined: dict[tuple[int, int], float] = {}
     for upper_start_row in {s.grid_row for s in upper_sections}:
-        for span, bot in _predicted_bypass_bottom_in_row(
-            graph, upper_start_row
-        ).items():
+        if upper_start_row not in predicted:
+            predicted[upper_start_row] = _predicted_bypass_bottom_in_row(
+                graph, upper_start_row
+            )
+        for span, bot in predicted[upper_start_row].items():
             if bot > combined.get(span, 0.0):
                 combined[span] = bot
     return combined
 
 
-def _shift_rows_from(graph: MetroGraph, from_row: int, deficit: float) -> None:
+def _shift_rows_from(
+    graph: MetroGraph,
+    from_row: int,
+    deficit: float,
+    *,
+    reposition_junctions: bool = True,
+) -> None:
     """Shift every section at or below *from_row* down by *deficit*.
 
-    Moves the sections' bboxes and their stations/ports together. Junctions live
-    in inter-section space and are reproduced by routing, so they are not moved.
+    Negative amounts pull those rows up.  This is the one global translation
+    primitive the row-compensation passes above share: each of them measures a
+    per-boundary amount locally and then hands it here, so what those passes
+    write outside their own boxes is exactly the calls to this function.
+
+    Moves the sections' bboxes and their stations/ports together.  With
+    *reposition_junctions*, junction placement is re-derived from the moved
+    ports: a junction's coordinates are a function of the ports it joins (a
+    fan-out junction is pinned to its exit port's Y, a merge junction to its
+    entry port's Y), so a translation that left junctions behind would strand
+    them off the bundle they belong to.  A caller running before any routing
+    pass reads a junction coordinate can leave them for routing to recompute.
     """
     for s in graph.sections.values():
-        if s.grid_row < from_row:
-            continue
-        s.bbox_y += deficit
-        for stid in s.station_ids:
-            st = graph.stations.get(stid)
-            if st is not None:
-                st.y += deficit
-            port = graph.ports.get(stid)
-            if port is not None:
-                port.y += deficit
+        if s.grid_row >= from_row:
+            shift_section(graph, s, dy=deficit)
+    if reposition_junctions:
+        _position_junctions(graph)
 
 
-def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> bool:
-    """Push lower-row sections down when an upper-row bbox grows.
+def measure_row_gap_clearance(
+    graph: MetroGraph, section_y_gap: float
+) -> tuple[BoundaryClearanceDemand, ...]:
+    """How far short each row boundary is of the clearance it owes.
 
-    Shared helper called by stages that may grow a section's
-    ``bbox_h`` downward after row offsets are already fixed (e.g.
-    ``_shift_and_propagate_loop_stations`` at Stage 6.14, the sparse
-    loop-station shift, and the render-time label-wrap growth).  Row
-    offsets were fixed earlier by ``_compute_section_offsets`` from
-    pre-grow bbox heights, so the section below a grown one can end up
-    sitting closer than ``section_y_gap`` from the new bbox bottom.
+    A boundary owes ``section_y_gap``, raised to whatever an inter-row run or a
+    bottommost merge trunk's envelope needs there.  What that clearance is
+    measured against is three things, and a boundary owes the largest:
 
-    For each row ``r >= 1``, measure the deficit between the lowest
-    bbox bottom of sections ending at row ``r - 1`` and the top of
-    sections at row ``r``, but only count pairs whose column spans
-    overlap.  Two sections that share a vertical edge in column space
-    must keep ``section_y_gap`` between them; sections in different
-    columns can sit with smaller (or no) vertical separation without
-    visual interference.  If a positive deficit remains, shift row
-    ``r`` and below downward by that deficit (sections + stations +
-    ports).  Junctions live in inter-section space and are reproduced
-    by routing.
+    * the bbox bottoms of sections *ending* at row ``r - 1`` whose column spans
+      overlap a section starting at row ``r``.  Two sections sharing a vertical
+      edge in column space must keep the gap between them; sections in
+      different columns can sit closer without visual interference;
+    * the depth a bypass route dips below the intervening bboxes it passes.
+      Those need no column overlap with the upper-row endpoint bbox, only with
+      the lower section they would otherwise crowd against;
+    * the two row envelopes, for a bottommost-row merge trunk whose channel is
+      bounded by them rather than by the columns it travels.
 
-    Returns ``True`` when any row was shifted, so a render-time caller
-    can recompute the geometry that tracks the moved sections.
+    Pure measurement: the caller decides whether to translate.  Every blocker
+    the deficit is measured from lies wholly above the boundary, and every box
+    it is measured to starts at or beyond it, so the deficits at different
+    boundaries are independent -- widening one moves both sides of every other
+    together.
     """
     if not graph.sections:
-        return False
+        return ()
 
-    from nf_metro.layout.section_placement import _inter_row_routing_minimums
+    from nf_metro.layout.section_placement import (
+        _inter_row_routing_minimums,
+        _merge_trunk_row_minimums,
+    )
 
     routing_min = _inter_row_routing_minimums(graph)
+    envelope_min = _merge_trunk_row_minimums(graph)
 
     sections_by_row_start: dict[int, list[Section]] = defaultdict(list)
     for s in graph.sections.values():
         sections_by_row_start[s.grid_row].append(s)
     if not sections_by_row_start:
-        return False
+        return ()
     max_row = max(s.grid_row + s.grid_row_span - 1 for s in graph.sections.values())
-    shifted = False
+    bypass_memo: dict[int, dict[tuple[int, int], float]] = {}
 
-    def _cols_overlap(a: Section, b: Section) -> bool:
-        a_start = a.grid_col
-        a_end = a_start + a.grid_col_span - 1
-        b_start = b.grid_col
-        b_end = b_start + b.grid_col_span - 1
-        return not (a_end < b_start or b_end < a_start)
-
+    demands: list[BoundaryClearanceDemand] = []
     for r in range(1, max_row + 1):
         lower = sections_by_row_start.get(r, [])
         if not lower:
@@ -210,46 +239,109 @@ def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> 
         ]
         if not ending_at_prev:
             continue
-        bypass_by_span = _aggregate_bypass_spans(graph, ending_at_prev)
+        bypass_by_span = _aggregate_bypass_spans(graph, ending_at_prev, bypass_memo)
         target_gap = max(section_y_gap, routing_min.get((r - 1, r), 0.0))
 
-        # Only consider column-overlapping (upper, lower) pairs for
-        # deficit computation: a tall upper-row bbox that lives in a
-        # different column from the lower-row content does not need
-        # additional vertical clearance to satisfy the row gap.
-        deficit = 0.0
+        # (deficit, the clearance it is measured against, its blockers, its
+        # description).  The leading entry is what an unblocked boundary owes, so
+        # the widest wins outright; ``max`` keeps the first of equal deficits,
+        # which is the order they are measured in.
+        candidates: list[tuple[float, float, tuple[str, ...], str]] = [
+            (0.0, target_gap, (), "")
+        ]
         for us in ending_at_prev:
             for ls in lower:
-                if ls.bbox_h <= 0:
+                if ls.bbox_h <= 0 or not sections_share_a_column(us, ls):
                     continue
-                if not _cols_overlap(us, ls):
-                    continue
-                upper_bot = us.bbox_y + us.bbox_h
-                lower_top = ls.bbox_y
-                d = (upper_bot + target_gap) - lower_top
-                if d > deficit:
-                    deficit = d
-        # Bypass routes do not need column overlap with the upper-row
-        # endpoint bbox; they only need column overlap with the lower
-        # section they would otherwise crowd against.
+                candidates.append(
+                    (
+                        target_gap
+                        - measured_distance(us.bbox_y + us.bbox_h, ls.bbox_y),
+                        target_gap,
+                        (us.id,),
+                        "the box above it",
+                    )
+                )
         for (lo, hi), bypass_bot in bypass_by_span.items():
             for ls in lower:
-                if ls.bbox_h <= 0:
+                ls_columns = (ls.grid_col, ls.grid_col + ls.grid_col_span - 1)
+                if ls.bbox_h <= 0 or not grid_spans_overlap(ls_columns, (lo, hi)):
                     continue
-                ls_lo = ls.grid_col
-                ls_hi = ls.grid_col + ls.grid_col_span - 1
-                if ls_hi < lo or ls_lo > hi:
-                    continue
-                d = (bypass_bot + target_gap) - ls.bbox_y
-                if d > deficit:
-                    deficit = d
+                candidates.append(
+                    (
+                        target_gap - measured_distance(bypass_bot, ls.bbox_y),
+                        target_gap,
+                        (),
+                        f"a bypass route across columns {lo}-{hi}",
+                    )
+                )
+        envelope_gap = envelope_min.get((r - 1, r), 0.0)
+        if envelope_gap:
+            envelope_bottom = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
+            envelope_top = min(ls.bbox_y for ls in lower if ls.bbox_h > 0)
+            candidates.append(
+                (
+                    envelope_gap - measured_distance(envelope_bottom, envelope_top),
+                    envelope_gap,
+                    tuple(
+                        s.id
+                        for s in ending_at_prev
+                        if abs(s.bbox_y + s.bbox_h - envelope_bottom) <= COORD_TOLERANCE
+                    ),
+                    "the row envelope above it",
+                )
+            )
+        deficit, required, blockers, source = max(candidates, key=lambda item: item[0])
         if deficit <= SAME_COORD_TOLERANCE:
             continue
+        demands.append(
+            BoundaryClearanceDemand(
+                SettlementAxis.ROW,
+                r,
+                required,
+                deficit,
+                tuple(sorted(blockers)),
+                f"the {required:.2f}px clearance row boundary {r} owes {source}",
+            )
+        )
+    return tuple(demands)
 
+
+def push_lower_rows_after_bbox_grow(graph: MetroGraph, section_y_gap: float) -> bool:
+    """Push lower-row sections down when an upper-row bbox grows.
+
+    Shared helper called by layout stages that may grow a section's ``bbox_h``
+    downward after row offsets are already fixed (``_shift_and_propagate_loop_
+    stations`` at Stage 6.14, and the Stage 6.15a top-padding restore).  Row
+    offsets were fixed earlier by ``_compute_section_offsets`` from pre-grow
+    bbox heights, so the section below a grown one can end up sitting closer
+    than the gap the boundary owes.
+
+    Measures with :func:`measure_row_gap_clearance` and pays each deficit by
+    shifting that row and below down (sections + stations + ports + the
+    junctions those ports anchor).  Returns ``True`` when any row was shifted.
+
+    Callers that run after routing has published its reservation ledger hand the
+    measurement to envelope settlement instead, so that one translation settles a
+    boundary's corridor and clearance demands together.
+
+    Each boundary is paid at most once, lowest first, re-measuring in between so
+    a boundary a previous shift already relieved is not charged twice.
+    """
+    shifted = False
+    paid: set[int] = set()
+    while True:
+        pending = [
+            demand
+            for demand in measure_row_gap_clearance(graph, section_y_gap)
+            if demand.boundary not in paid
+        ]
+        if not pending:
+            return shifted
+        demand = min(pending, key=lambda item: item.boundary)
+        paid.add(demand.boundary)
+        _shift_rows_from(graph, demand.boundary, demand.deficit)
         shifted = True
-        _shift_rows_from(graph, r, deficit)
-
-    return shifted
 
 
 def _loop_corner_x(
@@ -1208,7 +1300,10 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     if not graph.sections:
         return
 
-    from nf_metro.layout.section_placement import _inter_row_routing_minimums
+    from nf_metro.layout.section_placement import (
+        _inter_row_routing_minimums,
+        _merge_trunk_row_minimums,
+    )
 
     # A horizontal run an inter-row gap must host -- an entry-wrap bundle or a
     # bottommost-row merge-trunk channel -- needs a wider gap than the bare
@@ -1216,6 +1311,7 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
     # minimum here so tightening doesn't reclaim the space
     # ``_enforce_min_row_gaps`` reserved at placement.
     routing_min = _inter_row_routing_minimums(graph)
+    envelope_min = _merge_trunk_row_minimums(graph)
 
     sections_by_start_row: dict[int, list[Section]] = defaultdict(list)
     sections_by_end_row: dict[int, list[Section]] = defaultdict(list)
@@ -1305,24 +1401,18 @@ def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) ->
         if not constrained:
             constrained = [(ls, global_floor) for ls in lower]
         slack = min(ls.bbox_y - (floor + target_gap) for ls, floor in constrained)
+        envelope_gap = envelope_min.get((r - 1, r), 0.0)
+        if envelope_gap:
+            # A merge trunk's channel spans the boundary between the two row
+            # envelopes, so no column-overlapping pair bounds it -- and the
+            # parser rewrote its connectors through fan and merge nodes, so no
+            # section pair records the two rows as related at all.
+            envelope_top = min(ls.bbox_y for ls in lower)
+            slack = min(slack, envelope_top - (global_floor + envelope_gap))
         if slack <= SAME_COORD_TOLERANCE:
             continue
 
-        for s in graph.sections.values():
-            if s.grid_row < r:
-                continue
-            s.bbox_y -= slack
-            for stid in s.station_ids:
-                st = graph.stations.get(stid)
-                if st is not None:
-                    st.y -= slack
-                # Ports carry a separate coordinate that routing reads; keep it
-                # in step so a shifted section's entry/exit ports do not strand
-                # below the moved box (the fold-back connector would then wrap
-                # off-port into the target).
-                port = graph.ports.get(stid)
-                if port is not None:
-                    port.y -= slack
+        _shift_rows_from(graph, r, -slack, reposition_junctions=False)
 
 
 def _min_section_bbox_top(graph: MetroGraph, default: float) -> float:
