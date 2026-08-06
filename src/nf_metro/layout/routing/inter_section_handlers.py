@@ -3462,7 +3462,7 @@ def _perp_entry_finish_route(
     Tries, in order: wrapping past the box when the feeder approaches from
     the entry's far side (``wrap_x``), a direct traverse-then-turn when a
     junction fan branch can clear every other section, a collapsed drop when
-    the lead-in already sits at the landing X, else the full staircase
+    the lead-in already reaches the landing column, else the full staircase
     through the inter-row channel at ``mid_y``.
     """
     sx, sy = src.x, src.y
@@ -3479,11 +3479,17 @@ def _perp_entry_finish_route(
     elif _top_entry_side_fan_traverse_is_clear(edge, src, tgt, final_x, ctx):
         centerline = [(sx, sy), (final_x, sy), (final_x, ty)]
         transition_leg = 1
-    # When the lead-in already sits at the landing X the trunk leg collapses;
-    # continue straight from the lead-in and jog into the port instead.
+    # The lead-in already reaches the landing column, so the channel leg
+    # between them is short enough to drop: run the lead-in to the landing
+    # column itself and turn down once.  Turning down beside it and jogging
+    # across at the port instead would step the line sideways exactly on the
+    # boundary, which the intra-section departure leaves at the landing column.
+    # Where the source already stands in that column the lead-in spans nothing
+    # either, and only the drop is left.
     elif abs(lx0 - final_x) <= ctx.curve_radius:
-        centerline = [(sx, sy), (lx0, sy), (lx0, ty), (final_x, ty)]
-        transition_leg = 2
+        lead_in = [] if abs(final_x - sx) <= COORD_TOLERANCE else [(final_x, sy)]
+        centerline = [(sx, sy), *lead_in, (final_x, ty)]
+        transition_leg = len(lead_in)
     else:
         centerline = [
             (sx, sy),

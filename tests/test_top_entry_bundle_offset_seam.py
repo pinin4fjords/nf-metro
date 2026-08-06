@@ -13,6 +13,9 @@ splits off the ``a,b,c`` trunk at a junction (giving it a non-zero offset) and
 drops into ``dst`` through its ``entry: top`` port.  ``fold_left_exit_right_entry``
 carries an offset-free top/side entry and guards the zero-offset case: an entry
 with no inbound bundle offset must land directly on the port's X.
+``lr_perpendicular_ports_overflow`` guards the other way the two can part: its
+feeder leaves through a RIGHT exit, so the descent cannot occupy the exit's own
+column and the port has to stand in the column the descent does occupy.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import pytest
 from nf_metro import api
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.layout.routing.common import apply_route_offsets
+from nf_metro.layout.routing.corners import outer_lane_radius
 from nf_metro.layout.routing.invariants import (
     check_perp_entry_boundary_consistent,
     check_seam_segments_meet_at_port,
@@ -33,7 +37,13 @@ FIXTURES = [
     "examples/topologies/fold_left_exit_right_entry.mmd",
     "examples/topologies/straight_drop_below.mmd",
     "examples/topologies/peeloff_straight_drop_near_wall.mmd",
+    "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd",
 ]
+
+# A TOP entry stacked directly under the RIGHT exit that feeds it: the feeder
+# leaves horizontally, so its descent column stands a turn's runway out from
+# the exit and the port has to stand there with it.
+HORIZONTAL_EXIT_REPRO = "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd"
 
 REPRO = "examples/topologies/top_entry_bundle_offset_seam.mmd"
 
@@ -84,6 +94,26 @@ def test_top_entry_descent_lands_on_port_x() -> None:
     )
     landing_x = apply_route_offsets(descent, offsets)[-1][0]
     assert landing_x == pytest.approx(port.x, abs=1.0)
+
+
+def test_horizontal_exit_drop_turns_once_onto_the_port_column() -> None:
+    """A TOP entry fed by a RIGHT exit is reached by one turn and one drop.
+
+    A horizontal exit cannot turn down in its own column: the turn needs a run
+    beside the box, so the descent occupies the column one outer-lane radius
+    out.  The port stands in that column, and the descent is then a lead-in of
+    exactly that run, a single turn, and a straight vertical onto the port --
+    no lateral step at the boundary, which the intra-section drop leaves at the
+    port's own X.
+    """
+    graph, routes, offsets = _route(HORIZONTAL_EXIT_REPRO)
+    exit_st = graph.stations["upstream__exit_right_0"]
+    port = graph.ports["annotation__entry_top_2"]
+    assert port.x == pytest.approx(exit_st.x + outer_lane_radius(1), abs=1.0)
+    descent = next(r for r in routes if r.edge.target == port.id)
+    assert apply_route_offsets(descent, offsets) == pytest.approx(
+        [(exit_st.x, exit_st.y), (port.x, exit_st.y), (port.x, port.y)], abs=1.0
+    )
 
 
 @pytest.mark.parametrize("path", STRAIGHT_DROPS)
