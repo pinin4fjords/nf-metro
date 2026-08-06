@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import NamedTuple
@@ -24,10 +24,21 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    cotravelling_lanes_fuse,
+    lanes_run_along_x,
+    lanes_run_along_y,
+    spans_share_corridor,
+)
 from nf_metro.layout.route_topology import (
     convergence_junction_ids,
     merge_fanout_junction_ids,
+)
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    ReservedBands,
+    held_in_reserved_band,
 )
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
@@ -1603,6 +1614,7 @@ def inter_column_channel_x(
     dx: float,
     max_r: float,
     offset_step: float,
+    reserved: ReservedBands | None = None,
 ) -> float:
     """Compute the X position for a vertical channel in an L-shaped route.
 
@@ -1614,7 +1626,9 @@ def inter_column_channel_x(
     tgt_sec = graph.sections.get(tgt.section_id) if tgt.section_id else None
 
     if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
-        return column_gap_midpoint(graph, src_sec.grid_col, tgt_sec.grid_col)
+        return centre_inter_column_channel(
+            graph, src_sec.grid_col, tgt_sec.grid_col, reserved=reserved
+        )
 
     # Extend the same gap-centred placement to junction endpoints (whose
     # section is found by tracing the junction graph) so a junction-sourced
@@ -1625,7 +1639,9 @@ def inter_column_channel_x(
     res_src = src_sec or resolve_section(graph, src)
     res_tgt = tgt_sec or resolve_section(graph, tgt)
     if res_src and res_tgt and abs(res_src.grid_col - res_tgt.grid_col) == 1:
-        return column_gap_midpoint(graph, res_src.grid_col, res_tgt.grid_col)
+        return centre_inter_column_channel(
+            graph, res_src.grid_col, res_tgt.grid_col, reserved=reserved
+        )
 
     # Fallback: place near source (no resolvable adjacent column info)
     if dx > 0:
@@ -1825,6 +1841,8 @@ def bypass_bottom_y(
     src_row: int | None = None,
     cross_row: bool = False,
     tgt_row: int | None = None,
+    reserved: ReservedBands | None = None,
+    claim: ReservedBand | None = None,
 ) -> float:
     """Bottom Y for a bypass route around intervening sections.
 
@@ -1845,7 +1863,14 @@ def bypass_bottom_y(
     falls back to the shorter of the source/target endpoint sections
     so the route hugs the smaller box rather than being pushed down
     by a tall neighbour.
+
+    *claim* is the band this route's own reservation realises for its trunk.
+    It holds the result unconditionally: the section edges consulted here are
+    a proxy for the blockers the reservation measured over the corridor's own
+    run, and where the two disagree -- including a candidate so deep it falls
+    in no inter-row gap at all -- the allocation wins.
     """
+
     lo, hi = min(src_col, tgt_col), max(src_col, tgt_col)
 
     if cross_row:
@@ -1856,7 +1881,14 @@ def bypass_bottom_y(
             # and loop back up to the entry port).
             upper_bottom = row_bottom_edge(graph, tgt_row - 1, default=0.0)
             lower_top = row_top_edge(graph, tgt_row, default=upper_bottom)
-            return _center_inter_row_channel(upper_bottom, lower_top)
+            return held_in_reserved_band(
+                _center_inter_row_channel(
+                    upper_bottom,
+                    lower_top,
+                    reserved=None if reserved is None else reserved.at(tgt_row),
+                ),
+                claim,
+            )
         # Route below ALL sections in the column range.
         all_in_range = [
             s
@@ -1864,8 +1896,10 @@ def bypass_bottom_y(
             if s.bbox_w > 0 and lo <= s.grid_col <= hi
         ]
         if all_in_range:
-            return max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance
-        return clearance
+            return held_in_reserved_band(
+                max(s.bbox_y + s.bbox_h for s in all_in_range) + clearance, claim
+            )
+        return held_in_reserved_band(clearance, claim)
 
     def _in_row(s: Section) -> bool:
         return src_row is None or s.grid_row == src_row
@@ -1891,7 +1925,7 @@ def bypass_bottom_y(
         if endpoints:
             candidate = max(s.bbox_y + s.bbox_h for s in endpoints) + clearance
         else:
-            return clearance
+            return held_in_reserved_band(clearance, claim)
 
     # Keep the bypass at least HEADER_CLEARANCE above any LOWER-row
     # section header_top; the stacked-line bundle otherwise crowds the
@@ -1913,7 +1947,26 @@ def bypass_bottom_y(
                     else:
                         candidate = (row_bottom + header_top) / 2
 
-    return candidate
+    return held_in_reserved_band(
+        held_in_reserved_gap_band(graph, candidate, reserved), claim
+    )
+
+
+def held_in_reserved_gap_band(
+    graph: MetroGraph, y: float, reserved: ReservedBands | None
+) -> float:
+    """*y* held inside the band reserved for whichever inter-row gap holds it.
+
+    Section bottoms plus a clearance describe where a horizontal run may sit
+    given the boxes stacked in the two rows; the reservation for the gap it
+    lands in describes where the corridor's own blockers leave it room.  Where
+    the two disagree the reservation wins.  A run that falls in no inter-row gap
+    (a dive below the bottom row) claims no reservation and is left alone.
+    """
+    if reserved is None:
+        return y
+    upper = inter_row_gap_upper_row(graph, y)
+    return y if upper is None else held_in_reserved_band(y, reserved.at(upper + 1))
 
 
 def merge_trunk_force_cross_row(
@@ -2082,6 +2135,19 @@ def inter_row_wrap_band(n_lines: int, offset_step: float = OFFSET_STEP) -> float
     return INTER_ROW_EDGE_CLEARANCE + span + INTER_ROW_HEADER_CLEARANCE
 
 
+def reserved_row_band_between(
+    reserved: ReservedBands | None, src_row: int, tgt_row: int
+) -> ReservedBand | None:
+    """The band reserved in the gap a run between these two rows travels.
+
+    Only adjacent rows share one boundary; a run crossing further spans several
+    gaps at once and so consumes no single reservation.
+    """
+    if reserved is None or abs(src_row - tgt_row) != 1:
+        return None
+    return reserved.at(max(src_row, tgt_row))
+
+
 def inter_row_channel_y(
     graph: MetroGraph,
     src: Station,
@@ -2091,6 +2157,7 @@ def inter_row_channel_y(
     dy: float,
     max_r: float,
     offset: float = 0.0,
+    reserved: ReservedBands | None = None,
 ) -> float:
     """Compute Y for a horizontal channel in an inter-row gap.
 
@@ -2121,7 +2188,12 @@ def inter_row_channel_y(
             else:
                 upper_bottom = row_bottom_edge(graph, tgt_row, default=ty)
                 lower_top = row_top_edge(graph, src_row, default=sy)
-            return _center_inter_row_channel(upper_bottom, lower_top, offset)
+            return _center_inter_row_channel(
+                upper_bottom,
+                lower_top,
+                offset,
+                reserved=reserved_row_band_between(reserved, src_row, tgt_row),
+            )
 
         # Multi-row crossing: an intervening row sits between source and
         # target.  Keep the legacy midpoint so ``_route_around_section_below``
@@ -2209,25 +2281,44 @@ def merge_fanout_pivot_reference(
 
 
 def _center_inter_row_channel(
-    upper_bottom: float, lower_top: float, offset: float = 0.0
+    upper_bottom: float,
+    lower_top: float,
+    offset: float = 0.0,
+    *,
+    reserved: ReservedBand | None = None,
 ) -> float:
     """Y for a horizontal channel in the gap between two stacked rows.
 
-    The channel is centred in the band that keeps
+    A *reserved* band is the allocation the corridor's own
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` realises,
+    already carrying its side clearances.  It wins outright: the reservation
+    measured the blockers that actually bound this corridor over its declared
+    span, whereas ``upper_bottom`` / ``lower_top`` are whichever row edges the
+    caller had to hand.  A *reserved* band here is
+    :meth:`ReservedBands.at`'s boundary-wide intersection, which every claim
+    crossing the boundary has to satisfy at once and so can be narrower than any
+    one of them, down to a single coordinate.  :meth:`ReservedBand.place`
+    therefore keeps the stagger rather
+    than collapsing it, and a bundle wider than the intersection overruns it,
+    which the closing guard reports.
+
+    Without a reservation the channel is centred in the band that keeps
     :data:`INTER_ROW_EDGE_CLEARANCE` above the bbox bottom of the row
     above and :data:`INTER_ROW_HEADER_CLEARANCE` above the row below --
     the latter clears the *header badge* (numbered circle + label) rather
     than just the bbox edge, so the run doesn't graze the next-row label.
     When the gap is too narrow to satisfy both margins the channel biases
-    to ``hi`` so it still clears the badge.
+    to ``hi``, which keeps the badge clear at the source side's expense.
 
-    A non-zero ``offset`` (a per-line bundle stagger) shifts the run off
-    centre.  When the band has room it is clamped to stay inside, so a
-    stagger sized from a larger bundle than the gap was reserved for can't
-    push the run past the box edge or header badge; in the degenerate
-    too-narrow band the stagger is applied unclamped so co-travelling lines
-    stay distinct rather than collapsing onto one Y.
+    A non-zero ``offset`` (a per-line bundle stagger) shifts the run off centre.
+    Where both margins fit it is clamped inside them, so a stagger sized from a
+    larger bundle than the gap allows cannot push the run past the box edge or
+    header badge; in the degenerate too-narrow gap the stagger is applied
+    unclamped so co-travelling lines stay distinct rather than collapsing onto
+    one Y.
     """
+    if reserved is not None:
+        return reserved.place(offset)
     lo = upper_bottom + INTER_ROW_EDGE_CLEARANCE
     hi = lower_top - INTER_ROW_HEADER_CLEARANCE
     if _inter_row_band_fits(upper_bottom, lower_top):
@@ -2238,3 +2329,236 @@ def _center_inter_row_channel(
     # the visually intrusive side -- and the source side keeps whatever
     # the gap allows, rather than the geometric midpoint that grazes both.
     return hi + offset
+
+
+def centre_inter_column_channel(
+    graph: MetroGraph,
+    col_a: int,
+    col_b: int,
+    row: int | None = None,
+    offset: float = 0.0,
+    *,
+    reserved: ReservedBands | None = None,
+) -> float:
+    """X for a vertical channel in the gap between two columns.
+
+    The horizontal twin of :func:`_center_inter_row_channel`, and it reads its
+    *reserved* band the same way: a band is the allocation the corridor's own
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` realises,
+    already carrying its side clearances, and it wins outright because the
+    reservation measured the blockers that actually bound this corridor over its
+    declared span.  Only adjacent columns name one boundary, so a channel
+    spanning further keeps the raw midpoint of :func:`column_gap_midpoint`,
+    which is bounded by whichever sections happen to sit in the two columns.
+    """
+    band = (
+        reserved.at(max(col_a, col_b))
+        if reserved is not None and abs(col_a - col_b) == 1
+        else None
+    )
+    if band is not None:
+        return band.place(offset)
+    return column_gap_midpoint(graph, col_a, col_b, row) + offset
+
+
+def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a convergence plan owns the boundary at or beside *rank*.
+
+    A plan that owns a segment boundary owns the corner there, so a pass moving
+    either of the two segments meeting at it would contradict the plan the
+    closing validators check the geometry against.
+    """
+    return any(
+        item in route.convergence_owned_segment_ranks
+        for item in (rank - 1, rank, rank + 1)
+    )
+
+
+def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+    """Whether a pre-routing plan fixes the coordinate of one route segment.
+
+    A convergence-owned segment boundary, a fan emission and a planned exit turn
+    are all resolved against a plan the closing validators check the geometry
+    against, so their coordinate is not a normalisation pass's to choose.
+
+    Stated once because the passes that move a coordinate and the guards that
+    refuse the result both have to agree on which coordinates are theirs: a pass
+    reading a wider rule than its guard would move geometry the guard then
+    refuses, and a narrower one would leave a defect neither reports.
+    """
+    return (
+        convergence_owns_segment_boundary(route, rank)
+        or route.fan_route_emitter is not None
+        or (
+            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CorridorRun:
+    """One straight interior run of a route, read on whichever axis holds it.
+
+    ``axis`` indexes the coordinate the run holds constant -- ``0`` for a
+    vertical run, ``1`` for a horizontal one -- so ``coord`` and ``span`` read
+    the same way on both and select the moved coordinate for a caller that
+    translates the run.  ``sign`` is the direction of travel along the other
+    axis.
+    """
+
+    route: RoutedPath
+    idx: int
+    axis: int
+    coord: float
+    span: tuple[float, float]
+    sign: int
+
+    @property
+    def radii(self) -> tuple[float, float]:
+        """The run's incoming and outgoing flanking corner radii."""
+        stored = self.route.curve_radii or []
+        return tuple(
+            stored[i] if 0 <= i < len(stored) else CURVE_RADIUS
+            for i in (self.idx - 1, self.idx)
+        )  # type: ignore[return-value]
+
+
+def corridor_runs(
+    rp: RoutedPath, points: Sequence[tuple[float, float]] | None = None
+) -> Iterator[CorridorRun]:
+    """Every interior straight run of *rp* that turns at both ends.
+
+    A run bounded by two perpendicular legs is one a pass may translate whole:
+    both flanking legs stretch to meet it and its two corners re-form.  The
+    route's opening and closing legs are excluded because they are pinned to an
+    endpoint that moving the run would tear away from.
+
+    *points* reads the run coordinates from a projection of the route rather
+    than its waypoints, so a caller judging what is drawn passes the
+    offset-applied polyline while a pass about to move a waypoint omits it.
+    """
+    pts = rp.points if points is None else points
+    for k in range(1, len(pts) - 2):
+        start, end = pts[k], pts[k + 1]
+        axis = 0 if abs(end[0] - start[0]) <= abs(end[1] - start[1]) else 1
+        along = 1 - axis
+        if abs(end[axis] - start[axis]) > COORD_TOLERANCE:
+            continue
+        travel = end[along] - start[along]
+        if abs(travel) <= COORD_TOLERANCE:
+            continue
+        if any(
+            abs(pts[flank][along] - pts[corner][along]) > COORD_TOLERANCE
+            or abs(pts[flank][axis] - pts[corner][axis]) <= COORD_TOLERANCE
+            for flank, corner in ((k - 1, k), (k + 2, k + 1))
+        ):
+            continue
+        yield CorridorRun(
+            route=rp,
+            idx=k,
+            axis=axis,
+            coord=start[axis],
+            span=(min(start[along], end[along]), max(start[along], end[along])),
+            sign=1 if travel > 0 else -1,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CorridorLane:
+    """The runs of one line that share a track through one corridor.
+
+    A line's fan-out legs are fused onto a single drawn track before this, so a
+    lane -- not a run -- is the unit that may be re-seated: moving one leg of a
+    fused track alone would split the line into two parallel same-colour runs.
+    """
+
+    line_id: str
+    axis: int
+    sign: int
+    coord: float
+    runs: tuple[CorridorRun, ...]
+
+    @property
+    def pinned(self) -> bool:
+        """Whether a pre-routing plan fixes this track's coordinate."""
+        return any(planner_owns_segment(run.route, run.idx) for run in self.runs)
+
+    @property
+    def handler_owned(self) -> bool:
+        """Whether every run on this track carries the coordinate its handler set.
+
+        A track that also carries a normalisation-owned run is a shared channel
+        the normalisation stage already places, so it is not handler-owned --
+        the rule trunk-slot materialisation applies when an exempt trunk shares
+        a channel with a non-exempt one.
+        """
+        return all(run.route.normalize_exempt for run in self.runs)
+
+    def fused_span(
+        self, other: CorridorLane, step: float
+    ) -> tuple[float, float] | None:
+        """The widest stretch over which the two lanes draw as one stroke.
+
+        ``None`` when they do not: different axes or travel directions, one
+        line, or every shared stretch already carrying the full nesting step.
+        """
+        if (
+            self.axis != other.axis
+            or self.sign != other.sign
+            or self.line_id == other.line_id
+        ):
+            return None
+        return max(
+            (
+                (max(mine.span[0], theirs.span[0]), min(mine.span[1], theirs.span[1]))
+                for mine in self.runs
+                for theirs in other.runs
+                if cotravelling_lanes_fuse(
+                    self.coord, other.coord, mine.span, theirs.span, step
+                )
+            ),
+            key=lambda span: span[1] - span[0],
+            default=None,
+        )
+
+    def fuses_with(self, other: CorridorLane, step: float) -> bool:
+        """Whether the two lanes' strokes close into one over a shared corridor."""
+        return self.fused_span(other, step) is not None
+
+
+def corridor_lanes(runs: Iterable[CorridorRun]) -> list[CorridorLane]:
+    """Group *runs* into the tracks they are drawn on.
+
+    Two runs share a track when they carry the same line in the same direction
+    at the same coordinate and overlap along one corridor; runs of one line at
+    the same coordinate in unrelated corridors stay separate lanes so a move
+    here cannot drag geometry a corridor away.
+    """
+    tracks: list[list[CorridorRun]] = []
+    for run in runs:
+        member = next(
+            (
+                track
+                for track in tracks
+                if track[0].axis == run.axis
+                and track[0].sign == run.sign
+                and track[0].route.line_id == run.route.line_id
+                and abs(track[0].coord - run.coord) <= COORD_TOLERANCE_FINE
+                and any(spans_share_corridor(*run.span, *held.span) for held in track)
+            ),
+            None,
+        )
+        if member is None:
+            tracks.append([run])
+        else:
+            member.append(run)
+    return [
+        CorridorLane(
+            line_id=track[0].route.line_id,
+            axis=track[0].axis,
+            sign=track[0].sign,
+            coord=track[0].coord,
+            runs=tuple(track),
+        )
+        for track in tracks
+    ]

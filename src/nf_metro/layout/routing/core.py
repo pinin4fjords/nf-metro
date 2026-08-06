@@ -89,6 +89,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _gap_channel_base,
     _group_channel_trunks,
     _h_segment_crosses_other_section,
+    _hold_runs_in_corridor_clearance,
     _HTrunk,
     _inter_row_gap_band,
     _land_merge_feeders_on_trunk,
@@ -102,6 +103,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _restack_trunk_band,
     _round_junction_perp_peeloff,
     _separate_declared_opposing_gap_bundles,
+    _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _stagger_convergent_distinct_lines,
@@ -122,6 +124,7 @@ from nf_metro.layout.routing.postprocess import (  # noqa: F401
     _spread_diagonal_bundles,
     _StationMoveCandidate,
 )
+from nf_metro.layout.routing.reserved_bands import build_reserved_corridors
 from nf_metro.layout.routing.tb_handlers import (  # noqa: F401
     _compute_diagonal_placement,
     _perp_entry_drop_delta,
@@ -143,6 +146,7 @@ if TYPE_CHECKING:
         RoutePlan,
         RoutePlanObserver,
     )
+    from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
 
 
 def _route_edges(
@@ -153,6 +157,8 @@ def _route_edges(
     *,
     observe_plan: bool,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -211,6 +217,16 @@ def _route_edges(
         curve_radius,
         station_offsets,
         offset_step=offset_step,
+        reserved_bands=(
+            None
+            if reservations is None
+            else build_reserved_corridors(graph, reservations, reservation_translations)
+        ),
+        prior_exit_turn_dispositions=(
+            None
+            if reservations is None
+            else {plan.id: plan.legacy_reason for plan in reservations.exit_turn_plans}
+        ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
     from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
@@ -389,6 +405,13 @@ def _route_edges(
     # the settled columns, so it runs after the channel-settling passes.
     _clear_merge_trunk_opposite_arm(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "merge-arm clearance")
+    # A reserved corridor band says how much room a corridor is left, not which
+    # lane in it the corridor takes, so runs held in one band settle without
+    # seeing each other and two distinct lines can close to less than the
+    # nesting step.  Restore that step before the feeder landing reads the
+    # settled channels.
+    _separate_fused_cotravelling_runs(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
     # Settle where each merge feeder meets its trunk -- on the trunk's own
     # centreline, at or before the corner it turns away on. Runs downstream of
     # every pass that moves a trunk channel or a feeder's descent column, since
@@ -398,6 +421,13 @@ def _route_edges(
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
+    # Every pass above sizes a channel from the grid edges it has to hand, which
+    # over-states the obstruction wherever a section spans a boundary or sits
+    # outside the corridor's run.  Close that difference last, against the
+    # blockers the corridor actually has, so the geometry this pass leaves is
+    # what the reservation raised over it measures.
+    _hold_runs_in_corridor_clearance(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "corridor clearance holding")
     _unify_coincident_corner_radii(routes)
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
     covered_merge_hops = _drop_covered_merge_entry_hops(
@@ -488,6 +518,8 @@ def route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> list[RoutedPath]:
     """Route, then settle the bubble-centred markers onto ``graph.stations``.
 
@@ -509,6 +541,8 @@ def route_edges_centred(
         station_offsets,
         observe_plan=False,
         offset_step=offset_step,
+        reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     _settle_station_moves(graph, moves)
     return routes
@@ -521,6 +555,8 @@ def observe_route_edges_centred(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    reservations: RoutePlan | None = None,
+    reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -532,6 +568,8 @@ def observe_route_edges_centred(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        reservations=reservations,
+        reservation_translations=reservation_translations,
     )
     _settle_station_moves(graph, moves)
     assert plan is not None
