@@ -124,6 +124,14 @@ class SettlementTranslation:
     ``coordinate`` is where the translated band started before the move -- the
     smallest origin among the moved sections -- so a frozen claim coordinate can
     be told apart as sitting inside or ahead of the band.
+
+    One boundary takes one translation, and exactly one of two demands sized it:
+    ``clearance`` names the boundary's own clearance demand, or
+    ``reservation_id`` and ``claimant_member_ids`` name the corridor claim.  The
+    two are mutually exclusive -- a clearance-sized move carries no claimant, a
+    claim-sized move carries no clearance -- so a reader may take whichever is
+    set as the cause.  ``reservation_ids`` is every claim the move settled at that
+    boundary, whether or not one of them sized it.
     """
 
     axis: SettlementAxis
@@ -512,17 +520,17 @@ def _settle_axis(
         _apply_translation(graph, axis, ownership, amount)
         translations.append(
             SettlementTranslation(
-                axis.axis,
-                boundary,
-                band_start,
-                amount,
-                reservation_id,
-                claimants,
-                blockers,
-                ownership.moved_section_ids,
-                tuple(item[1].id for item in claims),
-                ownership.spanning_section_ids,
-                driving_demand,
+                axis=axis.axis,
+                boundary=boundary,
+                coordinate=band_start,
+                amount=amount,
+                reservation_id=reservation_id,
+                claimant_member_ids=claimants,
+                blocker_ids=blockers,
+                section_ids=ownership.moved_section_ids,
+                reservation_ids=tuple(item[1].id for item in claims),
+                spanning_section_ids=ownership.spanning_section_ids,
+                clearance=driving_demand,
             )
         )
         coordinate_translations.append(
@@ -592,7 +600,7 @@ def _settlement_reach(
     apart, because no step may shrink a separation.
     """
     axis = _settlement_axis(conflict)
-    index = 1 if conflict.axis is DemandAxis.Y else 0
+    index = conflict.axis.point_index
     bands = _translated_bands(graph, axis)
     first, second = (_band_of(bands, site[0][index]) for site in conflict.sites)
     if first == second:

@@ -358,6 +358,15 @@ class DemandAxis(str, Enum):
     Y = "y"
     BOTH = "both"
 
+    @property
+    def point_index(self) -> int:
+        """Index of this axis's coordinate in an ``(x, y)`` point.
+
+        ``BOTH`` names no single coordinate and so has no index of its own; it
+        answers 0, leaving a caller that can receive it to rule it out first.
+        """
+        return 1 if self is DemandAxis.Y else 0
+
 
 class KeepOutClass(str, Enum):
     """Obstacle classes a symbolic allocation must clear."""

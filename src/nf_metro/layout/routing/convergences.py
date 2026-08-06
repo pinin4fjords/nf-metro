@@ -1186,7 +1186,7 @@ def _reseated_runway(
     from it along the approach axis alone: a move perpendicular to that axis
     carries the whole run sideways without lengthening it.
     """
-    index = 1 if landing.approach_axis is DemandAxis.Y else 0
+    index = landing.approach_axis.point_index
     approach_start = (
         landing.join_point[index]
         - landing.minimum_runway * landing.approach_direction.sign
@@ -1353,13 +1353,15 @@ def _nearest_lane(
     obstacles: tuple[float, ...],
     clearance: float,
     toward: float,
-    feasible: Callable[[float], bool],
+    feasible: Callable[[float], bool] | None = None,
 ) -> float | None:
     """The nearest lane one *clearance* clear of every obstacle that is *feasible*.
 
     Candidates sit one clearance either side of each obstacle, so the answer is
     the least the mover has to give up.  Ties break toward the *toward* sign,
     which is the side the mover's own geometry already commits it to.
+
+    Omit *feasible* where every clear lane is one the mover can reach.
     """
     candidates = sorted(
         {obstacle + side * clearance for obstacle in obstacles for side in (-1.0, 1.0)},
@@ -1370,7 +1372,7 @@ def _nearest_lane(
             candidate
             for candidate in candidates
             if all(abs(candidate - obstacle) >= clearance for obstacle in obstacles)
-            and feasible(candidate)
+            and (feasible is None or feasible(candidate))
         ),
         None,
     )
@@ -1448,7 +1450,6 @@ def _lane_trunk_runs(
                 tuple(item.coordinate for item in obstacles),
                 clearance,
                 1.0 if toward >= 0.0 else -1.0,
-                lambda _candidate: True,
             )
             if coordinate is not None:
                 settled[plan_rank] = _move_trunk_axis(settled[plan_rank], coordinate)
@@ -1489,7 +1490,7 @@ def _lane_trunk_flanks(
             )
             if not obstacles or endpoint is None:
                 continue
-            lateral = 1 if axis.axis is DemandAxis.Y else 0
+            lateral = axis.axis.point_index
             column = flank[0][lateral]
             toward = 1.0 if endpoint > column else -1.0
             coordinate = _nearest_lane(
@@ -1884,7 +1885,7 @@ def _conflict(
 ) -> ConvergenceConflict:
     """Record where two runs the planner could not reconcile actually sit."""
     axis = lateral_axis(_direction(*first))
-    index = 1 if axis is DemandAxis.Y else 0
+    index = axis.point_index
     return ConvergenceConflict(
         kind,
         axis,
@@ -1934,7 +1935,7 @@ def _landing_trunk_flank_conflict(
 
 def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     """Whether two parallel runs stand on one coordinate, hence draw one stroke."""
-    index = 1 if lateral_axis(_direction(*first)) is DemandAxis.Y else 0
+    index = lateral_axis(_direction(*first)).point_index
     return abs(first[0][index] - second[0][index]) <= COORD_TOLERANCE
 
 
