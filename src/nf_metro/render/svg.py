@@ -18,6 +18,7 @@ import textwrap
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
+from functools import partial
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -28,6 +29,11 @@ from nf_metro.layout.constants import (
     SECTION_Y_GAP,
     graph_offset_step,
 )
+from nf_metro.layout.envelope_settlement import (
+    attach_reroute_ledger_delta,
+    attach_settlement_diagnostics,
+    settle_route_envelopes,
+)
 from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
@@ -36,22 +42,40 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases._common import _station_bundle_offset_span
-from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
+from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
+    LayoutInvariantError,
+    assert_canvas_corridors_hold_their_claims,
     assert_render_header_clearance,
     assert_render_layout_invariants,
+    assert_reservations_are_settled,
     iter_opposing_line_overlaps,
     render_header_collision,
 )
+from nf_metro.layout.phases.junctions import reanchor_junctions
+from nf_metro.layout.phases.ports import (
+    carry_ports_with_section_edges,
+    hold_port_anchored_edges,
+    section_box_edges,
+)
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
-from nf_metro.layout.route_plan import RoutePlan
+from nf_metro.layout.route_plan import (
+    ConvergencePlan,
+    ExitTurnPlan,
+    RoutePlan,
+    RouteSystem,
+)
+from nf_metro.layout.route_reservations import (
+    ReservationCoordinateTranslation,
+    adopt_route_reservation_ledger,
+    realise_route_reservations,
+)
 from nf_metro.layout.routing import (
     RoutedPath,
     apply_route_offsets,
     compute_station_offsets,
     observe_route_edges_centred,
-    route_edges_centred,
 )
 from nf_metro.layout.routing.corners import (
     curve_tangents,
@@ -163,11 +187,13 @@ from nf_metro.render.plan import (
     thaw_render_value,
 )
 from nf_metro.render.section_header import (
+    SectionHeaderBandError,
     SectionHeaderClashError,
     SectionHeaderOverflowError,
     SectionHeaderPlacement,
     check_section_headers_clear_routes,
     check_section_headers_fit_box_width,
+    check_section_headers_hold_the_reserved_band,
     resolve_all_section_headers,
 )
 from nf_metro.render.style import Theme
@@ -544,10 +570,9 @@ def _build_render_plan_result(
     legend_position: str | None = None,
     chrome_css: bool = True,
     bare: bool = False,
-    observe_routes: bool = False,
     metrics_face: MetricsFace = MetricsFace.FALLBACK,
-) -> tuple[RenderPlan, RoutePlan | None]:
-    """Build a render plan and optionally observe its final routing pass."""
+) -> tuple[RenderPlan, RoutePlan]:
+    """Build a render plan alongside the routing observation that settled it."""
     scaled_theme = _scale_theme_strokes(
         _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
     )
@@ -567,7 +592,6 @@ def _build_render_plan_result(
                 legend_position=legend_position,
                 chrome_css=chrome_css,
                 bare=bare,
-                observe_routes=observe_routes,
             )
         except (CurveInvariantError, SectionHeaderClashError) as exc:
             reframed = _fold_threshold_error(graph)
@@ -635,10 +659,8 @@ def build_observed_render_plan(
         legend_position=legend_position,
         chrome_css=chrome_css,
         bare=bare,
-        observe_routes=True,
         metrics_face=metrics_face,
     )
-    assert route_plan is not None
     return ObservedRenderPlan(plan, route_plan)
 
 
@@ -721,94 +743,567 @@ def _scale_theme_strokes(theme: Theme, scale: float) -> Theme:
     )
 
 
+def _route_segment_signature(
+    points: list[tuple[float, float]],
+) -> tuple[tuple[str, int, int], ...]:
+    """Describe a route's turns without retaining absolute coordinates."""
+    result: list[tuple[str, int, int]] = []
+    for start, end in zip(points, points[1:], strict=False):
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        x_sign = 0 if abs(dx) <= SAME_COORD_TOLERANCE else (1 if dx > 0 else -1)
+        y_sign = 0 if abs(dy) <= SAME_COORD_TOLERANCE else (1 if dy > 0 else -1)
+        kind = "point" if not x_sign and not y_sign else "segment"
+        result.append((kind, x_sign, y_sign))
+    return tuple(result)
+
+
+def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
+    """Route topology and ownership facts a settlement translation cannot change.
+
+    Corner radii are deliberately absent: a re-route across widened gaps sizes
+    each formed curve from the runway it actually has, and holding it to the
+    pre-settlement radius would undo exactly that.
+    """
+    return tuple(
+        (
+            route.edge.source,
+            route.edge.target,
+            route.line_id,
+            route.is_inter_section,
+            _route_segment_signature(route.points),
+            route.offset_regime,
+            route.normalize_exempt,
+            tuple(route.gap_slots),
+            route.trunk_slot is not None,
+            route.exit_turn_plan_id,
+            route.exit_turn_member_id,
+            route.exit_turn_family_id,
+            route.exit_turn_axis_id,
+            route.fan_plan_id,
+            route.fan_route_emitter,
+            route.convergence_plan_id,
+            route.convergence_member_id,
+            route.convergence_owned_segment_ranks,
+            route.exit_turn_segment_rank,
+            route.exit_lane_transition_plan_id,
+        )
+        for route in routes
+    )
+
+
+def _route_system_decision(system: RouteSystem) -> RouteSystem:
+    """Exclude resource indexes while retaining semantic system membership."""
+    return replace(
+        system,
+        shared_reference_ids=(),
+        demand_ids=(),
+        reservation_ids=(),
+    )
+
+
+def _exit_turn_decision(plan: ExitTurnPlan) -> tuple[object, ...]:
+    """An exit-turn decision without its translated coordinates.
+
+    Runway lengths are measured distances between launch points and turn
+    axes, so like curve radii they re-derive from wherever the reserved
+    corridor actually seats the axis; only the ownership and ordering facts
+    around them are decisions.
+    """
+    lane_transitions = tuple(
+        (
+            item.edge,
+            item.claimant_member_ids,
+            item.source_offset,
+            item.target_offset,
+            item.source_lane_offset,
+            item.target_lane_offset,
+            item.run_direction,
+            item.placement,
+            item.coordinate_regime,
+        )
+        for item in plan.lane_transitions
+    )
+    axes = tuple(
+        (
+            item.id,
+            item.line_id,
+            item.axis,
+            item.rank,
+            item.claimant_member_ids,
+            item.fixed_anchor_id,
+            item.fixed_anchor_offset,
+            item.coordinate_regime,
+        )
+        for item in plan.axes
+    )
+    assignments = tuple(
+        (
+            item.member_id,
+            item.entry_group_id,
+            item.destination_section_id,
+            item.destination_column,
+            item.destination_row,
+            item.destination_side,
+            item.source_lane_rank,
+            item.planned_family_id,
+            item.roles,
+            item.run_direction,
+            item.turn_direction,
+            item.handedness,
+            item.axis_id,
+        )
+        for item in plan.assignments
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.exit_group_id,
+        plan.exit_port_id,
+        plan.divergence_id,
+        plan.source_id,
+        plan.source_run_direction,
+        plan.source_axis,
+        plan.connector_ids,
+        plan.system_member_ids,
+        plan.member_ids,
+        plan.source_lanes,
+        plan.lane_order_source,
+        lane_transitions,
+        axes,
+        assignments,
+        plan.unclassified_member_ids,
+        plan.spacing,
+        plan.disposition,
+        plan.legacy_reason,
+        plan.provenance,
+    )
+
+
+def _convergence_decision(plan: ConvergencePlan) -> tuple[object, ...]:
+    """Convergence ownership and ordering without absolute geometry.
+
+    The recorded conflict is not part of the decision: its kind is a function
+    of ``legacy_reason``, and its sites and separation are measured on
+    whichever frame the planner last saw, which a translation legitimately
+    moves.
+    """
+    trunk = (
+        None
+        if plan.trunk_axis is None
+        else (
+            plan.trunk_axis.axis,
+            plan.trunk_axis.direction,
+            plan.trunk_axis.coordinate_regime,
+        )
+    )
+    landings = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.source_junction_id,
+            item.approach_axis,
+            item.approach_direction,
+            item.source_column,
+            item.source_row,
+            item.lane_rank,
+            item.order,
+            item.corner_handedness,
+            item.opening_turn_coordinate is not None,
+            item.bypass,
+            item.long_haul,
+            item.multiple_row,
+        )
+        for item in plan.landings
+    )
+    continuations = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.entry_port_id,
+            item.lane_rank,
+            item.covered_by_member_id,
+        )
+        for item in plan.outgoing_continuations
+    )
+    endpoint_ownership = tuple(
+        (
+            item.member_id,
+            item.edge,
+            item.connector_ids,
+            item.role,
+            item.covered_by_member_id,
+        )
+        for item in plan.endpoint_ownership
+    )
+    return (
+        plan.id,
+        plan.system_id,
+        plan.convergence_ids,
+        plan.entry_group_ids,
+        plan.merge_junction_ids,
+        plan.target_entry_port_ids,
+        plan.connector_ids,
+        plan.member_ids,
+        plan.resolved_member_paths,
+        plan.resolved_member_edges,
+        plan.line_ids,
+        plan.upstream_exit_turn_plan_ids,
+        plan.upstream_fan_plan_ids,
+        plan.primary_trunk_member_id,
+        plan.primary_trunk_reason,
+        trunk,
+        landings,
+        continuations,
+        plan.lane_order,
+        endpoint_ownership,
+        plan.disposition,
+        plan.legacy_reason,
+    )
+
+
+def _plan_decision_fingerprint(plan: RoutePlan) -> tuple[object, ...]:
+    """The immutable semantic decisions in a route observation."""
+    return (
+        tuple(_route_system_decision(item) for item in plan.systems),
+        plan.endpoint_groups,
+        plan.divergences,
+        plan.convergences,
+        plan.members,
+        plan.branches,
+        plan.feeders,
+        tuple(_exit_turn_decision(item) for item in plan.exit_turn_plans),
+        plan.fan_plans,
+        tuple(_convergence_decision(item) for item in plan.convergence_plans),
+        plan.bindings,
+        plan.provenance,
+    )
+
+
+def _assert_settlement_decisions_frozen(
+    frozen_routes: list[RoutedPath],
+    frozen_plan: RoutePlan,
+    realised_routes: list[RoutedPath],
+    realised_plan: RoutePlan,
+) -> None:
+    """Reject a settlement re-route that changed semantic routing.
+
+    Settlement may translate coordinates and nothing else: plan membership,
+    dispositions, lane orders, and turn, fan, convergence, and bundle frames
+    must all survive.  Comparing decision fingerprints makes that a checked
+    invariant of every settled render rather than a design intention.
+    """
+    if _route_decision_fingerprint(realised_routes) != _route_decision_fingerprint(
+        frozen_routes
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route topology or geometry ownership"
+        )
+    if _plan_decision_fingerprint(realised_plan) != _plan_decision_fingerprint(
+        frozen_plan
+    ):
+        raise LayoutInvariantError(
+            "envelope settlement changed route-system planning decisions"
+        )
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
     offset_step: float,
     section_y_gap: float,
-    *,
-    observe_routes: bool = False,
 ) -> tuple[
     dict[tuple[str, str], float],
     list[RoutedPath],
+    list[list[tuple[float, float]]],
     list[LabelPlacement],
-    RoutePlan | None,
+    RoutePlan,
+    tuple[ReservationCoordinateTranslation, ...],
 ]:
     """Route, place labels, and reconcile a header collision for the render.
 
-    Returns settled station offsets, routes, labels, and optional route plan.
+    Returns settled station offsets, routes, the drawable polylines those routes
+    become, labels, the route plan, and the settlement translations the plan's
+    claims are frozen ahead of -- a canvas claim is measured only once the render
+    has sized its canvas, and needs that projection to land on the geometry the
+    canvas encloses.  The polylines are built here because the settlement guard
+    scores the coordinate a viewer sees, so it and the renderer have to read one
+    set of points rather than two derivations of them.
     Label wrapping
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the
     lower section's header badge up into the box above.  Only that genuine
-    collision is reconciled -- push the lower rows down to restore
-    ``section_y_gap``, then re-settle so routes and labels track the shifted
-    sections.  A smaller sub-``section_y_gap`` shortfall draws no overlap and is
-    left as laid out.
+    collision is reconciled -- re-settle so routes and labels track the shifted
+    sections.
+
+    Routing is observed so its ``RouteReservation`` ledger can drive
+    :func:`settle_route_envelopes`, which widens any row or column boundary that
+    the settled envelopes left short of what it owes: too narrow for a reserved
+    corridor, or below the clearance its facing boxes owe each other after those
+    bites out of the gaps.  One translation pays both, so the row gap a label
+    wrap ate is restored by the same move that seats a corridor.  Settlement runs
+    last of the geometry steps; a translation moves whole rows and columns, so
+    routes and labels are derived again from the result.
+
+    The re-route is handed that same ledger.  A boundary settlement widened for
+    a corridor is one the router must place that corridor inside, so it reads
+    the reserved band back rather than deriving one from the row edges the
+    translation just moved.
+
+    Settlement runs exactly once, against one ledger.  Re-routing publishes a
+    different ledger -- corridors appear, vanish, and change their required
+    width -- so settling again against it would be a fixpoint search over a
+    moving constraint set rather than an allocation against fixed demand.  The
+    plan published here is therefore the frozen ledger projected through the
+    translations, and the closing guard measures that; where the re-routed
+    ledger's gap demand differs from it,
+    :func:`attach_reroute_ledger_delta` records the difference as a non-blocking
+    diagnostic, so a demand this stage cannot chase is named rather than
+    invisible.
 
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
     render-time row shift, so a collision involving one is left for the guard to
     surface rather than reflowed into kinked tracks.
 
-    The Tier-A layout guards run on the pre-growth routed geometry (label growth
-    legitimately moves a bbox edge past an invisible port, which the port guards
-    would otherwise flag); the header-clearance guard runs last, on the settled
-    geometry.
+    The Tier-A layout guards run once, on the settled geometry, alongside the
+    header-clearance guard: they judge what the renderer draws rather than an
+    intermediate the later stages then move.  Label growth legitimately carries a
+    bbox edge past a port, so ``carry_ports_with_section_edges`` moves the port
+    with the edge it is anchored to and the port guards see a consistent pair.
+
+    A ``group`` caption band below a section grows that section's bottom edge,
+    and that edge is the blocker bounding the row corridor beneath it, so the
+    growth happens here rather than at draw time: settlement then widens the
+    boundary to keep the corridor it certified.  A separate draw-time assertion
+    (``_assert_group_band_room_drawn``) covers the box this reservation grows: it
+    rejects a band drawn past the room reserved for it.
+
+    Junction coordinates are a function of the ports they join rather than
+    independent data, so they are re-derived from the incoming section geometry
+    before anything is routed.  That keeps routing self-consistent no matter
+    which stage last moved a section: a junction left at a stale Y sits off the
+    bundle it belongs to and the connector into it degenerates into a
+    sub-radius dogleg.  A graph-wide rail layout anchors its junctions on
+    per-line rail Ys instead, by a rule the port-derived placement does not
+    reproduce, so it is exempt.
     """
+
+    # Non-empty exactly while a label pass has carried ports off the box edges
+    # it grew and no routing pass has been observed against their new positions;
+    # `carried_from` holds the edges that pass started from.
+    carried_ports: tuple[str, ...] = ()
+    carried_from: dict[str, tuple[float, float, float, float]] = {}
 
     def _place(
         station_offsets: dict[tuple[str, str], float], routes: list[RoutedPath]
     ) -> list[LabelPlacement]:
+        nonlocal carried_ports, carried_from
         icon_obstacles = _compute_icon_obstacles(graph, theme, station_offsets)
-        return place_labels(
+        edges = section_box_edges(graph)
+        placements = place_labels(
             graph,
             station_offsets=station_offsets,
             icon_obstacles=icon_obstacles,
             routes=routes,
             label_angle=graph.label_angle or 0.0,
         )
+        # Seating a label grows its section box outward; a port anchored to the
+        # edge that moved travels with it, so the box keeps bounding the
+        # geometry its own ports describe.
+        carried = carry_ports_with_section_edges(graph, edges)
+        if carried:
+            carried_ports, carried_from = carried, edges
+        return placements
 
     def _route(
         station_offsets: dict[tuple[str, str], float],
-    ) -> tuple[list[RoutedPath], RoutePlan | None]:
-        if not observe_routes:
-            return (
-                route_edges_centred(
-                    graph,
-                    station_offsets=station_offsets,
-                    offset_step=offset_step,
-                ),
-                None,
-            )
+        reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    ) -> tuple[list[RoutedPath], RoutePlan]:
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
             offset_step=offset_step,
+            reservations=reservations,
+            reservation_translations=reservation_translations,
         )
         return observation.routes, observation.plan
 
-    station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-    routes, route_plan = _route(station_offsets)
-    effective_strict = graph.strict and not graph.permissive
-    assert_render_curve_invariants(graph, routes, station_offsets)
-    assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
-    )
-
-    labels = _place(station_offsets, routes)
-    if render_header_collision(graph) and not graph.has_rail_sections:
-        push_lower_rows_after_bbox_grow(graph, section_y_gap)
+    def _resettle(
+        reservations: RoutePlan | None = None,
+        reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
+        nonlocal carried_ports
         # The shift moved section-anchored geometry; refresh the bypass-label
         # obstacle boxes (derived from station Ys, read by the router) so the
         # re-route does not seat a bypass corner against a stale box.
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
-        station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-        routes, route_plan = _route(station_offsets)
+        reanchor_junctions(graph)
+        offsets = compute_station_offsets(graph, offset_step=offset_step)
+        moved_routes, moved_plan = _route(
+            offsets, reservations, reservation_translations
+        )
+        carried_ports = ()
+        return offsets, moved_routes, moved_plan
+
+    def _reconcile_carried_ports(
+        station_offsets: dict[tuple[str, str], float],
+        routes: list[RoutedPath],
+        route_plan: RoutePlan,
+        labels: list[LabelPlacement],
+    ) -> tuple[
+        dict[tuple[str, str], float], list[RoutedPath], RoutePlan, list[LabelPlacement]
+    ]:
+        """Re-observe the routes once, when a label pass has carried a port.
+
+        A route terminates on its port, so a carried port no routing pass has
+        seen leaves the drawn run overshooting into the box interior.  The
+        re-observation is a single step, not a fixpoint: routing centres a
+        station marker on its flat run, and lengthening that run by moving the
+        port moves the marker, hence the label, hence the box edge, hence the
+        port again.  On some topologies that relation has unit gain, so
+        iterating it walks the edge outward without ever settling; a pass whose
+        own carry no re-observation follows gives that growth back instead
+        (:func:`hold_port_anchored_edges`).
+        """
+        if carried_ports:
+            station_offsets, routes, route_plan = _resettle()
+            labels = _place(station_offsets, routes)
+            assert_render_curve_invariants(graph, routes, station_offsets)
+        return station_offsets, routes, route_plan, labels
+
+    reanchor_junctions(graph)
+    station_offsets = compute_station_offsets(graph, offset_step=offset_step)
+    routes, route_plan = _route(station_offsets)
+    effective_strict = graph.strict and not graph.permissive
+    assert_render_curve_invariants(graph, routes, station_offsets)
+
+    labels = _place(station_offsets, routes)
+    station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
+        station_offsets, routes, route_plan, labels
+    )
+    _reserve_group_band_space(graph, theme, station_offsets, labels)
+    if render_header_collision(graph) and not graph.has_rail_sections:
+        station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
+        station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
+            station_offsets, routes, route_plan, labels
+        )
+
+    frozen_routes = routes
+    frozen_plan = route_plan
+    # A rail layout pitches its rows to the interchange idiom rather than to
+    # ``section_y_gap``, and holds runs between them collinear; widening one of
+    # its row boundaries to the declared gap turns a flat run into a staircase.
+    # So the clearance a boundary owes is a demand only where the gap is what
+    # sets the pitch.
+    clearance = (
+        None
+        if graph.has_rail_sections
+        else partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
+    )
+    settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
+    # The router can only place a corridor from its reservation on a pass that
+    # is handed one, and the first pass is what publishes the ledger.  So the
+    # re-route runs whenever any corridor was reserved, not only when settlement
+    # had to translate something to make one fit: a reservation that already
+    # fits names blockers the raw row and column edges misjudge.
+    if settlement.translations or frozen_plan.reservations:
+        station_offsets, routes, routed_plan = _resettle(
+            frozen_plan, settlement.coordinate_translations
+        )
+        labels = _place(station_offsets, routes)
+        assert_render_curve_invariants(graph, routes, station_offsets)
+        _assert_settlement_decisions_frozen(
+            frozen_routes, frozen_plan, routes, routed_plan
+        )
+        # The published ledger is the one settlement consumed.  Re-observing
+        # would let corridors appear, vanish, and change their required width
+        # across the very step whose contract is coordinate translation only.
+        # The routed observation exists to draw and to prove the decisions
+        # frozen.
+        route_plan = attach_reroute_ledger_delta(
+            adopt_route_reservation_ledger(
+                frozen_plan,
+                graph,
+                coordinate_translations=settlement.coordinate_translations,
+            ),
+            frozen_plan,
+            routed_plan,
+        )
+        # adopt_route_reservation_ledger rebuilds the published plan from the
+        # frozen pass, which never saw the re-route's own diagnostics; carry
+        # forward the one class that names a decision the re-route was itself
+        # forced to discard (_adopt_prior_dispositions).
+        adopted_dispositions = tuple(
+            item
+            for item in routed_plan.diagnostics
+            if item.code == "exit-turn-disposition-adopted"
+        )
+        if adopted_dispositions:
+            route_plan = replace(
+                route_plan, diagnostics=route_plan.diagnostics + adopted_dispositions
+            )
+    # Settlement measured its corridors against these box edges, so a label
+    # pass behind it gives back whatever it grew them by: a port carried past
+    # the run that lands on it, on an edge a realised reservation is measured
+    # from, would spend clearance the corridor has already been promised.
+    if carried_ports:
+        hold_port_anchored_edges(graph, carried_from, carried_ports)
+    route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
+    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    assert_reservations_are_settled(
+        graph,
+        route_plan,
+        settlement,
+        route_polylines,
+        strict=effective_strict,
+    )
+
+    # The Tier-A layout guards read the settled routes and the settled boxes --
+    # the geometry the renderer is handed -- so a bbox, anchor, elbow,
+    # pass-through, band or crossing defect is judged on what gets drawn rather
+    # than on a first routing pass that later steps move.
+    assert_render_layout_invariants(
+        graph, routes, station_offsets, strict=effective_strict
+    )
     assert_render_header_clearance(graph, strict=effective_strict)
-    return station_offsets, routes, labels, route_plan
+    return (
+        station_offsets,
+        routes,
+        route_polylines,
+        labels,
+        route_plan,
+        settlement.coordinate_translations,
+    )
+
+
+def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
+    """A private copy of *source_graph* carrying the geometry a render draws.
+
+    ``render_svg`` finishes geometry -- label wrapping, the header reconcile,
+    envelope settlement -- on a copy, so the caller's graph keeps the
+    coordinates ``compute_layout`` left.  Callers that need to reason about
+    what was actually drawn ask for the settled copy rather than re-deriving
+    those steps.
+    """
+    graph = _copy_graph_for_render(source_graph)
+    scaled_theme = _scale_theme_strokes(
+        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+    )
+    section_y_gap = (
+        graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
+    )
+    with font_scale_context(graph.font_scale), stroke_scale_context(graph.stroke_scale):
+        _settle_render_geometry(
+            graph,
+            scaled_theme,
+            graph_offset_step(graph, scaled_theme.line_width),
+            section_y_gap,
+        )
+    return graph
 
 
 def _copy_graph_for_render(source_graph: MetroGraph) -> MetroGraph:
@@ -834,8 +1329,7 @@ def _build_render_plan_scaled(
     legend_position: str | None,
     chrome_css: bool = True,
     bare: bool = False,
-    observe_routes: bool = False,
-) -> tuple[RenderPlan, RoutePlan | None]:
+) -> tuple[RenderPlan, RoutePlan]:
     """Finish render geometry on a private graph copy and freeze the result."""
     graph = _copy_graph_for_render(source_graph)
     effective_legend_position = (
@@ -846,12 +1340,18 @@ def _build_render_plan_scaled(
     section_y_gap = (
         graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
     )
-    station_offsets, routes, labels, route_plan = _settle_render_geometry(
+    (
+        station_offsets,
+        routes,
+        route_polylines,
+        labels,
+        route_plan,
+        settlement_translations,
+    ) = _settle_render_geometry(
         graph,
         theme,
         offset_step,
         section_y_gap,
-        observe_routes=observe_routes,
     )
     line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
     edge_routes = sorted(
@@ -859,7 +1359,6 @@ def _build_render_plan_scaled(
     )
     route_indices = {id(route): index for index, route in enumerate(routes)}
     edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
-    route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     edge_polylines = [route_polylines[index] for index in edge_route_indices]
     bridges = (
         compute_bridges(
@@ -872,24 +1371,10 @@ def _build_render_plan_scaled(
 
     header_polylines = route_polylines
 
-    # Per-station rendered label (top, bottom) Y, so group bands clear the
-    # (possibly diagonal) station labels rather than just the markers.
-    label_extents: dict[str, tuple[float, float]] = {}
-    for p in labels:
-        if p.station_id:
-            _, ly0, _, ly1 = _label_bbox(p)
-            label_extents[p.station_id] = (ly0, ly1)
-
-    group_bands = (
-        _group_bands(graph, theme, station_offsets, label_extents)
-        if graph.groups
-        else []
-    )
-
-    # Reserve room inside section boxes for below group bands before bboxes
-    # feed the section render and the canvas-bounds computation.
-    if group_bands:
-        _reserve_section_space_for_groups(graph, group_bands)
+    # Drawn against the settled coordinates; the box room a below band needs was
+    # reserved before settlement, which measured the grown edge.
+    group_bands = _resolve_group_bands(graph, theme, station_offsets, labels)
+    _assert_group_band_room_drawn(graph, group_bands)
 
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
@@ -898,6 +1383,12 @@ def _build_render_plan_scaled(
     )
     _guard_section_headers_clear_routes(header_placements, header_polylines)
     _guard_section_headers_fit_box_width(graph, header_placements)
+    _guard_section_headers_hold_the_reserved_band(
+        graph,
+        header_placements,
+        theme.section_label_font_size,
+        theme.title_font_size,
+    )
 
     max_x, max_y = _compute_canvas_bounds(graph, routes, debug, header_placements)
 
@@ -974,15 +1465,16 @@ def _build_render_plan_scaled(
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
 
-    if route_plan is not None:
-        from nf_metro.layout.route_reservations import realise_route_reservations
-
-        route_plan = realise_route_reservations(
-            route_plan,
-            graph,
-            canvas_width=svg_width,
-            canvas_height=svg_height,
-        )
+    route_plan = realise_route_reservations(
+        route_plan,
+        graph,
+        canvas_width=svg_width,
+        canvas_height=svg_height,
+        coordinate_translations=settlement_translations,
+    )
+    assert_canvas_corridors_hold_their_claims(
+        route_plan, strict=graph.strict and not graph.permissive
+    )
 
     positive_fan = tb_positive_fan_sections(graph)
 
@@ -1650,6 +2142,23 @@ def _guard_section_headers_fit_box_width(
         raise SectionHeaderOverflowError(
             "section header(s) overhang their box width after wrapping: "
             + ", ".join(sorted(overflowing))
+        )
+
+
+def _guard_section_headers_hold_the_reserved_band(
+    graph: MetroGraph,
+    placements: dict[str, SectionHeaderPlacement],
+    label_font_size: float,
+    title_font_size: float,
+) -> None:
+    """Fail loudly if a caption reaches past the band its own side leaves free."""
+    overreaching = check_section_headers_hold_the_reserved_band(
+        graph, placements, label_font_size, title_font_size
+    )
+    if overreaching:
+        raise SectionHeaderBandError(
+            "section caption(s) reach past the band the layout leaves free on "
+            "the side they hang off: " + ", ".join(overreaching)
         )
 
 
@@ -3262,6 +3771,43 @@ def _group_caption_bounds(bands: list[_GroupBand], theme: Theme) -> tuple[float,
     return max_x, max_y
 
 
+def _resolve_group_bands(
+    graph: MetroGraph,
+    theme: Theme,
+    station_offsets: dict[tuple[str, str], float],
+    labels: list[LabelPlacement],
+) -> list[_GroupBand]:
+    """Band geometry for *graph*'s station groups against the given coordinates.
+
+    A band clears the (possibly diagonal) station labels rather than just the
+    markers, so it is resolved from the rendered label extents.
+    """
+    if not graph.groups:
+        return []
+    label_extents: dict[str, tuple[float, float]] = {}
+    for placement in labels:
+        if placement.station_id:
+            _, low, _, high = _label_bbox(placement)
+            label_extents[placement.station_id] = (low, high)
+    return _group_bands(graph, theme, station_offsets, label_extents)
+
+
+def _reserve_group_band_space(
+    graph: MetroGraph,
+    theme: Theme,
+    station_offsets: dict[tuple[str, str], float],
+    labels: list[LabelPlacement],
+) -> None:
+    """Grow section boxes for their ``below`` group bands, before settlement.
+
+    Settlement translates whole rows rigidly, so a band holds its offset inside
+    its own box and one reservation covers the drawn geometry.
+    """
+    bands = _resolve_group_bands(graph, theme, station_offsets, labels)
+    if bands:
+        _reserve_section_space_for_groups(graph, bands)
+
+
 def _reserve_section_space_for_groups(
     graph: MetroGraph,
     bands: list[_GroupBand],
@@ -3288,6 +3834,31 @@ def _reserve_section_space_for_groups(
         target_bottom = far_y + GROUP_LABEL_BAND_PADDING
         if target_bottom > sec.bbox_y + sec.bbox_h:
             sec.bbox_h = target_bottom - sec.bbox_y
+
+
+def _assert_group_band_room_drawn(graph: MetroGraph, bands: list[_GroupBand]) -> None:
+    """Reject a ``below`` band drawn past the room ``_reserve_group_band_space``
+    grew for it.
+
+    The reservation is sized from the label placement in effect when it ran;
+    a section relabelled afterwards (a header-collision resettle re-places
+    labels without re-reserving) can grow a band this box was never widened
+    for.
+    """
+    for band in bands:
+        if band.section_id is None or band.tick_dy >= 0:
+            continue
+        sec = graph.sections.get(band.section_id)
+        if sec is None or sec.is_implicit:
+            continue
+        overhang = (
+            band.band_far_y + GROUP_LABEL_BAND_PADDING - (sec.bbox_y + sec.bbox_h)
+        )
+        if overhang > SAME_COORD_TOLERANCE:
+            raise LayoutInvariantError(
+                f"section '{band.section_id}' group band overhangs the room "
+                f"reserved for it by {overhang:.2f}px"
+            )
 
 
 def _render_station_groups(
