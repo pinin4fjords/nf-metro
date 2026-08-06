@@ -1499,9 +1499,25 @@ in pipeline order.
   together. Each competing reservation states the same stack, so settlement's
   per-boundary maximum widens the boundary once for all of them and the
   single-sweep argument below is untouched: a larger `minimum_width` is a larger
-  capacity deficit and nothing else. Measured on the corpus, 5 of the 369
-  fixtures state a peer width their boundary lacks; all five grow in height only,
-  by 12 to 16px.
+  capacity deficit and nothing else.
+  A claim is not what makes a stroke take room, so the stack holds every leg
+  drawn in the boundary and not only the filed ones. The region search asks which
+  boundary a leg *crosses*, and a leg that dips into a gap and returns to the row
+  it left crosses none -- it is drawn in that gap all the same. Such a leg is
+  charged against a boundary whose measured gap its coordinate falls inside and
+  whose own claims travel a stretch of corridor it shares, reading that
+  boundary's band because it holds no reservation of its own. It is charged as a
+  peer rather than filed as a claim because a reservation is a corridor a run may
+  be *seated in*, and a leg no boundary crosses has no such corridor to be held
+  inside: filing one would state a band a frozen route shape cannot reach, and
+  gate its containment against a corridor it never enters. Charging only the
+  filed lanes states a boundary wide enough for one stroke where two are drawn,
+  and the second is left wherever the narrow gap forced it -- in
+  `examples/topologies/merge_around_below_leftmost.mmd`, a merge trunk's return
+  leg 14px below a box edge that asks `INTER_ROW_EDGE_CLEARANCE` of it, ungated
+  because it carries no claim. Measured on the corpus, 10 fixtures state a peer
+  width their boundary lacks and 7 of them render differently for it; each of the
+  7 grows in height only, by 12 to 16px.
 - **Postcondition**: Every row-gap and column-gap reservation *contains* the run
   drawn in it. Containment is three counts, all of which
   `assert_reservations_are_settled` refuses on the strict path: non-negative
@@ -1631,8 +1647,8 @@ in pipeline order.
   invisible. It compares each corridor's description together with the width it
   asks for, since a boundary whose corridor survives at a different
   `minimum_width` is one the translations were sized wrongly for. Measured on
-  the corpus, its gap demand names no corridor either ledger lacks, and 19
-  corridors across 9 fixtures whose required width the re-route states lower
+  the corpus, its gap demand names no corridor either ledger lacks, and 21
+  corridors across 11 fixtures whose required width the re-route states lower
   than settlement was sized for. None is stated higher, so the frozen ledger
   never under-sizes a boundary the render draws.
 - **Consumed by**: the re-route. `_settle_render_geometry` hands the
@@ -1776,7 +1792,7 @@ in pipeline order.
   boundaries a system is measured at, re-derives the coordinates that follow from
   where those sections then sit, re-runs convergence planning on the copy, and
   reads the disposition: `merge_around_below_leftmost` is planned once its
-  claimed boundaries carry 39px more and at every larger capacity granted. That
+  claimed boundaries carry 22.5px more and at every larger capacity granted. That
   system is held by an envelope allocation, so its compatibility is #1660's own
   unfinished work and not an exit to publish; the remaining 13 stay on the
   compatibility path under every capacity the probe grants, up to sixteen times
