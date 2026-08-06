@@ -1632,7 +1632,7 @@ in pipeline order.
   asks for, since a boundary whose corridor survives at a different
   `minimum_width` is one the translations were sized wrongly for. Measured on
   the corpus, its gap demand names no corridor either ledger lacks, and 19
-  corridors across 8 fixtures whose required width the re-route states lower
+  corridors across 9 fixtures whose required width the re-route states lower
   than settlement was sized for. None is stated higher, so the frozen ledger
   never under-sizes a boundary the render draws.
 - **Consumed by**: the re-route. `_settle_render_geometry` hands the
