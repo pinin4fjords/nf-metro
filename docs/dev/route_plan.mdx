@@ -19,6 +19,32 @@ a complete exit group. Convergence records choose the target trunk, feeder
 landings, continuation, and endpoint ownership. Emission bindings and corridor
 reservations describe what production routing finally emitted.
 
+## Who owns what
+
+Each stage below decides one thing and freezes it for the next. The rule the
+chain exists to enforce is that a visual object spanning several edges is
+decided once, at the scope of the invariant it has to keep, rather than
+rediscovered per edge and repaired afterwards.
+
+```mermaid
+flowchart TD
+    G["authored graph"]
+    T["RouteTopology, RouteResolution<br/>authored identity, resolved membership"]
+    C["layout commitments<br/>grid, direction, span, fold, port sides"]
+    L["local section layout<br/>station geometry, symbolic demands"]
+    P["route-system plans<br/>ExitTurnPlan, FanPlan, convergence plan"]
+    R["RouteReservation<br/>corridor claims"]
+    S["envelope settlement<br/>realised bands, row and column offsets"]
+    E["plan-driven emission<br/>points and radii from shared primitives"]
+    D["RenderPlan"]
+
+    G --> T --> C --> L --> P --> R --> S --> E --> D
+```
+
+Names change; the boundaries do not. A stage never reaches back: emission does
+not choose a band, settlement does not choose route membership, and no later
+pass restores something a plan owns.
+
 ## Observation boundary
 
 On the normal dispatcher path, the routing context and semantic scaffold are
@@ -275,6 +301,62 @@ with the stations and ports they contain. Section sizes, a station's place
 inside its section, plan frames, lane order, port sides, and author pins are
 all frozen inputs.
 
+### Why a reserved map routes twice
+
+Settlement sits between two routing passes, and only coordinates move between
+them: `_assert_settlement_decisions_frozen` requires the second pass to reach
+the same decisions as the first.
+
+Settling twice is not an option. Re-routing publishes a different ledger, with
+corridors that appear, vanish, and change width, so settling against successive
+ledgers would be a fixpoint search over a moving constraint set with no
+convergence argument. Where the re-routed ledger disagrees with the frozen one,
+`attach_reroute_ledger_delta` records the difference as a non-blocking
+diagnostic.
+
+```mermaid
+flowchart TD
+    J["re-derive junctions<br/>from the ports they join"]
+    R1["route: first pass"]
+    LB["place labels<br/>may carry a port with its box edge"]
+    HD["header reconcile<br/>may push lower rows down"]
+    ST["settle_route_envelopes"]
+    R2["route: second pass,<br/>handed the frozen ledger"]
+    FZ["assert decisions frozen"]
+    HB["final label pass<br/>hold_port_anchored_edges"]
+    GD["Tier-A guards and reservation<br/>containment, on settled geometry"]
+    LG[("RouteReservation<br/>ledger")]
+
+    J --> R1 --> LB --> HD --> ST --> R2 --> FZ --> HB --> GD
+    R1 -. publishes .-> LG
+    LG -. sized against .-> ST
+    LG -. seated from .-> R2
+    LG -. scored against .-> GD
+```
+
+### Two demands, one translation
+
+A boundary can be owed space by two independent things: a corridor a route
+reserved across it, and the clearance its facing boxes owe each other. They are
+measured separately and settled together -- a boundary carrying both is widened
+**once**, by the larger, because paying each owner in turn over-reserves.
+
+```mermaid
+flowchart LR
+    RES["reservation deficit:<br/>required less available"]
+    CLR["clearance demand<br/>row axis only"]
+    MAX{"per boundary:<br/>the larger"}
+    Q["quantised_allocation"]
+    T["translate every section<br/>at or beyond the boundary"]
+
+    RES --> MAX
+    CLR --> MAX
+    MAX --> Q --> T
+```
+
+The clearance demand is row-only, because the pass whose global translation it
+took over was. The reservation ledger is settled on both axes.
+
 One residue is outside what row and column offsets can reach: the router's
 narrow-band fallback, which biases a run against the header badge it cannot
 clear, fires only at gaps the ledger never claimed, so there is no reservation
@@ -369,7 +451,7 @@ test rather than passing unnoticed.
 
 One of those controls is where the decision below comes from.
 `merge_around_below_leftmost` did change, at 22.5px, so what held it was
-capacity — and the answer was not to buy it. Its route system converges twice,
+capacity, and the answer was not to buy it. Its route system converges twice,
 and each convergence read its trunk
 coordinate off a trial route taken with no knowledge of its sibling, so both
 proposed the same lane of one inter-row channel and the planner declined the
@@ -377,12 +459,12 @@ system with `SHARED_TRUNK_CHANNEL`, whose reason names what was missing: one
 shared channel decision.
 
 `_settle_shared_trunk_channels` makes it. The route system, not either plan,
-assigns each trunk a lane by `cotravelling_lane_clearance` — a full turn radius
+assigns each trunk a lane by `cotravelling_lane_clearance`: a full turn radius
 between a line and its own return leg, and nothing at all between two runs going
 the same way, which stay one fused stroke. Both channels a trunk shares are laned
 by that one rule: the channel its central run travels, and the channel its flanks
 turn out into. `ConvergenceTrunkAxis.claimant_member_ids` names the members that
-travel a trunk — its trunk member and every feeder that lands on it — so
+travel a trunk -- its trunk member and every feeder that lands on it -- so
 settlement projects the lane through the translations those members took.
 
 The lane needs room, and the room arrives through the ledger the first routing
