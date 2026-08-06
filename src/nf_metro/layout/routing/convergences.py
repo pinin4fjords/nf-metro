@@ -55,6 +55,7 @@ from nf_metro.layout.route_plan import (
     reservation_decision_refs,
     turn_handedness,
 )
+from nf_metro.layout.routing.centrelines import gather_member_edges
 from nf_metro.layout.routing.common import (
     Direction,
     GapLookupGeometry,
@@ -381,6 +382,29 @@ def _landing_approach(
     return None
 
 
+def _bundled_sibling_owns_opening_column(ctx: _RoutingCtx, edge: Edge) -> bool:
+    """Whether a bundle outside this convergence seats *edge*'s opening column.
+
+    :func:`normalize._divergent_source_groups` fuses every same-line descent
+    leaving one source onto a single column, and draws the reference from the
+    members whose own edge carries a co-travelling bundle: a bundled descent
+    holds the slot its bundle-mates nest around, and a lone descent of the same
+    line snaps onto it rather than dragging it into a bundle-mate's lane.  A
+    convergence owns its members' geometry, not that bundle's, so where such a
+    sibling leaves the same source the landing states no opening turn and the
+    fusion keeps the column.  Stating one would seat this line's descent a lane
+    off the column its own colour already occupies there, drawing it twice and
+    over a neighbouring line.
+    """
+    bundled = len(gather_member_edges(ctx.graph, edge)[1]) > 1
+    return not bundled and any(
+        sibling.line_id == edge.line_id
+        and sibling.target != edge.target
+        and len(gather_member_edges(ctx.graph, sibling)[1]) > 1
+        for sibling in ctx.graph.edges_from(edge.source)
+    )
+
+
 def _landing_from_trial(
     *,
     plan_member_id: EmissionMemberId,
@@ -423,7 +447,11 @@ def _landing_from_trial(
     target_column, target_row = _resolve_section_colrow(ctx.graph, target)
     from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
-    opening_turn = _opening_fanout_descent(route)
+    opening_turn = (
+        None
+        if _bundled_sibling_owns_opening_column(ctx, edge)
+        else _opening_fanout_descent(route)
+    )
     opening_turn_segment = (
         (route.points[opening_turn.idx], route.points[opening_turn.idx + 1])
         if opening_turn is not None
@@ -1910,6 +1938,46 @@ def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     return abs(first[0][index] - second[0][index]) <= COORD_TOLERANCE
 
 
+def _fuses_onto_trunk(
+    axis: ConvergenceTrunkAxis,
+    route: RoutedPath,
+    segment: tuple[tuple[float, float], tuple[float, float]],
+) -> bool:
+    """Whether *segment* is a run a later pass fuses onto the trunk *axis*.
+
+    :func:`normalize._convergent_port_groups` keys same-line final port
+    approaches by their shared entry port and travel direction, clusters them
+    within :data:`EDGE_TO_BUNDLE_CLEARANCE`, and :func:`normalize._snap_group`
+    seats every unplanned member of such a cluster on the planned channel's
+    coordinate.  A run that fuses that way draws as a single stroke with the
+    trunk, so the two share one corridor on the settled map and the trial
+    geometry a conflict would be measured on is not what either is drawn at.
+
+    The exemption is exactly that fusion's reach and no wider.  Only a route's
+    own final approach fuses, so a conflict anywhere else along the same route
+    is a second corridor the fusion never touches; and only an approach landing
+    where the trunk lands joins the trunk's cluster, so a sibling that stops
+    short of the port keeps its conflict.  The fusion reads a vertical channel
+    (:func:`normalize._final_port_approach`), so a trunk on the other travel
+    axis has no fusion to defer to and keeps its conflict as well: an exemption
+    wider than the pass justifying it would clear a conflict nothing resolves.
+    """
+    from nf_metro.layout.routing.normalize import _final_port_approach
+
+    approach = _final_port_approach(route)
+    if approach is None or axis.axis is not DemandAxis.Y:
+        return False
+    if (
+        route.points[approach.idx] != segment[0]
+        or route.points[approach.idx + 1] != segment[1]
+    ):
+        return False
+    if abs(approach.x - axis.coordinate) > EDGE_TO_BUNDLE_CLEARANCE:
+        return False
+    _trunk_x, trunk_y = _axis_target_point(axis)
+    return abs(route.points[-1][1] - trunk_y) <= COORD_TOLERANCE
+
+
 def _system_conflict(
     plans: tuple[ConvergencePlan, ...],
     system_edges: tuple[ResolvedEdge, ...],
@@ -2054,9 +2122,10 @@ def _system_conflict(
             continue
         unowned_system_edges.append(edge_key)
         candidate_trunks = tuple(
-            (trunk_segment, planned_direction)
+            (plan.trunk_axis, trunk_segment, planned_direction)
             for plan, trunk_segment, central, planned_direction in trunks
             if central
+            and plan.trunk_axis is not None
             and edge_key.line_id in plan.line_ids
             and edge_key.target in plan.target_entry_port_ids
         )
@@ -2070,12 +2139,14 @@ def _system_conflict(
         except UnsupportedConvergenceError:
             continue
         _bake_route(route, ctx)
-        for trunk_segment, planned_direction in candidate_trunks:
+        for trunk_axis, trunk_segment, planned_direction in candidate_trunks:
             for route_segment in _route_segments(route):
-                if planned_direction is _direction(
-                    *route_segment
-                ) and _parallel_segments_conflict(
-                    trunk_segment, route_segment, ctx.curve_radius
+                if (
+                    planned_direction is _direction(*route_segment)
+                    and _parallel_segments_conflict(
+                        trunk_segment, route_segment, ctx.curve_radius
+                    )
+                    and not _fuses_onto_trunk(trunk_axis, route, route_segment)
                 ):
                     return _conflict(
                         ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR,
@@ -2506,7 +2577,22 @@ def _segments_overlap(
 def _trunk_segment_ranks(
     route: RoutedPath, axis: ConvergenceTrunkAxis
 ) -> tuple[int, ...]:
-    planned = _trunk_segments(axis)
+    """The route segments *axis* states the coordinate of.
+
+    A flank the axis collapses onto its own coordinate states a point -- the
+    corner the trunk turns at -- rather than a run.  Matched as a run it claims
+    every leg passing through that point, and through
+    :func:`common.convergence_owns_segment_boundary` the leg before that one as
+    well, freezing coordinates the axis never states.  The corner itself stays
+    owned by that same boundary rule around the trunk's own run, so nothing the
+    axis does state is given up.
+    """
+    planned = [
+        item
+        for item in _trunk_segments(axis)
+        if abs(item[0][0] - item[1][0]) > COORD_TOLERANCE
+        or abs(item[0][1] - item[1][1]) > COORD_TOLERANCE
+    ]
     return tuple(
         rank
         for rank, segment in enumerate(zip(route.points, route.points[1:]))

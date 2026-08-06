@@ -3511,27 +3511,36 @@ def _perp_entry_junction_straight_drop(
 
     The junction stands off-box in the inter-section gap; when its target
     port sits directly above or below it, the line travels that column with
-    no fan -- a 2-point vertical whose ends carry the junction and port
-    lanes.  This avoids the lead-out-and-jog the offset machinery otherwise
-    stitches when the landing column coincides with the lead-in: a lateral
-    out-and-back straddling the boundary.  Running a curve radius outside a
-    flanking box wall is adequate clearance, not a reason to keep the jog;
-    ``check_no_riser_hugs_section_edge`` exempts this junction-fed leg so the
-    near-wall run is not rejected as a wall-hug.
+    no fan -- a 2-point vertical.  This avoids the lead-out-and-jog the offset
+    machinery otherwise stitches when the landing column coincides with the
+    lead-in: a lateral out-and-back straddling the boundary.  Running a curve
+    radius outside a flanking box wall is adequate clearance, not a reason to
+    keep the jog; ``check_no_riser_hugs_section_edge`` exempts this
+    junction-fed leg so the near-wall run is not rejected as a wall-hug.
+
+    The column is the port's own per-line crossing
+    (:func:`_perp_entry_landing_x`) and the drop ends on the port's edge, which
+    is where every sibling feeding that port lands and where its intra-section
+    departure leaves from.  Carrying a lane offset along the axis the drop
+    travels instead would run this line past the boundary it is crossing, on a
+    column none of its siblings stand in.
 
     Returns ``None`` when this shortcut doesn't apply, so the caller
     continues with the ordinary lead-in.
     """
     if abs(tgt.x - src.x) > COORD_TOLERANCE or src.id not in ctx.graph.junctions:
         return None
-    sx, sy = src.x, src.y
+    sy = src.y
     tx, ty = tgt.x, tgt.y
     src_off = _get_offset(ctx, edge.source, edge.line_id)
-    tgt_off = _get_offset(ctx, edge.target, edge.line_id)
+    crossing_x = _perp_entry_landing_x(
+        ctx, edge, resolve_section(ctx.graph, tgt), tx, edge.line_id
+    )
+    column = tx if crossing_x is None else crossing_x
     drop = route_along(
         edge,
         [(edge, edge.line_id, 0.0)],
-        [(sx, sy + src_off), (tx, ty + tgt_off)],
+        [(column, sy + src_off), (column, ty)],
         base_radius=ctx.curve_radius,
         normalize_exempt=True,
     )
@@ -3648,6 +3657,30 @@ def _perp_entry_finish_route(
     return next(r for r in routes if r.line_id == edge.line_id)
 
 
+def _perp_entry_landing_x(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    tgt_sec: Section | None,
+    tx: float,
+    line_id: str,
+) -> float | None:
+    """The X at which *line_id* crosses *edge*'s perpendicular (TOP/BOTTOM) entry.
+
+    Into a TB/BT trunk that is the line's own trunk lane, so the approach flows
+    straight on rather than converging on the shared port and re-fanning.  Into
+    an LR/RL section it is the port-crossing X the intra-section drop departs
+    from (:func:`_perp_entry_crossing_x`).  ``None`` where no bundled feeder
+    reaches the port and the crossing is undefined.
+
+    A merge feeder's boundary is the port the merge feeds, not the merge station
+    standing on that port's lead-in.
+    """
+    if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
+        return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
+    entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
+    return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
+
+
 def _perp_entry_bundle_members(
     edge: Edge,
     tgt_sec: Section | None,
@@ -3663,43 +3696,33 @@ def _perp_entry_bundle_members(
     BOTTOM) entry port, shared by :func:`_route_top_entry_l_shape` and
     :func:`_route_bottom_entry_l_shape`.
 
-    Every line lands on one X, and the members carry that X as the lateral the
-    bundle builder needs.  Into a TB/BT trunk the landing X is the line's own
-    trunk lane, so the bundle flows straight on rather than converging on the
-    shared port and re-fanning (a boundary pinch); the target spread is the
-    trunk's, not the source fan's, so the bundle tapers.  Into an LR/RL section
-    it is the port-crossing X the intra-section drop departs from
-    (:func:`_perp_entry_crossing_x`, the single source that drop also reads), so
-    the approach and the departure meet as one stroke at the boundary however
-    many lines share the bundle and whether or not a merge stands on the port's
-    lead-in.  Landing on the arriving fan instead bakes each line's inbound
-    offset into its lane, which for a line the section draws on the other side
-    of the port is the boundary jitter: the stroke steps sideways as it crosses
-    the section edge.  The source offset stands only where no bundled feeder
-    reaches the port and the crossing is undefined.
+    Every line lands on the X :func:`_perp_entry_landing_x` states for it, and
+    the members carry that X as the lateral the bundle builder needs, so the
+    approach and the departure meet as one stroke at the boundary however many
+    lines share the bundle.  Landing on the arriving fan instead bakes each
+    line's inbound offset into its lane, which for a line the section draws on
+    the other side of the port is the boundary jitter: the stroke steps sideways
+    as it crosses the section edge.  The source offset stands only where the
+    crossing is undefined.
+
+    Into a TB/BT trunk the reference line's own lane is the centreline, so the
+    target spread is the trunk's rather than the source fan's and the bundle
+    tapers; into an LR/RL section the centreline stays on the port.
     """
     # The bundle builder fans a leg along its own right-hand normal, and the
     # landing leg descends into a TOP port but ascends into a BOTTOM one, so
     # one landing X reads as opposite laterals on the two sides.
     landing_normal_x = -1.0 if side is PortSide.TOP else 1.0
 
+    def landing_x(line_id: str) -> float | None:
+        return _perp_entry_landing_x(ctx, edge, tgt_sec, tx, line_id)
+
     if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
-
-        def tb_landing_x(line_id: str) -> float:
-            return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
-
-        landing_x: Callable[[str], float | None] = tb_landing_x
-        final_x = tb_landing_x(ref_lid)
+        ref_landing_x = landing_x(ref_lid)
+        assert ref_landing_x is not None
+        final_x = ref_landing_x
     else:
         final_x = tx
-        # A merge feeder's boundary is the port the merge feeds, not the merge
-        # station standing on that port's lead-in.
-        entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
-
-        def crossing_landing_x(line_id: str) -> float | None:
-            return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
-
-        landing_x = crossing_landing_x
 
     def tgt_offset(line_id: str) -> float:
         lx = landing_x(line_id)

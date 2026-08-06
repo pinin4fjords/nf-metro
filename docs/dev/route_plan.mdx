@@ -356,16 +356,18 @@ not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
 evidence that actually settles the question is `layout/capacity_probe.py`, which
 asks the counterfactual directly: it grants a boundary generous capacity on a
 deep copy of the settled geometry, re-plans, and reports whether the disposition
-changes. All thirteen of the corpus's compatibility systems do not change at any
+changes. All twelve of the corpus's compatibility systems do not change at any
 capacity up to 4464px, which is what proves their limit is a channel decision
 rather than envelope allocation.
 
-Thirteen is the live population; `COMPATIBILITY_CORPUS` carries fourteen rows.
-The fourteenth is a control: a fixture the planner came to own keeps its row,
-asserting that it publishes no compatibility system at all, so a system slipping
-back onto that path fails a test rather than passing unnoticed.
+Twelve is the live population, carried by twelve fixtures and collapsing to nine
+distinct system-id strings because sibling fixtures share connector names;
+`COMPATIBILITY_CORPUS` carries fourteen rows. The other two are controls: a
+fixture the planner came to own keeps its row, asserting that it publishes no
+compatibility system at all, so a system slipping back onto that path fails a
+test rather than passing unnoticed.
 
-That fourteenth is also where the decision below comes from.
+One of those controls is where the decision below comes from.
 `merge_around_below_leftmost` did change, at 22.5px, so what held it was
 capacity — and the answer was not to buy it. Its route system converges twice,
 and each convergence read its trunk

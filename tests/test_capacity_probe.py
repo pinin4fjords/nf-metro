@@ -70,10 +70,7 @@ COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict | None], ...] = (
         ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
         CapacityVerdict.BEYOND_ALLOCATION,
     ),
-    (
-        REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
-        CapacityVerdict.BEYOND_ALLOCATION,
-    ),
+    (REGRESSIONS / "cross_column_perp_entry_overflow.mmd", PLANNED_OUTRIGHT),
     (REGRESSIONS / "stacked_collector_fanin.mmd", CapacityVerdict.BEYOND_ALLOCATION),
 )
 

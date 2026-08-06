@@ -13,7 +13,6 @@ from nf_metro.api import prepare_graph
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
     BindingKind,
-    ConvergenceConflictKind,
     ConvergenceDisposition,
     ConvergenceEndpointRole,
     ConvergencePlanId,
@@ -636,22 +635,20 @@ def test_trunk_flank_settlement_rederives_curve_radii(
         assert route.curve_radii[radius_rank] != 99.0
 
 
-def test_perpendicular_entry_convergences_take_whole_system_compatibility() -> None:
-    """Three merges into one TOP port are one route system, and it is compatible.
+def test_perpendicular_entry_convergences_plan_one_trunk_per_crossing_column() -> None:
+    """Three merges into one TOP port are one route system, and the planner owns it.
 
-    Each merge is seated on the vertical lead-in its perpendicular port
-    receives, so the trunk runs down the port's own column -- the column an
-    unowned member of the same system and the same line already uses to enter
-    that port.  ``UNOWNED_MEMBER_CORRIDOR`` refuses a planned corridor there,
-    and a logical group migrates whole or not at all, so all three take the
-    compatibility disposition together rather than one of them planning a trunk
-    the other two would have to route around.
+    Each merge stands on the vertical lead-in its perpendicular port receives, so
+    its trunk runs the column that port's own crossing gives the merged line --
+    the column its feeders descend, its sibling landing from outside the system
+    descends, and the intra-section departure leaves from.  Every member of the
+    system therefore terminates on one point per line, which is what lets each
+    plan state a ``SHARED_TERMINAL_APPROACH`` trunk instead of falling back to the
+    junction's own column and disagreeing with its own landings.
 
-    The disposition records what the planner is short of rather than a property
-    of this topology; ``src/nf_metro/layout/CONTRACT.md`` names the missing
-    capability, its owner, and the corpus count that follows it.  What the
-    assertions below hold is the transactional fallback, which this stage owes
-    whichever disposition it reaches.
+    The three lines' trunks are one offset step apart because that is the spacing
+    the port lanes its crossings at, and each is the column the emitted geometry
+    draws: a plan whose trunk a later fusion had to move would be refused.
     """
     path = (
         ROOT
@@ -660,22 +657,79 @@ def test_perpendicular_entry_convergences_take_whole_system_compatibility() -> N
         / "regressions"
         / "cross_column_perp_entry_overflow.mmd"
     )
-    _graph, _offsets, observed = _observe(path)
+    graph, offsets, observed = _observe(path)
     plans = observed.plan.convergence_plans
 
     assert len(plans) == 3
     assert len({plan.system_id for plan in plans}) == 1
-    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
-    assert {plan.conflict.kind for plan in plans} == {
-        ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR
+    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.PLANNED}
+    assert {plan.conflict for plan in plans} == {None}
+    assert {plan.primary_trunk_reason for plan in plans} == {
+        ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
     }
-    # A fallback is transactional: nothing of the abandoned plan survives it.
+
+    port = graph.stations["reporting__entry_top_7"]
+    axis_by_line = {}
     for plan in plans:
-        assert not plan.owns_geometry
-        assert plan.trunk_axis is None
-        assert plan.landings == ()
-        assert plan.outgoing_continuations == ()
-    assert not any(route.convergence_member_id for route in observed.routes)
+        assert plan.owns_geometry
+        axis = plan.trunk_axis
+        assert axis is not None
+        assert axis.axis is DemandAxis.Y
+        assert axis.direction is Direction.D
+        # The trunk ends on the port's edge, where its own landings join it.
+        assert axis.extent_end == pytest.approx(port.y)
+        for landing in plan.landings:
+            assert landing.join_point == pytest.approx((axis.coordinate, port.y))
+        axis_by_line[plan.line_ids[0]] = axis.coordinate
+
+    # Each trunk stands in the column the port states for its line, so no two
+    # of them share one.
+    for line_id, coordinate in axis_by_line.items():
+        assert coordinate == pytest.approx(port.x + offsets[(port.id, line_id)])
+    assert len(set(axis_by_line.values())) == len(plans)
+
+
+def test_a_planned_feeder_leaves_its_fan_on_its_own_line_s_column() -> None:
+    """One line leaves one source on one column, plan or no plan.
+
+    ``_divergent_source_groups`` fuses each line's descents at a shared source
+    onto the column its bundled member holds there.  A plan that froze its
+    feeder's own handler column would stand that descent one lane off its own
+    colour: the line drawn twice, and drawn over the neighbouring line whose lane
+    it took.
+    """
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+    path = (
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "regressions"
+        / "cross_column_perp_entry_overflow.mmd"
+    )
+    _graph, _offsets, observed = _observe(path)
+    columns: dict[tuple[str, str], set[float]] = {}
+    for route in observed.routes:
+        channel = _opening_fanout_descent(route)
+        if channel is None:
+            continue
+        columns.setdefault((route.edge.source, route.line_id), set()).add(
+            round(channel.x, 3)
+        )
+
+    fan_sources = {
+        source for source, _line in columns if source.startswith("__junction")
+    }
+    assert fan_sources
+    for source in fan_sources:
+        per_line = {
+            line: lanes for (src, line), lanes in columns.items() if src == source
+        }
+        assert len(per_line) > 1
+        for line, lanes in per_line.items():
+            assert len(lanes) == 1, (source, line, sorted(lanes))
+        held = [lanes.pop() for lanes in per_line.values()]
+        assert len(set(held)) == len(held), (source, sorted(held))
 
 
 def test_planned_landing_facts_match_emitted_terminal_geometry() -> None:
