@@ -6,6 +6,7 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     JUNCTION_MARGIN,
 )
+from nf_metro.layout.geometry import sections_share_a_column
 from nf_metro.parser.model import LineSpread, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import build_route_topology_query
 
@@ -42,24 +43,25 @@ def _drops_down_the_junction_column(
     reached round a corner a curve runway further on, so the channel stands in
     the corner's column and the junction merely feeds it.
     """
-    exit_port = graph.stations.get(exit_port_id or "")
-    feeder = (
-        graph.sections.get(exit_port.section_id or "")
-        if exit_port is not None
-        else None
-    )
+    if exit_port_id is None:
+        return False
+    exit_port = graph.stations.get(exit_port_id)
+    if exit_port is None or exit_port.section_id is None:
+        return False
+    feeder = graph.sections.get(exit_port.section_id)
     if feeder is None:
         return False
-    feeder_cols = range(feeder.grid_col, feeder.grid_col + feeder.grid_col_span)
     for edge in graph.edges_from(jid):
         port = graph.ports.get(edge.target)
         if port is None or port.side not in (PortSide.TOP, PortSide.BOTTOM):
             continue
-        entry = graph.sections.get(graph.stations[edge.target].section_id or "")
+        entry_section_id = graph.stations[edge.target].section_id
+        if entry_section_id is None:
+            continue
+        entry = graph.sections.get(entry_section_id)
         if entry is None:
             continue
-        entry_cols = range(entry.grid_col, entry.grid_col + entry.grid_col_span)
-        if not set(feeder_cols) & set(entry_cols):
+        if not sections_share_a_column(feeder, entry):
             continue
         if (
             entry.grid_row > feeder.grid_row

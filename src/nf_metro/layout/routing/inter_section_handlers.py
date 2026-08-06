@@ -32,6 +32,7 @@ from nf_metro.layout.constants import (
     NEXT_ROW_HEADER_BADGE_CLEARANCE,
     SECTION_ROUTE_CLEARANCE,
 )
+from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.routing.bundle import build_tapered_bundle
 from nf_metro.layout.routing.centrelines import (
@@ -3657,6 +3658,22 @@ def _perp_entry_finish_route(
     return next(r for r in routes if r.line_id == edge.line_id)
 
 
+def _perp_entry_lands_on_its_own_lane(tgt_sec: Section) -> bool:
+    """Whether a perpendicular entry lands each line on its own trunk lane.
+
+    A section stacking its lines along X separates them across the very axis a
+    TOP/BOTTOM port is approached along, so an arriving line meets the port
+    already on the lane it will travel and flows straight on.  A section stacking
+    along Y separates them across the port's own axis instead: every line
+    converges on the shared port and the fan is re-formed behind it.
+
+    Both the landing coordinate and the bundle's centreline turn on this, so they
+    ask it here rather than each deciding for itself; a bundle centred on a lane
+    the landing does not use draws the boundary jitter it exists to remove.
+    """
+    return lanes_run_along_x(tgt_sec.direction)
+
+
 def _perp_entry_landing_x(
     ctx: _RoutingCtx,
     edge: Edge,
@@ -3666,16 +3683,16 @@ def _perp_entry_landing_x(
 ) -> float | None:
     """The X at which *line_id* crosses *edge*'s perpendicular (TOP/BOTTOM) entry.
 
-    Into a TB/BT trunk that is the line's own trunk lane, so the approach flows
-    straight on rather than converging on the shared port and re-fanning.  Into
-    an LR/RL section it is the port-crossing X the intra-section drop departs
-    from (:func:`_perp_entry_crossing_x`).  ``None`` where no bundled feeder
-    reaches the port and the crossing is undefined.
+    Into a section that lands the line on its own trunk lane
+    (:func:`_perp_entry_lands_on_its_own_lane`) that lane is the crossing.
+    Otherwise it is the port-crossing X the intra-section drop departs from
+    (:func:`_perp_entry_crossing_x`).  ``None`` where no bundled feeder reaches
+    the port and the crossing is undefined.
 
     A merge feeder's boundary is the port the merge feeds, not the merge station
     standing on that port's lead-in.
     """
-    if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
+    if tgt_sec is not None and _perp_entry_lands_on_its_own_lane(tgt_sec):
         return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
     entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
     return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
@@ -3688,6 +3705,7 @@ def _perp_entry_bundle_members(
     ref_lid: str,
     line_ids: list[str],
     edge_by_line: dict[str, Edge],
+    *,
     src_geom: Callable[[str], float],
     ctx: _RoutingCtx,
     side: PortSide,
@@ -3705,9 +3723,11 @@ def _perp_entry_bundle_members(
     as it crosses the section edge.  The source offset stands only where the
     crossing is undefined.
 
-    Into a TB/BT trunk the reference line's own lane is the centreline, so the
-    target spread is the trunk's rather than the source fan's and the bundle
-    tapers; into an LR/RL section the centreline stays on the port.
+    Where the entry lands each line on its own lane
+    (:func:`_perp_entry_lands_on_its_own_lane`) the reference line's lane is the
+    centreline, so the target spread is the landing section's rather than the
+    source fan's and the bundle tapers; otherwise the centreline stays on the
+    port.
     """
     # The bundle builder fans a leg along its own right-hand normal, and the
     # landing leg descends into a TOP port but ascends into a BOTTOM one, so
@@ -3717,7 +3737,7 @@ def _perp_entry_bundle_members(
     def landing_x(line_id: str) -> float | None:
         return _perp_entry_landing_x(ctx, edge, tgt_sec, tx, line_id)
 
-    if tgt_sec is not None and tgt_sec.direction in ("TB", "BT"):
+    if tgt_sec is not None and _perp_entry_lands_on_its_own_lane(tgt_sec):
         ref_landing_x = landing_x(ref_lid)
         assert ref_landing_x is not None
         final_x = ref_landing_x
@@ -3913,7 +3933,15 @@ def _route_top_entry_l_shape(
                 lx0 = _v1_corner_x(ctx, src, sx, lx0)
 
     final_x, members = _perp_entry_bundle_members(
-        edge, tgt_sec, tx, ref_lid, line_ids, edge_by_line, src_geom, ctx, PortSide.TOP
+        edge,
+        tgt_sec,
+        tx,
+        ref_lid,
+        line_ids,
+        edge_by_line,
+        src_geom=src_geom,
+        ctx=ctx,
+        side=PortSide.TOP,
     )
 
     # A feeder rising from a row below the target cannot drop straight into a
@@ -4178,9 +4206,9 @@ def _route_bottom_entry_l_shape(
         ref_lid,
         line_ids,
         edge_by_line,
-        src_geom,
-        ctx,
-        PortSide.BOTTOM,
+        src_geom=src_geom,
+        ctx=ctx,
+        side=PortSide.BOTTOM,
     )
 
     # A feeder descending from a row above the target cannot rise straight into a

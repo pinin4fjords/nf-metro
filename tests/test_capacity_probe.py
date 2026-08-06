@@ -161,18 +161,17 @@ def test_every_compatibility_system_is_probed_against_boundary_capacity(
     planned = [item for item in probe.grants if item.planned]
     if expected is CapacityVerdict.BEYOND_ALLOCATION:
         assert not planned
-        assert probe.sufficient_capacity is None
+        assert probe.quoted is None
         assert f"{max(item.capacity for item in probe.grants):.2f}px" in probe.message
         return
     assert planned
-    assert probe.sufficient_capacity is not None
-    assert probe.sufficient_scope is not None
-    assert f"{probe.sufficient_capacity:.2f}px" in probe.message
+    assert probe.quoted is not None
+    quoted_scope, quoted_capacity = probe.quoted
+    assert f"{quoted_capacity:.2f}px" in probe.message
     tail = [
         item
         for item in probe.grants
-        if item.scope is probe.sufficient_scope
-        and item.capacity >= probe.sufficient_capacity
+        if item.scope is quoted_scope and item.capacity >= quoted_capacity
     ]
     reaches = expected is CapacityVerdict.ALLOCATION_REACHES
     assert all(item.planned for item in tail) is reaches
@@ -193,9 +192,10 @@ def test_a_starved_system_is_handed_back_the_capacity_that_starved_it() -> None:
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.system_id == system_id
     assert probe.verdict is CapacityVerdict.ALLOCATION_REACHES
-    assert probe.sufficient_scope is CapacityScope.CLAIMED_BOUNDARIES
-    assert probe.sufficient_capacity is not None
-    assert probe.sufficient_capacity >= -STARVATION
+    assert probe.quoted is not None
+    quoted_scope, quoted_capacity = probe.quoted
+    assert quoted_scope is CapacityScope.CLAIMED_BOUNDARIES
+    assert quoted_capacity >= -STARVATION
 
 
 def test_the_probe_never_writes_to_the_map_it_measures() -> None:

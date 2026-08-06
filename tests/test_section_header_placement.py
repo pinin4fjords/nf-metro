@@ -376,13 +376,15 @@ def test_the_band_guard_reports_a_caption_deeper_than_its_gap(
         "u": section_header._below(
             upper.bbox_x,
             upper.bbox_y + upper.bbox_h,
-            SECTION_NUM_CIRCLE_R_LARGE,
-            4.0,
-            120.0,
-            10.4,
-            ["Upper work"],
-            0.0,
-            False,
+            section_header._BandBlock(
+                circle_r=SECTION_NUM_CIRCLE_R_LARGE,
+                num_y=4.0,
+                length=120.0,
+                half_text=10.4,
+                lines=["Upper work"],
+                extra_height=0.0,
+                height_capped=False,
+            ),
         )
     }
     assert check_section_headers_hold_the_reserved_band(graph, placements, 13.0) == [

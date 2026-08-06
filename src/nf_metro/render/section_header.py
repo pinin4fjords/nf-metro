@@ -46,6 +46,7 @@ took rather than a fixed band above ``bbox_y``.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
@@ -67,9 +68,6 @@ from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 Rect = tuple[float, float, float, float]
 Polyline = list[tuple[float, float]]
 HeaderMode = Literal["above", "below", "left", "right", "nudge"]
-
-_BAND_MODES: frozenset[HeaderMode] = frozenset({"above", "nudge"})
-"""Modes that hang the header off the box's top edge."""
 
 
 class _BandBlock(NamedTuple):
@@ -116,6 +114,14 @@ class SectionHeaderPlacement:
     label_lines: tuple[str, ...]
     keepout: Rect
     height_capped: bool = False
+
+
+class _Scored(NamedTuple):
+    """One available candidate with the air it keeps and its listed position."""
+
+    clearance: float
+    rank: int
+    placement: SectionHeaderPlacement
 
 
 def estimate_section_label_width(name: str, font_size: float) -> float:
@@ -321,6 +327,86 @@ def _upward_ceiling(
     return ceiling
 
 
+class _BandQuery(NamedTuple):
+    """The placed geometry one side's free room is read from."""
+
+    graph: MetroGraph
+    section: Section
+    label_font_size: float
+    title_font_size: float | None
+
+
+def _top_edge_room(query: _BandQuery) -> float:
+    return max(
+        SECTION_HEADER_PROTRUSION,
+        _single_line_protrusion(query.label_font_size),
+        query.section.bbox_y
+        - _upward_ceiling(query.graph, query.section, query.title_font_size),
+    )
+
+
+def _top_edge_protrusion(section: Section, keepout: Rect) -> float:
+    return section.bbox_y - keepout[1]
+
+
+def _bottom_edge_room(query: _BandQuery) -> float:
+    below_top = _nearest_section_below(query.graph, query.section)
+    if below_top is None:
+        return float("inf")
+    section = query.section
+    return below_top - SECTION_HEADER_PROTRUSION - (section.bbox_y + section.bbox_h)
+
+
+def _bottom_edge_protrusion(section: Section, keepout: Rect) -> float:
+    return keepout[3] - (section.bbox_y + section.bbox_h)
+
+
+def _left_edge_room(query: _BandQuery) -> float:
+    beside = _nearest_section_beside(query.graph, query.section, -1.0)
+    left = query.section.bbox_x
+    return left if beside is None else left - beside
+
+
+def _left_edge_protrusion(section: Section, keepout: Rect) -> float:
+    return section.bbox_x - keepout[0]
+
+
+def _right_edge_room(query: _BandQuery) -> float:
+    beside = _nearest_section_beside(query.graph, query.section, 1.0)
+    right = query.section.bbox_x + query.section.bbox_w
+    return float("inf") if beside is None else beside - right
+
+
+def _right_edge_protrusion(section: Section, keepout: Rect) -> float:
+    return keepout[2] - (section.bbox_x + section.bbox_w)
+
+
+class _HeaderSide(NamedTuple):
+    """One box edge a header hangs off, read from both directions.
+
+    Pairing the two readings is what keeps them describing the same edge: the
+    room the layout leaves beside it and the reach of the ink placed there.
+    """
+
+    room: Callable[[_BandQuery], float]
+    protrusion: Callable[[Section, Rect], float]
+
+
+_TOP_EDGE = _HeaderSide(_top_edge_room, _top_edge_protrusion)
+
+_HEADER_SIDES: dict[HeaderMode, _HeaderSide] = {
+    "above": _TOP_EDGE,
+    "nudge": _TOP_EDGE,
+    "below": _HeaderSide(_bottom_edge_room, _bottom_edge_protrusion),
+    "left": _HeaderSide(_left_edge_room, _left_edge_protrusion),
+    "right": _HeaderSide(_right_edge_room, _right_edge_protrusion),
+}
+"""The box edge each mode hangs its header off.
+
+``above`` and ``nudge`` share the top edge: a nudged caption is the default one
+slid along that same band."""
+
+
 def header_band_room(
     graph: MetroGraph,
     section: Section,
@@ -353,39 +439,16 @@ def header_band_room(
         the inter-column gap beside the box.  Unbounded to the right for the same
         reason; to the left it stops at the canvas edge.
     """
-    if mode in _BAND_MODES:
-        ceiling = _upward_ceiling(graph, section, title_font_size)
-        return max(
-            SECTION_HEADER_PROTRUSION,
-            _single_line_protrusion(label_font_size),
-            section.bbox_y - ceiling,
-        )
-    if mode == "below":
-        below_top = _nearest_section_below(graph, section)
-        if below_top is None:
-            return float("inf")
-        return below_top - SECTION_HEADER_PROTRUSION - (section.bbox_y + section.bbox_h)
-    if mode == "right":
-        beside = _nearest_section_beside(graph, section, 1.0)
-        if beside is None:
-            return float("inf")
-        return beside - (section.bbox_x + section.bbox_w)
-    beside = _nearest_section_beside(graph, section, -1.0)
-    return section.bbox_x if beside is None else section.bbox_x - beside
+    return _HEADER_SIDES[mode].room(
+        _BandQuery(graph, section, label_font_size, title_font_size)
+    )
 
 
 def header_band_protrusion(
     section: Section, placement: SectionHeaderPlacement
 ) -> float:
     """How far ``placement``'s ink reaches past the box edge it hangs off."""
-    x0, y0, x1, y1 = placement.keepout
-    if placement.mode in _BAND_MODES:
-        return section.bbox_y - y0
-    if placement.mode == "below":
-        return y1 - (section.bbox_y + section.bbox_h)
-    if placement.mode == "left":
-        return section.bbox_x - x0
-    return x1 - (section.bbox_x + section.bbox_w)
+    return _HEADER_SIDES[placement.mode].protrusion(section, placement.keepout)
 
 
 def _fits_its_band(
@@ -541,15 +604,16 @@ def resolve_section_header_placement(
     block = _BandBlock(
         circle_r, num_y, length, half_text, lines, extra_height, height_capped
     )
-    above = _above(
-        x0, y0, circle_r, num_y, length, half_text, lines, extra_height, height_capped
-    )
+    above = _above(x0, y0, block)
     if polylines is None or _placement_clear(above, polylines):
         return above
 
     down_max_lines = _max_lines_downward(graph, section, label_font_size)
     lines_dn, length_dn, extra_dn, capped_dn = _wrapped_header_geometry(
         section.name, label_font_size, section.bbox_w, side_length, down_max_lines
+    )
+    down_block = _BandBlock(
+        circle_r, num_y, length_dn, half_text, lines_dn, extra_dn, capped_dn
     )
 
     # A rotated side header needs the box only as tall as its badge; an overlong
@@ -562,17 +626,7 @@ def resolve_section_header_placement(
     side_room = section.bbox_h >= badge_diameter
     upright = [
         *_band_slot_placements(section, above, block, polylines),
-        _below(
-            x0,
-            box_bottom,
-            circle_r,
-            num_y,
-            length_dn,
-            half_text,
-            lines_dn,
-            extra_dn,
-            capped_dn,
-        ),
+        _below(x0, box_bottom, down_block),
     ]
     rotated = []
     if (
@@ -584,11 +638,9 @@ def resolve_section_header_placement(
     if side_room:
         rotated.append(_right(box_right, y0, circle_r, gap, side_length, section.name))
 
-    def _available(
-        candidates: list[SectionHeaderPlacement],
-    ) -> list[tuple[float, int, SectionHeaderPlacement]]:
+    def _available(candidates: list[SectionHeaderPlacement]) -> list[_Scored]:
         return [
-            (_route_clearance(candidate, polylines), -rank, candidate)
+            _Scored(_route_clearance(candidate, polylines), rank, candidate)
             for rank, candidate in enumerate(candidates)
             if _placement_clear(candidate, polylines)
             and _fits_its_band(
@@ -601,7 +653,7 @@ def resolve_section_header_placement(
     # not a peer of them to be scored against and stays a lower tier.
     scored = _available(upright) or _available(rotated)
     if scored:
-        return max(scored, key=lambda entry: entry[:2])[2]
+        return max(scored, key=lambda item: (item.clearance, -item.rank)).placement
     return _band_shift(
         _leftmost_clear_band_start(section, above, length, polylines), section, block
     )
@@ -636,17 +688,8 @@ def _placement_clear(
     )
 
 
-def _above(
-    x0: float,
-    y0: float,
-    circle_r: float,
-    num_y: float,
-    length: float,
-    half_text: float,
-    lines: list[str],
-    extra_height: float,
-    height_capped: bool,
-) -> SectionHeaderPlacement:
+def _above(x0: float, y0: float, block: _BandBlock) -> SectionHeaderPlacement:
+    circle_r, num_y, length, half_text, lines, extra_height, height_capped = block
     cx = x0 + circle_r
     cy = y0 - circle_r - num_y
     return SectionHeaderPlacement(
@@ -662,17 +705,8 @@ def _above(
     )
 
 
-def _below(
-    x0: float,
-    box_bottom: float,
-    circle_r: float,
-    num_y: float,
-    length: float,
-    half_text: float,
-    lines: list[str],
-    extra_height: float,
-    height_capped: bool,
-) -> SectionHeaderPlacement:
+def _below(x0: float, box_bottom: float, block: _BandBlock) -> SectionHeaderPlacement:
+    circle_r, num_y, length, half_text, lines, extra_height, height_capped = block
     cx = x0 + circle_r
     cy = box_bottom + circle_r + num_y
     return SectionHeaderPlacement(
