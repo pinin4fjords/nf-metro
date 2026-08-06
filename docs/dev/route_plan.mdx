@@ -19,6 +19,32 @@ a complete exit group. Convergence records choose the target trunk, feeder
 landings, continuation, and endpoint ownership. Emission bindings and corridor
 reservations describe what production routing finally emitted.
 
+## Who owns what
+
+Each stage below decides one thing and freezes it for the next. The rule the
+chain exists to enforce is that a visual object spanning several edges is
+decided once, at the scope of the invariant it has to keep, rather than
+rediscovered per edge and repaired afterwards.
+
+```mermaid
+flowchart TD
+    G["authored graph"]
+    T["RouteTopology, RouteResolution<br/>authored identity, resolved membership"]
+    C["layout commitments<br/>grid, direction, span, fold, port sides"]
+    L["local section layout<br/>station geometry, symbolic demands"]
+    P["route-system plans<br/>ExitTurnPlan, FanPlan, convergence plan"]
+    R["RouteReservation<br/>corridor claims"]
+    S["envelope settlement<br/>realised bands, row and column offsets"]
+    E["plan-driven emission<br/>points and radii from shared primitives"]
+    D["RenderPlan"]
+
+    G --> T --> C --> L --> P --> R --> S --> E --> D
+```
+
+Names change; the boundaries do not. A stage never reaches back: emission does
+not choose a band, settlement does not choose route membership, and no later
+pass restores something a plan owns.
+
 ## Observation boundary
 
 On the normal dispatcher path, the routing context and semantic scaffold are
@@ -263,7 +289,202 @@ from creating a false deficit without erasing a collapsed topology corridor.
 Negative available width is valid evidence. It means the final blocker
 envelopes overlap. A negative side slack means the route lies too close to, or
 past, one boundary. Observation retains both values and emits an attributed
-diagnostic; it does not move any geometry or approve a fallback route.
+diagnostic; observation itself moves no geometry.
+
+## Envelope settlement
+
+`settle_route_envelopes` turns a negative capacity slack into a translation.
+It runs at the render boundary, after label wrapping and the header reconcile
+have taken their bites out of the gaps, and it owns exactly one kind of write:
+the global offset of a grid row or a grid column, applied to whole sections
+with the stations and ports they contain. Section sizes, a station's place
+inside its section, plan frames, lane order, port sides, and author pins are
+all frozen inputs.
+
+### Why a reserved map routes twice
+
+Settlement sits between two routing passes, and only coordinates move between
+them: `_assert_settlement_decisions_frozen` requires the second pass to reach
+the same decisions as the first.
+
+Settling twice is not an option. Re-routing publishes a different ledger, with
+corridors that appear, vanish, and change width, so settling against successive
+ledgers would be a fixpoint search over a moving constraint set with no
+convergence argument. Where the re-routed ledger disagrees with the frozen one,
+`attach_reroute_ledger_delta` records the difference as a non-blocking
+diagnostic.
+
+```mermaid
+flowchart TD
+    J["re-derive junctions<br/>from the ports they join"]
+    R1["route: first pass"]
+    LB["place labels<br/>may carry a port with its box edge"]
+    HD["header reconcile<br/>may push lower rows down"]
+    ST["settle_route_envelopes"]
+    R2["route: second pass,<br/>handed the frozen ledger"]
+    FZ["assert decisions frozen"]
+    HB["final label pass<br/>hold_port_anchored_edges"]
+    GD["Tier-A guards and reservation<br/>containment, on settled geometry"]
+    LG[("RouteReservation<br/>ledger")]
+
+    J --> R1 --> LB --> HD --> ST --> R2 --> FZ --> HB --> GD
+    R1 -. publishes .-> LG
+    LG -. sized against .-> ST
+    LG -. seated from .-> R2
+    LG -. scored against .-> GD
+```
+
+### Two demands, one translation
+
+A boundary can be owed space by two independent things: a corridor a route
+reserved across it, and the clearance its facing boxes owe each other. They are
+measured separately and settled together -- a boundary carrying both is widened
+**once**, by the larger, because paying each owner in turn over-reserves.
+
+```mermaid
+flowchart LR
+    RES["reservation deficit:<br/>required less available"]
+    CLR["clearance demand<br/>row axis only"]
+    MAX{"per boundary:<br/>the larger"}
+    Q["quantised_allocation"]
+    T["translate every section<br/>at or beyond the boundary"]
+
+    RES --> MAX
+    CLR --> MAX
+    MAX --> Q --> T
+```
+
+The clearance demand is row-only, because the pass whose global translation it
+took over was. The reservation ledger is settled on both axes.
+
+One residue is outside what row and column offsets can reach: the router's
+narrow-band fallback, which biases a run against the header badge it cannot
+clear, fires only at gaps the ledger never claimed, so there is no reservation
+to consume there.
+
+A canvas-side corridor is bounded on one side by the canvas edge rather than by
+a grid boundary, so closing one means growing a margin, which is a different
+translation owner. All 144 realised canvas reservations now meet their required
+width, and `assert_canvas_corridors_hold_their_claims` gates both the canvas-edge
+margin and total capacity. It does not yet gate the _content_ side, because the
+clearance charged there is longitudinally blind and assumes a caption above the
+box; #1693 owns tightening that claim to the badge actually drawn, and the
+shortfalls are published as attributed `reservation-deficit` diagnostics until it
+does.
+
+## The router's side of the contract
+
+A translation is only worth making if the re-route lands the corridor in the
+space it bought. `build_reserved_corridors` (`layout/routing/reserved_bands.py`)
+re-measures the ledger settlement was handed against the geometry it left, and
+turns each row-gap reservation into the clear span its own side clearances
+leave: `region_start + negative_side_clearance` to `region_end -
+positive_side_clearance`. Several corridors can claim one boundary over
+different spans, so the boundary's band is their intersection -- a channel
+placed without knowing which corridor it belongs to has to satisfy every claim
+-- and a boundary whose claims intersect to nothing describes no single corridor
+and is left unclaimed. That view cannot separate two corridors crossing one
+boundary in opposite directions, whose intersection is narrower than either and
+sometimes a single coordinate, which is why the passes allocating several
+corridors across one boundary at once still keep the raw gap.
+
+`_route_edges` takes that lookup as `reserved_bands` on the routing context, and
+`_center_inter_row_channel` places a claimed channel inside the band instead of
+deriving one. The two derivations use the same two clearances; they differ in
+which blockers they measure against. The reservation names the sections that
+bound its corridor over its own declared span, while the row edges name whatever
+sits in the two grid rows -- which over-states the obstruction where a section
+spans the boundary or sits outside the run. Because a published band is never
+narrower than nothing, a claimed corridor cannot reach the narrow-gap fallback.
+
+Only the settled re-route consumes a ledger, since that is the only routing pass
+with one to consume: the first pass is what publishes it. A corridor whose Y is
+fixed by something other than this helper -- a fan's shared corridor band, a
+bundle restack, a handler clamping the channel between its endpoints -- still
+lands where that owner puts it.
+
+A section spanning across a boundary occupies that boundary rather than
+bounding either side of it: its far edge lies beyond the boundary and its near
+edge before it, so neither is a clearance the boundary offers. The measurement
+therefore bounds a boundary by the sections lying wholly on each side, and a
+boundary every relevant section spans across has no side to measure and raises
+-- which is how the region search learns the corridor does not run in that gap.
+
+A boundary is also bounded by a station the corridor's own runs launch from. A
+pre-routing plan that emits its runs out of a station standing in the gap fixes
+how long the opening leg has to be and refuses emitted geometry that shortens
+it, so the run cannot be drawn any nearer to that station however far the
+opposite side is pushed. `RouteReservation.launch_anchors` names the station
+with the runway it owes, and the realisation folds it into the region edge on
+the side of the run it stands on, so the band the reservation publishes is the
+band the plan is free to occupy and the width the boundary is asked for is the
+width that band needs. Reading only the section edges instead states a band
+behind the launch station, which the plan can never reach.
+
+No deficit is left behind for those reasons, so none is exempt:
+`assert_reservations_are_settled` fails the strict path for every surviving
+row- or column-gap deficit, because a route drawn through a clearance it does
+not have is wrong however the claim arose.
+
+Settlement also attributes ownership it cannot take. A convergence system left
+on the compatibility path whose corridors all reach their required width gets a
+`CompatibilityOwnership` record carrying its system id, the reason it is still
+on compatibility, its corridor count, its tightest slack, and the owner of the
+decision it is actually short of.
+
+That record on its own is weaker evidence than it reads, because
+`SettlementReach` can only return `WITHIN_REACH` for a conflict whose relief is
+not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
+evidence that actually settles the question is `layout/capacity_probe.py`, which
+asks the counterfactual directly: it grants a boundary generous capacity on a
+deep copy of the settled geometry, re-plans, and reports whether the disposition
+changes. All twelve of the corpus's compatibility systems do not change at any
+capacity up to 4464px, which is what proves their limit is a channel decision
+rather than envelope allocation.
+
+Twelve is the live population, carried by twelve fixtures and collapsing to nine
+distinct system-id strings because sibling fixtures share connector names;
+`COMPATIBILITY_CORPUS` carries fourteen rows. The other two are controls: a
+fixture the planner came to own keeps its row, asserting that it publishes no
+compatibility system at all, so a system slipping back onto that path fails a
+test rather than passing unnoticed.
+
+One of those controls is where the decision below comes from.
+`merge_around_below_leftmost` did change, at 22.5px, so what held it was
+capacity, and the answer was not to buy it. Its route system converges twice,
+and each convergence read its trunk
+coordinate off a trial route taken with no knowledge of its sibling, so both
+proposed the same lane of one inter-row channel and the planner declined the
+system with `SHARED_TRUNK_CHANNEL`, whose reason names what was missing: one
+shared channel decision.
+
+`_settle_shared_trunk_channels` makes it. The route system, not either plan,
+assigns each trunk a lane by `cotravelling_lane_clearance`: a full turn radius
+between a line and its own return leg, and nothing at all between two runs going
+the same way, which stay one fused stroke. Both channels a trunk shares are laned
+by that one rule: the channel its central run travels, and the channel its flanks
+turn out into. `ConvergenceTrunkAxis.claimant_member_ids` names the members that
+travel a trunk -- its trunk member and every feeder that lands on it -- so
+settlement projects the lane through the translations those members took.
+
+The lane needs room, and the room arrives through the ledger the first routing
+pass already publishes rather than through a demand of its own: a lane is a drawn
+stroke, so the boundary carrying it is charged as a peer of the claim beside it
+and the reservation's `minimum_width` states the pair. On this fixture that is
+26 negative + 0 bundle + 11 peer + 52 positive = 89px against a 78px gap,
+realised at required 89.00 / available 89.00 with the two trunks on 196 and 207.
+Because the decision is made on the first pass, settlement realises a demand
+against a plan that already exists: the disposition does not change across the
+sweep. Because a lane is measured from the trunk that arrived first rather than
+from a boundary edge, widening the boundary does not move it.
+
+A grant goes through `translate_boundaries`, which widens _and_ re-derives the
+junctions the widened sections carry. Widening alone measures the probe rather
+than the pipeline: a junction's coordinates are a function of the ports it joins,
+so a section translation that skips `reanchor_junctions` strands every junction
+behind its sections, and a stranded junction that sets a shared opening turn
+separates two fan arms past `COORD_TOLERANCE` until the conflict predicate stops
+matching them at all.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final
@@ -287,7 +508,7 @@ same reference and demand ledger:
 | Exit-turn planner                                           | Implemented | Shared exit-bundle turn axes, curve runways, and fixed perpendicular axes               |
 | [#1656](https://github.com/seqeralabs/nf-metro/issues/1656) | Implemented | Fan and diamond centrelines, branch transition runways, and hand-off space              |
 | [#1657](https://github.com/seqeralabs/nf-metro/issues/1657) | Implemented | Convergence trunk extent, feeder landing sequence, and approach space                   |
-| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Planned     | Final row and column allocation, realising demands through monotone envelope settlement |
+| [#1660](https://github.com/seqeralabs/nf-metro/issues/1660) | Implemented | Final row and column allocation, realising demands through monotone envelope settlement |
 | [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) | Planned     | Consolidate plan-driven emission and retire displaced compatibility logic               |
 
 Each planner migrates a complete semantic group. If one member is unsupported,
@@ -299,12 +520,16 @@ The convergence compatibility path is bounded to allocation capabilities that
 the current planner cannot settle atomically: opposing fan openings, shared fan
 channels that require one cross-convergence decision, chained same-line trunks,
 and collisions with an unowned endpoint bundle in the same route system.
-[#1660](https://github.com/seqeralabs/nf-metro/issues/1660) owns the shared row
-and column settlement needed to absorb those cases. Once that allocation is
-available, [#1658](https://github.com/seqeralabs/nf-metro/issues/1658) owns
-removal of the displaced compatibility emission and repair machinery. A
-compatibility diagnostic therefore records a specific missing capability,
-rather than acting as an open-ended fallback for an unfamiliar topology.
+
+Envelope settlement leaves every one of those systems' corridors at or above
+its required width, so what still holds them on the compatibility path is a
+channel decision inside an adequate corridor rather than a corridor that is too
+narrow. That is the evidence assigning them to
+[#1658](https://github.com/seqeralabs/nf-metro/issues/1658), which owns
+plan-driven emission and the removal of the displaced compatibility and repair
+machinery. A compatibility diagnostic therefore records a specific missing
+capability, rather than acting as an open-ended fallback for an unfamiliar
+topology.
 
 ## Canonical order
 

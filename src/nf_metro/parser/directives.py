@@ -299,7 +299,9 @@ def _parse_group_directive(value: str, graph: MetroGraph) -> None:
 
     Stores an annotative caption spanning the listed stations.  The optional
     third field selects whether the caption renders ``below`` (default) or
-    ``above`` the spanned stations.  Purely decorative; does not affect layout.
+    ``above`` the spanned stations.  It never moves a station, but a ``below``
+    band claims room inside its section's box, growing the bottom edge that
+    bounds the row corridor beneath it.
     """
     parts = _split_fields(value)
     if len(parts) < 2:

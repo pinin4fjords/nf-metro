@@ -412,7 +412,7 @@ def render_string(
     SVG into a host page that owns the color-scheme (matches ``--no-self-color-scheme``
     on the CLI).
 
-    Raises everything :func:`prepare_graph` documents, plus two render-only
+    Raises everything :func:`prepare_graph` documents, plus three render-only
     cases from the draw step (:func:`render_graph`):
 
     - A ``fold_threshold`` set too small for the map can leave the router
@@ -426,6 +426,7 @@ def render_string(
       :class:`~nf_metro.layout.routing.invariants.CurveInvariantError`,
       :class:`~nf_metro.render.section_header.SectionHeaderClashError`,
       :class:`~nf_metro.render.section_header.SectionHeaderOverflowError`,
+      :class:`~nf_metro.render.section_header.SectionHeaderBandError`,
       :class:`~nf_metro.render.bridges.BridgeInvariantError`, or
       :class:`~nf_metro.layout.routing.offsets.OffsetAnchorError`. These are
       deliberately **not** part of the :class:`~nf_metro.NfMetroError`
@@ -434,6 +435,13 @@ def render_string(
       are left uncaught here the same way the CLI leaves them as a raw
       traceback rather than a clean error message - report them as nf-metro
       bugs rather than handling them as expected input.
+    - The post-layout envelope settlement that runs inside the draw step
+      checks its own allocation reasoning against the geometry it left, and a
+      violation raises :class:`~nf_metro.layout.PhaseInvariantError` from the
+      render rather than from layout. Unlike the mid-layout guards of the same
+      type, it is never downgraded under ``graph.permissive``: it reports that
+      settlement's reasoning and its code have come apart, which leaves no
+      geometry worth a best-effort draw.
     """
     flat = RenderConfig(
         output_format=output_format,

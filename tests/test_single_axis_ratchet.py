@@ -15,9 +15,15 @@ from single_axis_ratchet import single_axis_sites, single_axis_sites_from_source
 
 _LAYOUT_DIR = Path(__file__).resolve().parents[1] / "src" / "nf_metro" / "layout"
 
-_BASELINE = {"x": 27, "y": 48}
+_BASELINE = {"x": 26, "y": 48}
 
 _EXEMPTIONS = {
+    "geometry.py::section_row_span": (
+        "the row span has a paired column span primitive"
+    ),
+    "geometry.py::section_column_span": (
+        "the column span has a paired row span primitive"
+    ),
     "labels.py::_clamp_label_to_section": (
         "horizontal label clamping has a separately named vertical primitive"
     ),
@@ -40,8 +46,6 @@ _EXEMPTIONS = {
     "route_reservations.py::_section_y_overlaps": (
         "Y overlap has a paired X overlap primitive"
     ),
-    "route_reservations.py::_row_end": ("row end has a paired column end primitive"),
-    "route_reservations.py::_column_end": ("column end has a paired row end primitive"),
     "routing/inter_section_handlers.py::_section_right_edge": (
         "right edge has a paired left edge primitive"
     ),

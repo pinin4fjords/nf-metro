@@ -178,6 +178,7 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 | `check_concentric_bundle_corners`                          | A    |    41.1 | render chokepoint (always-on)                                  |
 | `check_collinear_distinct_lines`                           | A    |   200.0 | render chokepoint (always-on)                                  |
 | `check_no_same_line_parallel_descents`                     | A    |     5.6 | render chokepoint (always-on)                                  |
+| `check_no_fused_cotravelling_lines`                        | A    |    63.5 | render chokepoint (always-on)                                  |
 | `check_merge_branches_meet_trunk`                          | A    |     6.9 | render chokepoint (always-on)                                  |
 | `check_no_hanging_routes`                                  | A    |   430.0 | render chokepoint (always-on)                                  |
 | `check_bottom_row_climb_stays_at_row_level`                | A    |     2.9 | render chokepoint (always-on)                                  |

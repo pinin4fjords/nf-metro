@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import functools
 import itertools
-from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+import math
+from collections import defaultdict, deque
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from dataclasses import dataclass, replace
+from math import inf, isfinite
 from typing import NamedTuple, TypeVar
 
 from nf_metro.layout.constants import (
@@ -22,10 +24,16 @@ from nf_metro.layout.constants import (
     SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
+from nf_metro.layout.geometry import (
+    cotravelling_lane_clearance,
+    cotravelling_lanes_fuse,
+    spans_share_corridor,
+)
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
 from nf_metro.layout.routing.common import (
+    CorridorLane,
     Direction,
     GapSlot,
     HTrunkSeg,
@@ -34,8 +42,12 @@ from nf_metro.layout.routing.common import (
     _grid_row_bands,
     _h_segment_penetrates_section,
     column_gap_edges,
+    convergence_owns_segment_boundary,
+    corridor_lanes,
+    corridor_runs,
     gap_lo_for_x,
     initial_fanout_descent_span,
+    inter_row_gap_upper_row,
     is_orthogonal_turn,
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
@@ -48,6 +60,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     perp_peeloff_off_horizontal_junction,
+    planner_owns_segment,
     seat_peeloff_port_y,
     symmetric_bundle_midpoint,
     tail_on_slot,
@@ -72,6 +85,11 @@ from nf_metro.layout.routing.corners import (
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
+)
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    corridor_clearance_band,
+    resolved_band,
 )
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
@@ -139,10 +157,7 @@ def _split_corridors(chans: list[_VChannel]) -> list[list[_VChannel]]:
     for ch in chans:
         placed = False
         for g in groups:
-            if any(
-                min(ch.y_hi, o.y_hi) - max(ch.y_lo, o.y_lo) > MIN_CORRIDOR_Y_OVERLAP
-                for o in g
-            ):
+            if any(spans_share_corridor(ch.y_lo, ch.y_hi, o.y_lo, o.y_hi) for o in g):
                 g.append(ch)
                 placed = True
                 break
@@ -221,6 +236,58 @@ def _anchored_bundle_midpoint(
     return mid
 
 
+def _segment_claim_band(
+    ctx: _RoutingCtx, route: RoutedPath, idx: int
+) -> ReservedBand | None:
+    """The reserved band the ledger claims for this route segment, if any."""
+    return ctx.reserved_bands.for_segment(
+        route.edge.source, route.edge.target, route.line_id, idx
+    )
+
+
+def _bundle_claim_band(
+    ctx: _RoutingCtx, segments: Iterable[tuple[RoutedPath, int]]
+) -> ReservedBand | None:
+    """The band a bundle's own claimed segments allocate, if consistent.
+
+    A bundle moves as one unit, so every claimed member's band must admit the
+    shared placement: the bands intersect, and an empty intersection (or a
+    bundle with no claimed member) publishes nothing, leaving the caller on
+    its gap-edge derivation.
+    """
+    bands = [
+        band
+        for route, idx in segments
+        if (band := _segment_claim_band(ctx, route, idx)) is not None
+    ]
+    if not bands:
+        return None
+    return resolved_band(max(b.lo for b in bands), min(b.hi for b in bands))
+
+
+def _hold_bundle_in_claim_band(
+    ctx: _RoutingCtx,
+    mid: float,
+    chans: list[_VChannel],
+    width: float,
+) -> float:
+    """*mid* held so a *width*-wide bundle sits inside its own claim's band.
+
+    A reservation states where its corridor may run, not where in that span it
+    should sit, so a placement the gap edges already put inside the band is
+    kept.  The whole bundle has to fit, so the midpoint may travel a half-width
+    inboard of each edge, which for a band narrower than the bundle is no travel
+    at all: it centres, leaving the deficit for the closing guard to report
+    rather than picking an edge to overhang.
+    """
+    band = _bundle_claim_band(ctx, ((ch.route, ch.idx) for ch in chans))
+    if band is None:
+        return mid
+    centre = (band.lo + band.hi) / 2
+    reach = max(band.hi - band.lo - width, 0.0) / 2
+    return ReservedBand(centre - reach, centre + reach).hold(mid)
+
+
 def _layout_gap_bundle(
     bundles: list[tuple[bool, list[_VChannel]]],
     gap_left: float,
@@ -228,7 +295,13 @@ def _layout_gap_bundle(
     ctx: _RoutingCtx,
     pins: dict[tuple[bool, str], float] | None = None,
 ) -> None:
-    """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap."""
+    """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap.
+
+    A bundle whose members claim a reserved corridor is then held inside that
+    claim's own band, which settlement sized for exactly this bundle over the
+    corridor's own span -- the shared gap edges name whichever sections happen
+    to sit in the two columns, which is a different and wider set of blockers.
+    """
     step = ctx.offset_step
     # Stable left-to-right order: by current bundle centre.
     bundles.sort(key=lambda b: sum(c.x for c in b[1]) / len(b[1]))
@@ -266,6 +339,7 @@ def _layout_gap_bundle(
             mid = (gap_left + gap_right) / 2
         else:
             mid = symmetric_bundle_midpoint(gap_left, gap_right, widths, bi)
+        mid = _hold_bundle_in_claim_band(ctx, mid, chans, widths[bi])
         n = len(order)
         # line_id -> (slot index, x); every segment of that line overlays
         # at its single slot rather than claiming an OFFSET_STEP each.
@@ -288,15 +362,45 @@ def _layout_gap_bundle(
 def _required_channel_clearance(
     a: _VChannel, b: _VChannel, curve_radius: float
 ) -> float:
-    """Required spacing for counter-running channels in one corridor."""
+    """Required spacing for counter-running channels in one corridor.
+
+    Same-direction channels are nested by the bundle passes rather than spaced
+    here, so this asks nothing of them.
+    """
     if a.down is b.down:
         return 0.0
     overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
     if overlap <= MIN_CORRIDOR_Y_OVERLAP:
         return 0.0
-    if a.route.line_id == b.route.line_id:
-        return curve_radius + COORD_TOLERANCE
-    return BUNDLE_TO_BUNDLE_CLEARANCE
+    return cotravelling_lane_clearance(
+        same_line=a.route.line_id == b.route.line_id,
+        counter_running=True,
+        curve_radius=curve_radius,
+    )
+
+
+def _overlays_distinct_line(
+    channel: _VChannel, x: float, obstacle: _VChannel, step: float
+) -> bool:
+    """Whether seating *channel* at *x* would fuse it onto *obstacle*'s stroke.
+
+    The candidate-column veto reads the shared fusion predicate at a whole
+    coordinate tolerance: it is choosing between candidate columns rather than
+    judging drawn geometry, so a column within a tolerance of the full step is
+    close enough to count as taken.
+    """
+    return (
+        channel.down is obstacle.down
+        and channel.route.line_id != obstacle.route.line_id
+        and cotravelling_lanes_fuse(
+            x,
+            obstacle.x,
+            (channel.y_lo, channel.y_hi),
+            (obstacle.y_lo, obstacle.y_hi),
+            step,
+            slack=COORD_TOLERANCE,
+        )
+    )
 
 
 def _channels_form_symmetric_divergence(a: _VChannel, b: _VChannel) -> bool:
@@ -358,8 +462,7 @@ def _anchor_same_direction_fixed_channels(
             if obstacle.down is down
             and all(obstacle.route.line_id != ch.route.line_id for ch in chans)
             and any(
-                min(ch.y_hi, obstacle.y_hi) - max(ch.y_lo, obstacle.y_lo)
-                > MIN_CORRIDOR_Y_OVERLAP
+                spans_share_corridor(ch.y_lo, ch.y_hi, obstacle.y_lo, obstacle.y_hi)
                 for ch in chans
             )
         ]
@@ -447,6 +550,12 @@ def _separate_opposing_gap_bundles(
                 for ch, x in targets
             ):
                 return False
+            if any(
+                _overlays_distinct_line(ch, x, obstacle, ctx.offset_step)
+                for ch, x in targets
+                for obstacle in settled
+            ):
+                return False
             return all(
                 (
                     clearance := _required_channel_clearance(
@@ -514,24 +623,9 @@ def _locate_slot_channel(
     return None
 
 
-def _convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
-    return any(
-        item in route.convergence_owned_segment_ranks
-        for item in (rank - 1, rank, rank + 1)
-    )
-
-
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
-    route = channel.route
-    return (
-        _convergence_owns_segment_boundary(route, channel.idx)
-        or route.fan_route_emitter is not None
-        or (
-            route.exit_turn_axis_id is not None
-            and route.exit_turn_segment_rank == channel.idx
-        )
-    )
+    return planner_owns_segment(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -743,7 +837,7 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
-            if _convergence_owns_segment_boundary(trunk.route, trunk.idx):
+            if convergence_owns_segment_boundary(trunk.route, trunk.idx):
                 continue
             target_y = targets[line_id]
             if abs(trunk.y - target_y) <= COORD_TOLERANCE:
@@ -768,7 +862,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
-        and not _convergence_owns_segment_boundary(t.route, t.idx)
+        and not convergence_owns_segment_boundary(t.route, t.idx)
     ]
 
 
@@ -950,8 +1044,15 @@ def _seat_merge_feeder_opening(
     graph: MetroGraph,
     *,
     planned: bool = False,
+    carry_tail: bool = True,
 ) -> None:
-    """Seat a merge feeder's opening turn on its planned shared axis."""
+    """Seat a merge feeder's opening turn on its planned shared axis.
+
+    ``carry_tail`` translates everything past the opening with it, which is what
+    keeps a route whose whole run hangs off that turn intact.  A caller whose
+    plan states the rest of the run independently passes ``False``: carrying the
+    tail there would slide geometry the plan has already positioned.
+    """
     channel = (
         _opening_fanout_descent(route) if planned else _initial_fanout_descent(route)
     )
@@ -963,6 +1064,8 @@ def _seat_merge_feeder_opening(
     tail_start = channel.idx + 2
     _reconcile_moved_gap_slot(channel, coordinate, graph)
     _set_vchannel_x(channel, coordinate)
+    if not carry_tail:
+        return
     route.points = [
         (x + delta, y) if rank >= tail_start else (x, y)
         for rank, (x, y) in enumerate(route.points)
@@ -1209,7 +1312,7 @@ def _bundle_divergent_distinct_traverses(
     step = ctx.offset_step
     for members in _fanout_traverse_legs(routes).values():
         if any(
-            _convergence_owns_segment_boundary(member.route, member.idx)
+            convergence_owns_segment_boundary(member.route, member.idx)
             for member in members
         ):
             continue
@@ -1603,12 +1706,12 @@ def _stack_distinct_port_descents(
     """
     if any(
         _planner_owns_channel(channel)
-        and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+        and not convergence_owns_segment_boundary(channel.route, channel.idx)
         for _route, channel in cluster
     ):
         return
     has_planned_channel = any(
-        _convergence_owns_segment_boundary(channel.route, channel.idx)
+        convergence_owns_segment_boundary(channel.route, channel.idx)
         for _route, channel in cluster
     )
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
@@ -1692,7 +1795,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not _convergence_owns_segment_boundary(r, k):
+                elif is_through and not convergence_owns_segment_boundary(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
@@ -2086,7 +2189,7 @@ def _bundle_divergent_distinct_descents(
     for chans in by_source.values():
         if any(
             _planner_owns_channel(channel)
-            and not _convergence_owns_segment_boundary(channel.route, channel.idx)
+            and not convergence_owns_segment_boundary(channel.route, channel.idx)
             for channel in chans
         ):
             continue
@@ -2128,7 +2231,7 @@ def _bundle_divergent_distinct_descents(
         tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
         if (
             any(
-                _convergence_owns_segment_boundary(channel.route, channel.idx)
+                convergence_owns_segment_boundary(channel.route, channel.idx)
                 for channel in chans
             )
             and not tight
@@ -2458,11 +2561,43 @@ def _stack_trunk_bands(
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
     top = min(t.y for b in bands for t in b)
     band_top = _clamp_inter_row_band_top(ctx, top, total)
+    band_top = _hold_stack_in_claim_bands(ctx, band_top, planned, bands, step, gap)
     for (order, track_of, n), band in zip(planned, bands):
         _restack_trunk_band(
             order, track_of, n, band_top, band[0].dips_down, step, ctx, bundled
         )
         band_top += (n - 1) * step + gap
+
+
+def _hold_stack_in_claim_bands(
+    ctx: _RoutingCtx,
+    band_top: float,
+    planned: list[tuple[list[list[_HTrunk]], dict[int, int], int]],
+    bands: list[list[_HTrunk]],
+    step: float,
+    gap: float,
+) -> float:
+    """The stack top holding every claimed direction band inside its own band.
+
+    Each direction band sits at a fixed offset within the stack, so a claim on
+    one band constrains where the whole stack may start.  The intersection of
+    every claimed band's feasible interval holds the stack; jointly infeasible
+    claims (or a stack with no claimed trunk) leave *band_top* as derived.
+    """
+    lo_bound = hi_bound = None
+    offset = 0.0
+    for (_order, _track_of, n), band in zip(planned, bands):
+        height = (n - 1) * step
+        claim = _bundle_claim_band(ctx, ((t.route, t.idx) for t in band))
+        if claim is not None:
+            lo = claim.lo - offset
+            hi = claim.hi - height - offset
+            lo_bound = lo if lo_bound is None else max(lo_bound, lo)
+            hi_bound = hi if hi_bound is None else min(hi_bound, hi)
+        offset += height + gap
+    if lo_bound is None or hi_bound is None or hi_bound < lo_bound - COORD_TOLERANCE:
+        return band_top
+    return ReservedBand(lo_bound, hi_bound).hold(band_top)
 
 
 def _separate_opposing_inter_row_trunks(
@@ -2786,11 +2921,21 @@ def _suboptimal_trunk_bands(
 def _clamp_inter_row_band_top(ctx: _RoutingCtx, top: float, total: float) -> float:
     """Return the top Y at which to stack a *total*-tall direction-band stack.
 
-    Starts at the cluster *top* and slides the stack upward if its bottom would
-    breach the next row's header clearance (``INTER_ROW_HEADER_CLEARANCE`` below
-    the inter-row gap's lower edge), keeping the inter-band gap intact rather
-    than crowding the lower band into the header.
+    A gap whose corridor owns a reserved band is bounded by that band: the
+    reservation measured the blockers over the corridor's own span, so it names
+    where this stack may sit even when the raw row edges describe a different,
+    narrower gap.  The whole stack is held inside it, and a stack taller than
+    the band keeps its bottom on the band's far edge.
+
+    Without a reservation the stack starts at the cluster *top* and slides
+    upward if its bottom would breach the next row's header clearance
+    (``INTER_ROW_HEADER_CLEARANCE`` below the inter-row gap's lower edge),
+    keeping the inter-band gap intact rather than crowding the lower band into
+    the header.
     """
+    reserved = _reserved_gap_band(ctx, top)
+    if reserved is not None:
+        return min(max(top, reserved.lo), reserved.hi - total)
     band = _inter_row_gap_band(ctx, top)
     if band is None:
         return top
@@ -2799,6 +2944,12 @@ def _clamp_inter_row_band_top(ctx: _RoutingCtx, top: float, total: float) -> flo
     if top + total > limit:
         return limit - total
     return top
+
+
+def _reserved_gap_band(ctx: _RoutingCtx, y: float) -> ReservedBand | None:
+    """The reservation band for the inter-row gap holding *y*, when claimed."""
+    upper = inter_row_gap_upper_row(ctx.graph, y)
+    return None if upper is None else ctx.reserved_bands.rows.at(upper + 1)
 
 
 def _restack_trunk_band(
@@ -2893,7 +3044,7 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
@@ -2946,7 +3097,7 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or _convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
@@ -2987,6 +3138,129 @@ def _dogleg_off_exempt_trunks(
         else:
             continue
         _restack_htrunk(t, below if use_below else above, 0, 1, step, ctx.curve_radius)
+
+
+def _run_enters_section(
+    graph: MetroGraph, axis: int, coord: float, span: tuple[float, float]
+) -> bool:
+    """Whether a run held at *coord* on *axis* over *span* lands inside a section."""
+    for section in graph.sections.values():
+        edges = (
+            (section.bbox_x, section.bbox_x + section.bbox_w),
+            (section.bbox_y, section.bbox_y + section.bbox_h),
+        )
+        held, crossed = edges[axis], edges[1 - axis]
+        if (
+            held[0] - COORD_TOLERANCE < coord < held[1] + COORD_TOLERANCE
+            and span[0] < crossed[1]
+            and crossed[0] < span[1]
+        ):
+            return True
+    return False
+
+
+def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
+    """Move every run on *lane* to *coord*, re-forming its flanking corners.
+
+    Each run keeps its own corner radius as the reference the central concentric
+    helper re-derives from the moved waypoints, so the translation preserves the
+    concentric family each corner belongs to.
+    """
+    for run in lane.runs:
+        radius_in, radius_out = run.radii
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            coord,
+            axis=run.axis,
+            base_radius=radius_in,
+            base_radius_out=radius_out,
+        )
+    return replace(
+        lane, coord=coord, runs=tuple(replace(run, coord=coord) for run in lane.runs)
+    )
+
+
+def _separate_fused_cotravelling_runs(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Restore the nesting step between co-travelling tracks of distinct lines.
+
+    A reserved corridor band states the room a corridor is left, not which lane
+    inside it the corridor takes.  Several independently-placed corridors
+    crossing one boundary are each held in that one band without any of them
+    seeing the others, so two can settle within one ``OFFSET_STEP`` of each
+    other; two distinct lines that close draw as a single two-tone stripe with
+    no separating hairline, hiding one of the two.
+
+    A fused lane travels to the far side of the full step it already leans
+    toward, which restores the pitch without reordering the two.  That move can
+    crowd the lane's other neighbour, so the neighbour is reconsidered in turn
+    and a whole crowded stack re-nests one lane at a time.  Each lane relocates
+    at most once, which bounds the cascade.
+
+    A plan-owned track never moves: a plan is what the closing validators check
+    the geometry against.  A handler-owned track is considered only after every
+    track the normalisation stage owns, so a fusion between the two is resolved
+    by moving the stage's own track and the handler keeps its coordinate wherever
+    that is enough.  It does still move when nothing else will: a handler placing
+    a run has no way to know a later pass would hold another corridor into its
+    lane, and a hidden line costs more than one step of drift.  A move that would
+    put a track inside a section is abandoned rather than forced; the closing
+    ``check_no_fused_cotravelling_lines`` reports whatever is left.
+
+    Every track is read once, before any move.  Moving one shifts the endpoint of
+    the runs flanking it, so a neighbouring track's span can go a step stale --
+    never enough to change which corridor two tracks share, which is the only
+    thing the span is asked.
+    """
+    step = ctx.offset_step
+    lanes = corridor_lanes(
+        run for rp in routes if rp.is_inter_section for run in corridor_runs(rp)
+    )
+    pending = deque(_reseating_order(lanes))
+    relocated: set[int] = set()
+    while pending:
+        i = pending.popleft()
+        if i in relocated:
+            continue
+        lane = lanes[i]
+        obstacle = min(
+            (other for other in lanes if lane.fuses_with(other, step)),
+            key=lambda other: abs(other.coord - lane.coord),
+            default=None,
+        )
+        if obstacle is None or abs(lane.coord - obstacle.coord) <= COORD_TOLERANCE_FINE:
+            continue
+        target = obstacle.coord + math.copysign(step, lane.coord - obstacle.coord)
+        if any(
+            _run_enters_section(ctx.graph, run.axis, target, run.span)
+            for run in lane.runs
+        ):
+            continue
+        lanes[i] = _reseat_lane(lane, target)
+        relocated.add(i)
+        pending.extend(
+            j
+            for j, other in enumerate(lanes)
+            if j not in relocated
+            and not other.pinned
+            and lanes[i].fuses_with(other, step)
+        )
+
+
+def _reseating_order(lanes: list[CorridorLane]) -> list[int]:
+    """Indices of the tracks this pass may re-seat, in the order it considers them.
+
+    Tracks the normalisation stage owns come before handler-owned ones, so a
+    fusion between the two is resolved by moving the stage's own track and the
+    handler's stays where its handler put it.  Within each group the order is by
+    axis then coordinate, which makes the outcome independent of route order.
+    """
+    return sorted(
+        (i for i, lane in enumerate(lanes) if not lane.pinned),
+        key=lambda i: (lanes[i].handler_owned, lanes[i].axis, lanes[i].coord),
+    )
 
 
 def _coincident_trunk_slots(grp: list[_HTrunk]) -> list[list[_HTrunk]]:
@@ -3565,3 +3839,514 @@ def _v_segment_crosses_other_section(
         if s.bbox_x - margin <= x <= s.bbox_x + s.bbox_w + margin:
             return True
     return False
+
+
+class _CorridorRun(NamedTuple):
+    """One straight leg of a route, and the band its corridor leaves it.
+
+    ``lo``/``hi`` are ``None`` for a leg that may not be reseated -- one whose
+    coordinate a plan owns, whose flanks would break, or whose boundary offers no
+    coordinate satisfying both clearances -- and for a leg in no gap at all.  It
+    takes part all the same: it occupies a stretch of its corridor, and so bounds
+    where the legs beside it may sit.
+
+    ``forward`` is whether the leg travels toward increasing coordinates, which
+    with its line identity is what says how much room it and a neighbour need.
+    """
+
+    route: RoutedPath
+    idx: int
+    axis: int
+    coordinate: float
+    run_lo: float
+    run_hi: float
+    lo: float | None
+    hi: float | None
+    forward: bool
+
+    @property
+    def movable(self) -> bool:
+        return self.lo is not None and self.hi is not None
+
+
+def _iter_axis_aligned_legs(
+    rp: RoutedPath,
+) -> Iterator[tuple[int, int, float, float, float, bool]]:
+    """``(idx, axis, coordinate, run_start, run_end, turning)`` for each straight leg.
+
+    Every axis-aligned leg is yielded: a leg that may not move occupies its
+    corridor all the same, and so bounds where the legs around it may sit.
+    *axis* is the leg's own coordinate index (``1`` for a horizontal leg's Y,
+    ``0`` for a vertical leg's X).
+
+    *turning* says the leg is interior and both its flanking legs run
+    perpendicular to it, which together are the condition for moving its
+    coordinate: the flanks then stretch along their own length and stay
+    straight.  A leg flanked by a diagonal would break that diagonal's angle,
+    and an end leg is attached to a port or station marker, so neither may
+    move.
+    """
+    pts = rp.points
+    for k in range(len(pts) - 1):
+        x0, y0 = pts[k]
+        x1, y1 = pts[k + 1]
+        along_x = abs(x1 - x0) > COORD_TOLERANCE
+        along_y = abs(y1 - y0) > COORD_TOLERANCE
+        if along_x is along_y:
+            continue
+        interior = 1 <= k <= len(pts) - 3
+        if along_x:
+            turning = interior and (
+                abs(pts[k - 1][0] - x0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][0] - x1) <= COORD_TOLERANCE
+            )
+            yield k, 1, y0, x0, x1, turning
+        else:
+            turning = interior and (
+                abs(pts[k - 1][1] - y0) <= COORD_TOLERANCE
+                and abs(pts[k + 2][1] - y1) <= COORD_TOLERANCE
+            )
+            yield k, 0, x0, y0, y1, turning
+
+
+def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str, ...]:
+    """The sections this route runs between, which span its corridor claims."""
+    return tuple(
+        station.section_id
+        for station_id in (rp.edge.source, rp.edge.target)
+        if (station := graph.stations.get(station_id)) is not None
+        and station.section_id in graph.sections
+    )
+
+
+def _corridor_run_band(
+    ctx: _RoutingCtx,
+    route: RoutedPath,
+    idx: int,
+    axis: int,
+    section_ids: tuple[str, ...],
+    coordinate: float,
+    run_lo: float,
+    run_hi: float,
+) -> tuple[float, float] | None:
+    """The band this leg must be held inside, or ``None`` where it may not move.
+
+    A leg the ledger claims is held inside *its own claim's* realised band --
+    the identity the closing guard scores it against -- so containment consumes
+    the reservation rather than confirming wherever the leg already sits.  That
+    is the whole point of a reservation: settlement widened the boundary for
+    this corridor over the corridor's own declared span, and reading the band
+    back off live geometry would discard that allocation and re-derive whatever
+    the drawn coordinate happens to fall inside.
+
+    A leg no claim names has no reservation to consume, and its clearance is
+    measured from the gap it runs in
+    (:func:`~nf_metro.layout.routing.reserved_bands.corridor_clearance_band`).
+    That covers the first routing pass, which publishes the ledger and so has
+    none to read, and unclaimed geometry on the re-route.
+    """
+    if not section_ids or planner_owns_segment(route, idx):
+        return None
+    claimed = _segment_claim_band(ctx, route, idx)
+    if claimed is not None:
+        return claimed.lo, claimed.hi
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=coordinate,
+        run_start=run_lo,
+        run_end=run_hi,
+    )
+    return None if band is None else (band.lo, band.hi)
+
+
+def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
+    """Every straight leg of every inter-section route, with the band it may hold.
+
+    Legs outside any gap, and legs nothing may reseat, are collected without a
+    band: the bundles are read off the drawn geometry, so a leg left out of the
+    reading is one whose mates could be moved off it.
+    """
+    graph = ctx.graph
+    out: list[_CorridorRun] = []
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        section_ids = _route_endpoint_section_ids(graph, rp)
+        for idx, axis, coordinate, start, end, turning in _iter_axis_aligned_legs(rp):
+            run_lo, run_hi = min(start, end), max(start, end)
+            band = (
+                _corridor_run_band(
+                    ctx, rp, idx, axis, section_ids, coordinate, run_lo, run_hi
+                )
+                if turning
+                else None
+            )
+            out.append(
+                _CorridorRun(
+                    rp,
+                    idx,
+                    axis,
+                    coordinate,
+                    run_lo,
+                    run_hi,
+                    band[0] if band is not None else None,
+                    band[1] if band is not None else None,
+                    end >= start,
+                )
+            )
+    return out
+
+
+def _co_travel_reach(step: float) -> float:
+    """The furthest apart two legs may sit and still read as one bundle.
+
+    Stated once because two callers depend on it agreeing: the predicate that
+    decides whether a pair co-travels, and the ordered scan that stops looking
+    once no later leg can reach the one it is testing.  A scan that stopped
+    earlier than the predicate accepts would leave pairs it would have grouped
+    untested, and they would move independently and break the relationship the
+    grouping exists to hold.
+    """
+    return max(step, BUNDLE_TO_BUNDLE_CLEARANCE) + COORD_TOLERANCE
+
+
+def _legs_co_travel(first: _CorridorRun, second: _CorridorRun, step: float) -> bool:
+    """Whether two legs are drawn as one bundle of co-travelling runs.
+
+    Legs within one bundle-to-bundle clearance of each other over a shared
+    stretch of their corridor are what a reader sees as a single bundle: fused
+    same-line tracks sit on one coordinate, nested distinct lines sit a *step*
+    apart, and separate bundles keep :data:`BUNDLE_TO_BUNDLE_CLEARANCE` between
+    them.  Anything closer than that clearance is one group, and every one of
+    those relationships is destroyed by moving one member alone.
+
+    Sharing a stretch is :func:`spans_share_corridor`, the same reading
+    :func:`_crowding_windows` measures a peer's claim on the gap by.  Two legs
+    meeting only across the elbow band that joins them occupy different parts of
+    the corridor and owe each other no clearance, so there is no separation
+    between them for a rigid group to preserve -- and holding them together
+    instead denies each of them the band its own claim was widened for.
+    """
+    return abs(first.coordinate - second.coordinate) <= _co_travel_reach(step) and (
+        spans_share_corridor(first.run_lo, first.run_hi, second.run_lo, second.run_hi)
+    )
+
+
+def _corridor_bundles(
+    runs: list[_CorridorRun], step: float
+) -> list[list[_CorridorRun]]:
+    """Group one axis's legs into the bundles that have to travel together.
+
+    Bundles are the connected components of :func:`_legs_co_travel`, so a bundle
+    holds every leg transitively co-travelling with any of its members and moves
+    rigidly or not at all.  Grouping on geometry rather than on which boundary
+    each leg was assigned is what keeps two fused tracks together when they were
+    measured against different boundaries.
+    """
+    ordered = sorted(runs, key=lambda item: item.coordinate)
+    owner = list(range(len(ordered)))
+
+    def root(index: int) -> int:
+        while owner[index] != index:
+            owner[index] = owner[owner[index]]
+            index = owner[index]
+        return index
+
+    for i, first in enumerate(ordered):
+        for j in range(i + 1, len(ordered)):
+            second = ordered[j]
+            if second.coordinate - first.coordinate > _co_travel_reach(step):
+                break
+            if _legs_co_travel(first, second, step):
+                owner[root(j)] = root(i)
+    grouped: dict[int, list[_CorridorRun]] = {}
+    for index, run in enumerate(ordered):
+        grouped.setdefault(root(index), []).append(run)
+    return sorted(
+        grouped.values(), key=lambda bundle: min(run.coordinate for run in bundle)
+    )
+
+
+def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | None:
+    """How far *bundle* may travel with every member inside its own band.
+
+    ``None`` where a member may not move at all: a bundle keeps the spacing that
+    draws its members as separate strokes, so one pinned member pins all of them.
+    ``None`` too where no single shift satisfies every member, which is a boundary
+    narrower than the clearances its corridors ask of it, or two lanes each owed
+    one coordinate.  Such a bundle stands where the passes above put it, and the
+    shortfall is left to the closing guard to report: seating it against either
+    edge picks which blocker to crowd, and the one a later widening of the
+    boundary would repair is not the one a reader would forgive -- the positive
+    side of a row gap is the next row's title badge.
+    """
+    if any(not run.movable for run in bundle):
+        return None
+    lower = max(run.lo - run.coordinate for run in bundle)  # type: ignore[operator]
+    upper = min(run.hi - run.coordinate for run in bundle)  # type: ignore[operator]
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    return lower, upper
+
+
+def _hold_runs_in_corridor_clearance(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Hold every gap-crossing run inside the clearance its corridor owes.
+
+    A leg drawn in a row or column gap earns a
+    :class:`~nf_metro.layout.route_reservations.RouteReservation` over that
+    boundary, and that reservation's band is measurable from live geometry alone
+    (:func:`~nf_metro.layout.routing.reserved_bands.corridor_clearance_band`).
+    Handlers and the passes above derive a channel's depth from whichever grid
+    edges they have to hand, which over-states the obstruction wherever a
+    section spans the boundary or sits outside the corridor's run.  This closes
+    that difference on the drawn geometry, so a corridor is contained by the
+    reservation raised over it on the pass that publishes the ledger as well as
+    the pass that reads it.
+
+    A bundle travels only through the shifts its peers leave it, each of them
+    taken at its settled position, so no move crowds another lane or leapfrogs
+    it into a different order.  Bundles are visited in coordinate order, which is
+    what makes an already-moved peer a settled obstacle for the rest.
+
+    A bundle every shift is denied to retries with the peers denying it, as one
+    rigid group: two corridors owed one boundary between them are seated by the
+    same widening and neither can reach it alone, so allocating them together is
+    the whole of what makes that widening usable.  Moving a group rigidly leaves
+    every separation inside it exactly as drawn, so the joint move can neither
+    fuse two lanes nor reorder them.
+    """
+    by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
+    for run in _corridor_runs(routes, ctx):
+        by_axis[run.axis].append(run)
+    for runs in by_axis.values():
+        bundles = _corridor_bundles(runs, ctx.offset_step)
+        settled = [0.0] * len(bundles)
+        for index in range(len(bundles)):
+            group = _seatable_group(bundles, settled, index, ctx)
+            if group is None:
+                continue
+            members, shift = group
+            for other in members:
+                _shift_corridor_bundle(bundles[other], shift, ctx)
+                settled[other] += shift
+
+
+def _remaining_shift_range(
+    bundle: list[_CorridorRun], applied: float
+) -> tuple[float, float] | None:
+    """How much further *bundle* may travel, having already moved by *applied*.
+
+    A run's recorded coordinate is where the passes above left it, so a bundle's
+    band-derived range is measured from there; what is left of it is that range
+    less the distance already taken.
+    """
+    allowed = _bundle_shift_range(bundle)
+    return None if allowed is None else (allowed[0] - applied, allowed[1] - applied)
+
+
+def _group_shift(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    members: Collection[int],
+    ctx: _RoutingCtx,
+) -> float | None:
+    """The least further shift seating every bundle in *members* in its own band.
+
+    The group moves rigidly, so one shift has to satisfy what every member has
+    left of its own range and clear every peer outside the group.  Every member
+    has a range: the caller checks its own before asking, and
+    :func:`_denying_bundles` reports only bundles that can move.
+    """
+    ranges = [
+        _remaining_shift_range(bundles[index], settled[index]) for index in members
+    ]
+    lower = max(item[0] for item in ranges if item is not None)
+    upper = min(item[1] for item in ranges if item is not None)
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return None
+    group = [(run, settled[index]) for index in members for run in bundles[index]]
+    peers = [
+        (peer, settled[other])
+        for other, bundle in enumerate(bundles)
+        if other not in members
+        for peer in bundle
+    ]
+    return _least_uncrowded_shift(lower, upper, _crowding_windows(group, peers, ctx))
+
+
+def _seatable_group(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    index: int,
+    ctx: _RoutingCtx,
+) -> tuple[frozenset[int], float] | None:
+    """The bundles to move with *index*, and the shift that seats them all.
+
+    ``None`` where the bundle is already where its band wants it, or where no
+    group reachable from it has a seating: the shortfall is then left to the
+    closing guard to report rather than paid for by crowding a lane.
+    """
+    if _remaining_shift_range(bundles[index], settled[index]) is None:
+        return None
+    members = frozenset({index})
+    shift = _group_shift(bundles, settled, members, ctx)
+    if shift is None:
+        blockers = _denying_bundles(bundles, settled, index, ctx)
+        if not blockers:
+            return None
+        members = frozenset({index, *blockers})
+        shift = _group_shift(bundles, settled, members, ctx)
+    if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
+        return None
+    return members, shift
+
+
+def _denying_bundles(
+    bundles: Sequence[list[_CorridorRun]],
+    settled: Sequence[float],
+    index: int,
+    ctx: _RoutingCtx,
+) -> frozenset[int]:
+    """The bundles that deny *index* every shift its own band asks for.
+
+    Only bundles that can themselves move are reported.  One that cannot is
+    denying *index* from a coordinate nothing may change, so taking it into the
+    group could not free the shift it denies; it stays a peer, and its window
+    keeps denying from there.
+    """
+    remaining = _remaining_shift_range(bundles[index], settled[index])
+    assert remaining is not None
+    lower, upper = remaining
+    mine = [(run, settled[index]) for run in bundles[index]]
+    return frozenset(
+        other
+        for other, bundle in enumerate(bundles)
+        if other != index
+        and _remaining_shift_range(bundle, settled[other]) is not None
+        and _least_uncrowded_shift(
+            lower,
+            upper,
+            _crowding_windows(mine, [(peer, settled[other]) for peer in bundle], ctx),
+        )
+        is None
+    )
+
+
+class _CrowdingWindow(NamedTuple):
+    """The open range of shifts one peer leg denies a bundle.
+
+    The range reaches away past its peer, so it denies crowding the peer's lane
+    and leapfrogging it into another order alike; the finite end is the closest
+    the two may settle, and is itself allowed.
+    """
+
+    lo: float
+    hi: float
+
+    def excludes(self, shift: float) -> bool:
+        return self.lo < shift < self.hi
+
+    @property
+    def bound(self) -> float:
+        return self.hi if isfinite(self.hi) else self.lo
+
+
+def _crowding_windows(
+    bundle: Sequence[tuple[_CorridorRun, float]],
+    peers: Sequence[tuple[_CorridorRun, float]],
+    ctx: _RoutingCtx,
+) -> list[_CrowdingWindow]:
+    """One window per pair of legs that would crowd each other, over all *peers*.
+
+    A peer constrains only the legs it shares a stretch of corridor with: legs
+    that merely pass each other's ends occupy different parts of the gap.  How
+    close a pair may settle is :func:`cotravelling_lane_clearance`, which is the
+    one statement of that rule the reservation ledger also sizes its boundaries
+    by, so a corridor is never denied a coordinate the ledger allocated it on a
+    separation the ledger did not charge for.  A pair whose clearance is nothing
+    may close right up: two tracks of one line travelling the same way are one
+    stroke by construction, and the window then stops the bundle at its peer's
+    lane rather than short of it, which is what keeps the drawn order.
+
+    Both sides carry the shift already applied to them, since a lane is where it
+    has settled rather than where the passes above left it, and the windows are
+    in terms of the *further* shift the bundle may take from there.
+    """
+    windows: list[_CrowdingWindow] = []
+    for run, moved in bundle:
+        for peer, applied in peers:
+            if not spans_share_corridor(
+                run.run_lo, run.run_hi, peer.run_lo, peer.run_hi
+            ):
+                continue
+            keep = cotravelling_lane_clearance(
+                same_line=peer.route.edge.line_id == run.route.edge.line_id,
+                counter_running=peer.forward is not run.forward,
+                curve_radius=ctx.curve_radius,
+            )
+            onto = (peer.coordinate + applied) - (run.coordinate + moved)
+            windows.append(
+                _CrowdingWindow(-inf, onto + keep)
+                if onto < 0
+                else _CrowdingWindow(onto - keep, inf)
+            )
+    return windows
+
+
+def _least_uncrowded_shift(
+    lower: float, upper: float, windows: Sequence[_CrowdingWindow]
+) -> float | None:
+    """The smallest shift in ``[lower, upper]`` no window in *windows* denies.
+
+    ``None`` where every shift the band asks for is denied: the bundle then holds
+    its place, and the shortfall is left to the closing guard to report rather
+    than paid for by drawing two lanes as one.  The feasible shifts form a closed
+    set whose extremes are the band's own ends, the windows' finite bounds and the
+    least move the band asks for, so the smallest of those is the smallest of all.
+    """
+    candidates = {min(max(0.0, lower), upper), lower, upper}
+    candidates.update(window.bound for window in windows)
+    return min(
+        (
+            candidate
+            for candidate in sorted(candidates)
+            if lower - COORD_TOLERANCE_FINE <= candidate <= upper + COORD_TOLERANCE_FINE
+            and not any(window.excludes(candidate) for window in windows)
+        ),
+        key=abs,
+        default=None,
+    )
+
+
+def _shift_corridor_bundle(
+    bundle: list[_CorridorRun], shift: float, ctx: _RoutingCtx
+) -> None:
+    """Translate one bundle of co-travelling legs by *shift*.
+
+    A leg's flanking corners are re-derived against the radius each already
+    carries as their reference, which is what keeps a concentric loop -- every
+    corner sized as one family -- a single family across the move.  Taking the
+    base radius instead would pinch two corners of such a loop to a radius the
+    rest of the loop does not share.
+    """
+    for run in bundle:
+        radii = run.route.curve_radii
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            run.coordinate + shift,
+            axis=run.axis,
+            base_radius=_held_corner_radius(radii, run.idx - 1, ctx.curve_radius),
+            base_radius_out=_held_corner_radius(radii, run.idx, ctx.curve_radius),
+        )
+
+
+def _held_corner_radius(
+    radii: list[float] | None, index: int, fallback: float
+) -> float:
+    """The radius already drawn at *index*, or *fallback* where there is none."""
+    return radii[index] if radii and 0 <= index < len(radii) else fallback

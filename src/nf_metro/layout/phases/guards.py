@@ -117,6 +117,14 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from typing import Protocol
 
+    from nf_metro.layout.envelope_settlement import EnvelopeSettlement
+    from nf_metro.layout.route_plan import RoutePlan
+    from nf_metro.layout.route_reservations import (
+        CanvasRegion,
+        DrawnCorridorContainment,
+        RealisedRouteReservation,
+        RouteReservation,
+    )
     from nf_metro.layout.routing.common import RoutedPath
 
     class _HasMessage(Protocol):
@@ -6264,3 +6272,236 @@ def assert_render_header_clearance(graph: MetroGraph, *, strict: bool = False) -
     if strict:
         raise LayoutInvariantError(msg)
     warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
+def _corridor_deficit_detail(
+    reservation: RouteReservation, realised: RealisedRouteReservation
+) -> str:
+    """Name the claimant, the span, the blockers, and both widths."""
+    claimants = ", ".join(sorted(reservation.claimant_member_ids))
+    blockers = ", ".join(
+        sorted(realised.negative_blocker_ids + realised.positive_blocker_ids)
+    )
+    return (
+        f"{reservation.description} claimed by {claimants} spans "
+        f"columns {reservation.span.min_column}-{reservation.span.max_column} "
+        f"and rows {reservation.span.min_row}-{reservation.span.max_row}, "
+        f"requires {realised.required_width:.1f}px and has "
+        f"{realised.available_width:.1f}px between {blockers}"
+    )
+
+
+def _canvas_corridor_deficit_detail(
+    reservation: RouteReservation,
+    realised: RealisedRouteReservation,
+    region: CanvasRegion,
+    edge_slack: float,
+) -> str:
+    """Name the corridor, then which of its two claims fell short and by how much."""
+    return (
+        f"{_corridor_deficit_detail(reservation, realised)}, leaving "
+        f"{edge_slack:+.1f}px of slack on its {region.side.value} canvas margin "
+        f"and {realised.capacity_slack:+.1f}px of total capacity"
+    )
+
+
+class _ContainmentDeficit(NamedTuple):
+    """One way a realised corridor fails to contain the run drawn in it."""
+
+    rank: int
+    slack: float
+    phrase: str
+
+
+def _corridor_containment_deficit(
+    realised: RealisedRouteReservation,
+    containment: DrawnCorridorContainment,
+) -> _ContainmentDeficit | None:
+    """The worst way *realised* fails to contain the run drawn in it, if it does.
+
+    A corridor satisfies its reservation on two counts, and either can fail
+    alone.  ``capacity_slack`` asks whether the region is wide enough at all,
+    which is a property of the reservation and the settled envelopes.
+    *containment* asks whether the drawn run lies *within* it: each side slack
+    measures the drawn interval against one inset edge, so a region of exactly
+    the required width fails them whenever the run is seated off centre inside
+    it, one side absorbing the whole surplus while the other is overrun.
+
+    Capacity ranks above side clearance rather than competing with it on
+    magnitude: a region that cannot hold the run at all admits no seating, so
+    there is nothing to say about where in it the run sits.  Slacks from the two
+    counts are therefore not comparable numbers, and *rank* orders the counts so
+    a caller reporting only the worst corridor reports the more fundamental
+    failure first.
+
+    Returns the deficit's rank, its signed size, and a phrase naming the count
+    that failed, or ``None`` when the corridor holds on all three.
+    """
+    if realised.capacity_slack < -COORD_TOLERANCE:
+        return _ContainmentDeficit(
+            0,
+            realised.capacity_slack,
+            f"is {-realised.capacity_slack:.1f}px narrower than the run needs",
+        )
+    sides = (
+        (containment.negative_side_slack, "lower"),
+        (containment.positive_side_slack, "upper"),
+    )
+    slack, side = min(sides, key=lambda item: item[0])
+    if slack >= -COORD_TOLERANCE:
+        return None
+    return _ContainmentDeficit(
+        1, slack, f"draws the run {-slack:.1f}px past its {side} clearance edge"
+    )
+
+
+def assert_canvas_corridors_hold_their_claims(
+    plan: RoutePlan,
+    *,
+    strict: bool = False,
+) -> None:
+    """Guard that a canvas-margin corridor has the clearance it reserved.
+
+    Read from *plan*'s realised records rather than re-measured: a canvas
+    corridor's far boundary is the canvas edge, and the canvas is sized from the
+    content it has to hold, so this is the first point at which the number the
+    claim was measured against exists.  A margin against a canvas edge is
+    widenable by growing the canvas, so a deficit here is an arrangement the
+    render cannot honour rather than a limit of any one stage.
+
+    Two numbers are measured, because the margin and the total are different
+    claims and either can be the one that fails.  The margin is
+    :func:`canvas_edge_slack`: the gap between the ink drawn on the canvas side
+    of the corridor and the edge itself, which is what decides whether a stroke
+    or a direction chevron is clipped.  Capacity is the corridor's total room,
+    which a corridor can hold in full while spending all of it on its content
+    side.  The content-facing side is a section box edge or header badge rather
+    than a canvas matter, and no growth of the canvas moves it; a shortfall
+    there is published as a ``reservation-deficit`` diagnostic on the plan and
+    owned by the box-edge and header guards.
+    """
+    from nf_metro.layout.route_reservations import CanvasRegion, canvas_edge_slack
+
+    by_id = {item.id: item for item in plan.reservations}
+    worst: tuple[float, str] | None = None
+    for realised in plan.realised_reservations:
+        reservation = by_id.get(realised.reservation_id)
+        if reservation is None or not isinstance(reservation.region, CanvasRegion):
+            continue
+        edge_slack = canvas_edge_slack(reservation.region, realised)
+        slack = min(edge_slack, realised.capacity_slack)
+        if slack >= -COORD_TOLERANCE:
+            continue
+        if worst is None or slack < worst[0]:
+            worst = (
+                slack,
+                _canvas_corridor_deficit_detail(
+                    reservation, realised, reservation.region, edge_slack
+                ),
+            )
+    if worst is None:
+        return
+    msg = (
+        "a canvas-margin corridor is drawn with less clearance than it "
+        f"reserved: {worst[1]}.  Widen the canvas, or move the run off the "
+        "margin, rather than drawing it through a clearance it does not have."
+    )
+    if strict:
+        raise LayoutInvariantError(msg)
+    warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
+def assert_reservations_are_settled(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    settlement: EnvelopeSettlement,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    *,
+    strict: bool = False,
+) -> None:
+    """Guard that no route is drawn through a corridor narrower than it claimed.
+
+    Runs on the settled geometry, once envelope settlement has widened every row
+    and column boundary it owns.  *plan* is the published plan carrying the
+    frozen ledger settlement consumed, so each claim's region is re-measured
+    against the settled envelopes through the recorded translations;
+    *settlement.shortfalls* separately records the demands settlement itself
+    already knew it had not met.  *route_polylines* is the offset-applied
+    geometry the renderer is about to draw.
+
+    The postcondition is containment, not capacity alone: the corridor as drawn
+    has to lie inside the band its own reservation realises, on both sides.  A
+    region wide enough overall with the run seated off centre inside it violates
+    the clearance a blocker was promised just as surely as a region too narrow,
+    so :func:`_corridor_containment_deficit` measures all three counts.  The two
+    counts read different evidence and must: capacity is a property of the
+    region, while where the run sits inside it is only knowable from the drawn
+    polylines, the frozen ledger recording where the *first* pass observed the
+    run rather than where the settled re-route put it.  Either failure is a
+    violated hard clearance, so the strict path refuses it with no exemption and
+    names the claimant, the corridor span, the blockers, both widths, and which
+    count failed.  A row or column boundary is always widenable by a global
+    translation, so a deficit surviving settlement is an infeasible arrangement
+    rather than a limitation of this stage.
+
+    A canvas-side corridor is measured against the canvas edge, which is not
+    known until the render has sized its canvas; those claims are checked by
+    :func:`assert_canvas_corridors_hold_their_claims` where that number exists.
+    """
+    from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        RowGapRegion,
+        drawn_corridor_containment,
+        realise_reservation,
+    )
+
+    worst: tuple[tuple[int, float], str] | None = None
+    for shortfall in settlement.shortfalls:
+        detail = (
+            "envelope settlement did not meet a demand it was handed: "
+            f"{shortfall.message}"
+        )
+        if strict:
+            raise LayoutInvariantError(detail)
+        warnings.warn(detail, category=PermissiveGuardWarning, stacklevel=2)
+    held_translations = {
+        item.reservation_id: item.coordinate_translations
+        for item in plan.realised_reservations
+    }
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(
+            graph,
+            reservation,
+            coordinate_translations=held_translations.get(
+                reservation.id, settlement.coordinate_translations
+            ),
+        )
+        if realised is None:
+            continue
+        deficit = _corridor_containment_deficit(
+            realised,
+            drawn_corridor_containment(
+                reservation, realised, route_polylines, reservation.claims
+            ),
+        )
+        if deficit is None:
+            continue
+        ordering = (deficit.rank, deficit.slack)
+        if worst is None or ordering < worst[0]:
+            worst = (
+                ordering,
+                f"{_corridor_deficit_detail(reservation, realised)}, and "
+                f"{deficit.phrase}",
+            )
+    if worst is not None:
+        msg = (
+            "the settled layout draws a route outside the corridor its "
+            f"reservation realises: {worst[1]}.  Widen the arrangement that "
+            "pins it, or relax the pin, rather than drawing the route through a "
+            "clearance it does not have."
+        )
+        if strict:
+            raise LayoutInvariantError(msg)
+        warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)

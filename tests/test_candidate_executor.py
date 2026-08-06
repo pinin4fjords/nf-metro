@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import multiprocessing
 import os
 import struct
 import subprocess
 import sys
+import time
 import warnings
 from dataclasses import replace
 from pathlib import Path
@@ -534,7 +536,7 @@ def test_per_attempt_timeout_reaps_the_worker() -> None:
     assert result.baseline.status is CandidateStatus.TIMEOUT
     assert result.baseline.failure is not None
     assert result.baseline.failure.message == "per-attempt deadline exceeded"
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 def test_total_deadline_stops_dispatch_without_inventing_attempts() -> None:
@@ -593,15 +595,57 @@ def test_worker_crash_and_communication_outcomes_are_distinct(
     assert result.baseline.worker_exit_code is not None
 
 
-def test_completed_payload_followed_by_hang_times_out_with_evidence() -> None:
+class _PayloadGatedClock:
+    """Coordinator clock that spends the per-attempt budget on payload arrival.
+
+    The coordinator's timed window encloses the worker's entire render, so a
+    wall-clock budget races the payload that a post-payload hang is supposed to
+    leave behind. Reporting no elapsed time until the payload is assembled, and
+    the whole budget afterwards, fixes that order. `stall_limit` real seconds
+    must elapse before the clock advances on its own, so a worker that never
+    delivers a payload trips the coordinator deadline rather than stalling the
+    test indefinitely.
+    """
+
+    def __init__(self, budget: float, stall_limit: float = 60.0) -> None:
+        self._base = time.monotonic()
+        self._budget = budget
+        self._stall_limit = stall_limit
+        self.payload_landed = False
+
+    def monotonic(self) -> float:
+        if self.payload_landed:
+            return self._base + self._budget
+        stalled = time.monotonic() - self._base - self._stall_limit
+        return self._base + max(0.0, stalled)
+
+
+def test_completed_payload_followed_by_hang_times_out_with_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limits = ExecutionLimits(1, 1.0, 2.0)
+    clock = _PayloadGatedClock(limits.per_attempt_timeout)
+    real_attempt_from_bytes = candidate_executor._attempt_from_bytes
+
+    def assembled(payload: bytes):
+        attempt = real_attempt_from_bytes(payload)
+        clock.payload_landed = True
+        return attempt
+
+    monkeypatch.setattr(candidate_executor, "_attempt_from_bytes", assembled)
+    monkeypatch.setattr(candidate_executor, "time", clock)
+
     result = execute_candidates(
-        _request(limits=ExecutionLimits(1, 1.0, 2.0)),
+        _request(limits=limits),
         _fault=_FaultInjection(_FaultAction.PAYLOAD_THEN_BLOCK),
     )
 
     assert result.baseline.status is CandidateStatus.TIMEOUT
+    assert result.baseline.failure is not None
+    assert result.baseline.failure.message == "per-attempt deadline exceeded"
     assert result.baseline.evidence.svg is not None
     assert result.baseline.worker_exit_code is not None
+    assert not multiprocessing.active_children()
 
 
 def test_coordinator_failure_reaps_the_worker(
@@ -619,7 +663,7 @@ def test_coordinator_failure_reaps_the_worker(
     assert result.status is CandidateStatus.INFRASTRUCTURE_FAILURE
     assert result.failure is not None
     assert result.failure.infrastructure_code == "coordinator-failure"
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 def test_protocol_rejects_reset_and_wrong_chunk_size() -> None:
@@ -697,7 +741,7 @@ def test_injected_stage_failures_retain_completed_evidence(
         assert getattr(result.evidence, present)
     assert not getattr(result.evidence, absent)
     assert result.worker_exit_code == 0
-    assert not __import__("multiprocessing").active_children()
+    assert not multiprocessing.active_children()
 
 
 @pytest.mark.parametrize("message", ["geometry warning one", "renamed warning"])

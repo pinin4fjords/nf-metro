@@ -9,6 +9,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     ENTRY_SHIFT_TB,
     EXIT_CORRIDOR_ICON_CLEARANCE,
+    GUARD_TOLERANCE,
     MAX_PORT_ALIGN_BBOX_EXPANSION_FRAC,
     MIN_PORT_STATION_GAP,
     MIN_STATION_FLAT_LENGTH,
@@ -61,6 +62,122 @@ def _set_port_x(graph: MetroGraph, port_id: str, x: float) -> None:
         station.x = x
     if port:
         port.x = x
+
+
+_PORT_ANCHOR_EDGE = {
+    PortSide.LEFT: 0,
+    PortSide.TOP: 1,
+    PortSide.RIGHT: 2,
+    PortSide.BOTTOM: 3,
+}
+
+
+def _box_edges(section: Section) -> tuple[float, float, float, float]:
+    return (
+        section.bbox_x,
+        section.bbox_y,
+        section.bbox_x + section.bbox_w,
+        section.bbox_y + section.bbox_h,
+    )
+
+
+def _set_box_edge(section: Section, edge: int, value: float) -> None:
+    """Move one box edge, leaving the opposite one where it is."""
+    if edge == 0:
+        section.bbox_w += section.bbox_x - value
+        section.bbox_x = value
+    elif edge == 1:
+        section.bbox_h += section.bbox_y - value
+        section.bbox_y = value
+    elif edge == 2:
+        section.bbox_w = value - section.bbox_x
+    else:
+        section.bbox_h = value - section.bbox_y
+
+
+def _port_anchor(graph: MetroGraph, pid: str, port: Port) -> tuple[Section, int] | None:
+    """The section box and the edge slot a port is pinned to, if it has one.
+
+    A port's side is its anchor: LEFT and RIGHT pin its X to a vertical edge,
+    TOP and BOTTOM pin its Y to a horizontal one.
+    """
+    station = graph.stations.get(pid)
+    section = graph.sections.get(station.section_id or "") if station else None
+    if station is None or section is None or section.bbox_w <= 0:
+        return None
+    return section, _PORT_ANCHOR_EDGE[port.side]
+
+
+def section_box_edges(
+    graph: MetroGraph,
+) -> dict[str, tuple[float, float, float, float]]:
+    """Every section's box edges as ``(left, top, right, bottom)``."""
+    return {sid: _box_edges(sec) for sid, sec in graph.sections.items()}
+
+
+def carry_ports_with_section_edges(
+    graph: MetroGraph, before: dict[str, tuple[float, float, float, float]]
+) -> tuple[str, ...]:
+    """Move every port anchored to a section box edge by however far that edge
+    has travelled since *before*, and name the ports that moved.
+
+    Render-time label ink grows a box outward past the edge its ports sit on,
+    so a port left at its old coordinate ends up inside its own section: its
+    inbound run reaches it only by crossing the drawn border and traversing the
+    box interior, and the box stops bounding the geometry its own ports
+    describe.  Moving the port holds the anchor at the step that moves the
+    edge; the routes landing on it are re-observed afterwards.
+
+    Only a port already on its edge (within ``GUARD_TOLERANCE``, the same
+    reading :func:`_guard_ports_on_boundaries` takes) is carried, and it is
+    carried by the edge's displacement, so any deliberate sub-tolerance offset
+    survives the move.
+    """
+    moved: list[str] = []
+    for pid, port in graph.ports.items():
+        anchor = _port_anchor(graph, pid, port)
+        prior = before.get(graph.stations[pid].section_id or "") if anchor else None
+        if anchor is None or prior is None:
+            continue
+        section, edge = anchor
+        was, now = prior[edge], _box_edges(section)[edge]
+        station = graph.stations[pid]
+        coord = station.y if edge % 2 else station.x
+        if abs(now - was) <= COORD_TOLERANCE or abs(coord - was) > GUARD_TOLERANCE:
+            continue
+        setter = _set_port_y if edge % 2 else _set_port_x
+        setter(graph, pid, coord + (now - was))
+        moved.append(pid)
+    return tuple(moved)
+
+
+def hold_port_anchored_edges(
+    graph: MetroGraph,
+    before: dict[str, tuple[float, float, float, float]],
+    ports: tuple[str, ...],
+) -> None:
+    """Put each named port, and the box edge it is anchored to, back on the
+    coordinate *before* records.
+
+    Carrying a port is only sound while a routing pass can still be observed
+    against it, because a route terminates on its port.  A label pass with no
+    routing pass behind it therefore gives its growth back on the anchored
+    edges rather than stranding the port beyond the run that lands on it; the
+    label seats against the standing edge, within its bbox margin.
+    """
+    for pid in ports:
+        port = graph.ports.get(pid)
+        anchor = _port_anchor(graph, pid, port) if port else None
+        prior = before.get(graph.stations[pid].section_id or "") if anchor else None
+        if anchor is None or prior is None:
+            continue
+        section, edge = anchor
+        was, now = prior[edge], _box_edges(section)[edge]
+        station = graph.stations[pid]
+        coord = station.y if edge % 2 else station.x
+        setter = _set_port_y if edge % 2 else _set_port_x
+        setter(graph, pid, coord - (now - was))
+        _set_box_edge(section, edge, was)
 
 
 def _align_entry_ports(graph: MetroGraph, vertical_only: bool = False) -> None:

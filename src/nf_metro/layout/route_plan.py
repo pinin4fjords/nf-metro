@@ -138,6 +138,121 @@ class ConvergenceTrunkReason(str, Enum):
     SHARED_TERMINAL_APPROACH = "shared-terminal-approach"
 
 
+class ConflictRelief(str, Enum):
+    """What would resolve a convergence conflict, in terms of distance."""
+
+    SHARED_CHANNEL = "shared-channel"
+    """The two runs need to become one channel, side, or owner.  A larger
+    distance between them is the wrong direction."""
+
+    CLEARANCE = "clearance"
+    """The two runs need to stand further apart than the planner could put
+    them."""
+
+
+class ConvergenceConflictKind(Enum):
+    """The class of decision one convergence system could not make.
+
+    Each member carries the reason the planner records, the direction relief
+    would have to come from, and the decision the system is short of, so all
+    three follow from the check that fired.  Deriving the reason from the kind
+    rather than classifying a reason string keeps the wording a presentation
+    detail of one structural fact.
+    """
+
+    SHARED_TRUNK_CHANNEL = (
+        "planned convergence trunks require one shared channel decision",
+        ConflictRelief.SHARED_CHANNEL,
+        "plan-driven shared-channel emission (#1658)",
+    )
+    SHARED_APPROACH_CHANNEL = (
+        "planned convergence feeder approaches require one shared channel decision",
+        ConflictRelief.SHARED_CHANNEL,
+        "plan-driven shared-channel emission (#1658)",
+    )
+    OPPOSING_OPENING_CHANNEL = (
+        "planned fan arms require opposing opening channels",
+        ConflictRelief.SHARED_CHANNEL,
+        "plan-driven opposing-opening emission (#1658)",
+    )
+    NO_APPROACH_SETTLEMENT_ROOM = (
+        "planned convergence approaches and trunks have no settlement room",
+        ConflictRelief.CLEARANCE,
+        "plan-driven chained-convergence emission (#1658)",
+    )
+    CHAINED_SAME_LINE = (
+        "chained same-line convergences require one shared system settlement",
+        ConflictRelief.SHARED_CHANNEL,
+        "plan-driven chained-convergence emission (#1658)",
+    )
+    UNOWNED_MEMBER_CORRIDOR = (
+        "planned convergence corridor conflicts with unowned route-system member",
+        ConflictRelief.CLEARANCE,
+        "plan-driven whole-system emission (#1658)",
+    )
+    UNOWNED_MEMBER_GROUP = (
+        "planned convergence corridor conflicts with unowned route-system members",
+        ConflictRelief.SHARED_CHANNEL,
+        "plan-driven whole-system emission (#1658)",
+    )
+
+    def __init__(self, reason: str, relief: ConflictRelief, owner: str) -> None:
+        self.reason = reason
+        self.relief = relief
+        self.owner = owner
+
+
+@dataclass(frozen=True, slots=True)
+class ConvergenceConflict:
+    """The geometry one convergence system's compatibility limit was measured on.
+
+    ``sites`` are the two runs the failing check compared, in absolute
+    coordinates, and ``separation`` is how far apart it found them along
+    ``axis``.  Publishing the measurement rather than only its verdict lets a
+    later stage decide whether the limit is one it can move, without
+    re-classifying the wording of a reason.
+    """
+
+    kind: ConvergenceConflictKind
+    axis: DemandAxis
+    sites: tuple[
+        tuple[tuple[float, float], tuple[float, float]],
+        tuple[tuple[float, float], tuple[float, float]],
+    ]
+    separation: float
+    line_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.axis is DemandAxis.BOTH:
+            raise ValueError("a convergence conflict is measured along one axis")
+        if not all(
+            math.isfinite(value)
+            for site in self.sites
+            for point in site
+            for value in point
+        ):
+            raise ValueError("convergence conflict sites must be finite")
+        if not math.isfinite(self.separation) or self.separation < 0.0:
+            raise ValueError("convergence conflict separation must be a distance")
+        if not self.line_ids or len(set(self.line_ids)) != len(self.line_ids):
+            raise ValueError("convergence conflict line membership is incomplete")
+
+    @property
+    def measurement(self) -> str:
+        first, second = self.sites
+        lines = ", ".join(self.line_ids)
+        return (
+            f"{self.kind.reason} for line(s) {lines}, measured "
+            f"{self.separation:.2f}px apart along {self.axis.value} between "
+            f"{_site_text(first)} and {_site_text(second)}"
+        )
+
+
+def _site_text(site: tuple[tuple[float, float], tuple[float, float]]) -> str:
+    (start_x, start_y), (end_x, end_y) = site
+    return f"({start_x:.1f},{start_y:.1f})-({end_x:.1f},{end_y:.1f})"
+
+
 class ConvergenceEndpointRole(str, Enum):
     """Geometry owned at one convergence member's terminal endpoint."""
 
@@ -242,6 +357,15 @@ class DemandAxis(str, Enum):
     X = "x"
     Y = "y"
     BOTH = "both"
+
+    @property
+    def point_index(self) -> int:
+        """Index of this axis's coordinate in an ``(x, y)`` point.
+
+        ``BOTH`` names no single coordinate and so has no index of its own; it
+        answers 0, leaving a caller that can receive it to rule it out first.
+        """
+        return 1 if self is DemandAxis.Y else 0
 
 
 class KeepOutClass(str, Enum):
@@ -1268,6 +1392,11 @@ class ConvergenceTrunkAxis:
     source_endpoint_coordinate: float | None = None
     target_endpoint_coordinate: float | None = None
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+    claimant_member_ids: tuple[EmissionMemberId, ...] = ()
+    """The members that travel the trunk: its trunk member and every feeder that
+    lands on it.  A continuation leaves the trunk at a point of its own and
+    states that point itself, so it stands on the trunk without claiming its
+    coordinates."""
 
     def __post_init__(self) -> None:
         if self.axis is DemandAxis.BOTH:
@@ -1435,9 +1564,15 @@ class ConvergencePlan:
     foreign_reference_ids: tuple[SharedReferenceId, ...]
     disposition: ConvergenceDisposition
     legacy_reason: str | None
+    conflict: ConvergenceConflict | None = None
 
     def __post_init__(self) -> None:
         planned = self.disposition is ConvergenceDisposition.PLANNED
+        if (
+            self.conflict is not None
+            and self.conflict.kind.reason != self.legacy_reason
+        ):
+            raise ValueError("convergence conflict does not explain its own reason")
         unique_fields = (
             self.convergence_ids,
             self.entry_group_ids,

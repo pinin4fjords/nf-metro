@@ -301,6 +301,14 @@ COORD_TOLERANCE: float = 1.0
 COORD_TOLERANCE_FINE: float = 0.01
 """Fine tolerance for detecting nearly identical Y coordinates."""
 
+SETTLEMENT_QUANTUM: float = 1.0
+"""Granularity of an envelope-settlement translation.
+
+Rounding a corridor's deficit up to this lands the settled boundary clear of
+the ``COORD_TOLERANCE`` band the reservation ledger measures against, so a
+second settlement pass sees no residual deficit.
+"""
+
 SAME_COORD_TOLERANCE: float = 0.5
 """Sub-pixel tolerance for treating two coordinates as the same assigned
 row / track / value.
@@ -363,19 +371,6 @@ visible station, measured as the polyline run reaching the station X,
 exceeds the curve radius by a meaningful amount so a visible flat is
 drawn through the station (matching how regular fork/join stations
 present a clear horizontal segment through their X coordinate)."""
-
-BYPASS_CLEARANCE: float = 25.0
-"""Vertical clearance below the lowest intervening section for bypass routes."""
-
-ROW_BAND_SLACK: float = BYPASS_CLEARANCE + Y_SPACING
-"""Vertical slack a same-row inter-section route may extend past the row band.
-
-A same-row wrap routes below the row's tallest section through a bypass
-channel sitting ``BYPASS_CLEARANCE`` below the band bottom, then stacks the
-bundle's per-line nest offsets (a few ``OFFSET_STEP`` each) on top, and adds
-up to one ``Y_SPACING`` for the diagonal corner approach.  This slack bounds
-that legitimate excursion so the band guard / invariant test admit a clean
-below-row wrap while still rejecting a route that dips a full row down."""
 
 SECTION_ROUTE_CLEARANCE: float = 16.0
 """Minimum gap between a section bbox edge and an external route channel.
@@ -441,6 +436,34 @@ below the band where TOP-entry channel routes legitimately approach the
 badge, so the segment reads as clearly separate from the header rather than
 grazing it.  Enforced by ``test_routed_paths_clear_next_row_headers``."""
 
+DIRECTIONAL_MARKER_HALF_EXTENT: float = 4.0
+"""Half-extent of a direction chevron about the path point carrying it.
+
+Mirrors ``Theme.directional_marker_size`` (the arm half-length and
+half-width), which the reservation ledger cannot read: a corridor's
+clearances are a property of its region, resolved before any theme is in
+hand."""
+
+WIDEST_THEME_LINE_WIDTH: float = 4.0
+"""The widest ``Theme.line_width`` any registered brand sets.
+
+A corridor's clearances are a property of its region, resolved before a theme
+is in hand, so a demand that has to hold for every brand takes the widest
+stroke rather than the default one.  Pinned to the registry by
+``test_the_canvas_edge_clearance_bounds_every_theme``."""
+
+CANVAS_EDGE_CLEARANCE: float = (
+    DIRECTIONAL_MARKER_HALF_EXTENT + WIDEST_THEME_LINE_WIDTH / 2
+)
+"""Minimum distance between a canvas-margin corridor and the canvas edge.
+
+The only thing drawn beyond a corridor's centreline on its canvas side is
+the stroke's own half-width plus, where ``directional: true`` is set, a
+direction chevron; a corner arc is inscribed *inboard* of the centreline and
+never reaches past it.  So this is what has to fit, not a curve radius:
+demanding one flags every run that turns beside the canvas as short of room
+it does not need."""
+
 INTER_ROW_EDGE_CLEARANCE: float = 26.0
 """Minimum distance between an inter-row wrap channel and the *box edge*
 it runs beneath (the upper section's bbox bottom).
@@ -452,6 +475,24 @@ box.  This wider margin gives the run a visibly clear gap below the box.
 It is the box-edge counterpart of ``INTER_ROW_HEADER_CLEARANCE`` on the
 lower side, keeping the channel's two margins symmetric about the real
 obstacles (box edge above, header badge below)."""
+
+BYPASS_CLEARANCE: float = INTER_ROW_EDGE_CLEARANCE
+"""Vertical clearance below the lowest intervening section for bypass routes.
+
+A bypass channel is a horizontal run drawn beneath a section's box edge, which
+is the relationship ``INTER_ROW_EDGE_CLEARANCE`` states, and the reservation
+ledger insets every row-gap corridor by that same margin.  A narrower margin
+here would seat a bypass inside the band its own reservation allocates it."""
+
+ROW_BAND_SLACK: float = BYPASS_CLEARANCE + Y_SPACING
+"""Vertical slack a same-row inter-section route may extend past the row band.
+
+A same-row wrap routes below the row's tallest section through a bypass
+channel sitting ``BYPASS_CLEARANCE`` below the band bottom, then stacks the
+bundle's per-line nest offsets (a few ``OFFSET_STEP`` each) on top, and adds
+up to one ``Y_SPACING`` for the diagonal corner approach.  This slack bounds
+that legitimate excursion so the band guard / invariant test admit a clean
+below-row wrap while still rejecting a route that dips a full row down."""
 
 INTER_ROW_HEADER_CLEARANCE: float = SECTION_HEADER_PROTRUSION + INTER_ROW_EDGE_CLEARANCE
 """Distance from a section's bbox top to an inter-row channel above it.

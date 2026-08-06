@@ -330,7 +330,8 @@ semantics only for `PhaseInvariantError`.
 
 **Not** part of this hierarchy: `render_string()`'s render step also runs a
 handful of self-checks (`CurveInvariantError`, `BridgeInvariantError`,
-`SectionHeaderClashError`, `SectionHeaderOverflowError`, `OffsetAnchorError`)
+`SectionHeaderClashError`, `SectionHeaderOverflowError`,
+`SectionHeaderBandError`, `OffsetAnchorError`)
 that indicate a defect in nf-metro's own drawing rather than a problem with
 your input, so they are left out of `NfMetroError` on purpose - see the
 `render_string` docstring for the full list and rationale. Report one if you

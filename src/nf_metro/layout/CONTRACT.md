@@ -763,7 +763,16 @@ in pipeline order.
 - **Postcondition**: Every junction has finite `(x, y)`. Fan-out
   junctions sit at `exit_port.y` plus a `JUNCTION_MARGIN` X offset
   toward the targets; merge junctions sit at
-  `max(pred.x) + JUNCTION_MARGIN, entry_port.y`.
+  `max(pred.x) + JUNCTION_MARGIN, entry_port.y`. A fan-out junction on a
+  LEFT/RIGHT exit stands `EDGE_TO_BUNDLE_CLEARANCE` from the wall instead
+  wherever a branch descends the junction's own X - the column is then a
+  channel in the inter-column gap and owes the clearance a gap channel does
+  (`_drops_down_the_junction_column`: the entry section shares a grid column
+  with the feeder and is stacked beyond it on the port's own side, which is
+  the condition under which `_align_tb_entry_port` gives the perpendicular
+  port the junction's X). Every other branch turns a corner a runway past the
+  junction, so its channel already stands a curve radius clear of the wall and
+  the junction keeps only `JUNCTION_MARGIN`.
 - **Invariants preserved**: Real stations, ports.
 - **Lifecycle:** invariant - junctions track their ports at the final
   boundary (`junction.xy == _compute_junction_xy(ports)`, re-established
@@ -1134,7 +1143,11 @@ in pipeline order.
   `PERP_PORT_EDGE_CLEARANCE`, both measured from the port's outermost lane
   rather than the port station (`port_bundle_edge_reach`).  For each row pair,
   the row gap is `section_y_gap` (no more, no less, except where rowspan
-  sections filled their full row claim).
+  sections filled their full row claim).  A row pair claimed by
+  `_merge_trunk_row_minimums` keeps that wider minimum between the two row
+  *envelopes*: the trunk's channel crosses the whole boundary, so no
+  column-overlapping section pair bounds it and none records the two rows as
+  related (its connectors are rewritten through fan and merge nodes).
 - **Invariants preserved**: Bbox tops. Within-row trunk Ys. Bbox
   heights of upper rows.
 - **Related tests**: `test_section_bbox_has_bottom_padding`,
@@ -1414,6 +1427,867 @@ in pipeline order.
   trunk retains its planned axis, flanks and terminal caps, every emitted
   continuation ends at its owned endpoint, and every covered continuation names
   its carrier.
+
+## Post-layout render boundary: envelope settlement
+
+- **Purpose**: Give every grid boundary the width it owes, by translating whole
+  grid rows and whole grid columns and nothing else. Two demands say what a
+  boundary owes and both are settled by one translation apiece: the width a
+  reserved corridor's `RouteReservation` requires, and the clearance a
+  `BoundaryClearanceDemand` measures between the boxes facing across it, which a
+  render-time box resize can eat with no run involved. A boundary carrying both
+  is widened once, by the larger. Being the single owner of the translation is
+  the point: no separate row push runs before or behind this stage to make up a
+  shortfall it could have paid.
+- **Helpers**: `settle_route_envelopes` (`layout/envelope_settlement.py`),
+  driven from `_settle_render_geometry` in `render/svg.py`. Each pass
+  re-measures live geometry through `realise_reservation`, and re-measures the
+  clearance demands the same way and for the same reason -- a figure taken
+  before its own earlier translations would be stale.
+  `measure_row_gap_clearance` (`layout/phases/bbox.py`) states the row-axis
+  clearance demands; the demand vocabulary itself is
+  `layout/settlement_demand.py`, held apart from settlement so a layout phase
+  can state a demand without importing the routing stack the ledger is built on.
+  Rail layouts raise no clearance demand: their row pitch comes from the
+  interchange idiom rather than the declared section gap, and widening one of
+  their boundaries to that gap turns a flat inter-row run into a staircase --
+  a decision change, which `_assert_settlement_decisions_frozen` refuses.
+- **The two demands do not cover the same axes.** The reservation ledger is
+  settled on both: `_settle_axis` runs once per axis and every row-gap and
+  column-gap claim is measured. The clearance demand is **row-only**.
+  `measure_row_gap_clearance` is the sole `ClearanceMeasurement` in the tree and
+  emits `SettlementAxis.ROW` exclusively, so `_clearance_at(graph, COLUMN_AXIS,
+  clearance)` is always empty and no column boundary settles a clearance demand.
+  That is the scope of the pass it stands in for,
+  `push_lower_rows_after_bbox_grow` (a row push after a bbox grow -- see the
+  migration table below); `_clearance_at` and
+  `_assert_clearance_demands_are_met` are written for both axes because the
+  vocabulary is axis-neutral, not because both are populated. The consequence is a
+  real one: render-time label wrapping grows `bbox_w` as well as `bbox_h`, so a
+  column boundary can have its declared gap eaten with nothing measuring the
+  deficit. Adding the column measurement is a behaviour change and is not part of
+  this contract.
+- **Precondition**: `compute_layout` has finished, routing has published the
+  reservation ledger, render-time label wrapping has taken its bbox growth, and
+  the header-collision reconcile has run. Local station geometry, section bbox
+  sizes, port anchors, plan frames, lane orders, and author pins are frozen.
+- **Allowed writes**: `Section.bbox_x` / `Section.bbox_y` and the `x` / `y` of
+  the stations and ports those sections own, all by one shared per-boundary
+  amount. Junctions live in inter-section space and are reproduced by routing.
+- **Translation ownership**: A section belongs to the band holding its grid
+  start, so a boundary owns every section starting at or beyond it. A section
+  straddling the boundary starts above it and stays: carrying it would take its
+  upper portion into the gap above and narrow that separation. Both sets are
+  recorded on the `SettlementTranslation`, and holding a straddling section is
+  sound exactly when it bounds none of the corridors the translation settled --
+  if it did, the widening never reached them. That is asserted on the settled
+  geometry, together with the monotone claim, by re-measuring every facing pair
+  of boxes and every straddling section's corridors.
+- **A corridor is not bounded by a box its own runs end inside**: a boundary is
+  measured from the section edges facing it, and a section spans it -- occupying
+  it rather than bounding it -- when its box crosses the boundary. A run whose
+  last leg stops at a station of some box has entered that box just as surely, so
+  `RouteReservation.landing_section_ids` names it and
+  `_row_region_measurement` / `_column_region_measurement` drop it from both
+  sides. Without that, an entry lead-in is charged `INTER_ROW_HEADER_CLEARANCE`
+  off the header of the very box it is arriving at, which nothing can satisfy:
+  the leg's own endpoint is inside the box, so no widening of the boundary brings
+  it into band, and settlement spends real height chasing a demand that cannot
+  close. The set is the *intersection* over a reservation's claims, because one
+  reservation states one measurement: a box only stops bounding the boundary when
+  every run sharing the corridor ends inside it, and a box one of them merely
+  passes bounds it for all of them. Region *selection* is unaffected -- it
+  asks which boundary a run occupies, not what that boundary has room for -- so
+  the corpus raises exactly the same claims on the same 557 reservations. Six
+  reservations across four fixtures have claims that disagree about a landing box,
+  so the intersection is load-bearing rather than notional; `reportho.metro`'s
+  column 4/5 corridor is the case
+  `test_a_box_only_one_claims_run_ends_inside_bounds_the_whole_reservation` pins,
+  where a union would drop `report` from the measurement for all three of its
+  claims and measure the corridor to a box edge two of its runs are stopped by.
+  Uniting instead is a *weakening* -- it can only remove blockers -- so no
+  capacity bound reds on it, which is why the reduction is pinned by identity
+  rather than left to the closing guard.
+- **A corridor is bounded by the station its own runs launch from**: a
+  pre-routing plan that emits its runs out of a station standing inside the gap
+  fixes the length of the opening leg and refuses emitted geometry that shortens
+  it, so no widening of the far side brings the run any nearer to that station.
+  `RouteReservation.launch_anchors` names it with the runway it owes, and
+  `_launch_anchored_measurement` folds it into the region edge on the side of
+  the run it stands on: the band the reservation states is then the band the
+  plan is free to occupy, and the width the boundary is asked for is the width
+  that band needs. Without it the measurement reads the departed box's edge, a
+  proxy that sits behind the launch station, and states a band the plan cannot
+  reach -- the mirror of the landing case above, and the reason
+  `_route_planned_bottom_exit_right_landings` can seat its traverse in the band
+  its own reservation realises instead of at a floor the ledger disagrees with.
+  The set is the intersection over the reservation's claims, for the same reason
+  `landing_section_ids` is; no corpus reservation's claims disagree about a launch
+  anchor, so the corpus offers no case where that reduction is observable and
+  nothing pins it. Settlement is unaffected by this blocker: an
+  anchor stands on the side a translation holds still, so the ownership lemma
+  below still gives the corridor the full widening it asks for. Measured on the
+  corpus, two fixtures raise an anchored corridor -- both planned bottom-exit
+  fans, whose junction stands 10px into the gap below its box -- and each grows
+  its row gap by that 10px; the other 367 renders are byte-identical.
+- **The width a boundary is asked for holds every corridor confined with each
+  one**: a reservation's `minimum_width` is
+  `negative_side_clearance + bundle_width + peer_width + positive_side_clearance`,
+  and `peer_width` (`_peer_widths` in `layout/route_reservations.py`) is what the
+  corridors sharing the boundary take beside this one. Two corridors crossing one
+  boundary compete only when both hold: their runs overlap along it
+  (`spans_share_corridor`), and neither one's own measured band can hold them the
+  distance apart they need -- a pair whose bands already reach that far is settled
+  however the boundary grows, and asks nothing of it. That reach is measured in
+  the order the pair is drawn in, since that is the only order any seating may
+  produce: the router moves a corridor up to its neighbour's lane and never past
+  it, so crediting the pair with the better of the two orderings would report a
+  boundary settled that in fact has no seating at all. Where they do compete, the
+  demand is the stack in drawn order: each neighbouring pair contributes
+  `cotravelling_lane_clearance` (`layout/geometry.py`), which states in one place
+  what `_required_channel_clearance` asks of counter-running channels and
+  `_overlays_distinct_line` of co-travelling ones -- nothing between two tracks of
+  one line running together, `OFFSET_STEP` between distinct co-travelling lines, a
+  turn radius between a line and its own return leg, `BUNDLE_TO_BUNDLE_CLEARANCE`
+  between counter-running distinct lines -- and never less than the pair is
+  already drawn at, so a widening cannot be answered by bringing the pair
+  together. Each competing reservation states the same stack, so settlement's
+  per-boundary maximum widens the boundary once for all of them and the
+  single-sweep argument below is untouched: a larger `minimum_width` is a larger
+  capacity deficit and nothing else.
+  A claim is not what makes a stroke take room, so the stack holds every leg
+  drawn in the boundary and not only the filed ones. The region search asks which
+  boundary a leg *crosses*, and a leg that dips into a gap and returns to the row
+  it left crosses none -- it is drawn in that gap all the same. Such a leg is
+  charged against a boundary whose measured gap its coordinate falls inside and
+  whose own claims travel a stretch of corridor it shares, reading that
+  boundary's band because it holds no reservation of its own. It is charged as a
+  peer rather than filed as a claim because a reservation is a corridor a run may
+  be *seated in*, and a leg no boundary crosses has no such corridor to be held
+  inside: filing one would state a band a frozen route shape cannot reach, and
+  gate its containment against a corridor it never enters. Charging only the
+  filed lanes states a boundary wide enough for one stroke where two are drawn,
+  and the second is left wherever the narrow gap forced it -- in
+  `examples/topologies/merge_around_below_leftmost.mmd`, a merge trunk's return
+  leg 14px below a box edge that asks `INTER_ROW_EDGE_CLEARANCE` of it, ungated
+  because it carries no claim. Measured on the corpus, 10 fixtures state a peer
+  width their boundary lacks and 7 of them render differently for it; each of the
+  7 grows in height only, by 11 to 16px.
+- **Postcondition**: No boundary still owes what it was measured for. For a
+  clearance demand that is one count, re-measured on the settled geometry by
+  `_assert_clearance_demands_are_met`: it follows arithmetically from the
+  ownership lemma below, and is checked anyway because the lemma is a property of
+  two predicates staying in step. For a reservation, every row-gap and
+  column-gap reservation *contains* the run
+  drawn in it. Containment is three counts, all of which
+  `assert_reservations_are_settled` refuses on the strict path: non-negative
+  capacity slack (the region is wide enough at all), and non-negative slack on
+  each side (the run is drawn inside it, not seated off centre with one side
+  absorbing the whole surplus and the other overrun). The two counts read
+  different evidence, and must. Capacity is a property of the reservation and the
+  settled envelopes, so it is measured by re-realising the reservation against the
+  ledger settlement was handed. Where in the region the run *sits* is only
+  knowable from the emitted polylines: the published ledger records the demand --
+  frozen claims projected through the translations -- so its occupied interval
+  states where the first pass observed the run, not where the settled re-route
+  drew it, and a boundary widened so that the re-route can move into the new room
+  leaves that interval untouched. The side slacks are therefore measured by
+  `drawn_corridor_containment` on the polylines the renderer is about to draw,
+  through each claim's own `(path_rank, segment_rank .. segment_end_rank + 1)`
+  point range; `_settle_render_geometry` builds them once and hands the same list
+  to the guard and to the renderer. That the frozen plan's ranks still name the
+  re-routed geometry's points is what `_assert_settlement_decisions_frozen`
+  already guarantees: it compares one signature entry per point pair, in route
+  order, so equal fingerprints mean equal route order and equal point counts, and
+  `apply_route_offsets` maps points one for one. Measured on the corpus, reading
+  the drawn coordinate is the difference between 37 fixtures refused on the strict
+  path and 11.
+  Capacity holds unconditionally, for every arrangement an author can express, by
+  the **ownership lemma**: `_row_region_measurement` splits the sections beside
+  boundary `b` into an upper set `{row_end(s) <= b-1}` and a lower set
+  `{grid_row(s) >= b}`, and `translation_ownership(b)` moves exactly
+  `{grid_row(s) >= b}` and holds everything else. Those are the same inequality,
+  so a translation raises the corridor's `end` by its full amount and leaves
+  `start` fixed: the corridor widens by exactly what was asked. Columns are the
+  same statement on `grid_col`. The premises are that `amount = ceil(deficit /
+  SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM >= deficit` (`quantised_allocation`)
+  with translations unbounded above; that no directive pins a canvas coordinate
+  or a maximum separation (`grid:` fixes grid indices,
+  `section_x_gap`/`section_y_gap` are floors, `width`/`height` size the viewport,
+  and `legend:` is not a corridor
+  blocker); that row and column offsets are cumulative sums over ascending
+  index, so "A above B" implies `A.grid_row <= B.grid_row`; and that section
+  sizes are frozen between settlement and the guard, `shift_section` writing only
+  origins. The same inequality covers a `BoundaryClearanceDemand`: every box its
+  shortfall is measured *from* ends at row `b-1` or above and every box it is
+  measured *to* starts at `b` or beyond, including the bypass-span and
+  row-envelope variants, whose deeper edge belongs to a section in the upper row.
+  Consequently the strict deficit path is a backstop against ledger or
+  ownership drift rather than an authoring outcome: an "infeasible pinned
+  arrangement" is not a state this model admits. The guard stays because the
+  lemma is a property of two predicates staying in step, which a future edit
+  could break. `tests/test_envelope_settlement.py` measures the lemma directly
+  over one fixture per pin class -- explicit grid, row span, column span,
+  inferred span, fold-driven rows, and all four flow directions -- asserting that
+  a boundary's negative blockers are disjoint from the sections its translation
+  moves, its positive blockers are contained in them, and no blocker straddles
+  the boundary. A boundary that every relevant section spans
+  across has no side to measure, so it is never selected as a corridor's region
+  in the first place -- the measurement bounds a boundary by the sections lying
+  wholly on each side of it, and raises otherwise. Every convergence system left
+  on the compatibility path carries a `CompatibilityOwnership` record measured by
+  `attribute_compatibility_systems` on the plan the map draws: the tightest
+  capacity slack across the corridors that system reserved, the
+  `ConvergenceConflict` its planner recorded (kind, axis, both run coordinates,
+  and the distance between them), and the `SettlementReach` verdict deciding
+  whether any offset this stage owns changes that distance. Two runs one
+  translated band carries together keep their distance whatever settlement
+  does; runs in different bands only ever get further apart, which is the wrong
+  direction for a conflict whose relief is one shared channel. The owner comes
+  from `ConvergenceConflictKind`, so it follows from the check that fired rather
+  than from re-reading its wording.
+- **Origin-independence**: The width a boundary is widened by is a function of
+  its deficit and nothing else, so one arrangement described at two canvas
+  origins allocates identically. This is the quantisation lemma's other half,
+  and neither half is sufficient alone. `amount >= deficit` on its own permits
+  an allocation that follows the coordinates a gap happens to be measured
+  between: a gap is a difference of two box edges, binary64 subtraction of two
+  coordinates carrying decimal fractions leaves an error set by the magnitude of
+  the operands rather than by the distance between them, and `ceil` amplifies
+  whatever it is handed into a whole `SETTLEMENT_QUANTUM`. The two halves hold
+  together because the resolution belongs to the measurement rather than to the
+  ceiling: `measured_distance` (`layout/route_reservations.py`) states every
+  ledger width and every containment slack at `COORD_GROUP_DIGITS_FINE`, two
+  orders of magnitude finer than `COORD_TOLERANCE_FINE`, so the ceiling
+  allocates no less than the deficit it is handed and the deficit it is handed
+  is the one the geometry states. A `RealisedRouteReservation`'s own two side
+  slacks are raw subtractions, because every consumer reads them against
+  `COORD_TOLERANCE`, a band 1e13 times that error: the resolution is owed where
+  a reader is finer than the tolerance, which is the ceiling here and the sign
+  test in `drawn_corridor_containment`. Measured on the corpus, 25 fixtures both
+  settle and are translated rigidly by every offset tried (0.1, 0.3, 1/3, 7.7,
+  1000.1, -0.1, -7.7 -- none a whole pixel, none representable in binary64). Ten
+  of those 25 allocate a different width at some origin when the deficit is a
+  bare subtraction, and none does when it is a `measured_distance`. Two of the
+  ten are `examples/differentialabundance_default.mmd` and
+  `tests/fixtures/da_pipeline.mmd`, whose own origin is the one that reads long:
+  their `functional`/`plots` deficit of 14.0 measures as `14.000000000000057`,
+  which the ceiling answers with 15px, and each map is 801px tall against the
+  802px a bare subtraction gives. Those are the only two renders in the corpus
+  the two arithmetics disagree on; the other 367 are byte-identical, and both
+  deltas are a rigid 1px translation of the sections below the boundary.
+  `test_the_allocation_is_a_function_of_the_deficit_not_the_canvas_origin` holds
+  the property over both axes. Four fixtures are outside its reach because a
+  uniform translation makes their router draw a different shape rather than the
+  same one moved (`convergence_stacked_sink`, `same_line_fan_distinct_descent`
+  and `seed_15` at 1/3, `seed_77` at 7.7); the test establishes rigidity before
+  it compares, so it measures the quantiser and not that.
+- **Invariants preserved**: No row or column separation decreases. Section
+  sizes, a station's position within its section, plan-owned frames, lane
+  order, port sides, and author-pinned grid relationships are unchanged.
+- **How settlement's self-checks fail**: every one of them --
+  `_assert_no_separation_decreased`,
+  `_assert_spanning_sections_bound_nothing_settled`,
+  `_assert_the_column_phase_left_the_row_phase_standing`,
+  `_assert_clearance_demands_are_met`, and the boundary with no translation owner
+  -- raises `PhaseInvariantError`. Each states a conclusion the ownership and
+  monotonicity lemmas above establish, so a violation is engine drift and not
+  something an author can express in a `.mmd`; the type puts it inside
+  `NfMetroError` alongside the mid-layout guards of the same class, and
+  `render_string` documents it. None of them is gated on `graph.strict` or
+  downgraded under `graph.permissive`: a best-effort diagram drawn past a broken
+  allocation lemma is a diagram whose geometry nothing vouches for. The write is
+  transactional, so the pre-settlement coordinates are restored before the error
+  propagates.
+- **Out of scope**: Canvas-side corridors, whose far boundary is the canvas
+  edge rather than a grid neighbour; closing one grows a margin, which no row
+  or column offset owns. They are gated separately, by
+  `assert_canvas_corridors_hold_their_claims`, which runs once the render has
+  sized its canvas -- the first point at which the number a canvas claim is
+  measured against exists, and the reason the settlement guard could never
+  measure one. A run is filed against a canvas side only when it lies beyond the
+  extreme of every placed section, so the margin it is measured within is the one
+  it occupies, and its clearance on that side is `CANVAS_EDGE_CLEARANCE`: the
+  stroke's half-width plus a direction chevron, which is what is drawn there,
+  scaled through `canvas_edge_clearance()` because `stroke_scale` multiplies the
+  stroke but not the chevron's arms. A turn radius is not, because an arc beside
+  the canvas is inscribed inboard of the centreline. The guard gates on that
+  margin -- `canvas_edge_slack`, the room between the ink and the edge -- and on
+  total capacity, which are different claims: a corridor can hold every pixel it
+  reserved and bank all of it on the side facing content, leaving its stroke and
+  chevron drawn through the margin and clipped by the viewport. Across the
+  `examples` and `tests/fixtures` corpus, 144 canvas corridors are realised and
+  none is short of its canvas margin or of total capacity, measured either from
+  the published claim interval or from the drawn polylines. A canvas corridor's
+  *content*-facing side is not gated here, because no growth of the canvas moves
+  a section box edge or header badge. 28 of those 144 keep less than the
+  clearance they claim from that content when their drawn ink is measured (29 from
+  the published claim interval), 18 of them an over-top band within the band
+  `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That clearance is a
+  longitudinally blind envelope, and it is charged at routing time, before any
+  caption has a position: it assumes the badge protrudes above `bbox_y` as
+  `section_header_top` states, and where a section draws its caption below or
+  beside its box, or at an x the band does not reach, the reserved band holds no
+  badge. The reservation cannot be narrowed to the caption drawn, because the
+  caption is chosen from the routed polylines and the routes are placed against
+  this clearance (see *A caption's reserved band is the one on the side it took*);
+  reserving the band unconditionally is what keeps the caption's default position
+  always available, and its cost is slack rather than a defect. Measured
+  over all 28, the count of fixtures in which route ink enters a drawn badge's own
+  box is zero, so gating this side today would refuse renders for clearance from
+  something not drawn there. Each is instead published as an attributed
+  `reservation-deficit` record on the plan for the box-edge and header guards to
+  own, and tightening the claim to the badge actually drawn is #1693. That issue
+  is not closed by localising the claim alone: `INTER_ROW_HEADER_CLEARANCE` is
+  `SECTION_HEADER_PROTRUSION + INTER_ROW_EDGE_CLEARANCE`, and charging only the
+  edge clearance where no badge is drawn under the run still leaves 10 of the 18
+  short, because they keep 22px of the 26px edge clearance rather than the full
+  26 that 8 of them keep. The remaining 10 deficits are 2 to 6px short of
+  `EDGE_TO_BUNDLE_CLEARANCE` or `INTER_ROW_EDGE_CLEARANCE` against a box edge with
+  no badge involved. Gating the content side therefore needs those corridors moved
+  off the box edges they hug, not a narrower claim.
+- **Transactional**: The pre-settlement coordinates are restored before any
+  exception propagates, so a failure leaves the graph as settlement found it.
+  The reservation ledger is read-only here.
+- **Idempotence**: A second pass over settled geometry finds no positive
+  deficit of either kind and writes nothing, so running settlement twice is an
+  exact geometry no-op.
+- **Termination**: Settlement runs once, against one ledger. That pass visits
+  each adjacent-index boundary once in ascending order; translating everything
+  from boundary `b` onward widens `b` by exactly that amount, leaves earlier
+  boundaries' blockers stationary, and moves later boundaries' blockers
+  together, so boundaries do not interfere and the pass is finite in the number
+  of boundaries. It deliberately does not iterate: re-routing the settled
+  geometry publishes a different ledger (corridors appear, vanish, and change
+  their required width), so settling against successive ledgers would be a
+  fixpoint search over a moving constraint set with no convergence argument.
+  The plan the closing guard measures is therefore the frozen ledger projected
+  through the translations, not the re-routed one. A demand only the re-routed
+  geometry reveals is consequently not chased, and `attach_reroute_ledger_delta`
+  records it as a non-blocking plan diagnostic so it is named rather than
+  invisible. It compares each corridor's description together with the width it
+  asks for, since a boundary whose corridor survives at a different
+  `minimum_width` is one the translations were sized wrongly for. Measured on
+  the corpus, its gap demand names no corridor either ledger lacks, and 21
+  corridors across 11 fixtures whose required width the re-route states lower
+  than settlement was sized for. None is stated higher, so the frozen ledger
+  never under-sizes a boundary the render draws.
+- **Consumed by**: the re-route. `_settle_render_geometry` hands the
+  pre-settlement ledger back to `observe_route_edges_centred` whenever it holds
+  any reservation, which builds `ReservedCorridors`
+  (`layout/routing/reserved_bands.py`) by re-measuring each row-gap and
+  column-gap reservation on the settled geometry. One axis-neutral measurement
+  serves both, keyed by the higher grid index the boundary separates (the lower
+  row, the right column). `_center_inter_row_channel` and
+  `centre_inter_column_channel` place a claimed channel inside that band rather
+  than deriving one from the row or column edges, and a published band always
+  holds a channel, so a claimed corridor cannot take the narrow-gap fallback.
+  Where a handler or normalisation pass sizes a channel from the boxes it has to
+  hand -- `bypass_bottom_y`'s trunk depth, the L-shape and wrap clearance
+  floors, `_clamp_inter_row_band_top`'s stack limit -- that proxy is applied
+  through the band (`held_in_reserved_band`) so the reservation's answer wins
+  where the two disagree. A boundary whose claims intersect to nothing, and
+  every gap the ledger never reached, keep the row- or column-edge derivation.
+- **A band bounds a corridor, it does not assign it a lane**: every claim
+  crossing one boundary realises the same band, so corridors placed in it
+  independently cannot see each other and two can settle less than one
+  `OFFSET_STEP` apart, which draws two distinct lines as a single two-tone
+  stripe. `_separate_fused_cotravelling_runs` closes the pass chain by
+  restoring the step across every corridor at once, moving a whole track (each
+  run of one line on one lane through one corridor) so a fused fan-out cannot
+  be split, and never moving a track a plan owns.
+  `check_no_fused_cotravelling_lines` is its postcondition on the render
+  chokepoint, **for every pair with a re-seatable track**. A pair both of whose
+  tracks a plan owns (`CorridorLane.pinned`, i.e. `planner_owns_segment` holds
+  for one of the lane's runs) is exempt and reported by nothing: the pass may not
+  move either track, so the chokepoint would abort a render on a defect it has no
+  route to a repair for. The exemption is a gap in the guarantee, not a
+  refinement of it: the corpus draws **4 such pairs at 0.00px separation against
+  a 4.00px nesting step**, over 76px, 228px, 727px and 762px of shared corridor,
+  in `tests/fixtures/hash_seed_determinism/seed_15.mmd`, `seed_41.mmd` and
+  `seed_77.mmd`. All three abort on `CurveInvariantError` before a render reaches
+  a caller, so nothing shipped draws a hidden line today. `EXEMPT_FUSED_PAIRS` in
+  `tests/test_fused_cotravelling_lines_invariant.py` pins that population by
+  identity over the whole corpus, measured as the fused pairs the checker itself
+  declines to report, so a new one reds wherever it appears and one that
+  separates has to be removed.
+- **Containment is closed on the drawn geometry, not in the handlers**:
+  `ReservedCorridors` answers "what is clear at this boundary", which is the
+  intersection of every claim crossing it. That cannot separate two corridors
+  crossing one boundary in opposite directions -- their intersection is narrower
+  than either, sometimes a single coordinate -- so a pass allocating several
+  corridors across one boundary at once (`_materialize_gap_slots`) keeps the raw
+  gap instead. Eight post-passes therefore position channels without reading the
+  ledger: `_separate_opposing_inter_row_trunks`, `_materialize_trunk_slots`,
+  `_spread_diagonal_bundles`, `_bundle_divergent_distinct_traverses`,
+  `_coincide_fanout_opening_descents`, `_stagger_convergent_distinct_lines`,
+  `_coincide_same_line_tracks`, `_materialize_gap_slots`.
+  `_hold_runs_in_corridor_clearance` closes the difference last instead, on the
+  routed geometry. **A leg the ledger claims is held inside its own claim's
+  realised band**, read through `ReservedCorridors.for_segment` by the claim's
+  `(source, target, line_id, segment_rank)` identity, which is the same band the
+  closing guard scores it against. Consuming the reservation rather than
+  re-deriving one is the whole point of having allocated it: settlement widened
+  that boundary for this corridor over the corridor's own declared span, and a
+  band read back off live geometry can only ever confirm wherever the leg already
+  sits. A leg no claim names has no reservation to consume and keeps the gap
+  measurement (`gap_corridor_clearance_band`, which states the reservation's
+  arithmetic against live geometry), which is what the first routing pass -- the
+  one that publishes the ledger and has none to read -- runs on.
+  Bundles move rigidly and only into the space their gap-mates leave them, so no
+  move fuses two lines onto one stroke. How much room a pair needs is
+  `cotravelling_lane_clearance`, the same rule the ledger sizes boundaries by, so
+  a corridor is never denied a coordinate the ledger allocated it on a separation
+  the ledger did not charge for. A bundle every shift is denied retries with the
+  peers denying it as one rigid group: two corridors owed one boundary between
+  them are seated by the same widening and neither can reach it alone, and a
+  rigid move leaves every separation inside the group exactly as drawn.
+  Measured on the corpus, every one of the 1007 claims carried by 557 realised
+  gap reservations is drawn inside the band its own reservation realises, and
+  `tests/test_reserved_claim_consumption.py` holds the whole corpus to that with
+  no exceptions. All but two are exact: the pair are the `hic_reads` lane turning up
+  into `scaffolding` in `examples/genomeassembly.mmd` and in its organellar twin,
+  each drawn 1.00px past its inter-column channel's positive edge, which is
+  inside the `COORD_TOLERANCE` the bound allows. Their channel's lowest lane is a
+  planned exit turn's descent, standing 4px above the band floor, and the stack
+  seated from it takes 15px of the band's 18. That shortfall is a position rather
+  than a width -- the reservation's own `minimum_width` is met with 14px to spare
+  -- and settlement cannot pay it in any case: `SETTLEMENT_QUANTUM` is
+  `COORD_TOLERANCE`, `_settle_axis` acts only above it, and
+  `ReservationCoordinateTranslation` refuses an amount that small, so the least
+  translation this stage can express is 2px and a 1px deficit is below the
+  resolution the ledger works at.
+  The last claims to come into band were the merge trunks of
+  `tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd`, and the
+  planner owns all three of them. A merge feeding a TOP or BOTTOM entry port is
+  seated on the vertical lead-in that port receives (`_position_merge_junction`),
+  which puts its six feeders in the row corridor they claim and puts the merged
+  trunk in the column the port's own crossing gives that line. Three things have
+  to hold together for a plan to state that column.
+  **The drop lands where its siblings land.** The junction-to-port hop is seated
+  on `_perp_entry_landing_x` -- the port-crossing X the intra-section departure
+  leaves from and every bundled feeder lands on -- and ends on the port's own
+  edge. Carrying the lane offset along the axis the hop travels instead runs it 4
+  and 8px past the boundary for `tumor_only` and `somatic`, on a column no
+  sibling stands in; `_shared_terminal_axis` then finds no feeder terminating
+  where the hop does, and the plan falls back to `OUTGOING_CONTINUATION` with its
+  trunk disagreeing with its own landings.
+  **A corridor shared with an unowned member is not contested.** The unowned
+  member is `annotation__exit_right_3 -> reporting__entry_top_7`: the same line,
+  landing on the plan's own entry port, which is the pair
+  `_convergent_port_groups` groups and `_coincide_same_line_tracks` fuses onto
+  one column. `UNOWNED_MEMBER_CORRIDOR` measures the planned trunk against a
+  `_trial_route` taken before that fusion, so `_fuses_onto_trunk` exempts exactly
+  the run the fusion seats on the trunk -- the route's own final approach into
+  the plan's port, within `EDGE_TO_BUNDLE_CLEARANCE` of it, landing where it
+  lands -- and nothing wider. A conflict anywhere else along the same route is a
+  second corridor the fusion never touches, which is why the check still fires
+  for `examples/genomic_pipeline.mmd`,
+  `tests/fixtures/regressions/stacked_collector_fanin.mmd` and
+  `examples/topologies/merge_right_entry.mmd`.
+  **A plan claims the segments its axis describes, and no more.** A trunk axis
+  collapses its flanks onto its own coordinate when the trunk turns straight into
+  the port, and a zero-length flank must not be matched as a run: doing so claims
+  every leg passing through the corner it states -- here the
+  horizontal runway -- and through `convergence_owns_segment_boundary` the
+  feeder's opening descent before it. That takes the descent out of
+  `_divergent_source_groups`, the pass that fuses each line's descents at one
+  source onto the column its bundle occupies there, and the feeder stood one lane
+  off its own colour: three doubled strokes over 40-60px, each overlapping a
+  neighbouring line's lane. The corner itself stays owned by the boundary rule
+  around the trunk's own run, so only coordinates the axis never stated are
+  handed back. For the same reason the landing states **no**
+  opening turn where a bundle outside the convergence seats its column
+  (`_bundled_sibling_owns_opening_column`): `_divergent_source_groups` draws its
+  reference from the bundled members, and a lone feeder's own handler column is
+  not the plan's to freeze.
+  Together those make all three convergences `PLANNED` with
+  `SHARED_TERMINAL_APPROACH` trunks on x = 554, 558 and 562, each landing on the
+  port at y = 1617.4, and take the corpus from 30 compatibility convergences to
+  27 and from 22 planned to 25. One render moves, this fixture's, and it moves by
+  dropping the two overshoot stubs and nothing else: the SVG differs, the raster
+  is pixel-identical, and the canvas is unchanged at 1325x1781.
+  #1660 admits a compatibility disposition only against evidence, and that
+  evidence is measured on the settled map: a conflict's two runs are the same
+  column, 0.00px apart in one translated column band
+  (`SettlementReach.SEPARATION_FIXED`), so no offset this stage owns separates
+  them, and the corpus publishes no `WITHIN_REACH` compatibility system at all.
+  That last figure is weaker than it reads and should not be quoted without this
+  qualification: `_settlement_reach` returns `WITHIN_REACH` only for a conflict
+  whose relief is not `ConflictRelief.SHARED_CHANNEL`, and 9 of the corpus's 12
+  compatibility systems carry `SHARED_CHANNEL` relief, so for those the verdict
+  follows from the conflict kind rather than from geometry. What the measurement
+  does establish, on the 3 that could answer either way, is that a row or column
+  offset does not change the distance between the two drawn coordinates. It does
+  **not** establish that a wider boundary would still leave the planner unable to
+  allocate both members, which is the question #1657's exit criteria asked.
+  `capacity_probe.probe_settlement_capacity` answers that one directly, and its
+  answer is that **#1657's exit criteria are met for all 12**: every one of them
+  stays on the compatibility path under every capacity the probe grants, up to
+  sixteen times what one competing pair of runs costs, which is the evidence the
+  criteria ask for. The probe copies the settled graph, translates whole rows and
+  columns to widen the boundaries a system is measured at, re-derives the
+  coordinates that follow from where those sections then sit, re-runs convergence
+  planning on the copy, and reads the disposition.
+  **12 is the live population**, carried by 12 fixtures and collapsing to 9
+  distinct system-id strings because sibling fixtures share connector names.
+  `COMPATIBILITY_CORPUS` in `tests/test_capacity_probe.py` carries **14 rows**,
+  because a fixture whose systems the planner came to own is retained as a
+  control rather than dropped: its row asserts that it publishes no compatibility
+  system at all, which fails the moment one reappears. The counts must not be
+  conflated -- 14 is a set of probed identities, 12 is how many of them are on the
+  compatibility path. `cross_column_perp_entry_overflow` is one of the two
+  controls; the other is the measurement the shared-channel decision below came
+  from.
+  `merge_around_below_leftmost` was planned at 22.5px of extra claimed-boundary
+  capacity and at every larger capacity granted, which established that what held
+  it was an allocation -- and equally that the allocation was buying a decision,
+  since the separation the planner needed grew at half the widening rate.
+  The probe is not on the render path: it plans the map fourteen more times
+  per compatibility system, so it is diagnostic machinery that
+  `tests/test_capacity_probe.py` runs and no render pays for. Its result is only
+  meaningful against a reproduced baseline, so each system is first re-planned
+  untouched and one whose control does not come back on the compatibility path is
+  refused rather than measured; and its positive answer is reachable by
+  construction, which
+  `test_a_starved_system_is_handed_back_the_capacity_that_starved_it` shows by
+  taking 10px out of `fan_in_merge`'s reserved boundaries until the planner drops
+  it onto compatibility and watching the probe return 10.75px.
+  The re-derivation is what makes a grant a counterfactual about capacity rather
+  than about the probe. A junction's coordinates are a function of the ports it
+  joins, and `_settle_render_geometry` derives them from the sections before
+  every re-route, so a grant that translates sections and leaves the junctions
+  where they were hands the planner a map the pipeline cannot draw. On that map
+  the two arms of one fan stop meeting at a shared turn coordinate -- not because
+  the boundary got wider but because the junction that sets the coordinate was
+  left behind -- and the planner falls silent about a pair it no longer
+  recognises as sharing a channel. A grant that skips it reads as five further
+  systems reaching allocation (`merge_bottom_row_bypass` and
+  `merge_feeder_shared_channel_gap` from 19.5px, `ambiguous_exit_continuation`
+  from 256px, `merge_right_entry` from 576px, and
+  `merge_trunk_out_of_range_section` planned at 656px but not above it), none of
+  which the settled pipeline reproduces: handing those systems' own claimed
+  boundaries 39, 78 and 156px through `settle_route_envelopes` itself leaves the
+  re-route's planner on compatibility with its conflict measured at the same
+  0.00px separation every time.
+  A grant therefore has **three** outcomes and not two (`GrantOutcome`): the
+  re-plan owns the whole system, leaves the whole of it on compatibility, or comes
+  back describing neither -- the system absent, or split across both dispositions.
+  That third case is `DIVERGED` and is excluded from the verdict, because "the
+  planner wants more room here" and "the planner is not talking about this system"
+  are different findings and only the first bears on allocation; reading a
+  diverged grant as compatible is the same conflation as the stale-junction case
+  above, one step further in. A system every grant diverges on is
+  `GRANTS_DIVERGED`, not `BEYOND_ALLOCATION`. Measured over `COMPATIBILITY_CORPUS`,
+  **0 of the 168 grants diverge**, so no live verdict rests on the distinction and
+  `test_capacity_probe.py` pins that count at zero.
+  That is also why a **conditional demand** -- the planner publishing what it
+  would have needed when it declines for space, so settlement allocates against
+  it in the one pass it makes -- closes nothing for the two
+  `OPPOSING_OPENING_CHANNEL` systems. Their conflict is two arms of one fan
+  turning on a single coordinate and opening opposite ways, and the coordinate
+  belongs to the junction both arms leave. Every offset this stage owns carries
+  that junction with the sections it joins, so both arms move together and the
+  0.00px between them is invariant under the whole space of allocations this
+  stage can make. There is no amount to publish:
+  `test_capacity_carries_a_shared_opening_turn_instead_of_opening_it` reads the
+  separation back at every capacity on the ladder and finds it unchanged. The
+  demand would have to be for a *decision* -- one shared channel, per
+  `ConflictRelief.SHARED_CHANNEL` -- which is the emission owner's
+  (`plan-driven opposing-opening emission (#1658)`), not a distance settlement
+  could allocate.
+  Where that decision belongs to the convergence planner it is made rather than
+  declined, and this stage's part in it is to charge for the result and nothing
+  more. `_settle_shared_trunk_channels` lanes the runs of one route system's
+  trunks. Each convergence plan reads its trunk geometry off a trial route taken
+  with no knowledge of its siblings, so two plans of one system whose trunks take
+  the same channel derive the same coordinate and each believes the channel is its
+  own; the system assigns the lanes, by `cotravelling_lane_clearance` -- a full
+  turn radius between a line and its own return leg, and nothing between two runs
+  going the same way, which stay one fused stroke. Both channels a trunk shares
+  are laned by that rule: the one its central run travels, and the one its flanks
+  turn out into.
+  Three properties of that decision matter here.
+  It publishes **no demand of its own**. A lane is a drawn stroke, so the boundary
+  carrying it is charged for it exactly as every other stroke is: the second lane
+  is a run in the row gap, `_peer_widths` reads it, and `minimum_width` states the
+  pair. On `merge_around_below_leftmost` that is 26 negative + 0 bundle + 11 peer
+  + 52 positive = 89px against a 78px gap, realised at required 89.00 / available
+  89.00 with the trunks on 196 and 207. `BoundaryClearanceDemand` is for a
+  boundary owed clearance by something that is *not* a drawn run, so it is the
+  wrong vocabulary for a lane and is not used.
+  It is taken on the **first** routing pass, so this stage realises a demand
+  against a plan that already exists. `_assert_settlement_decisions_frozen` is
+  therefore unmodified and holds: disposition, membership, lane order and frame
+  are identical either side of the sweep. Lanes are measured from the trunk that
+  arrived first rather than from a boundary edge, so widening the boundary moves
+  neither of them, which is what makes the separation invariant under allocation
+  instead of growing at half the widening rate.
+  It is **cheaper than the allocation it replaces**. Charging the pair as a peer
+  while the planner still declined asked 90px of that boundary; laning it asks
+  89px and plans the system, so the settled map is 1px shorter than the one the
+  compatibility path drew.
+  Two corridors confined at one boundary are not a source of
+  residue either: `peer_width`
+  states the room they take together, so settlement widens the boundary for both.
+  Nor is it longitudinal blindness in the band's blockers, which was measured
+  and ruled out: of the 14 out-of-band claims that measurement covered, 13 have
+  every blocking section on their violated side overlapping or abutting the
+  drawn leg, and the one that does not
+  (`fan_bypass_shared_band`, whose two 148px-away blockers bound the side it
+  holds) has its violated edge set by a section abutting the run. Selecting
+  blockers by longitudinal overlap alone was measured over the corpus and is a
+  regression, not a fix: it drops the box a corridor's own elbow turns beside
+  (16 to 26px past the run's end in 4 of those 14), whose removal widens the band
+  enough that the re-route re-centres the run in it, changing 8 renders and
+  flipping one vertical leg's direction, which
+  `_assert_settlement_decisions_frozen` refuses outright; out-of-band claims rise
+  from 21 to 32 as region selection reclassifies corridors onto other boundaries.
+- **Related tests**: `tests/test_envelope_settlement.py`,
+  `tests/test_reserved_corridor_placement.py`, and
+  `assert_reservations_are_settled` in `layout/phases/guards.py`.
+- **Lifecycle:** invariant - the settled geometry satisfies every reservation
+  settlement owns, and re-running it changes nothing.
+
+### A port travels with the box edge it is anchored to
+
+Seating a label grows its section box outward (`_clamp_label_to_section`,
+`_place_tb_label`, `_grow_section_for_box`), and that growth is render-time: the
+wrapped text and the marker positions routing centres are not known until the
+render path has both. A port's side names the edge it is pinned to, so an edge
+that moves without it leaves the port inside its own box, its inbound run
+crossing the drawn border and traversing the interior to reach it.
+`carry_ports_with_section_edges` (`phases/ports.py`) therefore moves every port
+already on a moved edge by that edge's displacement, at the step that moves it,
+and `_settle_render_geometry` re-observes the routes so each still terminates on
+its port.
+
+The re-observation is one step, not a fixpoint. Routing centres a station marker
+on its flat run, so lengthening that run by moving the port moves the marker,
+hence its label, hence the edge, hence the port again. That relation is a
+contraction on some topologies and has unit gain on others
+(`top_entry_left_neighbour` walks its `producer` box right by 6px per round
+without settling, `bypass_fan_in_outer_slot` halves), so iterating it is not
+bounded. A label pass with no re-observation behind it instead gives its growth
+back on the anchored edges (`hold_port_anchored_edges`), leaving the port where
+the drawn runs land and the label seated within its bbox margin. That is also
+what keeps growth out of a settled corridor: settlement measured its boundaries
+against these edges, so a post-settlement pass that pushed one further out would
+spend clearance already promised -- `bypass_fan_in_outer_slot`'s
+inter-column-channel has 40.5px of the 40px it reserved, and 5.6px of unheld
+growth takes it below.
+
+Across `examples/` and `tests/fixtures/`, 38 fixtures grow a port-bearing edge
+at render time and 4 do so on a pass with nothing behind it.
+
+### A caption's reserved band is the one on the side it took
+
+`SECTION_HEADER_PROTRUSION` above a box top is the band the layout reserves for
+that box's caption, and `section_header_top` states it. Routing is charged against
+it (`section_header_safe_cap`, `INTER_ROW_HEADER_CLEARANCE`), and that charge is
+unconditional because it is made before any caption has a position: the caption is
+picked from the routed polylines it has to avoid, so a reservation that followed
+the caption would be a route-place-route fixpoint. What the reservation buys is
+that the caption's default top-left position is always available, and what it
+costs where the caption goes elsewhere is slack.
+
+A fixed band above `bbox_y` is therefore the wrong thing to hold a *drawn* caption
+to, in both directions. It is too small: a wrapped title grows away from the box
+until it reaches the map title or the box above (`_max_lines_upward`), and even a
+single line reaches `SECTION_NUM_CIRCLE_R_LARGE + SECTION_NUM_Y_OFFSET +
+SECTION_LABEL_HALF_HEIGHT_RATIO * font` past the edge, which passes the 26px
+reservation once the section label font passes 13.75px - `sarek_metro` at
+`font_scale` 1.3 draws 31.64px and `near_edge_exit_corner` 27.80px. And it is in
+the wrong place: a caption below or beside its box is not in that band at all,
+while the gap it does occupy is the one that has to hold it.
+
+`header_band_room` (`render/section_header.py`) therefore states the band from the
+placement, on whichever side the caption hangs off: down to whatever stands above
+the box and never less than the default position's own reach; up from the box
+bottom to the next row's top less the `SECTION_HEADER_PROTRUSION` that box
+reserves for its own badge; or out to the section beside. `header_band_protrusion`
+states how far the ink reaches into it, the resolver only offers a side whose room
+holds the caption, and `check_section_headers_hold_the_reserved_band` re-reads both
+off the drawn placements and refuses the render with `SectionHeaderBandError`
+otherwise. Across the corpus every one of the 1224 drawn captions is inside the
+band its own side states, against 39 outside a fixed band above `bbox_y` (36 below
+the box, 3 rotated). What that statement does not buy is an *empty* band: 20 of the
+1224 have a neighbour's caption ink or reserved band inside their own claimed
+strip, every one of them an `above` caption whose title is too wide for its box and
+overhangs into the next column - the `height_capped` case
+`check_section_headers_fit_box_width` exempts, and a box-width problem rather than
+a band one.
+
+Stating the band per side is what lets a caption take the clear side. An
+uncontested default position wins outright; once a route crosses it, the band slot
+and the bottom edge are ranked by the room each keeps from route ink, with a
+rotated side header a lower tier below both (see the module docstring).
+
+Ranking any clear slot along the band ahead of every position leaving it was
+measured over the corpus and is the wrong rule: the leftmost clear shift keeps
+exactly `SECTION_HEADER_ROUTE_PAD` from the stroke it stepped past by
+construction, so it held all 20 of the captions it applied to within 4.00px of a
+descending stroke while the edge those captions declined stood 22 to 60px clear.
+Under the clearance ranking 18 of the 20 take a bottom edge at 42.0 to 60.4px and
+2 take a roomier slot in the band at 19.3px and 50.0px, which is the band winning
+where it is genuinely open. Those 20 captions are the whole of the ranking's
+effect on the corpus: 19 fixtures render differently and one of them grows,
+`cross_column_perp_entry_overflow` by 8px of height (+0.45%) for the canvas to
+hold a bottom-row caption. The canvas-corridor figures above are unmoved at
+144 / 29 / 18, since no route or box edge moves.
+
+### Tier-A layout guards read the settled geometry
+
+`assert_render_layout_invariants` runs once per render, next to
+`assert_render_header_clearance`, on the routes and offsets the renderer is
+handed. Measured on the first routing pass instead, it certifies geometry that
+label placement, the header reconcile and settlement then move: 27 of the 356
+rendering fixtures failed it on their settled geometry while passing it there,
+23 on `_guard_inter_section_route_clears_own_section_interior` and 11 on
+`_guard_ports_on_boundaries`. 26 of the 27 were a port its box had grown away
+from rather than the wrapped bundle those guards were written for; the 27th,
+`cross_column_perp_entry_overflow`, already refuses on the first pass. No
+fixture fails on the first pass and passes on the settled routes, so the single
+settled evaluation loses no coverage and the earlier call was redundant rather
+than complementary.
+
+### Row, bbox-top and canvas responsibilities, and which of them settlement owns
+
+Settlement translates whole rows and whole columns. Several older passes also
+move something, so each was examined for whether *its* move is the one
+settlement makes. Bypassing a whole pass cannot answer that: it deletes two
+different responsibilities at once and only shows that the pair matters. So
+each pass is split first, and only the second half is a candidate:
+
+- a **local** responsibility -- measuring a shortfall and resizing or
+  repositioning one box against its own content;
+- a **global** responsibility -- translating sections the pass does not own, to
+  absorb what the local half revealed.
+
+Settlement's translation is exactly `apply_translation` over
+`translation_ownership(b)`, which moves `{grid_row(s) >= b}` and holds the
+rest. A pass is a migration candidate when its global half applies one amount
+to that same set, in the direction that widens the boundary.
+
+| Pass | Local half | Global half | Candidate |
+| --- | --- | --- | --- |
+| `_shrink_bboxes_to_content_bottom` | `bbox.py:693`, `:704` own `bbox_h`; `:694`, `:705` own BOTTOM ports. Reads row-mate bottoms as a floor (`_row_mate_bottoms`) without writing them | none | no |
+| `_fit_bboxes_to_content_top` | `bbox.py:1168`, `:1176` `move_section_bbox_min_edge` on the section being fitted. `_section_fit_top` *reads* the row above as a ceiling and writes nothing | none | no |
+| Stage 4.7 `_top_align_row_sections` | `row_align.py:535-540`: a per-section `delta = section.bbox_y - min_top`, applied by `shift_section` to that section's own body | none -- no set-wide amount exists | no |
+| Stage 5.3 / 6.9 `_top_align_row_bboxes_only` | `row_align.py:573` per-member `grow_section_bbox_to_anchor`, own `bbox_y` / `bbox_h` and own TOP ports | none | no |
+| Stage 6.6 / 6.8 `_reanchor_off_track_to_consumer` | `off_track.py:1508` own off-track station cross-axis; `:1839`, `:1840`, `:1867`, `:1868` grow the passed section's own edges | none | no |
+| Stage 6.16 `_align_entry_ports` + `_position_junctions` | `_set_port_y` / `_set_port_x` own entry port; `ports.py:396`, `:501`, `:1812` `_expand_bbox_for_y` on its own box; `:494-498` a rigid slide of its own section in `_mirror_entry_section_to_seam`; `:1744`, `:1755` the *feeding* section's exit-port Y when `_clamp_tb_entry_port` bites. `junctions.py:173`-`:226` writes junctions and nothing else | none | no |
+| `_tighten_lower_rows_after_shrink` | `bbox.py:1389` the slack each lower row may rise by | `bbox.py:1401` `_shift_rows_from(graph, r, -slack)` | no -- wrong direction |
+| `_reserve_row_gap_for_top_padding` | `bbox.py:1123` the padding band a blocked section is short of, via `_section_fit_top` / `_section_content_hug_top` | `bbox.py:1126` `_shift_rows_from(graph, r, deficit)` | no -- ordered before a resize |
+| `push_lower_rows_after_bbox_grow` | `measure_row_gap_clearance` (`bbox.py:179`) | `bbox.py:329` `_shift_rows_from(graph, boundary, deficit)` | **yes -- migrated** |
+| `_shift_graph_into_canvas` (`phases/canvas.py:311`) | `_canvas_top_shortfall` | `_translate_graph_y`: every section, uniformly | no -- not compensation |
+| `_snap_canvas_y_to_grid` (`phases/grid_snap.py:271`) | the dominant `station.y % y_spacing` residue | `_translate_graph_y`: every section, uniformly | no -- not compensation |
+
+Measured over all 329 fixtures under `examples/` and `tests/fixtures/`, each of
+the eight local passes was wrapped at its engine call site and every section box
+and station coordinate snapshotted across the call. None writes another
+section's origin, and no call applies one delta to a set: where several boxes
+did move by an equal amount, they had entered the call sharing the coordinate
+the amount was derived from, or the move was an edge grow with a compensating
+`bbox_h`. Stage 4.7 is the boundary case -- it is the one local pass that slides
+a whole section body, 28 calls of 427 -- and it stays local because the amount
+is derived per section from that section's own top, confined to one contiguous
+column group within one grid row.
+
+#### The one that migrated
+
+`push_lower_rows_after_bbox_grow` restores the clearance a row boundary is owed
+after something grew a box into it. Its demand is now
+`BoundaryClearanceDemand`, settlement's second demand alongside the reservation
+ledger, and the render path hands settlement the measurement instead of pushing
+rows itself. What made this migratable, where the sentence this section used to
+carry said it was not:
+
+- The demand is not a corridor, and a `RouteReservation` cannot express it. That
+  type requires authored `connector_ids`, non-empty `claimant_member_ids` and
+  `claims`, a `RouteReservationClaim` per claim naming a real polyline
+  point-pair range with a positive travel interval, `lanes` partitioning those
+  claims, a `route_family_ids`, and a `direction` along the boundary -- every one
+  of which is a property of a *drawn run*. A boundary owed padding has no run.
+  So the vocabulary the demand needed was a second demand type, not a synthetic
+  reservation.
+- Nothing else about it was out of reach. Its ownership predicate is already
+  settlement's: every box the shortfall is measured *from* ends at row `b-1` or
+  above and every box it is measured *to* starts at `b` or beyond, which are the
+  two halves of `translation_ownership(b)`. Its per-section write, via
+  `_shift_rows_from`, is `shift_section` -- the same write `apply_translation`
+  makes. Junction re-derivation is the render path's `reanchor_junctions`
+  either way.
+- A boundary carrying both demands is widened **once**, by the larger. Paying
+  each owner in succession over-reserves, because the sum exceeds what either
+  needs: on `diagonal_labels` and `longread_variant_calling` two successive
+  translations leave 0.6px and 0.2px more than the single one does.
+
+Measured on the corpus, the render-time push fired on exactly **1** fixture of
+369, and 5 row boundaries were left short of the clearance they owe with nothing
+to correct them -- because the call site was gated on the header reconcile
+having fired rather than on a shortfall existing. Settling the demand closes 3
+of those 5 (`manual_rl_row_nonconsumer_bypass`,
+`packed_cell_cellmate_bypass`, `packed_cell_cellmate_bypass_adjacent`, each
+recovering the 9px its inter-row bundle was declared) and creates none.
+
+The other 2 are rail layouts (`sarek_metro`, `rail_pitch_vs_labels`), which the
+demand is deliberately not raised for: rail mode pitches adjacent rows so a line
+runs between them without turning, and widening one of those boundaries to the
+declared gap turns those flat runs into staircases -- 7 routes of 91 and 4 of 11
+respectively, which `_assert_settlement_decisions_frozen` refuses as a decision
+change rather than a translation. `tests/test_envelope_settlement.py` measures
+that consequence rather than asserting the exclusion.
+
+#### The two that cannot migrate, and why it is not a render count
+
+`_tighten_lower_rows_after_shrink` pulls rows **up** by the slack a bottom
+shrink revealed, closing a gap that is wider than it needs to be. Settlement's
+invariant is that no row or column separation decreases, asserted by
+`_assert_no_separation_decreased` on every settled layout. The two are opposite
+operations, so there is no amount to publish: a demand for this move would be a
+demand settlement is defined to refuse.
+
+`_reserve_row_gap_for_top_padding` widens a boundary so that
+`_fit_bboxes_to_content_top`, which runs immediately after it, can then grow a
+box top into the room. The fact its demand would have to carry is not a
+distance -- the distance is `fit_top - hug` and is perfectly expressible -- but
+an *order*: the widening is only useful before a resize, and settlement may not
+resize a box (`bbox_h` and `bbox_w` are frozen across it, which
+`test_settlement_preserves_frozen_local_geometry` holds). By the time settlement
+runs, the grow it was making room for has already been refused its ceiling and
+the box is the size it will be drawn at. Settling the same distance then buys a
+wider gap and no padding, which is not what the pass achieves.
+
+Both of these also run inside `compute_layout`, before routing has published any
+ledger at all, and the row positions they produce are inputs to the routing that
+creates the ledger. That is a second, independent reason, but the direction and
+ordering arguments above stand without it.
+
+#### The two canvas passes were never candidates
+
+`_shift_graph_into_canvas` and `_snap_canvas_y_to_grid` both measure something
+and then call `_translate_graph_y`, which moves every section by one amount. A
+uniform translation of everything changes no distance between any two boxes, so
+there is no separation for settlement to own. They are canvas placement, not
+compensation.
+
+That was verified rather than assumed: each pass's `_translate_graph_y` call was
+suppressed with its measurement left running, and the full set of pairwise
+facing box separations (`_axis_gaps`, both axes) compared per fixture on the
+settled render graph. Of the 357 fixtures that reach one, every fixture shows
+every separation identical on both axes, which is what a uniform translation has
+to show, so the argument above needs no exception. That the argument holds
+without one rests on **Origin-independence** above: a canvas origin can reach a
+row separation only through the binary64 arithmetic of a settlement deficit, and
+`measured_distance` closes that route. Taking the deficit as a bare subtraction
+instead, `examples/differentialabundance_default.mmd` and
+`tests/fixtures/da_pipeline.mmd` are the two fixtures that break it -- their
+`functional`/`plots` gap reads 91.0px with the canvas translation and 90.0px
+without it, because a 14.0px deficit measures as `14.000000000000057` at that
+origin and is answered with 15px. Both widths satisfy the 90px the corridor
+reserves, so neither render is wrong; the coupling is.
+
 
 ## Cross-stage contract: semantic fan planning
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import warnings
 from collections.abc import Mapping
 from dataclasses import replace
 from enum import Enum
@@ -16,7 +17,7 @@ import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
-from nf_metro.api import prepare_graph, render_string
+from nf_metro.api import prepare_graph, render_string, resolve_theme
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import AxisFrame
@@ -2403,15 +2404,14 @@ def test_aligned_top_entry_peeloff_keeps_its_structural_axis() -> None:
         if item.exit_turn_member_id == str(assignment.member_id)
     )
 
+    port_x = graph.stations["novel_transcripts__entry_top_5"].x
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert assignment.run_direction is Direction.R
     assert assignment.turn_direction is Direction.D
-    assert axis.coordinate == pytest.approx(
-        graph.stations["novel_transcripts__entry_top_5"].x
-    )
+    assert axis.coordinate == pytest.approx(port_x)
     assert axis.fixed_anchor_id == "novel_transcripts__entry_top_5"
     assert plan.minimum_runway == pytest.approx(10.0)
-    assert route.points[:2] == [(340.0, 124.0), (350.0, 124.0)]
+    assert route.points[:2] == [(port_x - 10.0, 124.0), (port_x, 124.0)]
     assert route.exit_turn_segment_rank == 1
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
@@ -2541,3 +2541,49 @@ def test_existing_exit_bundle_regressions_render_through_the_public_api(
 ) -> None:
     svg = render_string(path.read_text())
     assert "<svg " in svg
+
+
+# _adopt_prior_dispositions forces a settlement re-route's exit-turn
+# disposition to match the frozen pass whenever the fresh cross-plan verdict
+# on settled geometry differs from it -- the correct ownership boundary, but
+# one that makes the re-route's own verdict unobservable for that plan.  This
+# pins how often the corpus actually exercises that override (as opposed to
+# the frozen and fresh verdicts simply agreeing) so a change that makes it
+# common trips an assertion instead of passing unnoticed.  Fixture path ->
+# override count; regenerate by running ``_corpus_disposition_overrides``.
+EXPECTED_ADOPTED_DISPOSITION_OVERRIDES = {
+    "tests/fixtures/planned_compatibility_channel_collision.mmd": 1,
+}
+
+
+def _corpus_disposition_overrides() -> dict[str, int]:
+    """{fixture path: count} of ``exit-turn-disposition-adopted`` diagnostics."""
+    from nf_metro.render.svg import build_observed_render_plan
+
+    paths = sorted((ROOT / "examples").rglob("*.mmd"))
+    paths += sorted((ROOT / "tests" / "fixtures").rglob("*.mmd"))
+    paths += sorted((ROOT / "tests" / "fixtures").rglob("*.metro"))
+    counts: dict[str, int] = {}
+    for path in paths:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+                observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+        except Exception:  # noqa: BLE001 - erroring fixtures have their own tests
+            continue
+        plan = observed.route_plan
+        if plan is None:
+            continue
+        n = sum(
+            1
+            for item in plan.diagnostics
+            if item.code == "exit-turn-disposition-adopted"
+        )
+        if n:
+            counts[str(path.relative_to(ROOT))] = n
+    return counts
+
+
+def test_settlement_rarely_overrides_a_fresh_exit_turn_disposition() -> None:
+    assert _corpus_disposition_overrides() == EXPECTED_ADOPTED_DISPOSITION_OVERRIDES

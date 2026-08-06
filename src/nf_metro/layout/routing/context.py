@@ -43,6 +43,7 @@ from nf_metro.layout.routing.common import (
     row_top_edge,
     vertical_flow_sections,
 )
+from nf_metro.layout.routing.reserved_bands import ReservedCorridors
 from nf_metro.layout.routing.reversal import (
     detect_reversed_sections,
     tb_positive_fan_sections,
@@ -61,6 +62,7 @@ from nf_metro.parser.route_topology import (
 )
 
 if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import ExitTurnPlanId
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
 
@@ -227,6 +229,15 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
+    reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
+    prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None
+    """Frozen exit-turn dispositions a settlement re-route must redraw.
+
+    Keyed by plan id; the value is the frozen ``legacy_reason`` (``None`` for a
+    planned frame).  A re-route re-derives its geometry checks on translated
+    coordinates, and a verdict that flips there is settlement changing a
+    disposition, which it does not own; ``None`` (the default) means this pass
+    is the one that decides."""
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
@@ -252,6 +263,7 @@ def _classify_merge_edges(
     graph: MetroGraph,
     junction_ids: set[str],
     topology: RouteTopologyQuery | None,
+    reserved_bands: ReservedCorridors,
 ) -> _MergeRouting:
     """Classify merge junction edges into trunk, branch, skip, and exclude.
 
@@ -306,6 +318,10 @@ def _classify_merge_edges(
                     src_row=pred_row,
                     cross_row=cross_row,
                     tgt_row=tgt_row,
+                    reserved=reserved_bands.rows,
+                    claim=reserved_bands.claimed_row_band(
+                        edge.source, edge.target, edge.line_id
+                    ),
                 )
                 if span > farthest_span:
                     farthest_span = span
@@ -376,8 +392,11 @@ def _build_routing_context(
     station_offsets: dict[tuple[str, str], float] | None,
     *,
     offset_step: float | None = None,
+    reserved_bands: ReservedCorridors | None = None,
+    prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
+    bands = ReservedCorridors() if reserved_bands is None else reserved_bands
     topology = build_route_topology_query(graph)
     junction_ids = graph.junction_ids
     divergence_sources = divergence_junction_sources(graph, topology)
@@ -408,7 +427,7 @@ def _build_routing_context(
     positive_fan = tb_positive_fan_sections(graph)
 
     # Merge routing classification
-    merge = _classify_merge_edges(graph, junction_ids, topology)
+    merge = _classify_merge_edges(graph, junction_ids, topology, bands)
 
     # Section trunk Ys: the dominant on-track Y per LR/RL section, used
     # to detect side-branch ascents (a below-trunk station feeding the
@@ -440,7 +459,7 @@ def _build_routing_context(
         offset_step if offset_step is not None else graph_offset_step(graph)
     )
     fan_corridors = _compute_fan_corridors(
-        graph, junction_fan_info, resolved_offset_step, merge.junctions
+        graph, junction_fan_info, resolved_offset_step, merge.junctions, bands
     )
 
     return _RoutingCtx(
@@ -465,6 +484,8 @@ def _build_routing_context(
         bundle_info=bundle_info,
         bypass_gap_idx=bypass_gap_idx,
         station_offsets=station_offsets,
+        reserved_bands=bands,
+        prior_exit_turn_dispositions=prior_exit_turn_dispositions,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
         junction_fan_info=junction_fan_info,
@@ -485,7 +506,9 @@ def compute_junction_fan_info(graph: MetroGraph) -> dict[_EdgeKey, tuple[int, in
     """
     topology = build_route_topology_query(graph)
     junction_ids = divergence_junction_sources(graph, topology)
-    merge = _classify_merge_edges(graph, graph.junction_ids, topology)
+    merge = _classify_merge_edges(
+        graph, graph.junction_ids, topology, ReservedCorridors()
+    )
     line_priority = {lid: i for i, lid in enumerate(graph.lines.keys())}
     all_exclude = merge.skip_edges | merge.index_exclude
     return _compute_junction_fan_info(
@@ -1272,6 +1295,7 @@ def _compute_fan_corridors(
     junction_fan_info: dict[_EdgeKey, tuple[int, int]],
     offset_step: float,
     merge_junctions: set[str],
+    reserved_bands: ReservedCorridors,
 ) -> dict[str, FanCorridor]:
     """Shared traverse bands per fanning junction, one per band kind.
 
@@ -1308,7 +1332,9 @@ def _compute_fan_corridors(
         upper_bottom = max(row_bottom_edge(graph, src_row, col=c) for c in gap_cols)
         lower_top = row_top_edge(graph, src_row + 1, col=col, default=upper_bottom)
         band_y = fan_corridor_band(upper_bottom, lower_top, span=(n - 1) * offset_step)
-        bypass_band_y = _fan_bypass_band(graph, jid, col, src_row, merge_junctions)
+        bypass_band_y = _fan_bypass_band(
+            graph, jid, col, src_row, merge_junctions, reserved_bands
+        )
         if band_y is None and bypass_band_y is None:
             continue
         corridors[jid] = FanCorridor(band_y=band_y, bypass_band_y=bypass_band_y)
@@ -1321,6 +1347,7 @@ def _fan_bypass_band(
     src_col: int,
     src_row: int,
     merge_junctions: set[str],
+    reserved_bands: ReservedCorridors,
 ) -> float | None:
     """Deepest below-row bypass band across a fanning junction's bypass branches.
 
@@ -1357,6 +1384,10 @@ def _fan_bypass_band(
             src_row=src_row,
             cross_row=tgt_row is not None and tgt_row != src_row,
             tgt_row=tgt_row,
+            reserved=reserved_bands.rows,
+            claim=reserved_bands.claimed_row_band(
+                edge.source, edge.target, edge.line_id
+            ),
         )
         deepest = by if deepest is None else max(deepest, by)
     return deepest
