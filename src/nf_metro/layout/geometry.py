@@ -8,6 +8,15 @@ from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_GROUP_DIGITS_FINE,
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+    MIN_CORRIDOR_Y_OVERLAP,
+    OFFSET_STEP,
+)
+
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
@@ -23,6 +32,26 @@ def quantize_coord(value: float, ndigits: int) -> float:
     drift from arithmetic (averaging, offset accumulation).
     """
     return round(value, ndigits)
+
+
+def measured_distance(start: float, end: float) -> float:
+    """The gap from *start* to *end*, at the precision the engine resolves to.
+
+    A width or a slack is the difference of two canvas coordinates, and binary64
+    subtraction of two coordinates carrying decimal fractions leaves an error of
+    order 1e-13 set by the magnitude of the operands rather than by the distance
+    between them.  Two arrangements the same distance apart then measure
+    differently according to where on the canvas each sits, and a consumer
+    reading the result more finely than :data:`COORD_TOLERANCE` amplifies that
+    into a visible quantity: :func:`quantised_allocation` spends a whole
+    ``SETTLEMENT_QUANTUM`` of map height on it, and a containment check testing a
+    slack's sign reports a run drawn flush against its band edge as overrunning
+    it.  Resolving to :data:`COORD_GROUP_DIGITS_FINE` makes the measurement a
+    function of the distance alone, two orders of magnitude finer than
+    :data:`COORD_TOLERANCE_FINE`, the finest distance the engine gives meaning
+    to.
+    """
+    return quantize_coord(end - start, COORD_GROUP_DIGITS_FINE)
 
 
 def shift_section(
@@ -339,6 +368,31 @@ def flow_port_sides(direction: str) -> tuple[PortSide, PortSide]:
         else (PortSide.TOP, PortSide.BOTTOM)
     )
     return (low, high) if AxisFrame.flow_sign(direction) > 0 else (high, low)
+
+
+def section_row_span(section: Section) -> tuple[int, int]:
+    """*section*'s first and last grid row, both inclusive."""
+    return section.grid_row, section.grid_row + section.grid_row_span - 1
+
+
+def section_column_span(section: Section) -> tuple[int, int]:
+    """*section*'s first and last grid column, both inclusive."""
+    return section.grid_col, section.grid_col + section.grid_col_span - 1
+
+
+def grid_spans_overlap(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    """Whether two inclusive integer grid intervals share at least one index.
+
+    The one statement of "do these occupy a common row or column", so a caller
+    asking it of a section pair, of a topology span against a section, or of a
+    bypass run's column range gets the same answer to the same question.
+    """
+    return first[0] <= second[1] and second[0] <= first[1]
+
+
+def sections_share_a_column(first: Section, second: Section) -> bool:
+    """Whether two section boxes stand in any common grid column."""
+    return grid_spans_overlap(section_column_span(first), section_column_span(second))
 
 
 def packed_section_visual_order(
@@ -700,3 +754,66 @@ def iter_serpentine_backtracks(
         limit = backtrack_frac * max(section.bbox_w, 1.0)
         if against > limit + tolerance:
             yield sid, against, limit, section
+
+
+def spans_share_corridor(
+    first_lo: float, first_hi: float, second_lo: float, second_hi: float
+) -> bool:
+    """Whether two spans overlap enough to occupy one corridor.
+
+    Runs that merely touch at a shared elbow band are independent and must stay
+    free to spread across the gap; only a substantial overlap makes them
+    neighbours that have to be separated from each other.
+    """
+    return min(first_hi, second_hi) - max(first_lo, second_lo) > MIN_CORRIDOR_Y_OVERLAP
+
+
+def cotravelling_lanes_fuse(
+    first_coord: float,
+    second_coord: float,
+    first_span: tuple[float, float],
+    second_span: tuple[float, float],
+    offset_step: float,
+    *,
+    slack: float | None = None,
+) -> bool:
+    """Whether two co-travelling runs of distinct lines draw as one stroke.
+
+    Co-travelling distinct lines nest one *offset_step* apart, so a run parked
+    inside another line's step over a shared corridor draws as a single stroke
+    and hides one of the two lines.  *slack* is how much of the separating
+    hairline the caller tolerates: a placement veto choosing between candidate
+    columns can afford a whole coordinate tolerance, whereas a postcondition
+    read off drawn geometry has only the hairline itself to spend, so it takes
+    the default fine tolerance.
+
+    Direction and line identity are the caller's to check; this is the lateral
+    half of the question, shared so the pitch a pass restores and the pitch a
+    guard demands can never disagree.
+    """
+    tolerance = COORD_TOLERANCE_FINE if slack is None else slack
+    return (
+        spans_share_corridor(*first_span, *second_span)
+        and abs(first_coord - second_coord) < offset_step - tolerance
+    )
+
+
+def cotravelling_lane_clearance(
+    *, same_line: bool, counter_running: bool, curve_radius: float
+) -> float:
+    """The separation two lanes sharing one corridor need to draw as two strokes.
+
+    Two tracks of one line travelling the same way are fused deliberately, so
+    they ask for nothing.  Distinct lines nest one ``OFFSET_STEP`` apart, the
+    width at which both colours read as separate strokes.  Counter-running lanes
+    are separate bundles: one line's own return leg has to clear the turn it came
+    out of, so it needs the turn's radius, and two distinct lines take the full
+    bundle-to-bundle clearance.
+
+    Stated once here because two places have to agree on it: the router
+    separating channels it has already drawn, and the reservation ledger stating
+    how much room a boundary carrying several corridors has to be given.
+    """
+    if not counter_running:
+        return 0.0 if same_line else OFFSET_STEP
+    return curve_radius + COORD_TOLERANCE if same_line else BUNDLE_TO_BUNDLE_CLEARANCE

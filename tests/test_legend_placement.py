@@ -14,6 +14,7 @@ import pytest
 
 from nf_metro.api import resolve_theme
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.routing import route_edges_centred
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render import svg as S
 from nf_metro.render.section_header import resolve_all_section_headers
@@ -50,7 +51,7 @@ def _place(text: str):
     graph = parse_metro_mermaid(text)
     compute_layout(graph)
     offsets = S.compute_station_offsets(graph)
-    routes = S.route_edges_centred(graph, station_offsets=offsets)
+    routes = route_edges_centred(graph, station_offsets=offsets)
     max_x, max_y = S._compute_canvas_bounds(graph, routes, False)
     pos = graph.legend_position
     show_logo = bool(graph.logo_path and Path(graph.logo_path).is_file())
@@ -149,7 +150,7 @@ def test_default_bottom_legend_clears_a_wrapped_header():
     graph = parse_metro_mermaid(fixture.read_text())
     compute_layout(graph)
     offsets = S.compute_station_offsets(graph)
-    routes = S.route_edges_centred(graph, station_offsets=offsets)
+    routes = route_edges_centred(graph, station_offsets=offsets)
     polylines = [S.apply_route_offsets(route, offsets) for route in routes]
     theme = resolve_theme(None, graph)
     header_placements = resolve_all_section_headers(

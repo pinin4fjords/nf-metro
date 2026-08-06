@@ -34,6 +34,9 @@ from nf_metro.layout.routing.families import RouteFamilyId
 ROOT = Path(__file__).parents[1]
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 TOPOLOGIES = ROOT / "examples" / "topologies"
+# A shortfall record exists only where a corridor exceeds the unsettled
+# geometry's capacity, which is what the diagnostic checks below mutate.
+DEFICIT_MAP = TOPOLOGIES / "convergence_sink_fold.mmd"
 
 
 def _plan(path: Path = REPORT_HO):
@@ -326,17 +329,23 @@ def test_reservation_rejects_direction_on_the_wrong_axis() -> None:
         replace(reservation, direction=direction)
 
 
-def test_canvas_reservation_kind_follows_its_side() -> None:
-    plan = _plan()
+@pytest.mark.parametrize(
+    ("name", "side"),
+    (
+        ("cross_col_top_entry.mmd", CanvasSide.TOP),
+        ("route_around_intervening.mmd", CanvasSide.BOTTOM),
+    ),
+)
+def test_canvas_reservation_kind_follows_its_side(name: str, side: CanvasSide) -> None:
+    plan = _plan(TOPOLOGIES / name)
     reservation = next(
         item
         for item in plan.reservations
-        if isinstance(item.region, CanvasRegion)
-        and item.region.side in {CanvasSide.TOP, CanvasSide.BOTTOM}
+        if isinstance(item.region, CanvasRegion) and item.region.side is side
     )
     wrong_kind = (
         CorridorKind.BYPASS_BAND
-        if reservation.region.side is CanvasSide.TOP
+        if side is CanvasSide.TOP
         else CorridorKind.OVER_TOP_BAND
     )
 
@@ -452,16 +461,25 @@ def test_query_rejects_realisation_axes_that_disagree_with_orientation() -> None
     ),
 )
 def test_query_rejects_inconsistent_diagnostic_values(field, mutate) -> None:
-    plan = _plan()
+    plan = _plan(DEFICIT_MAP)
     diagnostic = plan.reservation_diagnostics[0]
     malformed = replace(diagnostic, **{field: mutate(diagnostic)})
 
     with pytest.raises(ValueError, match="reservation diagnostic is inconsistent"):
-        build_route_plan_query(replace(plan, reservation_diagnostics=(malformed,)))
+        build_route_plan_query(
+            replace(
+                plan,
+                reservation_diagnostics=_replace_record(
+                    plan.reservation_diagnostics,
+                    malformed,
+                    id_field="reservation_id",
+                ),
+            )
+        )
 
 
 def test_query_rejects_duplicate_reservation_diagnostics() -> None:
-    plan = _plan()
+    plan = _plan(DEFICIT_MAP)
     diagnostic = plan.reservation_diagnostics[0]
 
     with pytest.raises(ValueError, match="duplicate reservation diagnostics"):
@@ -471,7 +489,7 @@ def test_query_rejects_duplicate_reservation_diagnostics() -> None:
 
 
 def test_query_rejects_reservation_diagnostics_out_of_order() -> None:
-    plan = _plan(TOPOLOGIES / "convergence_sink_fold.mmd")
+    plan = _plan(DEFICIT_MAP)
     assert len(plan.reservation_diagnostics) > 1
 
     with pytest.raises(ValueError, match="not in reservation order"):
