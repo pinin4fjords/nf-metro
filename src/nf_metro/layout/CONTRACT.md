@@ -1786,83 +1786,87 @@ in pipeline order.
   translation this stage can express is 2px and a 1px deficit is below the
   resolution the ledger works at.
   The last claims to come into band were the merge trunks of
-  `tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd`, and what it
-  cost is a disposition rather than a coordinate: a merge feeding a TOP or BOTTOM
-  entry port is seated on the vertical lead-in that port receives
-  (`_position_merge_junction`), which puts its six feeders in the row corridor
-  they claim and puts the merged trunk in the very column an *unowned* member of
-  the same route system already uses to enter that port, so
-  `UNOWNED_MEMBER_CORRIDOR` refuses a planned corridor there and all three of the
-  fixture's convergences take the compatibility disposition as one group.
-  That disposition is a temporary dependency on #1658's plan-driven whole-system
-  emission -- the owner `UNOWNED_MEMBER_CORRIDOR` already names -- and not the
-  state this geometry should settle at. Two things stand between the drawn
-  geometry and a planned disposition, and only the first is the one the conflict
-  names.
-  The conflict is measured on geometry a later pass fuses. The unowned member is
-  `annotation__exit_right_3 -> reporting__entry_top_7`: the same line, landing on
-  the plan's own entry port, which is the pair `_convergent_port_groups` groups
-  and `_coincide_same_line_tracks` fuses onto one column. On the settled map the
-  two runs are one stroke per line, at x = 554, 558 and 562.
-  `UNOWNED_MEMBER_CORRIDOR` compares the planned trunk against a `_trial_route`
-  taken before that fusion, so it reports a contested corridor where the drawn
-  geometry has a shared one.
-  Behind it, the plan cannot state the column its own members are drawn in.
-  `_perp_entry_junction_straight_drop` gives the merge's junction-to-port hop its
-  lane offset along the axis it travels (`ty + tgt_off`), where a TOP port lanes
-  its lines across the edge it sits on (`port_lane_coord`), so the hop ends 4px
-  and 8px past the port for `tumor_only` and `somatic` while their own feeders
-  end on it. `_shared_terminal_axis` finds no feeder terminating where the hop
-  does and declines; the plan falls back to `OUTGOING_CONTINUATION` with its
-  trunk on the junction column (554) while its own feeders stand in the lane
-  columns (558, 562); and `_snap_group` then refuses "one coincidence group
-  contains conflicting planned axes" -- between the plan's own continuation and
-  its own landings, not between the plan and the unowned member. Exempting the
-  unowned member on its own therefore does not restore the disposition: it
-  yields a plan whose trunk the fusion has to move, which
-  `consume_convergence_route` refuses.
-  Both were measured together. Seating that drop on the port's lane column and
-  exempting the same-line sibling landing on the plan's own port makes all three
-  convergences `PLANNED` with `SHARED_TERMINAL_APPROACH` trunks on 554, 558 and
-  562, and takes the corpus from 30 compatibility convergences to 20 -- this
-  fixture, `examples/genomic_pipeline.mmd`,
+  `tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd`, and the
+  planner owns all three of them. A merge feeding a TOP or BOTTOM entry port is
+  seated on the vertical lead-in that port receives (`_position_merge_junction`),
+  which puts its six feeders in the row corridor they claim and puts the merged
+  trunk in the column the port's own crossing gives that line. Three things have
+  to hold together for a plan to state that column.
+  **The drop lands where its siblings land.** The junction-to-port hop is seated
+  on `_perp_entry_landing_x` -- the port-crossing X the intra-section departure
+  leaves from and every bundled feeder lands on -- and ends on the port's own
+  edge. Carrying the lane offset along the axis the hop travels instead runs it 4
+  and 8px past the boundary for `tumor_only` and `somatic`, on a column no
+  sibling stands in; `_shared_terminal_axis` then finds no feeder terminating
+  where the hop does, and the plan falls back to `OUTGOING_CONTINUATION` with its
+  trunk disagreeing with its own landings.
+  **A corridor shared with an unowned member is not contested.** The unowned
+  member is `annotation__exit_right_3 -> reporting__entry_top_7`: the same line,
+  landing on the plan's own entry port, which is the pair
+  `_convergent_port_groups` groups and `_coincide_same_line_tracks` fuses onto
+  one column. `UNOWNED_MEMBER_CORRIDOR` measures the planned trunk against a
+  `_trial_route` taken before that fusion, so `_fuses_onto_trunk` exempts exactly
+  the run the fusion seats on the trunk -- the route's own final approach into
+  the plan's port, within `EDGE_TO_BUNDLE_CLEARANCE` of it, landing where it
+  lands -- and nothing wider. A conflict anywhere else along the same route is a
+  second corridor the fusion never touches, which is why the check still fires
+  for `examples/genomic_pipeline.mmd`,
   `tests/fixtures/regressions/stacked_collector_fanin.mmd` and
-  `examples/topologies/merge_right_entry.mmd` all migrate. It also moves 5
-  renders and leaves `examples/topologies/straight_drop_below.mmd` and
-  `examples/topologies/peeloff_straight_drop_near_wall.mmd` failing a planned
-  fan-plan invariant, so it is #1658 work carrying its own fallout rather than a
-  disposition-only change. The 30 in this section is therefore a figure with a
-  landing date: 27 once this fixture's three migrate, 20 once the mechanism does.
-  #1660 admits the present disposition only against evidence, and the evidence
-  is measured on the settled
-  map: the two conflicting runs are the same column, 0.00px apart in one
-  translated column band (`SettlementReach.SEPARATION_FIXED`), so no offset this
-  stage owns separates them, and the corpus publishes no `WITHIN_REACH`
-  compatibility system at all. That last figure is weaker than it reads and
-  should not be quoted without this qualification: `_settlement_reach` returns
-  `WITHIN_REACH` only for a conflict whose relief is not
-  `ConflictRelief.SHARED_CHANNEL`, and 9 of the corpus's 13 compatibility
-  systems carry `SHARED_CHANNEL` relief, so for those the verdict follows from
-  the conflict kind rather than from geometry. What the measurement does
-  establish, on the 4 that could answer either way, is that a row or column
+  `examples/topologies/merge_right_entry.mmd`.
+  **A plan claims the segments its axis describes, and no more.** A trunk axis
+  collapses its flanks onto its own coordinate when the trunk turns straight into
+  the port, and `_trunk_segment_ranks` matched those zero-length flanks as runs,
+  which claims every leg passing through the corner they state -- here the
+  horizontal runway -- and through `convergence_owns_segment_boundary` the
+  feeder's opening descent before it. That took the descent out of
+  `_divergent_source_groups`, the pass that fuses each line's descents at one
+  source onto the column its bundle occupies there, and the feeder stood one lane
+  off its own colour: three doubled strokes over 40-60px, each overlapping a
+  neighbouring line's lane. The corner itself stays owned by the boundary rule
+  around the trunk's own run, so only coordinates the axis never stated are
+  handed back. For the same reason the landing states **no**
+  opening turn where a bundle outside the convergence seats its column
+  (`_bundled_sibling_owns_opening_column`): `_divergent_source_groups` draws its
+  reference from the bundled members, and a lone feeder's own handler column is
+  not the plan's to freeze.
+  Together those make all three convergences `PLANNED` with
+  `SHARED_TERMINAL_APPROACH` trunks on x = 554, 558 and 562, each landing on the
+  port at y = 1617.4, and take the corpus from 30 compatibility convergences to
+  27 and from 22 planned to 25. One render moves, this fixture's, and it moves by
+  dropping the two overshoot stubs and nothing else: the SVG differs, the raster
+  is pixel-identical, and the canvas is unchanged at 1325x1781.
+  #1660 admits a compatibility disposition only against evidence, and that
+  evidence is measured on the settled map: a conflict's two runs are the same
+  column, 0.00px apart in one translated column band
+  (`SettlementReach.SEPARATION_FIXED`), so no offset this stage owns separates
+  them, and the corpus publishes no `WITHIN_REACH` compatibility system at all.
+  That last figure is weaker than it reads and should not be quoted without this
+  qualification: `_settlement_reach` returns `WITHIN_REACH` only for a conflict
+  whose relief is not `ConflictRelief.SHARED_CHANNEL`, and 9 of the corpus's 12
+  compatibility systems carry `SHARED_CHANNEL` relief, so for those the verdict
+  follows from the conflict kind rather than from geometry. What the measurement
+  does establish, on the 3 that could answer either way, is that a row or column
   offset does not change the distance between the two drawn coordinates. It does
   **not** establish that a wider boundary would still leave the planner unable to
   allocate both members, which is the question #1657's exit criteria asked.
   `capacity_probe.probe_settlement_capacity` answers that one directly, and its
-  answer is that **#1657's exit criteria are met for all 13**: every one of them
+  answer is that **#1657's exit criteria are met for all 12**: every one of them
   stays on the compatibility path under every capacity the probe grants, up to
   sixteen times what one competing pair of runs costs, which is the evidence the
   criteria ask for. The probe copies the settled graph, translates whole rows and
   columns to widen the boundaries a system is measured at, re-derives the
   coordinates that follow from where those sections then sit, re-runs convergence
   planning on the copy, and reads the disposition.
-  **13 is the live population.** `COMPATIBILITY_CORPUS` in
-  `tests/test_capacity_probe.py` carries **14 rows**, because a fixture whose
-  systems the planner came to own is retained as a control rather than dropped:
-  its row asserts that it publishes no compatibility system at all, which fails
-  the moment one reappears. The two counts must not be conflated -- 14 is a set of
-  probed identities, 13 is how many of them are on the compatibility path.
-  The fourteenth is the measurement the shared-channel decision below came from.
+  **12 is the live population**, carried by 12 fixtures and collapsing to 9
+  distinct system-id strings because sibling fixtures share connector names.
+  `COMPATIBILITY_CORPUS` in `tests/test_capacity_probe.py` carries **14 rows**,
+  because a fixture whose systems the planner came to own is retained as a
+  control rather than dropped: its row asserts that it publishes no compatibility
+  system at all, which fails the moment one reappears. The counts must not be
+  conflated -- 14 is a set of probed identities, 12 is how many of them are on the
+  compatibility path. `cross_column_perp_entry_overflow` is one of the two
+  controls; the other is the measurement the shared-channel decision below came
+  from.
   `merge_around_below_leftmost` was planned at 22.5px of extra claimed-boundary
   capacity and at every larger capacity granted, which established that what held
   it was an allocation -- and equally that the allocation was buying a decision,

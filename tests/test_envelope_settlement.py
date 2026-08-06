@@ -1336,7 +1336,6 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
 
 
 COMPATIBILITY_SYSTEMS = (
-    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
@@ -1347,6 +1346,27 @@ COMPATIBILITY_SYSTEMS = (
     ROOT / "examples" / "genomeassembly.mmd",
     ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
 )
+
+# Fixtures probed for a compatibility exit whose route systems the planner owns
+# instead.  They are retained as controls rather than dropped: the assertion is
+# that nothing is published for them, which fails the moment one of them slips
+# back onto the compatibility path.
+PLANNED_SYSTEMS = (REGRESSIONS / "cross_column_perp_entry_overflow.mmd",)
+
+
+@pytest.mark.parametrize("path", PLANNED_SYSTEMS, ids=lambda item: item.name)
+def test_a_planned_system_publishes_no_compatibility_exit(path: Path) -> None:
+    """A compatibility exit is evidence about a system the planner declined, so a
+    fixture whose systems it owns must publish none."""
+    graph, plan = _settled(path)
+    assert plan.convergence_plans
+    assert all(item.legacy_reason is None for item in plan.convergence_plans)
+    assert attribute_compatibility_systems(graph, plan) == ()
+    assert not [
+        item
+        for item in _rendered_plan(path, permissive=True).route_plan.diagnostics
+        if item.code == "convergence-settlement-exit"
+    ]
 
 
 def _widest_slack_row_reservation(graph, plan):
