@@ -3653,7 +3653,7 @@ def _project_convergence_plan(
     if trunk is not None:
         travel = trunk.axis
         across = DemandAxis.Y if travel is DemandAxis.X else DemandAxis.X
-        members = plan.member_ids
+        members = trunk.claimant_member_ids or plan.member_ids
         trunk = replace(
             trunk,
             coordinate=_project_shared_coordinate(

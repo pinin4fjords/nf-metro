@@ -1383,6 +1383,11 @@ class ConvergenceTrunkAxis:
     source_endpoint_coordinate: float | None = None
     target_endpoint_coordinate: float | None = None
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+    claimant_member_ids: tuple[EmissionMemberId, ...] = ()
+    """The members that travel the trunk: its trunk member and every feeder that
+    lands on it.  A continuation leaves the trunk at a point of its own and
+    states that point itself, so it stands on the trunk without claiming its
+    coordinates."""
 
     def __post_init__(self) -> None:
         if self.axis is DemandAxis.BOTH:

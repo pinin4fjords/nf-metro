@@ -128,10 +128,6 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
             "planned convergence corridor conflicts with unowned route-system members",
         ),
         (
-            "merge_around_below_leftmost.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
-        (
             "merge_trunk_out_of_range_section.mmd",
             "planned convergence trunks require one shared channel decision",
         ),

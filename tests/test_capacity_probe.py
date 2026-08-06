@@ -42,10 +42,6 @@ COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict], ...] = (
         CapacityVerdict.BEYOND_ALLOCATION,
     ),
     (TOPOLOGIES / "funcprofiler_upstream.mmd", CapacityVerdict.BEYOND_ALLOCATION),
-    (
-        TOPOLOGIES / "merge_around_below_leftmost.mmd",
-        CapacityVerdict.ALLOCATION_REACHES,
-    ),
     (TOPOLOGIES / "merge_bottom_row_bypass.mmd", CapacityVerdict.BEYOND_ALLOCATION),
     (
         TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
@@ -195,7 +191,7 @@ def test_the_probe_never_writes_to_the_map_it_measures() -> None:
     Read on a system the probe plans, so the grants behind the check are ones
     that moved the copy far enough to change what the planner decided.
     """
-    graph, plan = _settled(TOPOLOGIES / "merge_around_below_leftmost.mmd")
+    graph, plan, _system_id = _starved(STARVABLE, STARVATION)
     before = copy.deepcopy(graph)
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.verdict is CapacityVerdict.ALLOCATION_REACHES
