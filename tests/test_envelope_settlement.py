@@ -1568,15 +1568,25 @@ def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
     assert "-4.0px" in message
 
 
-def test_a_canvas_corridor_short_of_its_content_side_is_recorded_not_silent() -> None:
-    """A canvas corridor's content-facing side is evidence, not a hard stop.
-
-    That side is a section box edge or header badge, which no growth of the
-    canvas moves, so it is published as an attributed ``reservation-deficit``
-    record and left to the box-edge and header guards rather than aborting the
-    render for a margin the canvas does not own.
-    """
-    path = TOPOLOGIES / "bt_to_lr.mmd"
+@pytest.mark.parametrize(
+    ("path", "side"),
+    (
+        (TOPOLOGIES / "bt_to_lr.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "cross_col_top_entry.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "lr_perp_top_exit_side_entry.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "bypass_leftward_far_side_entry.mmd", CanvasSide.BOTTOM),
+        (TOPOLOGIES / "stacked_left_exit_drop.mmd", CanvasSide.LEFT),
+        (
+            TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
+            CanvasSide.RIGHT,
+        ),
+    ),
+    ids=lambda item: item.name if isinstance(item, Path) else item.value,
+)
+def test_every_canvas_corridor_holds_its_content_side(
+    path: Path, side: CanvasSide
+) -> None:
+    """The realised claim measures the content drawn beside its own run."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -1585,26 +1595,82 @@ def test_a_canvas_corridor_short_of_its_content_side_is_recorded_not_silent() ->
     reservation = next(
         item
         for item in plan.reservations
-        if isinstance(item.region, CanvasRegion) and item.region.side is CanvasSide.TOP
+        if isinstance(item.region, CanvasRegion) and item.region.side is side
     )
     realised = query.realised_reservation(reservation.id)
     assert realised is not None
-    assert realised.positive_side_slack < -1.0
+    edge_is_negative = side in {CanvasSide.TOP, CanvasSide.LEFT}
+    content_side_slack = (
+        realised.positive_side_slack
+        if edge_is_negative
+        else realised.negative_side_slack
+    )
+    assert content_side_slack >= -COORD_TOLERANCE
     assert canvas_edge_slack(reservation.region, realised) >= -0.01
-
-    diagnostic = next(
+    assert not [
         item
         for item in plan.reservation_diagnostics
+        if item.reservation_id == reservation.id and item.code == "reservation-deficit"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected_blocker"),
+    (
+        ("lr_perp_top_exit_side_entry.mmd", "section-top:mid"),
+        ("tb_bottom_exit_fork_diamond.mmd", "section-header:feed"),
+    ),
+)
+def test_a_top_canvas_corridor_is_bounded_by_content_over_its_own_run(
+    fixture: str, expected_blocker: str
+) -> None:
+    """A header only bounds the longitudinal interval occupied by its ink."""
+    path = TOPOLOGIES / fixture
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, CanvasRegion) and item.region.side is CanvasSide.TOP
+    )
+    realised = next(
+        item
+        for item in plan.realised_reservations
         if item.reservation_id == reservation.id
     )
-    assert diagnostic.code == "reservation-deficit"
-    assert diagnostic.positive_side_slack == pytest.approx(realised.positive_side_slack)
+    assert realised.positive_blocker_ids == (expected_blocker,)
 
-    assert_canvas_corridors_hold_their_claims(plan, strict=True)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        assert_canvas_corridors_hold_their_claims(plan, strict=False)
-    assert not [str(item.message) for item in caught]
+
+def test_a_short_canvas_content_side_fails_the_strict_path() -> None:
+    """A content blocker is as hard a boundary as the canvas edge."""
+    path = TOPOLOGIES / "bt_to_lr.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, CanvasRegion) and item.region.side is CanvasSide.TOP
+    )
+    realised = next(
+        item
+        for item in plan.realised_reservations
+        if item.reservation_id == reservation.id
+    )
+    short = replace(
+        realised,
+        capacity_slack=max(realised.capacity_slack, 0.0),
+        negative_side_slack=max(realised.negative_side_slack, 0.0),
+        positive_side_slack=-4.0,
+    )
+
+    with pytest.raises(LayoutInvariantError, match="content"):
+        assert_canvas_corridors_hold_their_claims(
+            replace(plan, realised_reservations=(short,)), strict=True
+        )
 
 
 def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:

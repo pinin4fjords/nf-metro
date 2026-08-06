@@ -4,7 +4,11 @@ Centralizes magic numbers from svg.py, legend.py, animate.py, and icons.py.
 Theme-dependent values remain in style.py.
 """
 
-from nf_metro.layout.constants import CURVE_RADIUS, ICON_CAPTION_GAP
+from nf_metro.layout.constants import (
+    CURVE_RADIUS,
+    ICON_CAPTION_GAP,
+    SECTION_HEADER_ROUTE_CLEARANCE,
+)
 from nf_metro.layout.constants import ICON_INTER_GAP as ICON_INTER_GAP  # re-export
 from nf_metro.layout.constants import (
     RAIL_KNOB_RADIUS_RATIO as RAIL_KNOB_RADIUS_RATIO,  # re-export
@@ -97,7 +101,7 @@ SECTION_NUM_Y_OFFSET: int = 4
 SECTION_LABEL_TEXT_OFFSET: int = 5
 """Text X offset from section number circle."""
 
-SECTION_HEADER_ROUTE_PAD: float = 4.0
+SECTION_HEADER_ROUTE_PAD: float = SECTION_HEADER_ROUTE_CLEARANCE
 """Slack between a section header's extent and a route, below which the route
 counts as clashing with the header.
 

@@ -1471,6 +1471,11 @@ def _build_render_plan_scaled(
         canvas_width=svg_width,
         canvas_height=svg_height,
         coordinate_translations=settlement_translations,
+        header_keepouts={
+            section_id: placement.keepout
+            for section_id, placement in header_placements.items()
+        },
+        route_polylines=route_polylines,
     )
     assert_canvas_corridors_hold_their_claims(
         route_plan, strict=graph.strict and not graph.permissive
