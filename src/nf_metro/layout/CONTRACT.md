@@ -1671,9 +1671,15 @@ in pipeline order.
   clearance they claim from that content when their drawn ink is measured (29 from
   the published claim interval), 18 of them an over-top band within the band
   `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That clearance is a
-  longitudinally blind envelope, and it assumes the badge protrudes above `bbox_y`
-  as `section_header_top` states; where a section draws its caption below its box,
-  or at an x the band does not reach, the reserved band holds no badge. Measured
+  longitudinally blind envelope, and it is charged at routing time, before any
+  caption has a position: it assumes the badge protrudes above `bbox_y` as
+  `section_header_top` states, and where a section draws its caption below or
+  beside its box, or at an x the band does not reach, the reserved band holds no
+  badge. The reservation cannot be narrowed to the caption drawn, because the
+  caption is chosen from the routed polylines and the routes are placed against
+  this clearance (see *A caption's reserved band is the one on the side it took*);
+  reserving the band unconditionally is what keeps the caption's default position
+  always available, and its cost is slack rather than a defect. Measured
   over all 28, the count of fixtures in which route ink enters a drawn badge's own
   box is zero, so gating this side today would refuse renders for clearance from
   something not drawn there. Each is instead published as an attributed
@@ -1996,6 +2002,62 @@ growth takes it below.
 
 Across `examples/` and `tests/fixtures/`, 38 fixtures grow a port-bearing edge
 at render time and 4 do so on a pass with nothing behind it.
+
+### A caption's reserved band is the one on the side it took
+
+`SECTION_HEADER_PROTRUSION` above a box top is the band the layout reserves for
+that box's caption, and `section_header_top` states it. Routing is charged against
+it (`section_header_safe_cap`, `INTER_ROW_HEADER_CLEARANCE`), and that charge is
+unconditional because it is made before any caption has a position: the caption is
+picked from the routed polylines it has to avoid, so a reservation that followed
+the caption would be a route-place-route fixpoint. What the reservation buys is
+that the caption's default top-left position is always available, and what it
+costs where the caption goes elsewhere is slack.
+
+A fixed band above `bbox_y` is therefore the wrong thing to hold a *drawn* caption
+to, in both directions. It is too small: a wrapped title grows away from the box
+until it reaches the map title or the box above (`_max_lines_upward`), and even a
+single line reaches `SECTION_NUM_CIRCLE_R_LARGE + SECTION_NUM_Y_OFFSET +
+SECTION_LABEL_HALF_HEIGHT_RATIO * font` past the edge, which passes the 26px
+reservation once the section label font passes 13.75px - `sarek_metro` at
+`font_scale` 1.3 draws 31.64px and `near_edge_exit_corner` 27.80px. And it is in
+the wrong place: a caption below or beside its box is not in that band at all,
+while the gap it does occupy is the one that has to hold it.
+
+`header_band_room` (`render/section_header.py`) therefore states the band from the
+placement, on whichever side the caption hangs off: down to whatever stands above
+the box and never less than the default position's own reach; up from the box
+bottom to the next row's top less the `SECTION_HEADER_PROTRUSION` that box
+reserves for its own badge; or out to the section beside. `header_band_protrusion`
+states how far the ink reaches into it, the resolver only offers a side whose room
+holds the caption, and `check_section_headers_hold_the_reserved_band` re-reads both
+off the drawn placements and refuses the render with `SectionHeaderBandError`
+otherwise. Across the corpus every one of the 1224 drawn captions is inside the
+band its own side states, against 39 outside a fixed band above `bbox_y` (36 below
+the box, 3 rotated). What that statement does not buy is an *empty* band: 20 of the
+1224 have a neighbour's caption ink or reserved band inside their own claimed
+strip, every one of them an `above` caption whose title is too wide for its box and
+overhangs into the next column - the `height_capped` case
+`check_section_headers_fit_box_width` exempts, and a box-width problem rather than
+a band one.
+
+Stating the band per side is what lets a caption take the clear side. An
+uncontested default position wins outright; once a route crosses it, the band slot
+and the bottom edge are ranked by the room each keeps from route ink, with a
+rotated side header a lower tier below both (see the module docstring).
+
+Ranking any clear slot along the band ahead of every position leaving it was
+measured over the corpus and is the wrong rule: the leftmost clear shift keeps
+exactly `SECTION_HEADER_ROUTE_PAD` from the stroke it stepped past by
+construction, so it held all 20 of the captions it applied to within 4.00px of a
+descending stroke while the edge those captions declined stood 22 to 60px clear.
+Under the clearance ranking 18 of the 20 take a bottom edge at 42.0 to 60.4px and
+2 take a roomier slot in the band at 19.3px and 50.0px, which is the band winning
+where it is genuinely open. Those 20 captions are the whole of the ranking's
+effect on the corpus: 19 fixtures render differently and one of them grows,
+`cross_column_perp_entry_overflow` by 8px of height (+0.45%) for the canvas to
+hold a bottom-row caption. The canvas-corridor figures above are unmoved at
+144 / 29 / 18, since no route or box edge moves.
 
 ### Tier-A layout guards read the settled geometry
 
