@@ -13,6 +13,7 @@ from typing import NamedTuple, NewType, TypeAlias
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     CANVAS_EDGE_CLEARANCE,
+    COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CURVE_RADIUS,
@@ -23,6 +24,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
+    quantize_coord,
     spans_share_corridor,
 )
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
@@ -81,6 +83,26 @@ LAUNCH_ANCHOR_BLOCKER = "launch-anchor"
 Settlement translates sections, never this: the anchor stands on the side the
 translation holds still, so a boundary widened for the corridor widens away
 from it."""
+
+
+def measured_distance(start: float, end: float) -> float:
+    """The gap from *start* to *end*, at the precision the engine resolves to.
+
+    A width or a slack is the difference of two canvas coordinates, and binary64
+    subtraction of two coordinates carrying decimal fractions leaves an error of
+    order 1e-13 set by the magnitude of the operands rather than by the distance
+    between them.  Two arrangements the same distance apart then measure
+    differently according to where on the canvas each sits, and a consumer
+    reading the result more finely than :data:`COORD_TOLERANCE` amplifies that
+    into a visible quantity: :func:`quantised_allocation` spends a whole
+    ``SETTLEMENT_QUANTUM`` of map height on it, and a containment check testing a
+    slack's sign reports a run drawn flush against its band edge as overrunning
+    it.  Resolving to :data:`COORD_GROUP_DIGITS_FINE` makes the measurement a
+    function of the distance alone, two orders of magnitude finer than
+    :data:`COORD_TOLERANCE_FINE`, the finest distance the engine gives meaning
+    to.
+    """
+    return quantize_coord(end - start, COORD_GROUP_DIGITS_FINE)
 
 
 class CorridorKind(str, Enum):
@@ -1800,7 +1822,7 @@ def _allocate_physical_lanes(
         )
         maximum_bundle_width = max(
             maximum_bundle_width,
-            max(occupied_coordinates) - min(occupied_coordinates),
+            measured_distance(min(occupied_coordinates), max(occupied_coordinates)),
         )
     lanes = tuple(
         RouteReservationLane(tuple(sorted(indices)))
@@ -1960,7 +1982,7 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     return sum(
         max(
             _lane_separation(first, second),
-            second.coordinate - first.coordinate,
+            measured_distance(first.coordinate, second.coordinate),
         )
         if _lanes_overlap(first, second)
         else 0.0
@@ -2439,7 +2461,7 @@ def _realise_one(
     measurement = _launch_anchored_measurement(
         graph, reservation, measurement, occupied_start, occupied_end
     )
-    available = measurement.end - measurement.start
+    available = measured_distance(measurement.start, measurement.end)
     return RealisedRouteReservation(
         reservation.id,
         projected.allocation_axis,
@@ -2494,7 +2516,8 @@ class DrawnCorridorContainment(NamedTuple):
     The band is the realised region inset by the clearances the reservation owes
     its two blockers; the drawn interval is read from the emitted polylines.  A
     negative slack on either side is ink drawn through a clearance a blocker was
-    promised.
+    promised.  Both slacks are a :func:`measured_distance`, so a run drawn flush
+    against a band edge reads as flush wherever on the canvas the pair sits.
     """
 
     band_start: float
@@ -2504,11 +2527,11 @@ class DrawnCorridorContainment(NamedTuple):
 
     @property
     def negative_side_slack(self) -> float:
-        return self.drawn_start - self.band_start
+        return measured_distance(self.band_start, self.drawn_start)
 
     @property
     def positive_side_slack(self) -> float:
-        return self.band_end - self.drawn_end
+        return measured_distance(self.drawn_end, self.band_end)
 
 
 def drawn_corridor_containment(

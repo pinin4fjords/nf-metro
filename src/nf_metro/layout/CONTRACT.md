@@ -1571,10 +1571,11 @@ in pipeline order.
   so a translation raises the corridor's `end` by its full amount and leaves
   `start` fixed: the corridor widens by exactly what was asked. Columns are the
   same statement on `grid_col`. The premises are that `amount = ceil(deficit /
-  SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM >= deficit` with translations
-  unbounded above; that no directive pins a canvas coordinate or a maximum
-  separation (`grid:` fixes grid indices, `section_x_gap`/`section_y_gap` are
-  floors, `width`/`height` size the viewport, and `legend:` is not a corridor
+  SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM >= deficit` (`quantised_allocation`)
+  with translations unbounded above; that no directive pins a canvas coordinate
+  or a maximum separation (`grid:` fixes grid indices,
+  `section_x_gap`/`section_y_gap` are floors, `width`/`height` size the viewport,
+  and `legend:` is not a corridor
   blocker); that row and column offsets are cumulative sums over ascending
   index, so "A above B" implies `A.grid_row <= B.grid_row`; and that section
   sizes are frozen between settlement and the guard, `shift_section` writing only
@@ -1606,6 +1607,42 @@ in pipeline order.
   direction for a conflict whose relief is one shared channel. The owner comes
   from `ConvergenceConflictKind`, so it follows from the check that fired rather
   than from re-reading its wording.
+- **Origin-independence**: The width a boundary is widened by is a function of
+  its deficit and nothing else, so one arrangement described at two canvas
+  origins allocates identically. This is the quantisation lemma's other half,
+  and neither half is sufficient alone. `amount >= deficit` on its own permits
+  an allocation that follows the coordinates a gap happens to be measured
+  between: a gap is a difference of two box edges, binary64 subtraction of two
+  coordinates carrying decimal fractions leaves an error set by the magnitude of
+  the operands rather than by the distance between them, and `ceil` amplifies
+  whatever it is handed into a whole `SETTLEMENT_QUANTUM`. The two halves hold
+  together because the resolution belongs to the measurement rather than to the
+  ceiling: `measured_distance` (`layout/route_reservations.py`) states every
+  ledger width and every containment slack at `COORD_GROUP_DIGITS_FINE`, two
+  orders of magnitude finer than `COORD_TOLERANCE_FINE`, so the ceiling
+  allocates no less than the deficit it is handed and the deficit it is handed
+  is the one the geometry states. A `RealisedRouteReservation`'s own two side
+  slacks are raw subtractions, because every consumer reads them against
+  `COORD_TOLERANCE`, a band 1e13 times that error: the resolution is owed where
+  a reader is finer than the tolerance, which is the ceiling here and the sign
+  test in `drawn_corridor_containment`. Measured on the corpus, 25 fixtures both
+  settle and are translated rigidly by every offset tried (0.1, 0.3, 1/3, 7.7,
+  1000.1, -0.1, -7.7 -- none a whole pixel, none representable in binary64). Ten
+  of those 25 allocate a different width at some origin when the deficit is a
+  bare subtraction, and none does when it is a `measured_distance`. Two of the
+  ten are `examples/differentialabundance_default.mmd` and
+  `tests/fixtures/da_pipeline.mmd`, whose own origin is the one that reads long:
+  their `functional`/`plots` deficit of 14.0 measures as `14.000000000000057`,
+  which the ceiling answers with 15px, and each map is 801px tall against the
+  802px a bare subtraction gives. Those are the only two renders in the corpus
+  the two arithmetics disagree on; the other 367 are byte-identical, and both
+  deltas are a rigid 1px translation of the sections below the boundary.
+  `test_the_allocation_is_a_function_of_the_deficit_not_the_canvas_origin` holds
+  the property over both axes. Four fixtures are outside its reach because a
+  uniform translation makes their router draw a different shape rather than the
+  same one moved (`convergence_stacked_sink`, `same_line_fan_distinct_descent`
+  and `seed_15` at 1/3, `seed_77` at 7.7); the test establishes rigidity before
+  it compares, so it measures the quantiser and not that.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
   order, port sides, and author-pinned grid relationships are unchanged.
@@ -2056,27 +2093,18 @@ compensation.
 That was verified rather than assumed: each pass's `_translate_graph_y` call was
 suppressed with its measurement left running, and the full set of pairwise
 facing box separations (`_axis_gaps`, both axes) compared per fixture on the
-settled render graph. 367 of 369 fixtures show every separation unchanged.
-Exactly 2 change one pair by exactly 1.00px --
-`examples/differentialabundance_default.mmd` and
-`tests/fixtures/da_pipeline.mmd`, the row separation between `functional` and
-`plots` -- and the cause is in settlement's own arithmetic, not in the canvas
-pass. `_settle_axis` quantises with `math.ceil(deficit / SETTLEMENT_QUANTUM)`
-on a raw binary64 subtraction of two absolute box edges: at one canvas origin
-the two edges' representation errors cancel and a 14.0px deficit measures as
-`14.0`, at another they do not and it measures as `14.000000000000057`, which
-the ceiling turns into a whole extra pixel of row translation. Both outcomes
-satisfy the 90px the corridor reserves, so neither render is wrong, but the
-1px is a real coupling from canvas placement into row geometry.
-
-Cleaning the deficit by `COORD_TOLERANCE_FINE` before the ceiling removes it,
-and was measured: it moves exactly those 2 fixtures and no others, and takes
-the boundary to the 90.0px the corridor asks for. Its cost is that both
-fixtures' `bypass-band` claim is then drawn exactly on its band edge, which
-`tests/test_reserved_claim_consumption.py` counts as a new within-tolerance
-overhang at 0.00px. That is a separate change with its own evidence to weigh,
-not part of this one, and the 1px above is stated here so the taxonomy is not
-quoted more strongly than it holds.
+settled render graph. Of the 357 fixtures that reach one, every fixture shows
+every separation identical on both axes, which is what a uniform translation has
+to show, so the argument above needs no exception. That the argument holds
+without one rests on **Origin-independence** above: a canvas origin can reach a
+row separation only through the binary64 arithmetic of a settlement deficit, and
+`measured_distance` closes that route. Taking the deficit as a bare subtraction
+instead, `examples/differentialabundance_default.mmd` and
+`tests/fixtures/da_pipeline.mmd` are the two fixtures that break it -- their
+`functional`/`plots` gap reads 91.0px with the canvas translation and 90.0px
+without it, because a 14.0px deficit measures as `14.000000000000057` at that
+origin and is answered with 15px. Both widths satisfy the 90px the corridor
+reserves, so neither render is wrong; the coupling is.
 
 
 ## Cross-stage contract: semantic fan planning
