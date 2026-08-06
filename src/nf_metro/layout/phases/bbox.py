@@ -22,7 +22,6 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import (
     grid_spans_overlap,
     measured_distance,
-    section_column_span,
     sections_share_a_column,
     shift_section,
 )
@@ -265,9 +264,8 @@ def measure_row_gap_clearance(
                 )
         for (lo, hi), bypass_bot in bypass_by_span.items():
             for ls in lower:
-                if ls.bbox_h <= 0 or not grid_spans_overlap(
-                    section_column_span(ls), (lo, hi)
-                ):
+                ls_columns = (ls.grid_col, ls.grid_col + ls.grid_col_span - 1)
+                if ls.bbox_h <= 0 or not grid_spans_overlap(ls_columns, (lo, hi)):
                     continue
                 candidates.append(
                     (
