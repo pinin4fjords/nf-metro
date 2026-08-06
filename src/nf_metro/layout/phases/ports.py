@@ -502,7 +502,9 @@ def _mirror_entry_section_to_seam(
     return True
 
 
-def _feeder_descent_x(graph: MetroGraph, edge: Edge, source_x: float) -> float:
+def _feeder_descent_x(
+    graph: MetroGraph, edge: Edge, source_x: float, bundle_size: int
+) -> float:
     """X of the column *edge* descends in to reach its perpendicular entry port.
 
     A feeder leaving through a LEFT/RIGHT exit port travels away from the box
@@ -515,7 +517,6 @@ def _feeder_descent_x(graph: MetroGraph, edge: Edge, source_x: float) -> float:
     box by its own margin when it is placed, so *source_x* carries the offset
     for it already.
     """
-    from nf_metro.layout.routing.centrelines import gather_member_edges
     from nf_metro.layout.routing.corners import outer_lane_radius
 
     exit_port = graph.ports.get(edge.source)
@@ -526,8 +527,7 @@ def _feeder_descent_x(graph: MetroGraph, edge: Edge, source_x: float) -> float:
     ):
         return source_x
     sign = 1.0 if exit_port.side is PortSide.RIGHT else -1.0
-    _members, line_ids, _by_line = gather_member_edges(graph, edge)
-    return source_x + sign * outer_lane_radius(len(line_ids))
+    return source_x + sign * outer_lane_radius(bundle_size)
 
 
 def _align_tb_entry_port(
@@ -542,8 +542,13 @@ def _align_tb_entry_port(
     # _resolve_source_xy so junctions don't need to be pre-positioned, and
     # carried as the column each feeder descends in rather than the point it
     # leaves from, since only the former is a column the port can align to.
+    incoming_edges = graph.edges_to(port_id)
+    line_ids_by_source: dict[str, set[str]] = {}
+    for edge in incoming_edges:
+        line_ids_by_source.setdefault(edge.source, set()).add(edge.line_id)
+
     sources: list[tuple[float, float, str | None]] = []
-    for edge in graph.edges_to(port_id):
+    for edge in incoming_edges:
         src = graph.station_for_edge_source(edge)
         if not (src.is_port or edge.source in junction_ids):
             continue
@@ -553,7 +558,9 @@ def _align_tb_entry_port(
         src_section_id = _resolve_source_section_id(graph, edge.source, junction_ids)
         sources.append(
             (
-                _feeder_descent_x(graph, edge, src_xy[0]),
+                _feeder_descent_x(
+                    graph, edge, src_xy[0], len(line_ids_by_source[edge.source])
+                ),
                 src_xy[1],
                 src_section_id,
             )
