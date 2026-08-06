@@ -1769,9 +1769,31 @@ in pipeline order.
   establish, on the 4 that could answer either way, is that a row or column
   offset does not change the distance between the two drawn coordinates. It does
   **not** establish that a wider boundary would still leave the planner unable to
-  allocate both members, which is the question #1657's exit criteria asked and
-  which `peer_width` is the machinery for. Deciding which of the 14 are migration
-  work on that stronger reading is #1658's. Two corridors confined at one boundary are not a source of
+  allocate both members, which is the question #1657's exit criteria asked.
+  `capacity_probe.probe_settlement_capacity` answers that one directly, and its
+  answer is that **#1657's exit criteria are not met for 6 of the 14**. The probe
+  copies the settled graph, translates whole rows and columns to widen the
+  boundaries a system is measured at, re-runs convergence planning on the copy,
+  and reads the disposition: `merge_around_below_leftmost` is planned once its
+  claimed boundaries carry 39px more and at every larger capacity granted,
+  `merge_bottom_row_bypass` and `merge_feeder_shared_channel_gap` from 19.5px,
+  `ambiguous_exit_continuation` from 256px across every boundary and
+  `merge_right_entry` from 576px, while `merge_trunk_out_of_range_section` is
+  planned at 656px but not above it. Those systems are held by an envelope
+  allocation, so their compatibility is #1660's own unfinished work and not an
+  exit to publish; the remaining 8 stay on the compatibility path under every
+  capacity the probe grants, up to sixteen times what one competing pair of runs
+  costs, which is the evidence the criteria ask for. The probe is not on the
+  render path: it plans the map fourteen more times per compatibility system, so
+  it is diagnostic machinery that `tests/test_capacity_probe.py` runs and no
+  render pays for. Its result is only meaningful against a reproduced baseline,
+  so each system is first re-planned untouched and one whose control does not
+  come back on the compatibility path is refused rather than measured; and its
+  positive answer is reachable by construction, which
+  `test_a_starved_system_is_handed_back_the_capacity_that_starved_it` shows by
+  taking one offset step out of `fan_in_merge`'s reserved boundaries until the
+  planner drops it onto compatibility and watching the probe return 12.5px.
+  Two corridors confined at one boundary are not a source of
   residue either: `peer_width`
   states the room they take together, so settlement widens the boundary for both.
   Nor is it longitudinal blindness in the band's blockers, which was measured
