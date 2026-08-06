@@ -112,16 +112,28 @@ def corridor_clearance_band(
     from nf_metro.layout.route_plan import grid_span_for_sections
     from nf_metro.layout.route_reservations import (
         CorridorOrientation,
+        canvas_corridor_clearance_band,
         gap_corridor_clearance_band,
     )
 
-    return gap_corridor_clearance_band(
+    orientation = (
+        CorridorOrientation.HORIZONTAL if axis == 1 else CorridorOrientation.VERTICAL
+    )
+    run_lo, run_hi = sorted((run_start, run_end))
+    gap = gap_corridor_clearance_band(
         graph,
-        CorridorOrientation.HORIZONTAL if axis == 1 else CorridorOrientation.VERTICAL,
+        orientation,
         grid_span_for_sections(graph, section_ids),
         coordinate,
-        min(run_start, run_end),
-        max(run_start, run_end),
+        run_lo,
+        run_hi,
+    )
+    return gap or canvas_corridor_clearance_band(
+        graph,
+        orientation,
+        coordinate,
+        run_lo,
+        run_hi,
     )
 
 

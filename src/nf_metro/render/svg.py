@@ -67,6 +67,8 @@ from nf_metro.layout.route_plan import (
     RouteSystem,
 )
 from nf_metro.layout.route_reservations import (
+    CanvasRect,
+    FinalCanvasGeometry,
     ReservationCoordinateTranslation,
     adopt_route_reservation_ledger,
     realise_route_reservations,
@@ -1468,8 +1470,15 @@ def _build_render_plan_scaled(
     route_plan = realise_route_reservations(
         route_plan,
         graph,
-        canvas_width=svg_width,
-        canvas_height=svg_height,
+        final_canvas=FinalCanvasGeometry(
+            svg_width,
+            svg_height,
+            {
+                section_id: CanvasRect(*placement.keepout)
+                for section_id, placement in header_placements.items()
+            },
+            route_polylines,
+        ),
         coordinate_translations=settlement_translations,
     )
     assert_canvas_corridors_hold_their_claims(

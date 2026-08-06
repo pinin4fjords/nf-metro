@@ -1713,35 +1713,19 @@ in pipeline order.
   reserved and bank all of it on the side facing content, leaving its stroke and
   chevron drawn through the margin and clipped by the viewport. Across the
   `examples` and `tests/fixtures` corpus, 144 canvas corridors are realised and
-  none is short of its canvas margin or of total capacity, measured either from
-  the published claim interval or from the drawn polylines. A canvas corridor's
-  *content*-facing side is not gated here, because no growth of the canvas moves
-  a section box edge or header badge. 28 of those 144 keep less than the
-  clearance they claim from that content when their drawn ink is measured (29 from
-  the published claim interval), 18 of them an over-top band within the band
-  `INTER_ROW_HEADER_CLEARANCE` reserves for a header badge. That clearance is a
-  longitudinally blind envelope, and it is charged at routing time, before any
-  caption has a position: it assumes the badge protrudes above `bbox_y` as
-  `section_header_top` states, and where a section draws its caption below or
-  beside its box, or at an x the band does not reach, the reserved band holds no
-  badge. The reservation cannot be narrowed to the caption drawn, because the
-  caption is chosen from the routed polylines and the routes are placed against
-  this clearance (see *A caption's reserved band is the one on the side it took*);
-  reserving the band unconditionally is what keeps the caption's default position
-  always available, and its cost is slack rather than a defect. Measured
-  over all 28, the count of fixtures in which route ink enters a drawn badge's own
-  box is zero, so gating this side today would refuse renders for clearance from
-  something not drawn there. Each is instead published as an attributed
-  `reservation-deficit` record on the plan for the box-edge and header guards to
-  own, and tightening the claim to the badge actually drawn is #1693. That issue
-  is not closed by localising the claim alone: `INTER_ROW_HEADER_CLEARANCE` is
-  `SECTION_HEADER_PROTRUSION + INTER_ROW_EDGE_CLEARANCE`, and charging only the
-  edge clearance where no badge is drawn under the run still leaves 10 of the 18
-  short, because they keep 22px of the 26px edge clearance rather than the full
-  26 that 8 of them keep. The remaining 10 deficits are 2 to 6px short of
-  `EDGE_TO_BUNDLE_CLEARANCE` or `INTER_ROW_EDGE_CLEARANCE` against a box edge with
-  no badge involved. Gating the content side therefore needs those corridors moved
-  off the box edges they hug, not a narrower claim.
+  none is short of its canvas margin, content margin, or total capacity. The
+  content boundary is resolved after header placement, against the final route
+  polylines. A section box contributes its edge only over the corridor's declared
+  longitudinal interval. A header contributes its drawn keepout only where that
+  keepout overlaps the same interval and protrudes toward the corridor. The
+  effective clearance is `INTER_ROW_EDGE_CLEARANCE` for horizontal box edges,
+  `EDGE_TO_BUNDLE_CLEARANCE` for vertical box edges, and
+  `SECTION_HEADER_ROUTE_CLEARANCE` for header ink. The corridor-normalisation
+  pass seats movable canvas runs inside the corresponding box-edge band. Planned
+  right-entry fans include their full outer-lane offset when placing their owned
+  descent channel. `assert_canvas_corridors_hold_their_claims` gates the minimum
+  of canvas-edge slack, content-side slack, and total capacity slack, so a
+  content-side graze fails the same strict path as a clipped canvas margin.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
@@ -2078,14 +2062,17 @@ at render time and 4 do so on a pass with nothing behind it.
 
 ### A caption's reserved band is the one on the side it took
 
-`SECTION_HEADER_PROTRUSION` above a box top is the band the layout reserves for
-that box's caption, and `section_header_top` states it. Routing is charged against
-it (`section_header_safe_cap`, `INTER_ROW_HEADER_CLEARANCE`), and that charge is
-unconditional because it is made before any caption has a position: the caption is
-picked from the routed polylines it has to avoid, so a reservation that followed
-the caption would be a route-place-route fixpoint. What the reservation buys is
-that the caption's default top-left position is always available, and what it
-costs where the caption goes elsewhere is slack.
+`SECTION_HEADER_PROTRUSION` above a box top is the prospective band the layout
+reserves for that box's caption, and `section_header_top` states it. Gap routing
+is charged against it (`section_header_safe_cap`, `INTER_ROW_HEADER_CLEARANCE`)
+before any caption has a position: the caption is picked from the routed
+polylines it has to avoid, so routing against the final caption would require a
+route-place-route fixpoint. What that prospective reservation buys is that the
+caption's default top-left position is available. Final canvas-corridor
+realisation is retrospective instead: it reads the chosen header keepout and
+the emitted run's longitudinal span, then treats only ink that overlaps that
+span as a blocker. A caption placed elsewhere therefore does not create empty
+reserved space beside the canvas run.
 
 A fixed band above `bbox_y` is therefore the wrong thing to hold a *drawn* caption
 to, in both directions. It is too small: a wrapped title grows away from the box
