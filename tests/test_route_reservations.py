@@ -12,6 +12,14 @@ import pytest
 from layout_metrics import compute_metrics
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout import route_reservations
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    OFFSET_STEP,
+)
+from nf_metro.layout.geometry import cotravelling_lane_clearance
 from nf_metro.layout.route_plan import (
     BindingKind,
     ExitTurnDisposition,
@@ -28,6 +36,7 @@ from nf_metro.layout.route_reservations import (
     CorridorMeasurementScope,
     CorridorOrientation,
     RowGapRegion,
+    realise_reservation,
 )
 from nf_metro.layout.routing import (
     compute_station_offsets,
@@ -74,20 +83,17 @@ EXPECTED_RESERVATION_CLAIMS = {
         (23, 2),
         (23, 3),
     ),
-    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2), (22, 0)),
+    "cross_row_gap_wrap.mmd": ((20, 1), (20, 2), (21, 1), (21, 2)),
     "merge_bottom_row_bypass.mmd": (
         (11, 1),
-        (12, 1),
         (12, 2),
         (12, 3),
         (14, 1),
     ),
     "corridor_narrow_gap_fallback.mmd": (
-        (12, 0),
         (12, 1),
         (12, 2),
         (12, 3),
-        (13, 0),
         (13, 1),
         (13, 2),
         (13, 3),
@@ -95,48 +101,31 @@ EXPECTED_RESERVATION_CLAIMS = {
         (14, 2),
         (14, 3),
     ),
-    "fan_bypass_shared_band.mmd": ((9, 1), (9, 2), (9, 3), (9, 4)),
+    "fan_bypass_shared_band.mmd": ((9, 1), (9, 3)),
     "packed_cell_right_exit_left_entry_wrap.mmd": (
         (57, 1),
-        (57, 2),
         (58, 1),
-        (58, 2),
         (59, 1),
-        (59, 2),
         (60, 1),
-        (60, 2),
-        (61, 0),
         (61, 1),
         (61, 2),
         (61, 3),
         (61, 4),
-        (62, 0),
         (62, 1),
         (62, 2),
         (62, 3),
-        (63, 0),
-        (64, 0),
-        (65, 0),
-        (66, 0),
-        (67, 0),
-        (68, 0),
         (68, 2),
         (68, 3),
-        (69, 0),
         (69, 2),
         (69, 3),
         (70, 1),
         (70, 2),
         (70, 3),
-        (71, 0),
         (71, 1),
     ),
     "opposing_bypass_corridor.mmd": (
         (19, 1),
         (19, 2),
-        (20, 0),
-        (21, 0),
-        (22, 0),
         (22, 1),
         (22, 2),
         (23, 1),
@@ -145,34 +134,16 @@ EXPECTED_RESERVATION_CLAIMS = {
         (25, 2),
     ),
     "opposing_return_row_pair.mmd": (
-        (8, 0),
-        (9, 0),
-        (10, 0),
         (10, 1),
         (10, 2),
-        (11, 0),
         (11, 1),
         (11, 2),
     ),
     "lr_to_tb_top_near_vertical.mmd": ((4, 1), (4, 2)),
     "stacked_collector_fanin.mmd": (
-        *((rank, 0) for rank in range(200, 212)),
-        (213, 0),
-        (215, 0),
-        (217, 0),
-        (197, 1),
-        (198, 1),
-        (199, 1),
-        *((rank, 1) for rank in range(206, 218)),
-        (197, 2),
-        (198, 2),
-        (199, 2),
-        *((rank, 2) for rank in range(206, 218)),
-        (197, 3),
-        (198, 3),
-        (199, 3),
-        *((rank, 3) for rank in range(206, 218)),
-        *((rank, 4) for rank in range(206, 218)),
+        *((rank, 1) for rank in (197, 198, 199, 212, 214, 216)),
+        *((rank, 2) for rank in (197, 198, 199, *range(206, 218))),
+        *((rank, 3) for rank in (197, 198, 199, *range(206, 218))),
     ),
 }
 
@@ -199,6 +170,35 @@ def _report_reservation(plan):
     return matches[0]
 
 
+def _assert_runs_in_the_canvas_margin(graph, reservation) -> None:
+    """A canvas corridor's claims lie beyond every placed section's extreme.
+
+    A run merely outside the sections it happens to pass beside is an interior
+    corridor, so the comparison is against the whole map's content: without it a
+    canvas record cannot be told apart from a misfiled gap record.
+    """
+    placed = tuple(
+        section
+        for section in graph.sections.values()
+        if section.bbox_w > 0 and section.bbox_h > 0
+    )
+    assert placed
+    side = reservation.region.side
+    if side is CanvasSide.TOP:
+        limit, beyond = min(item.bbox_y for item in placed), -1.0
+    elif side is CanvasSide.BOTTOM:
+        limit, beyond = max(item.bbox_y + item.bbox_h for item in placed), 1.0
+    elif side is CanvasSide.LEFT:
+        limit, beyond = min(item.bbox_x for item in placed), -1.0
+    else:
+        limit, beyond = max(item.bbox_x + item.bbox_w for item in placed), 1.0
+    for claim in reservation.claims:
+        assert (claim.allocation_coordinate - limit) * beyond > 0, (
+            f"{side.value} canvas claim at {claim.allocation_coordinate} "
+            f"is inside the content extreme {limit}"
+        )
+
+
 def _reservation_order(plan, reservation):
     system_rank = {item.id: rank for rank, item in enumerate(plan.systems)}
     member_rank = {item.id: rank for rank, item in enumerate(plan.members)}
@@ -222,7 +222,7 @@ def _reservation_order(plan, reservation):
     )
 
 
-def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> None:
+def test_reportho_preserves_the_full_authored_corridor() -> None:
     graph, _routes, plan = _observe(REPORT_HO)
     reservation = _report_reservation(plan)
     query = build_route_plan_query(plan)
@@ -249,28 +249,26 @@ def test_reportho_preserves_the_full_authored_corridor_and_current_deficit() -> 
     assert all(len(str(item)) < 64 for item in reservation.demand_ids)
     assert len(str(reservation.id)) < 64
 
-    assert realised.coordinate == pytest.approx(347.8)
+    assert realised.coordinate == pytest.approx(492.0)
     assert realised.longitudinal_axis.value == "x"
     assert realised.longitudinal_start == pytest.approx(356.0)
-    assert realised.longitudinal_end == pytest.approx(2324.0)
+    assert realised.longitudinal_end == pytest.approx(2314.0)
     assert realised.region_start == pytest.approx(466.0)
-    assert realised.region_end == pytest.approx(397.8)
-    assert realised.available_width == pytest.approx(-68.2)
+    assert realised.region_end == pytest.approx(544.0)
+    assert realised.available_width == pytest.approx(78.0)
     assert realised.required_width == pytest.approx(78.0)
-    assert realised.capacity_slack == pytest.approx(-146.2)
-    assert realised.negative_side_slack == pytest.approx(-144.2)
-    assert realised.positive_side_slack == pytest.approx(-2.0)
+    assert realised.capacity_slack == pytest.approx(0.0)
+    assert realised.negative_side_slack == pytest.approx(0.0)
+    assert realised.positive_side_slack == pytest.approx(0.0)
     assert realised.negative_blocker_ids == ("section-bottom:fetch_ortho",)
     assert realised.positive_blocker_ids == ("section-header:report",)
 
-    (diagnostic,) = tuple(
+    # A satisfied corridor publishes no shortfall record.
+    assert not [
         item
         for item in plan.reservation_diagnostics
         if item.reservation_id == reservation.id
-    )
-    assert diagnostic.capacity_slack == pytest.approx(-146.2)
-    assert "available -68.20px" in diagnostic.message
-    assert "required 78.00px" in diagnostic.message
+    ]
 
     assert graph.route_topology is not None
     connector_by_id = {
@@ -321,8 +319,8 @@ def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
             CorridorKind.DIRECT_INTER_ROW_BAND,
             RowGapRegion,
         ),
-        ("fan_bypass_shared_band.mmd", CorridorKind.BYPASS_BAND, CanvasRegion),
-        ("cross_row_gap_wrap.mmd", CorridorKind.OVER_TOP_BAND, CanvasRegion),
+        ("route_around_intervening.mmd", CorridorKind.BYPASS_BAND, CanvasRegion),
+        ("cross_col_top_entry.mmd", CorridorKind.OVER_TOP_BAND, CanvasRegion),
         (
             "merge_bottom_row_bypass.mmd",
             CorridorKind.INTER_COLUMN_CHANNEL,
@@ -333,7 +331,7 @@ def test_reportho_ownership_does_not_depend_on_resolved_section_pairs() -> None:
 def test_supported_corridor_families_publish_complete_records(
     name: str, kind: CorridorKind, region_type: type
 ) -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / name)
+    graph, _routes, plan = _observe(TOPOLOGIES / name)
     query = build_route_plan_query(plan)
     reservation = next(
         item
@@ -341,6 +339,8 @@ def test_supported_corridor_families_publish_complete_records(
         if item.kind is kind and isinstance(item.region, region_type)
     )
 
+    if isinstance(reservation.region, CanvasRegion):
+        _assert_runs_in_the_canvas_margin(graph, reservation)
     assert reservation.connector_ids
     assert reservation.claimant_member_ids
     assert reservation.claims
@@ -365,20 +365,28 @@ def test_supported_corridor_families_publish_complete_records(
 
 
 def test_narrow_corridor_fallback_retains_the_original_demand() -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / "corridor_narrow_gap_fallback.mmd")
+    """A wrap run whose nearest topology gap is too narrow keeps its full demand.
+
+    The fallback lands the corridor in the adjacent grid boundary rather than
+    shrinking the band to whatever fits, so the record reports the shortfall
+    instead of certifying a corridor narrower than the bundle occupies.
+    """
+    path = ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
+    _graph, _routes, plan = _observe(path)
     reservation = next(
         item
         for item in plan.reservations
-        if item.kind is CorridorKind.BYPASS_BAND
+        if RouteFamilyId.LEFT_ENTRY_WRAP in item.route_family_ids
         and isinstance(item.region, RowGapRegion)
+        and item.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
     )
     realised = build_route_plan_query(plan).realised_reservation(reservation.id)
     assert realised is not None
 
-    assert reservation.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
-    assert realised.available_width == pytest.approx(reservation.minimum_width)
-    assert realised.coordinate > realised.region_end
-    assert realised.positive_side_slack < 0
+    assert realised.available_width < reservation.minimum_width
+    assert realised.required_width == pytest.approx(reservation.minimum_width)
+    assert min(realised.negative_side_slack, realised.positive_side_slack) < 0
+    assert realised.capacity_slack < 0
     assert any(
         item.reservation_id == reservation.id for item in plan.reservation_diagnostics
     )
@@ -387,14 +395,14 @@ def test_narrow_corridor_fallback_retains_the_original_demand() -> None:
 @pytest.mark.parametrize(
     "name",
     (
-        "bottom_row_climb_clear_corridor.mmd",
-        "divergent_fanout_split.mmd",
+        "route_around_intervening.mmd",
+        "packed_cell_cellmate_bypass.mmd",
     ),
 )
 def test_native_canvas_detours_do_not_manufacture_topology_gap_intent(
     name: str,
 ) -> None:
-    _graph, _routes, plan = _observe(TOPOLOGIES / name)
+    graph, _routes, plan = _observe(TOPOLOGIES / name)
     bypasses = tuple(
         item
         for item in plan.reservations
@@ -407,6 +415,8 @@ def test_native_canvas_detours_do_not_manufacture_topology_gap_intent(
         item.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
         for item in bypasses
     )
+    for reservation in bypasses:
+        _assert_runs_in_the_canvas_margin(graph, reservation)
 
 
 @pytest.mark.parametrize(
@@ -473,17 +483,33 @@ def test_coincident_concurrent_approaches_share_one_physical_lane() -> None:
 
 
 def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
+    """Twelve claims share one three-line channel in the column 0/1 gap.
+
+    They are recorded as more than one reservation because the evidence that
+    bounds them differs -- a topology span for the claims whose span has a
+    section on each side of the boundary, the observed run for the rest -- so
+    what the ledger holds is several records of one physical bundle.
+    """
     path = ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd"
-    _graph, _routes, plan = _observe(path)
-    reservation = next(
+    graph, _routes, plan = _observe(path)
+    channel = tuple(
         item
         for item in plan.reservations
-        if item.kind is CorridorKind.INTER_COLUMN_CHANNEL and len(item.claims) == 12
+        if item.kind is CorridorKind.INTER_COLUMN_CHANNEL
+        and isinstance(item.region, ColumnGapRegion)
+        and (item.region.left_column, item.region.right_column) == (0, 1)
     )
-
-    assert reservation.lane_count == 3
-    assert sorted(len(lane.claim_indices) for lane in reservation.lanes) == [4, 4, 4]
-    assert reservation.bundle_width == pytest.approx(8.0)
+    assert sum(len(item.claims) for item in channel) == 12
+    for reservation in channel:
+        assert reservation.lane_count == 3
+        assert reservation.bundle_width == pytest.approx(8.0)
+        assert {
+            round(claim.allocation_coordinate, 1) for claim in reservation.claims
+        } == {464.0, 468.0, 472.0}
+        realised = realise_reservation(graph, reservation)
+        assert realised is not None
+        assert realised.available_width > 0
+        assert realised.capacity_slack >= -0.01
 
 
 def test_asymmetric_grid_spans_select_provenance_on_the_canonical_axes() -> None:
@@ -637,25 +663,20 @@ def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:
                     for item in reservation.claims
                 }
             ) == len(reservation.claims), path
+            # The published claim records the demand settlement consumed; the
+            # drawn segment is the outcome, which the router may seat anywhere
+            # inside the reservation's band.  The two therefore agree on
+            # identity and overlap, not on exact coordinates.
             for claim in reservation.claims:
                 assert claim.path_rank < len(routes), path
                 start = routes[claim.path_rank].points[claim.segment_rank]
                 end = routes[claim.path_rank].points[claim.segment_end_rank + 1]
-                assert claim.longitudinal_start == pytest.approx(
-                    min(start[0], end[0])
-                    if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else min(start[1], end[1])
-                ), path
-                assert claim.longitudinal_end == pytest.approx(
-                    max(start[0], end[0])
-                    if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else max(start[1], end[1])
-                ), path
-                assert claim.allocation_coordinate == pytest.approx(
-                    start[1]
-                    if reservation.orientation is CorridorOrientation.HORIZONTAL
-                    else start[0]
-                ), path
+                horizontal = reservation.orientation is CorridorOrientation.HORIZONTAL
+                travel = 0 if horizontal else 1
+                drawn_lo = min(start[travel], end[travel])
+                drawn_hi = max(start[travel], end[travel])
+                assert drawn_lo < claim.longitudinal_end, path
+                assert drawn_hi > claim.longitudinal_start, path
                 (binding,) = query.bindings_for(claim.member_id)
                 assert binding.kind is BindingKind.EMITTED, path
                 assert binding.path_id == claim.path_id, path
@@ -789,3 +810,174 @@ def test_query_rejects_a_reservation_with_an_unknown_reference() -> None:
 
     with pytest.raises(ValueError, match="unknown shared reference"):
         build_route_plan_query(malformed_plan)
+
+
+@pytest.mark.parametrize(
+    ("same_line", "counter_running", "expected"),
+    [
+        (True, False, 0.0),
+        (False, False, OFFSET_STEP),
+        (True, True, CURVE_RADIUS + COORD_TOLERANCE),
+        (False, True, BUNDLE_TO_BUNDLE_CLEARANCE),
+    ],
+)
+def test_cotravelling_lanes_ask_for_the_clearance_their_pairing_needs(
+    same_line: bool, counter_running: bool, expected: float
+) -> None:
+    """The four pairings of one corridor's lanes, and what each owes the other.
+
+    Two tracks of one line travelling the same way are fused deliberately and
+    ask for nothing; distinct lines going the same way nest one step apart; a
+    line's own return leg has to clear the turn it came out of; two distinct
+    lines running against each other are separate bundles.
+    """
+    assert cotravelling_lane_clearance(
+        same_line=same_line,
+        counter_running=counter_running,
+        curve_radius=CURVE_RADIUS,
+    ) == pytest.approx(expected)
+
+
+# Two single-lane row-gap corridors crossing one boundary in opposite
+# directions on different lines, drawn exactly the clearance they owe apart.
+CONFINED_PEERS = TOPOLOGIES / "dogleg_exempt_distinct.mmd"
+
+
+def test_a_boundary_is_sized_for_the_corridors_confined_with_each_other() -> None:
+    """A corridor's boundary carries the peers drawn beside it, not just itself.
+
+    Both corridors here hold one lane, so their own bundles ask for nothing;
+    what the boundary owes is the room to draw the two of them clear of one
+    another.  Each is charged that room, so the boundary is asked for a width
+    that holds both rather than either alone.
+    """
+    _graph, _routes, plan = _observe(CONFINED_PEERS)
+    corridors = [
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 1
+    ]
+    assert len(corridors) == 2, "fixture no longer confines two row corridors"
+    line_of = {member.id: member.line_id for member in plan.members}
+    lines = {line_of[claim.member_id] for item in corridors for claim in item.claims}
+    directions = {item.direction for item in corridors}
+    assert len(lines) == 2 and len(directions) == 2
+
+    owed = cotravelling_lane_clearance(
+        same_line=False, counter_running=True, curve_radius=CURVE_RADIUS
+    )
+    coordinates = sorted(
+        claim.allocation_coordinate for item in corridors for claim in item.claims
+    )
+    assert coordinates[1] - coordinates[0] == pytest.approx(owed)
+    for corridor in corridors:
+        assert corridor.bundle_width == pytest.approx(0.0)
+        assert corridor.peer_width == pytest.approx(owed)
+        assert corridor.minimum_width == pytest.approx(
+            corridor.negative_side_clearance + corridor.positive_side_clearance + owed
+        )
+
+
+# A row corridor whose run ends at a station inside the box that would
+# otherwise bound it from below.
+LANDING_BOX = ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
+
+
+def test_a_box_a_corridors_run_ends_inside_does_not_bound_its_boundary() -> None:
+    """A box the run has entered offers no clearance the run can be held off.
+
+    Two corridors cross this fixture's row 0/1 boundary, and ``quantification``
+    sits below it in the path of both.  The one whose run stops at a station
+    inside that box reads past it to ``te``; the one that merely spans the
+    boundary is bounded by it.  Contrasting the pair is what shows the exclusion
+    doing the work rather than the box being out of reach.
+    """
+    graph, _routes, plan = _observe(LANDING_BOX)
+    query = build_route_plan_query(plan)
+    corridors = {
+        item.measurement_scope: item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 1
+    }
+    landed = corridors[CorridorMeasurementScope.OBSERVED_RUN]
+    passing = corridors[CorridorMeasurementScope.TOPOLOGY_SPAN]
+    assert landed.landing_section_ids == ("quantification",)
+    assert passing.landing_section_ids == ()
+    assert graph.sections["quantification"].bbox_y < graph.sections["te"].bbox_y
+
+    landed_realised = query.realised_reservation(landed.id)
+    passing_realised = query.realised_reservation(passing.id)
+    assert landed_realised is not None and passing_realised is not None
+    assert passing_realised.positive_blocker_ids == ("section-header:quantification",)
+    assert landed_realised.positive_blocker_ids == ("section-header:te",)
+    assert landed_realised.region_end == pytest.approx(graph.sections["te"].bbox_y)
+
+
+def test_a_box_only_one_claims_run_ends_inside_bounds_the_whole_reservation() -> None:
+    """One reservation states one measurement, so its landing set intersects.
+
+    Three claims share ``reportho``'s column 4/5 corridor.  One is the final
+    segment of a route that ends inside ``report``; the other two are interior
+    segments of routes crossing the boundary, for which ``report`` is a box in the
+    way.  United, the set would drop ``report`` from the measurement for all
+    three and the corridor would be measured to a box edge two of its runs are
+    stopped by.  Intersected, it drops it for none, and ``report`` bounds the
+    boundary alongside the box beside it.
+    """
+    graph, routes, plan = _observe(REPORT_HO)
+    query = build_route_plan_query(plan)
+    corridor = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, ColumnGapRegion)
+        and item.region.right_column == 5
+        and len(item.claims) == 3
+    )
+    per_claim = sorted(
+        (route_reservations._route_landing_section(graph, routes[claim.path_rank]),)
+        if claim.segment_end_rank + 2 == len(routes[claim.path_rank].points)
+        else ()
+        for claim in corridor.claims
+    )
+    assert per_claim == [(), (), ("report",)]
+
+    assert corridor.landing_section_ids == ()
+    realised = query.realised_reservation(corridor.id)
+    assert realised is not None
+    assert realised.positive_blocker_ids == (
+        "section-left:create_samplesheets",
+        "section-left:report",
+    )
+    assert realised.region_end == pytest.approx(graph.sections["report"].bbox_x)
+
+
+# A fan plan that emits its runs from a junction standing in the row gap the
+# second leg turns along.
+LAUNCH_ANCHORED = TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd"
+
+
+def test_a_launch_station_bounds_the_boundary_its_runs_turn_into() -> None:
+    """A fork the plan launches from is an edge no widening of the far side moves.
+
+    The plan owes its fork a lead-in before the run may turn along the corridor,
+    so the band the reservation states starts where that runway ends rather than
+    at the box edge below it.
+    """
+    graph, _routes, plan = _observe(LAUNCH_ANCHORED)
+    query = build_route_plan_query(plan)
+    corridor = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.launch_anchors
+    )
+    (anchor,) = corridor.launch_anchors
+    assert anchor.station_id == "__junction_3"
+
+    realised = query.realised_reservation(corridor.id)
+    assert realised is not None
+    assert realised.negative_blocker_ids == (f"launch-anchor:{anchor.station_id}",)
+    assert realised.region_start == pytest.approx(
+        graph.stations[anchor.station_id].y
+        + anchor.runway
+        - corridor.negative_side_clearance
+    )
