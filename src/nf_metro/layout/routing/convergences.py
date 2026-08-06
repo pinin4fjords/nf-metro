@@ -1158,29 +1158,12 @@ def _reseated_runway(
     from it along the approach axis alone: a move perpendicular to that axis
     carries the whole run sideways without lengthening it.
     """
+    index = 1 if landing.approach_axis is DemandAxis.Y else 0
     approach_start = (
-        landing.join_point[0]
-        - (
-            landing.minimum_runway
-            if landing.approach_direction is Direction.R
-            else -landing.minimum_runway
-            if landing.approach_direction is Direction.L
-            else 0.0
-        ),
-        landing.join_point[1]
-        - (
-            landing.minimum_runway
-            if landing.approach_direction is Direction.D
-            else -landing.minimum_runway
-            if landing.approach_direction is Direction.U
-            else 0.0
-        ),
+        landing.join_point[index]
+        - landing.minimum_runway * landing.approach_direction.sign
     )
-    return (
-        abs(join_point[0] - approach_start[0])
-        if landing.approach_axis is DemandAxis.X
-        else abs(join_point[1] - approach_start[1])
-    )
+    return abs(join_point[index] - approach_start)
 
 
 def _move_trunk_flank(
@@ -1455,10 +1438,13 @@ def _lane_trunk_flanks(
     seated: list[tuple[tuple[str, ...], _Segment, Direction]] = []
     for plan_rank, plan in enumerate(settled):
         resident = tuple(seated)
+        if plan.trunk_axis is None:
+            continue
         for flank_rank in (1, 3):
+            # A flank move re-seats the whole plan, so each is read off the plan
+            # as it stands after the last one.
             axis = settled[plan_rank].trunk_axis
-            if axis is None:
-                continue
+            assert axis is not None
             flank = _trunk_segments(axis)[flank_rank]
             direction = _trunk_run_travel_direction(axis, flank_rank)
             obstacles = tuple(
@@ -1490,8 +1476,7 @@ def _lane_trunk_flanks(
                     settled[plan_rank], flank_rank, coordinate
                 )
         axis = settled[plan_rank].trunk_axis
-        if axis is None:
-            continue
+        assert axis is not None
         seated.extend(
             (
                 plan.line_ids,
@@ -1921,7 +1906,7 @@ def _landing_trunk_flank_conflict(
 
 def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     """Whether two parallel runs stand on one coordinate, hence draw one stroke."""
-    index = 1 if abs(first[0][1] - first[1][1]) <= COORD_TOLERANCE else 0
+    index = 1 if lateral_axis(_direction(*first)) is DemandAxis.Y else 0
     return abs(first[0][index] - second[0][index]) <= COORD_TOLERANCE
 
 

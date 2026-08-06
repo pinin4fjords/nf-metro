@@ -1533,7 +1533,7 @@ in pipeline order.
   leg 14px below a box edge that asks `INTER_ROW_EDGE_CLEARANCE` of it, ungated
   because it carries no claim. Measured on the corpus, 10 fixtures state a peer
   width their boundary lacks and 7 of them render differently for it; each of the
-  7 grows in height only, by 12 to 16px.
+  7 grows in height only, by 11 to 16px.
 - **Postcondition**: No boundary still owes what it was measured for. For a
   clearance demand that is one count, re-measured on the settled geometry by
   `_assert_clearance_demands_are_met`: it follows arithmetically from the
@@ -1787,15 +1787,15 @@ in pipeline order.
   Both were measured together. Seating that drop on the port's lane column and
   exempting the same-line sibling landing on the plan's own port makes all three
   convergences `PLANNED` with `SHARED_TERMINAL_APPROACH` trunks on 554, 558 and
-  562, and takes the corpus from 32 compatibility convergences to 22 -- this
+  562, and takes the corpus from 30 compatibility convergences to 20 -- this
   fixture, `examples/genomic_pipeline.mmd`,
   `tests/fixtures/regressions/stacked_collector_fanin.mmd` and
   `examples/topologies/merge_right_entry.mmd` all migrate. It also moves 5
   renders and leaves `examples/topologies/straight_drop_below.mmd` and
   `examples/topologies/peeloff_straight_drop_near_wall.mmd` failing a planned
   fan-plan invariant, so it is #1658 work carrying its own fallout rather than a
-  disposition-only change. The 32 in this section is therefore a figure with a
-  landing date: 29 once this fixture's three migrate, 22 once the mechanism does.
+  disposition-only change. The 30 in this section is therefore a figure with a
+  landing date: 27 once this fixture's three migrate, 20 once the mechanism does.
   #1660 admits the present disposition only against evidence, and the evidence
   is measured on the settled
   map: the two conflicting runs are the same column, 0.00px apart in one
@@ -1804,7 +1804,7 @@ in pipeline order.
   compatibility system at all. That last figure is weaker than it reads and
   should not be quoted without this qualification: `_settlement_reach` returns
   `WITHIN_REACH` only for a conflict whose relief is not
-  `ConflictRelief.SHARED_CHANNEL`, and 10 of the corpus's 14 compatibility
+  `ConflictRelief.SHARED_CHANNEL`, and 9 of the corpus's 13 compatibility
   systems carry `SHARED_CHANNEL` relief, so for those the verdict follows from
   the conflict kind rather than from geometry. What the measurement does
   establish, on the 4 that could answer either way, is that a row or column
@@ -1812,17 +1812,25 @@ in pipeline order.
   **not** establish that a wider boundary would still leave the planner unable to
   allocate both members, which is the question #1657's exit criteria asked.
   `capacity_probe.probe_settlement_capacity` answers that one directly, and its
-  answer is that **#1657's exit criteria are not met for 1 of the 14**. The probe
-  copies the settled graph, translates whole rows and columns to widen the
-  boundaries a system is measured at, re-derives the coordinates that follow from
-  where those sections then sit, re-runs convergence planning on the copy, and
-  reads the disposition: `merge_around_below_leftmost` is planned once its
-  claimed boundaries carry 22.5px more and at every larger capacity granted. That
-  system is held by an envelope allocation, so its compatibility is #1660's own
-  unfinished work and not an exit to publish; the remaining 13 stay on the
-  compatibility path under every capacity the probe grants, up to sixteen times
-  what one competing pair of runs costs, which is the evidence the criteria ask
-  for. The probe is not on the render path: it plans the map fourteen more times
+  answer is that **#1657's exit criteria are met for all 13**: every one of them
+  stays on the compatibility path under every capacity the probe grants, up to
+  sixteen times what one competing pair of runs costs, which is the evidence the
+  criteria ask for. The probe copies the settled graph, translates whole rows and
+  columns to widen the boundaries a system is measured at, re-derives the
+  coordinates that follow from where those sections then sit, re-runs convergence
+  planning on the copy, and reads the disposition.
+  **13 is the live population.** `COMPATIBILITY_CORPUS` in
+  `tests/test_capacity_probe.py` carries **14 rows**, because a fixture whose
+  systems the planner came to own is retained as a control rather than dropped:
+  its row asserts that it publishes no compatibility system at all, which fails
+  the moment one reappears. The two counts must not be conflated -- 14 is a set of
+  probed identities, 13 is how many of them are on the compatibility path.
+  The fourteenth is the measurement the shared-channel decision below came from.
+  `merge_around_below_leftmost` was planned at 22.5px of extra claimed-boundary
+  capacity and at every larger capacity granted, which established that what held
+  it was an allocation -- and equally that the allocation was buying a decision,
+  since the separation the planner needed grew at half the widening rate.
+  The probe is not on the render path: it plans the map fourteen more times
   per compatibility system, so it is diagnostic machinery that
   `tests/test_capacity_probe.py` runs and no render pays for. Its result is only
   meaningful against a reproduced baseline, so each system is first re-planned
@@ -1864,6 +1872,37 @@ in pipeline order.
   `ConflictRelief.SHARED_CHANNEL` -- which is the emission owner's
   (`plan-driven opposing-opening emission (#1658)`), not a distance settlement
   could allocate.
+  Where that decision belongs to the convergence planner it is made rather than
+  declined, and this stage's part in it is to charge for the result and nothing
+  more. `_settle_shared_trunk_channels` lanes the runs of one route system's
+  trunks. Each convergence plan reads its trunk geometry off a trial route taken
+  with no knowledge of its siblings, so two plans of one system whose trunks take
+  the same channel derive the same coordinate and each believes the channel is its
+  own; the system assigns the lanes, by `cotravelling_lane_clearance` -- a full
+  turn radius between a line and its own return leg, and nothing between two runs
+  going the same way, which stay one fused stroke. Both channels a trunk shares
+  are laned by that rule: the one its central run travels, and the one its flanks
+  turn out into.
+  Three properties of that decision matter here.
+  It publishes **no demand of its own**. A lane is a drawn stroke, so the boundary
+  carrying it is charged for it exactly as every other stroke is: the second lane
+  is a run in the row gap, `_peer_widths` reads it, and `minimum_width` states the
+  pair. On `merge_around_below_leftmost` that is 26 negative + 0 bundle + 11 peer
+  + 52 positive = 89px against a 78px gap, realised at required 89.00 / available
+  89.00 with the trunks on 196 and 207. `BoundaryClearanceDemand` is for a
+  boundary owed clearance by something that is *not* a drawn run, so it is the
+  wrong vocabulary for a lane and is not used.
+  It is taken on the **first** routing pass, so this stage realises a demand
+  against a plan that already exists. `_assert_settlement_decisions_frozen` is
+  therefore unmodified and holds: disposition, membership, lane order and frame
+  are identical either side of the sweep. Lanes are measured from the trunk that
+  arrived first rather than from a boundary edge, so widening the boundary moves
+  neither of them, which is what makes the separation invariant under allocation
+  instead of growing at half the widening rate.
+  It is **cheaper than the allocation it replaces**. Charging the pair as a peer
+  while the planner still declined asked 90px of that boundary; laning it asks
+  89px and plans the system, so the settled map is 1px shorter than the one the
+  compatibility path drew.
   Two corridors confined at one boundary are not a source of
   residue either: `peer_width`
   states the room they take together, so settlement widens the boundary for both.

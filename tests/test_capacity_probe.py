@@ -25,12 +25,21 @@ ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
 REGRESSIONS = ROOT / "tests" / "fixtures" / "regressions"
 
-# Every convergence system the corpus leaves on the compatibility path, with the
-# verdict granting it boundary capacity produces.  #1657 lets a system stay
-# compatible only where its limit is not an envelope allocation, so a fixture
+PLANNED_OUTRIGHT = None
+"""The expected result for a fixture whose route systems the planner all owns.
+
+Such a fixture is listed and probed as a control: the probe reports on
+compatibility systems, so an empty result is the assertion that the fixture has
+none, and the row fails loudly the moment one appears.
+"""
+
+# Every fixture whose convergence planning has been probed, with the result:
+# a `CapacityVerdict` for a system on the compatibility path, or
+# `PLANNED_OUTRIGHT` where the fixture leaves none.  #1657 lets a system stay
+# compatible only where its limit is not an envelope allocation, so a system
 # listed here as anything other than BEYOND_ALLOCATION is one whose exit that
 # criterion does not license.
-COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict], ...] = (
+COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict | None], ...] = (
     (ROOT / "examples" / "genomeassembly.mmd", CapacityVerdict.BEYOND_ALLOCATION),
     (
         ROOT / "examples" / "genomeassembly_staggered.mmd",
@@ -42,6 +51,7 @@ COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict], ...] = (
         CapacityVerdict.BEYOND_ALLOCATION,
     ),
     (TOPOLOGIES / "funcprofiler_upstream.mmd", CapacityVerdict.BEYOND_ALLOCATION),
+    (TOPOLOGIES / "merge_around_below_leftmost.mmd", PLANNED_OUTRIGHT),
     (TOPOLOGIES / "merge_bottom_row_bypass.mmd", CapacityVerdict.BEYOND_ALLOCATION),
     (
         TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
@@ -127,7 +137,7 @@ def _starved(path: Path, amount: float):
     ids=lambda item: getattr(item, "name", item),
 )
 def test_every_compatibility_system_is_probed_against_boundary_capacity(
-    path: Path, expected: CapacityVerdict
+    path: Path, expected: CapacityVerdict | None
 ) -> None:
     """#1657 lets a system stay compatible only where its limit is not an
     envelope allocation, and the only way to establish that is to give the
@@ -138,6 +148,12 @@ def test_every_compatibility_system_is_probed_against_boundary_capacity(
     the one the verdict rests on.
     """
     graph, plan = _settled(path)
+    if expected is PLANNED_OUTRIGHT:
+        assert probe_settlement_capacity(graph, plan) == ()
+        assert plan is not None
+        assert plan.convergence_plans
+        assert all(item.legacy_reason is None for item in plan.convergence_plans)
+        return
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.verdict is expected
     assert len(probe.grants) == 2 * len(CAPACITY_MULTIPLES)
