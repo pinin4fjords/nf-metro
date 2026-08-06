@@ -2099,6 +2099,12 @@ def _system_conflict(
             )
             same_line = first_plan.line_ids == second_plan.line_ids
             if same_line and first_direction is not second_direction:
+                # Accepts the pairs `_settle_shared_trunk_channels` declined to
+                # lane: a flank with no endpoint to measure a lane against, one
+                # whose every candidate lane is boxed in by another obstacle, and
+                # a rank-1/rank-3 pair whose listed directions oppose while their
+                # travel directions agree, which that pass reads as a
+                # deliberately fused stroke.
                 return shared_channel
             if (
                 not first_central

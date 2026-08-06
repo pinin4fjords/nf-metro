@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
 from nf_metro.layout.constants import SAME_COORD_TOLERANCE, SECTION_HEADER_PROTRUSION
+from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.parser.model import MetroGraph, Section
 from nf_metro.render.constants import (
     HEADER_WRAP_CLEARANCE,
@@ -928,22 +929,6 @@ def _point_rect_distance(point: tuple[float, float], rect: Rect) -> float:
     return (dx * dx + dy * dy) ** 0.5
 
 
-def _point_segment_distance(
-    point: tuple[float, float], p0: tuple[float, float], p1: tuple[float, float]
-) -> float:
-    """Distance from ``point`` to segment ``p0``-``p1``."""
-    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
-    span = dx * dx + dy * dy
-    if span == 0.0:
-        t = 0.0
-    else:
-        t = ((point[0] - p0[0]) * dx + (point[1] - p0[1]) * dy) / span
-        t = max(0.0, min(1.0, t))
-    return (
-        (point[0] - (p0[0] + t * dx)) ** 2 + (point[1] - (p0[1] + t * dy)) ** 2
-    ) ** 0.5
-
-
 def _segment_rect_distance(
     p0: tuple[float, float], p1: tuple[float, float], rect: Rect
 ) -> float:
@@ -959,7 +944,7 @@ def _segment_rect_distance(
     corners = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     return min(
         min(_point_rect_distance(p, rect) for p in (p0, p1)),
-        min(_point_segment_distance(c, p0, p1) for c in corners),
+        min(point_to_polyline_distance(c, (p0, p1)) for c in corners),
     )
 
 

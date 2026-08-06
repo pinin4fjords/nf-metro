@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     MIN_CORRIDOR_Y_OVERLAP,
@@ -31,6 +32,26 @@ def quantize_coord(value: float, ndigits: int) -> float:
     drift from arithmetic (averaging, offset accumulation).
     """
     return round(value, ndigits)
+
+
+def measured_distance(start: float, end: float) -> float:
+    """The gap from *start* to *end*, at the precision the engine resolves to.
+
+    A width or a slack is the difference of two canvas coordinates, and binary64
+    subtraction of two coordinates carrying decimal fractions leaves an error of
+    order 1e-13 set by the magnitude of the operands rather than by the distance
+    between them.  Two arrangements the same distance apart then measure
+    differently according to where on the canvas each sits, and a consumer
+    reading the result more finely than :data:`COORD_TOLERANCE` amplifies that
+    into a visible quantity: :func:`quantised_allocation` spends a whole
+    ``SETTLEMENT_QUANTUM`` of map height on it, and a containment check testing a
+    slack's sign reports a run drawn flush against its band edge as overrunning
+    it.  Resolving to :data:`COORD_GROUP_DIGITS_FINE` makes the measurement a
+    function of the distance alone, two orders of magnitude finer than
+    :data:`COORD_TOLERANCE_FINE`, the finest distance the engine gives meaning
+    to.
+    """
+    return quantize_coord(end - start, COORD_GROUP_DIGITS_FINE)
 
 
 def shift_section(
