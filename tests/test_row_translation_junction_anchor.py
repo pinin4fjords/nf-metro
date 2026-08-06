@@ -29,7 +29,7 @@ from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.phases.bbox import _shift_rows_from
 from nf_metro.layout.phases.guards import _guard_fanout_junction_shares_exit_port_y
 from nf_metro.parser.model import MetroGraph
-from nf_metro.render.svg import build_render_plan, render_svg
+from nf_metro.render.svg import _settled_render_graph, build_render_plan
 
 FIXTURE = (
     Path(__file__).parent.parent / "examples" / "topologies" / "complex_multipath.mmd"
@@ -80,10 +80,17 @@ def _translate_rows_stranding_junctions(
 
 
 @pytest.mark.parametrize("amount", range(0, 25))
-def test_row_translation_renders(amount: int) -> None:
+def test_a_render_reseats_junctions_a_row_translation_stranded(amount: int) -> None:
+    """The render path re-derives junction placement from the ports it is given.
+
+    A junction left at the Y its exit port had before the translation is off the
+    bundle it belongs to, so the render is held to the port-derived rule on the
+    geometry it drew rather than only to completing without raising.
+    """
     graph = prepare_graph(FIXTURE.read_text(), source_dir=str(FIXTURE.parent))
     _translate_rows_stranding_junctions(graph, 1, amount)
-    render_svg(graph, resolve_theme(None, graph))
+    drawn = _settled_render_graph(graph, resolve_theme(None, graph))
+    _guard_fanout_junction_shares_exit_port_y(drawn, "render")
 
 
 @pytest.mark.parametrize("amount", [6.0, 17.5, 40.0])

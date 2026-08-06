@@ -12,6 +12,13 @@ import pytest
 from layout_metrics import compute_metrics
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    OFFSET_STEP,
+)
+from nf_metro.layout.geometry import cotravelling_lane_clearance
 from nf_metro.layout.route_plan import (
     BindingKind,
     ExitTurnDisposition,
@@ -802,3 +809,136 @@ def test_query_rejects_a_reservation_with_an_unknown_reference() -> None:
 
     with pytest.raises(ValueError, match="unknown shared reference"):
         build_route_plan_query(malformed_plan)
+
+
+@pytest.mark.parametrize(
+    ("same_line", "counter_running", "expected"),
+    [
+        (True, False, 0.0),
+        (False, False, OFFSET_STEP),
+        (True, True, CURVE_RADIUS + COORD_TOLERANCE),
+        (False, True, BUNDLE_TO_BUNDLE_CLEARANCE),
+    ],
+)
+def test_cotravelling_lanes_ask_for_the_clearance_their_pairing_needs(
+    same_line: bool, counter_running: bool, expected: float
+) -> None:
+    """The four pairings of one corridor's lanes, and what each owes the other.
+
+    Two tracks of one line travelling the same way are fused deliberately and
+    ask for nothing; distinct lines going the same way nest one step apart; a
+    line's own return leg has to clear the turn it came out of; two distinct
+    lines running against each other are separate bundles.
+    """
+    assert cotravelling_lane_clearance(
+        same_line=same_line,
+        counter_running=counter_running,
+        curve_radius=CURVE_RADIUS,
+    ) == pytest.approx(expected)
+
+
+# Two single-lane row-gap corridors crossing one boundary in opposite
+# directions on different lines, drawn exactly the clearance they owe apart.
+CONFINED_PEERS = TOPOLOGIES / "dogleg_exempt_distinct.mmd"
+
+
+def test_a_boundary_is_sized_for_the_corridors_confined_with_each_other() -> None:
+    """A corridor's boundary carries the peers drawn beside it, not just itself.
+
+    Both corridors here hold one lane, so their own bundles ask for nothing;
+    what the boundary owes is the room to draw the two of them clear of one
+    another.  Each is charged that room, so the boundary is asked for a width
+    that holds both rather than either alone.
+    """
+    _graph, _routes, plan = _observe(CONFINED_PEERS)
+    corridors = [
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 1
+    ]
+    assert len(corridors) == 2, "fixture no longer confines two row corridors"
+    line_of = {member.id: member.line_id for member in plan.members}
+    lines = {line_of[claim.member_id] for item in corridors for claim in item.claims}
+    directions = {item.direction for item in corridors}
+    assert len(lines) == 2 and len(directions) == 2
+
+    owed = cotravelling_lane_clearance(
+        same_line=False, counter_running=True, curve_radius=CURVE_RADIUS
+    )
+    coordinates = sorted(
+        claim.allocation_coordinate for item in corridors for claim in item.claims
+    )
+    assert coordinates[1] - coordinates[0] == pytest.approx(owed)
+    for corridor in corridors:
+        assert corridor.bundle_width == pytest.approx(0.0)
+        assert corridor.peer_width == pytest.approx(owed)
+        assert corridor.minimum_width == pytest.approx(
+            corridor.negative_side_clearance + corridor.positive_side_clearance + owed
+        )
+
+
+# A row corridor whose run ends at a station inside the box that would
+# otherwise bound it from below.
+LANDING_BOX = ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
+
+
+def test_a_box_a_corridors_run_ends_inside_does_not_bound_its_boundary() -> None:
+    """A box the run has entered offers no clearance the run can be held off.
+
+    Two corridors cross this fixture's row 0/1 boundary, and ``quantification``
+    sits below it in the path of both.  The one whose run stops at a station
+    inside that box reads past it to ``te``; the one that merely spans the
+    boundary is bounded by it.  Contrasting the pair is what shows the exclusion
+    doing the work rather than the box being out of reach.
+    """
+    graph, _routes, plan = _observe(LANDING_BOX)
+    query = build_route_plan_query(plan)
+    corridors = {
+        item.measurement_scope: item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 1
+    }
+    landed = corridors[CorridorMeasurementScope.OBSERVED_RUN]
+    passing = corridors[CorridorMeasurementScope.TOPOLOGY_SPAN]
+    assert landed.landing_section_ids == ("quantification",)
+    assert passing.landing_section_ids == ()
+    assert graph.sections["quantification"].bbox_y < graph.sections["te"].bbox_y
+
+    landed_realised = query.realised_reservation(landed.id)
+    passing_realised = query.realised_reservation(passing.id)
+    assert landed_realised is not None and passing_realised is not None
+    assert passing_realised.positive_blocker_ids == ("section-header:quantification",)
+    assert landed_realised.positive_blocker_ids == ("section-header:te",)
+    assert landed_realised.region_end == pytest.approx(graph.sections["te"].bbox_y)
+
+
+# A fan plan that emits its runs from a junction standing in the row gap the
+# second leg turns along.
+LAUNCH_ANCHORED = TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd"
+
+
+def test_a_launch_station_bounds_the_boundary_its_runs_turn_into() -> None:
+    """A fork the plan launches from is an edge no widening of the far side moves.
+
+    The plan owes its fork a lead-in before the run may turn along the corridor,
+    so the band the reservation states starts where that runway ends rather than
+    at the box edge below it.
+    """
+    graph, _routes, plan = _observe(LAUNCH_ANCHORED)
+    query = build_route_plan_query(plan)
+    corridor = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.launch_anchors
+    )
+    (anchor,) = corridor.launch_anchors
+    assert anchor.station_id == "__junction_3"
+
+    realised = query.realised_reservation(corridor.id)
+    assert realised is not None
+    assert realised.negative_blocker_ids == (f"launch-anchor:{anchor.station_id}",)
+    assert realised.region_start == pytest.approx(
+        graph.stations[anchor.station_id].y
+        + anchor.runway
+        - corridor.negative_side_clearance
+    )

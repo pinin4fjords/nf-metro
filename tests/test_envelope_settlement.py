@@ -396,8 +396,23 @@ CROSS_AXIS_CORPUS = (
 )
 
 
+SECTION_EDGE_BLOCKERS = frozenset(
+    {
+        route_reservations.SECTION_BOTTOM_BLOCKER,
+        route_reservations.SECTION_HEADER_BLOCKER,
+        route_reservations.SECTION_LEFT_BLOCKER,
+        route_reservations.SECTION_RIGHT_BLOCKER,
+    }
+)
+
+
 def _blocker_sections(ids: tuple[str, ...]) -> set[str]:
-    return {item.split(":", 1)[1] for item in ids}
+    """The sections named by *ids*; a launch anchor names a station instead."""
+    return {
+        item.split(":", 1)[1]
+        for item in ids
+        if item.split(":", 1)[0] in SECTION_EDGE_BLOCKERS
+    }
 
 
 def _axis_for(region) -> tuple:
@@ -407,16 +422,129 @@ def _axis_for(region) -> tuple:
     return envelope_settlement._COLUMN_AXIS, region.right_column
 
 
+LEMMA_TRANSLATION = 8.0
+"""A translation large enough to separate an exact widening from a rounded one."""
+
+
 @pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
-def test_a_boundary_translation_owns_exactly_its_positive_blockers(path: Path) -> None:
+def test_a_boundary_translation_widens_its_corridor_by_exactly_its_amount(
+    path: Path,
+) -> None:
     """Why widening a boundary can never fail, whatever the author pinned.
 
-    The measurement splits the sections beside a boundary into those ending
-    above it and those starting at or beyond it; the translation moves the
-    second set and holds everything else.  Both are the same inequality on
-    ``grid_row``/``grid_col``, so a translation raises the corridor's far edge by
-    its full amount and leaves the near edge alone: the corridor widens by
-    exactly what was asked for, and no arrangement of pins can make that false.
+    This is the geometric consequence the ownership rule exists for, so it is
+    measured rather than argued from the two index comparisons agreeing: widen
+    the boundary a corridor is filed against and re-measure the corridor.  Its
+    near edge is a box ending above the boundary, which stays; its far edge is a
+    box starting at or beyond it, which travels the full amount.  A layout where
+    that is not exact is one where a pin has put a bounding box on the wrong side
+    of its own boundary, and no amount of widening would reach the corridor.
+    """
+    graph, plan = _observe(path)
+    query = build_route_plan_query(plan)
+    checked = 0
+    for reservation in plan.reservations:
+        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+            continue
+        held = query.realised_reservation(reservation.id)
+        if held is None:
+            continue
+        axis, boundary = _axis_for(reservation.region)
+        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
+        state = envelope_settlement._coordinate_state(graph)
+        envelope_settlement._apply_translation(
+            graph, axis, ownership, LEMMA_TRANSLATION
+        )
+        widened = realise_reservation(graph, reservation)
+        envelope_settlement._restore_coordinate_state(graph, state)
+        assert widened is not None, (path, reservation.description)
+        assert widened.available_width == pytest.approx(
+            held.available_width + LEMMA_TRANSLATION, abs=0.01
+        ), (path, reservation.description)
+        checked += 1
+    assert checked, path
+
+
+@pytest.mark.parametrize(
+    "path",
+    DEFICIT_CORPUS + COLUMN_DEFICIT_CORPUS + CROSS_AXIS_CORPUS,
+    ids=lambda item: item.name,
+)
+def test_each_translation_widens_the_corridor_it_records_by_its_amount(
+    path: Path,
+) -> None:
+    """The postcondition of one settlement step, on the moves settlement chose.
+
+    Replaying the recorded translations in the order the sweep applied them and
+    re-measuring the corridor each one names between the two states is the only
+    way to see a step in isolation: the final geometry carries every later move
+    as well.
+    """
+    graph, plan = _observe(path)
+    settlement = settle_route_envelopes(graph, plan)
+    assert settlement.translations, path
+
+    replayed, replayed_plan = _observe(path)
+    by_id = {item.id: item for item in replayed_plan.reservations}
+    projection: list = []
+    for translation in settlement.translations:
+        axis = (
+            envelope_settlement._ROW_AXIS
+            if translation.axis is SettlementAxis.ROW
+            else envelope_settlement._COLUMN_AXIS
+        )
+        reservation = by_id[translation.reservation_id]
+        before = realise_reservation(
+            replayed, reservation, coordinate_translations=tuple(projection)
+        )
+        envelope_settlement._apply_translation(
+            replayed,
+            axis,
+            envelope_settlement._translation_ownership(
+                replayed, axis, translation.boundary
+            ),
+            translation.amount,
+        )
+        projection.append(
+            envelope_settlement._reservation_coordinate_translation(
+                translation, replayed_plan
+            )
+        )
+        after = realise_reservation(
+            replayed, reservation, coordinate_translations=tuple(projection)
+        )
+        assert before is not None and after is not None
+        assert after.available_width - before.available_width == pytest.approx(
+            translation.amount, abs=0.01
+        ), (path, translation.message)
+
+
+def _sections_wholly_before(graph, axis, boundary: int) -> set[str]:
+    """Sections ending strictly above *boundary*, by this test's own reckoning."""
+    return {
+        key
+        for key, section in graph.sections.items()
+        if axis.start_index(section) + axis.span(section) <= boundary
+    }
+
+
+def _sections_wholly_after(graph, axis, boundary: int) -> set[str]:
+    return {
+        key
+        for key, section in graph.sections.items()
+        if axis.start_index(section) >= boundary
+    }
+
+
+@pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
+def test_each_corridor_blocker_lies_wholly_on_the_side_it_bounds(path: Path) -> None:
+    """A boundary is bounded by boxes that clear it, never by ones occupying it.
+
+    The two sets are re-derived here from the grid indices alone rather than read
+    back from the measurement, so a box straddling the boundary being counted as
+    a blocker is a difference this can see.  A straddling box's far edge lies past
+    the boundary and its header before it, so counting it would state a clearance
+    the boundary does not offer.
     """
     graph, plan = _observe(path)
     query = build_route_plan_query(plan)
@@ -428,47 +556,15 @@ def test_a_boundary_translation_owns_exactly_its_positive_blockers(path: Path) -
         if realised is None:
             continue
         axis, boundary = _axis_for(reservation.region)
-        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
-        moved, spanning = (
-            set(ownership.moved_section_ids),
-            set(ownership.spanning_section_ids),
-        )
+        before = _sections_wholly_before(graph, axis, boundary)
+        after = _sections_wholly_after(graph, axis, boundary)
         negative = _blocker_sections(realised.negative_blocker_ids)
         positive = _blocker_sections(realised.positive_blocker_ids)
 
-        assert negative & moved == set(), (path, reservation.description)
-        assert positive <= moved, (path, reservation.description)
-        assert (negative | positive) & spanning == set(), (
-            path,
-            reservation.description,
-        )
+        assert negative <= before, (path, reservation.description)
+        assert positive <= after, (path, reservation.description)
         checked += 1
     assert checked, path
-
-
-@pytest.mark.parametrize("path", LEMMA_CORPUS.values(), ids=tuple(LEMMA_CORPUS))
-def test_no_corridor_is_assigned_a_boundary_its_sections_all_span(path: Path) -> None:
-    """A boundary every relevant section straddles has no side to measure, so no
-    corridor may be filed against one: each side names a real blocker."""
-    graph, plan = _observe(path)
-    query = build_route_plan_query(plan)
-    for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
-            continue
-        realised = query.realised_reservation(reservation.id)
-        if realised is None:
-            continue
-        axis, boundary = _axis_for(reservation.region)
-        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
-        assert realised.negative_blocker_ids, (path, reservation.description)
-        assert realised.positive_blocker_ids, (path, reservation.description)
-        bounded = _blocker_sections(
-            realised.negative_blocker_ids + realised.positive_blocker_ids
-        )
-        assert not bounded <= set(ownership.spanning_section_ids), (
-            path,
-            reservation.description,
-        )
 
 
 def test_one_translation_settles_every_claim_on_its_boundary() -> None:
@@ -1491,3 +1587,65 @@ def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:
                     item.y -= amount
                 else:
                     item.x -= amount
+
+
+def _added_diagnostics(published, held):
+    return published.diagnostics[len(held.diagnostics) :]
+
+
+def test_a_corridor_the_reroute_resizes_is_named_rather_than_invisible() -> None:
+    """The demand a re-route changes without adding or dropping a corridor.
+
+    Kind, boundary, span and lane count are all the same on both sides, so the
+    only thing separating the two ledgers is the width each asks for.  A widening
+    sized against the first is not the widening the second wants, which is the
+    difference this has to carry.
+    """
+    path = TOPOLOGIES / "convergence_fold_diamond.mmd"
+    _graph, frozen = _observe(path)
+    target = next(
+        item
+        for item in frozen.reservations
+        if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+    )
+    widened = replace(
+        target,
+        peer_width=target.peer_width + 8.0,
+        minimum_width=target.minimum_width + 8.0,
+    )
+    routed = replace(
+        frozen,
+        reservations=tuple(
+            widened if item.id == target.id else item for item in frozen.reservations
+        ),
+    )
+
+    unchanged = envelope_settlement.attach_reroute_ledger_delta(frozen, frozen, frozen)
+    assert _added_diagnostics(unchanged, frozen) == ()
+
+    published = envelope_settlement.attach_reroute_ledger_delta(frozen, frozen, routed)
+    (added,) = _added_diagnostics(published, frozen)
+    assert added.code == "reroute-ledger-demand-rewidened"
+    assert not added.blocking
+    assert target.description in added.message
+    assert f"{widened.minimum_width:.2f}px" in added.message
+    assert f"{target.minimum_width:.2f}px" in added.message
+
+
+def test_the_settled_reroute_reports_the_widths_it_asks_for_afresh() -> None:
+    """The same difference, on a map that produces it without being staged.
+
+    ``dogleg_exempt_distinct`` seats its two row corridors clear of one another
+    on the settled geometry, so neither is charged for the other any more and
+    both ask for less than settlement was sized for.
+    """
+    path = TOPOLOGIES / "dogleg_exempt_distinct.mmd"
+    route_plan = _rendered_plan(path).route_plan
+    resized = [
+        item
+        for item in route_plan.diagnostics
+        if item.code == "reroute-ledger-demand-rewidened"
+    ]
+    assert len(resized) == 2
+    assert all(not item.blocking for item in resized)
+    assert all("row gap 0/1" in item.message for item in resized)

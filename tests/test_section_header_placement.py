@@ -26,7 +26,10 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, Section
-from nf_metro.render.constants import SECTION_NUM_CIRCLE_R_LARGE
+from nf_metro.render.constants import (
+    SECTION_HEADER_ROUTE_PAD,
+    SECTION_NUM_CIRCLE_R_LARGE,
+)
 from nf_metro.render.section_header import (
     check_section_headers_clear_routes,
     check_section_headers_fit_box_width,
@@ -166,23 +169,78 @@ def test_section_header_never_crosses_box_border_in_gallery(path: Path) -> None:
     assert not crossings, f"headers crossing their box border: {crossings}"
 
 
+def _rightmost_route_in_band(
+    polylines: list, band_top: float, band_bottom: float
+) -> float | None:
+    """How far right a routed segment reaches inside a horizontal band.
+
+    Clipped to the band rather than tested for a corner hit, so a diagonal
+    crossing it contributes the x it actually occupies there.
+    """
+    reach: float | None = None
+    for poly in polylines:
+        for (x1, y1), (x2, y2) in zip(poly, poly[1:]):
+            if max(y1, y2) < band_top or min(y1, y2) > band_bottom:
+                continue
+            if y1 == y2:
+                inside = (x1, x2)
+            else:
+                inside = tuple(
+                    x1 + (x2 - x1) * (edge - y1) / (y2 - y1)
+                    for edge in (
+                        max(band_top, min(y1, y2)),
+                        min(band_bottom, max(y1, y2)),
+                    )
+                )
+            reach = max(inside) if reach is None else max(reach, *inside)
+    return reach
+
+
 @pytest.mark.parametrize(
     "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
 def test_relocated_headers_had_no_room_in_the_reserved_band(path: Path) -> None:
-    """A header only leaves its reserved band when the band has no room for it.
+    """A header only leaves its reserved band once a route has taken the room.
 
     ``SECTION_HEADER_PROTRUSION`` above a box top is the only room reserved for
-    that box's header, so a header drawn below or beside the box sits where
-    nothing reserved room while reserved room holds nothing."""
+    that box's header, and it runs the width of the box.  A header drawn below or
+    beside the box therefore has to be accounted for by a route standing in that
+    band far enough right that no start within the box width clears it.  Both
+    quantities come off the drawn map here - the header's own extent
+    and the routed polylines - so this is a measurement of the geometry rather
+    than a second run of the placement search the resolver already made.
+    """
     graph, polylines, font_size, title_font_size = _polylines_and_font(path)
     placements = resolve_all_section_headers(
         graph, font_size, polylines, title_font_size
     )
-    stranded = check_section_headers_hold_the_reserved_band(
-        graph, placements, font_size, polylines, title_font_size
-    )
-    assert not stranded, f"headers that vacated a band with room left: {stranded}"
+    pad = SECTION_HEADER_ROUTE_PAD
+    for section_id, placement in placements.items():
+        if placement.mode in ("above", "nudge"):
+            continue
+        section = graph.sections[section_id]
+        # A rotated header runs down a side column, so its drawn footprint says
+        # nothing about the width the same title needs along the band.
+        rotated = bool(placement.label_rotation)
+        length = (
+            section_header._header_length(section.name, font_size)
+            if rotated
+            else placement.keepout[2] - placement.keepout[0]
+        )
+        depth = (
+            SECTION_HEADER_PROTRUSION
+            if rotated
+            else placement.keepout[3] - placement.keepout[1]
+        )
+        reach = _rightmost_route_in_band(
+            polylines, section.bbox_y - depth - pad, section.bbox_y + pad
+        )
+        latest_start = section.bbox_x + section.bbox_w - length
+        assert reach is not None and reach > latest_start - pad, (
+            f"{section_id} left its reserved band with room in it: the band "
+            f"holds a header starting up to {latest_start:.2f} and the "
+            f"rightmost route in it reaches {reach}"
+        )
 
 
 def test_a_header_that_could_stay_in_the_band_is_reported(

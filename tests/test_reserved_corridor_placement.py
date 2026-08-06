@@ -17,6 +17,7 @@ import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
 )
@@ -36,6 +37,7 @@ from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     ReservedBands,
     build_reserved_corridors,
+    resolved_band,
 )
 from nf_metro.render.svg import build_observed_render_plan
 
@@ -49,6 +51,13 @@ SPANNING_BLOCKER_FIXTURE = (
     ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd"
 )
 SPANNING_BLOCKER_BOUNDARY = 2
+
+# The boxes bounding each of that fixture's row boundaries from above and from
+# below, over the spans its corridors are measured on.
+SPANNING_BLOCKER_BOUNDING_BOXES = {
+    1: (("alignment", "orf_calling"), ("quantification", "te")),
+    2: (("psite_id",), ("te",)),
+}
 
 # A same-row bypass trunk whose gap the ledger sizes to exactly the bundle it
 # carries, so its band is one coordinate wide, and the section bottoms the trunk
@@ -192,27 +201,35 @@ def test_an_unclaimed_boundary_reports_no_band() -> None:
 
 
 def test_published_bands_are_the_reservation_clearances_at_the_boundary() -> None:
-    """What the router reads back is the ledger's own measurement.
+    """What the router reads back is the clearance the bounding boxes leave.
 
-    Several corridors can claim one boundary, so the band is the intersection
-    of what each leaves clear, and a published band always holds a channel.
+    Several corridors can claim one boundary, so the band is the intersection of
+    what each leaves clear.  The boxes that bound each of this fixture's two row
+    boundaries are named here and the band derived from their drawn edges, so
+    the expectation is the arrangement on the page rather than a second run of
+    the ledger's own arithmetic.  ``psite_id`` spans rows 0 to 1, which is why
+    the row 1/2 boundary is bounded from above by a box the row 1/2 rows do not
+    contain.
     """
     observed = _rendered(SPANNING_BLOCKER_FIXTURE)
     graph = observed.plan.graph
     bands = build_reserved_corridors(graph, observed.route_plan).rows
-    assert bands.bands
-    for lower_row, band in bands.bands.items():
-        assert band.hi >= band.lo
-        claims = list(_row_gap_realisations(observed.route_plan, lower_row))
-        assert band.lo == pytest.approx(
+    assert set(bands.bands) == set(SPANNING_BLOCKER_BOUNDING_BOXES)
+    for lower_row, (above, below) in SPANNING_BLOCKER_BOUNDING_BOXES.items():
+        band = bands.bands[lower_row]
+        expected_lo = (
             max(
-                item[1].region_start + item[0].negative_side_clearance
-                for item in claims
+                graph.sections[key].bbox_y + graph.sections[key].bbox_h for key in above
             )
+            + INTER_ROW_EDGE_CLEARANCE
         )
-        assert band.hi == pytest.approx(
-            min(item[1].region_end - item[0].positive_side_clearance for item in claims)
+        expected_hi = (
+            min(graph.sections[key].bbox_y for key in below)
+            - INTER_ROW_HEADER_CLEARANCE
         )
+        assert band.lo == pytest.approx(expected_lo)
+        assert band.hi == pytest.approx(expected_hi)
+        assert band.hi >= band.lo
 
 
 def test_row_gap_clearances_are_the_ones_the_raw_derivation_uses() -> None:
@@ -293,3 +310,17 @@ def test_a_bypass_trunk_is_held_on_the_band_its_reservation_realises() -> None:
         drawn = _containment(observed, reservation, realised)
         assert drawn.negative_side_slack >= -0.01
         assert drawn.positive_side_slack >= -0.01
+
+
+def test_a_boundary_whose_claims_cannot_be_reconciled_publishes_nothing() -> None:
+    """Two claims over one corridor demanding disjoint bands leave no coordinate.
+
+    Sizing a corridor for fewer lanes than it carries is what produces that, and
+    a band is the wrong thing to answer it with: any span published here would be
+    one no channel can satisfy, and the row or column edges are not an authority
+    either.  Naming the conflict is left to the closing guard.
+    """
+    assert resolved_band(200.0, 260.0) == ReservedBand(200.0, 260.0)
+    assert resolved_band(230.0, 230.0) == ReservedBand(230.0, 230.0)
+    assert resolved_band(230.0, 230.0 - COORD_TOLERANCE / 2) is not None
+    assert resolved_band(260.0, 200.0) is None
