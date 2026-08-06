@@ -759,7 +759,16 @@ in pipeline order.
 - **Postcondition**: Every junction has finite `(x, y)`. Fan-out
   junctions sit at `exit_port.y` plus a `JUNCTION_MARGIN` X offset
   toward the targets; merge junctions sit at
-  `max(pred.x) + JUNCTION_MARGIN, entry_port.y`.
+  `max(pred.x) + JUNCTION_MARGIN, entry_port.y`. A fan-out junction on a
+  LEFT/RIGHT exit stands `EDGE_TO_BUNDLE_CLEARANCE` from the wall instead
+  wherever a branch descends the junction's own X - the column is then a
+  channel in the inter-column gap and owes the clearance a gap channel does
+  (`_drops_down_the_junction_column`: the entry section shares a grid column
+  with the feeder and is stacked beyond it on the port's own side, which is
+  the condition under which `_align_tb_entry_port` gives the perpendicular
+  port the junction's X). Every other branch turns a corner a runway past the
+  junction, so its channel already stands a curve radius clear of the wall and
+  the junction keeps only `JUNCTION_MARGIN`.
 - **Invariants preserved**: Real stations, ports.
 - **Lifecycle:** invariant - junctions track their ports at the final
   boundary (`junction.xy == _compute_junction_xy(ports)`, re-established
