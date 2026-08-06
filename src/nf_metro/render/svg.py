@@ -18,6 +18,7 @@ import textwrap
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
+from functools import partial
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -41,7 +42,7 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases._common import _station_bundle_offset_span
-from nf_metro.layout.phases.bbox import push_lower_rows_after_bbox_grow
+from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     LayoutInvariantError,
@@ -1032,17 +1033,17 @@ def _settle_render_geometry(
     needs the theme's font/icon metrics, so it runs here rather than in
     ``compute_layout``; when it grows a section's bbox downward it can push the
     lower section's header badge up into the box above.  Only that genuine
-    collision is reconciled -- push the lower rows down to restore
-    ``section_y_gap``, then re-settle so routes and labels track the shifted
-    sections.  A smaller sub-``section_y_gap`` shortfall draws no overlap and is
-    left as laid out.
+    collision is reconciled -- re-settle so routes and labels track the shifted
+    sections.
 
     Routing is observed so its ``RouteReservation`` ledger can drive
-    :func:`settle_route_envelopes`, which widens any row or column boundary
-    whose reserved corridor the settled envelopes left too narrow.  Settlement
-    runs last of the geometry steps, after label wrapping and the header
-    reconcile have taken their bites out of the gaps; a translation moves whole
-    rows and columns, so routes and labels are derived again from the result.
+    :func:`settle_route_envelopes`, which widens any row or column boundary that
+    the settled envelopes left short of what it owes: too narrow for a reserved
+    corridor, or below the clearance its facing boxes owe each other after those
+    bites out of the gaps.  One translation pays both, so the row gap a label
+    wrap ate is restored by the same move that seats a corridor.  Settlement runs
+    last of the geometry steps; a translation moves whole rows and columns, so
+    routes and labels are derived again from the result.
 
     The re-route is handed that same ledger.  A boundary settlement widened for
     a corridor is one the router must place that corridor inside, so it reads
@@ -1184,7 +1185,6 @@ def _settle_render_geometry(
     )
     _reserve_group_band_space(graph, theme, station_offsets, labels)
     if render_header_collision(graph) and not graph.has_rail_sections:
-        push_lower_rows_after_bbox_grow(graph, section_y_gap)
         station_offsets, routes, route_plan = _resettle()
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
@@ -1194,7 +1194,17 @@ def _settle_render_geometry(
 
     frozen_routes = routes
     frozen_plan = route_plan
-    settlement = settle_route_envelopes(graph, frozen_plan)
+    # A rail layout pitches its rows to the interchange idiom rather than to
+    # ``section_y_gap``, and holds runs between them collinear; widening one of
+    # its row boundaries to the declared gap turns a flat run into a staircase.
+    # So the clearance a boundary owes is a demand only where the gap is what
+    # sets the pitch.
+    clearance = (
+        None
+        if graph.has_rail_sections
+        else partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
+    )
+    settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
     # The router can only place a corridor from its reservation on a pass that
     # is handed one, and the first pass is what publishes the ledger.  So the
     # re-route runs whenever any corridor was reserved, not only when settlement
