@@ -62,7 +62,22 @@ infeasible arrangement, not a claim outside this stage's reach, and the closing
 guard refuses it on the strict path.  A clearance demand is allocatable by the
 same lemma: every box it measures *from* ends above the boundary and every box it
 measures *to* starts at or beyond it, which are the two halves of
-``_translation_ownership``.
+``translation_ownership``.
+
+The axis vocabulary the sweep is written against -- ``ROW_AXIS``, ``COLUMN_AXIS``,
+``SettlementAxisGeometry``, ``translation_ownership`` and ``apply_translation`` --
+is part of this module's surface rather than internal to it.  A counterfactual
+asking what a wider boundary would let a later stage decide is evidence only if
+the geometry it hands over is geometry settlement could hand over, which means
+moving the same sections by the same write.  Naming the translation once, here, is
+what keeps a second definition of it from drifting away from this one.
+
+Every failure this module raises is an engine self-check rather than an authoring
+diagnostic: each condition is one the reasoning above establishes, so a violation
+says the reasoning and the code have come apart.  They raise
+``PhaseInvariantError`` and are not downgraded on any render mode, because a
+best-effort diagram drawn past a broken allocation lemma is a diagram whose
+geometry nothing vouches for.
 """
 
 from __future__ import annotations
@@ -74,6 +89,7 @@ from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
     ConflictRelief,
     ConvergenceConflict,
@@ -102,18 +118,24 @@ from nf_metro.layout.settlement_demand import (
 from nf_metro.parser.model import MetroGraph, Section
 
 __all__ = [
+    "COLUMN_AXIS",
+    "ROW_AXIS",
     "BoundaryClearanceDemand",
     "ClearanceMeasurement",
     "CompatibilityOwnership",
     "EnvelopeSettlement",
     "SettlementAxis",
+    "SettlementAxisGeometry",
     "SettlementReach",
     "SettlementShortfall",
     "SettlementTranslation",
+    "TranslationOwnership",
+    "apply_translation",
     "attach_reroute_ledger_delta",
     "attach_settlement_diagnostics",
     "attribute_compatibility_systems",
     "settle_route_envelopes",
+    "translation_ownership",
 ]
 
 
@@ -298,8 +320,14 @@ class EnvelopeSettlement:
 
 
 @dataclass(frozen=True, slots=True)
-class _Axis:
-    """The per-axis differences between row and column settlement."""
+class SettlementAxisGeometry:
+    """The per-axis differences between row and column settlement.
+
+    One of :data:`ROW_AXIS` or :data:`COLUMN_AXIS`: every step of the sweep is
+    written once against this, so which grid index a boundary separates, which
+    coordinate a translation writes, and which section edge bounds it are read
+    from here rather than branched on.
+    """
 
     axis: SettlementAxis
     boundary_of: Callable[[RouteReservation], int]
@@ -311,7 +339,7 @@ class _Axis:
 
 
 @dataclass(frozen=True, slots=True)
-class _TranslationOwnership:
+class TranslationOwnership:
     """Which sections one boundary translation owns, and which it cannot.
 
     A section belongs to the band holding its grid start, so a boundary
@@ -326,9 +354,10 @@ class _TranslationOwnership:
     spanning_section_ids: tuple[str, ...]
 
 
-def _translation_ownership(
-    graph: MetroGraph, axis: _Axis, boundary: int
-) -> _TranslationOwnership:
+def translation_ownership(
+    graph: MetroGraph, axis: SettlementAxisGeometry, boundary: int
+) -> TranslationOwnership:
+    """Split *graph*'s sections into the ones *boundary* may carry and the rest."""
     moved: list[str] = []
     spanning: list[str] = []
     for key, section in graph.sections.items():
@@ -337,20 +366,27 @@ def _translation_ownership(
             moved.append(key)
         elif start + axis.span(section) > boundary:
             spanning.append(key)
-    return _TranslationOwnership(tuple(sorted(moved)), tuple(sorted(spanning)))
+    return TranslationOwnership(tuple(sorted(moved)), tuple(sorted(spanning)))
 
 
-def _apply_translation(
+def apply_translation(
     graph: MetroGraph,
-    axis: _Axis,
-    ownership: _TranslationOwnership,
+    axis: SettlementAxisGeometry,
+    ownership: TranslationOwnership,
     amount: float,
 ) -> None:
+    """Move every section *ownership* names by *amount* along *axis*.
+
+    The whole of settlement's write, so a caller that widens a boundary the way
+    settlement would -- a counterfactual asking what a wider boundary would let
+    the planner do -- moves the same sections by the same shift rather than a
+    lookalike of it.
+    """
     for section_id in ownership.moved_section_ids:
         axis.shift(graph, graph.sections[section_id], amount)
 
 
-_ROW_AXIS = _Axis(
+ROW_AXIS = SettlementAxisGeometry(
     SettlementAxis.ROW,
     lambda reservation: _row_region(reservation).lower_row,
     lambda section: section.grid_row,
@@ -359,8 +395,9 @@ _ROW_AXIS = _Axis(
     SECTION_HEADER_BLOCKER,
     lambda graph, section, amount: shift_section(graph, section, dy=amount),
 )
+"""Row settlement: boundaries between grid rows, translating y."""
 
-_COLUMN_AXIS = _Axis(
+COLUMN_AXIS = SettlementAxisGeometry(
     SettlementAxis.COLUMN,
     lambda reservation: _column_region(reservation).right_column,
     lambda section: section.grid_col,
@@ -369,6 +406,7 @@ _COLUMN_AXIS = _Axis(
     SECTION_LEFT_BLOCKER,
     lambda graph, section, amount: shift_section(graph, section, dx=amount),
 )
+"""Column settlement: boundaries between grid columns, translating x."""
 
 
 def _row_region(reservation: RouteReservation) -> RowGapRegion:
@@ -422,9 +460,18 @@ def _reservation_coordinate_translation(
 
 
 def _clearance_at(
-    graph: MetroGraph, axis: _Axis, clearance: ClearanceMeasurement | None
+    graph: MetroGraph,
+    axis: SettlementAxisGeometry,
+    clearance: ClearanceMeasurement | None,
 ) -> dict[int, BoundaryClearanceDemand]:
-    """This axis's clearance demands, keyed by boundary, on the live boxes."""
+    """This axis's clearance demands, keyed by boundary, on the live boxes.
+
+    Axis-neutral because the demand vocabulary is, not because both axes carry
+    one: every ``ClearanceMeasurement`` in the tree states row demands only, so
+    the column call returns nothing and no column boundary settles a clearance.
+    A render-time box grow that eats a column gap is therefore unmeasured, which
+    ``CONTRACT.md`` states as the scope of this demand.
+    """
     if clearance is None:
         return {}
     return {
@@ -457,7 +504,7 @@ def _settle_axis(
     graph: MetroGraph,
     plan: RoutePlan,
     reservations: tuple[RouteReservation, ...],
-    axis: _Axis,
+    axis: SettlementAxisGeometry,
     prior_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     clearance: ClearanceMeasurement | None = None,
 ) -> tuple[
@@ -507,9 +554,9 @@ def _settle_axis(
         else:
             continue
         amount = quantised_allocation(deficit)
-        ownership = _translation_ownership(graph, axis, boundary)
+        ownership = translation_ownership(graph, axis, boundary)
         if not ownership.moved_section_ids:
-            raise ValueError(
+            raise PhaseInvariantError(
                 f"{axis.axis.value} boundary {boundary} has no translation "
                 "owner: nothing sits at or beyond it to move"
             )
@@ -517,7 +564,7 @@ def _settle_axis(
             axis.origin(graph.sections[section_id])
             for section_id in ownership.moved_section_ids
         )
-        _apply_translation(graph, axis, ownership, amount)
+        apply_translation(graph, axis, ownership, amount)
         translations.append(
             SettlementTranslation(
                 axis=axis.axis,
@@ -548,16 +595,18 @@ def _settle_axis(
 _UNATTRIBUTED_OWNER = "unattributed"
 
 
-def _settlement_axis(conflict: ConvergenceConflict) -> _Axis:
+def _settlement_axis(conflict: ConvergenceConflict) -> SettlementAxisGeometry:
     """The one axis whose translations can change *conflict*'s separation.
 
     A row translation writes y and a column translation writes x, so a distance
     measured along one of those axes is out of the other's reach entirely.
     """
-    return _ROW_AXIS if conflict.axis is DemandAxis.Y else _COLUMN_AXIS
+    return ROW_AXIS if conflict.axis is DemandAxis.Y else COLUMN_AXIS
 
 
-def _translated_bands(graph: MetroGraph, axis: _Axis) -> dict[int, float]:
+def _translated_bands(
+    graph: MetroGraph, axis: SettlementAxisGeometry
+) -> dict[int, float]:
     """The first coordinate each boundary's translation would carry with it.
 
     Widening boundary ``b`` translates every section from index ``b`` onward, so
@@ -803,7 +852,7 @@ def _assert_the_column_phase_left_the_row_phase_standing(
     for reservation_id, width in after.items():
         held = before.get(reservation_id)
         if held is not None and width < held - COORD_TOLERANCE:
-            raise ValueError(
+            raise PhaseInvariantError(
                 f"the column phase narrowed the row corridor {reservation_id} "
                 f"from {held:.2f}px to {width:.2f}px: a section spanning across a "
                 "translated column boundary was drawn into the corridor's run, "
@@ -853,7 +902,9 @@ def _box_extents(section: Section) -> tuple[tuple[float, float], tuple[float, fl
     )
 
 
-def _axis_gaps(graph: MetroGraph, axis: _Axis) -> dict[tuple[str, str], float]:
+def _axis_gaps(
+    graph: MetroGraph, axis: SettlementAxisGeometry
+) -> dict[tuple[str, str], float]:
     """The signed clearance between every pair of boxes that face each other.
 
     Keyed by the ordered pair, so the same pair is comparable before and after a
@@ -887,7 +938,7 @@ def _axis_gaps(graph: MetroGraph, axis: _Axis) -> dict[tuple[str, str], float]:
 def _assert_no_separation_decreased(
     before: dict[tuple[str, str], float],
     after: dict[tuple[str, str], float],
-    axis: _Axis,
+    axis: SettlementAxisGeometry,
 ) -> None:
     """Every pair facing each other in both states is at least as far apart.
 
@@ -898,7 +949,7 @@ def _assert_no_separation_decreased(
         held = before.get(pair)
         if held is not None and gap < held - COORD_TOLERANCE:
             first, second = pair
-            raise ValueError(
+            raise PhaseInvariantError(
                 f"envelope settlement narrowed the {axis.axis.value} separation "
                 f"between sections {first!r} and {second!r} from {held:.2f}px to "
                 f"{gap:.2f}px; no settlement step may shrink a satisfied gap"
@@ -943,7 +994,7 @@ def _assert_spanning_sections_bound_nothing_settled(
             }
             trespassing = sorted(held & blockers)
             if trespassing:
-                raise ValueError(
+                raise PhaseInvariantError(
                     f"{translation.axis.value} boundary {translation.boundary} was "
                     f"widened by {translation.amount:.2f}px for the corridor "
                     f"{reservation.description!r}, but section(s) "
@@ -994,20 +1045,20 @@ def _assert_clearance_demands_are_met(
     QUANTUM``, and the ownership lemma applies to a clearance demand exactly as
     it does to a corridor: every box the demand is measured *from* ends above the
     boundary and every box it is measured *to* starts at or beyond it, which are
-    the two halves of ``_translation_ownership``.  So the translation raises the
+    the two halves of ``translation_ownership``.  So the translation raises the
     boundary by its full amount and the deficit closes.  Checked rather than
     argued, because the two predicates staying in step is a property a later edit
     could break.
     """
-    outstanding = _clearance_at(graph, _ROW_AXIS, clearance) | _clearance_at(
-        graph, _COLUMN_AXIS, clearance
+    outstanding = _clearance_at(graph, ROW_AXIS, clearance) | _clearance_at(
+        graph, COLUMN_AXIS, clearance
     )
     if outstanding:
         stated = "; ".join(
             f"{item.description} is still {item.deficit:.2f}px short"
             for item in sorted(outstanding.values(), key=lambda item: item.boundary)
         )
-        raise ValueError(
+        raise PhaseInvariantError(
             f"envelope settlement left a boundary owing clearance: {stated}"
         )
 
@@ -1036,19 +1087,19 @@ def settle_route_envelopes(
     ledger needs no such care: settlement only reads it.
     """
     restore_point = _coordinate_state(graph)
-    row_gaps_before = _axis_gaps(graph, _ROW_AXIS)
-    column_gaps_before = _axis_gaps(graph, _COLUMN_AXIS)
+    row_gaps_before = _axis_gaps(graph, ROW_AXIS)
+    column_gaps_before = _axis_gaps(graph, COLUMN_AXIS)
     row_reservations = _reservations_on(plan, RowGapRegion)
     try:
         row_translations, row_coordinate = _settle_axis(
-            graph, plan, row_reservations, _ROW_AXIS, clearance=clearance
+            graph, plan, row_reservations, ROW_AXIS, clearance=clearance
         )
         row_widths = _measured_widths(graph, row_reservations, tuple(row_coordinate))
         column_translations, column_coordinate = _settle_axis(
             graph,
             plan,
             _reservations_on(plan, ColumnGapRegion),
-            _COLUMN_AXIS,
+            COLUMN_AXIS,
             tuple(row_coordinate),
             clearance=clearance,
         )
@@ -1059,10 +1110,10 @@ def settle_route_envelopes(
             _measured_widths(graph, row_reservations, coordinate_translations),
         )
         _assert_no_separation_decreased(
-            row_gaps_before, _axis_gaps(graph, _ROW_AXIS), _ROW_AXIS
+            row_gaps_before, _axis_gaps(graph, ROW_AXIS), ROW_AXIS
         )
         _assert_no_separation_decreased(
-            column_gaps_before, _axis_gaps(graph, _COLUMN_AXIS), _COLUMN_AXIS
+            column_gaps_before, _axis_gaps(graph, COLUMN_AXIS), COLUMN_AXIS
         )
         _assert_spanning_sections_bound_nothing_settled(
             graph, plan, translations, coordinate_translations

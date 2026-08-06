@@ -36,6 +36,7 @@ from nf_metro.layout.pass_metrics import canvas_edge_clearance, stroke_scale_con
 from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
+    PhaseInvariantError,
     assert_canvas_corridors_hold_their_claims,
     assert_reservations_are_settled,
 )
@@ -548,8 +549,8 @@ def _blocker_sections(ids: tuple[str, ...]) -> set[str]:
 def _axis_for(region) -> tuple:
     """The settlement axis object and boundary index for a gap *region*."""
     if isinstance(region, RowGapRegion):
-        return envelope_settlement._ROW_AXIS, region.lower_row
-    return envelope_settlement._COLUMN_AXIS, region.right_column
+        return envelope_settlement.ROW_AXIS, region.lower_row
+    return envelope_settlement.COLUMN_AXIS, region.right_column
 
 
 LEMMA_TRANSLATION = 8.0
@@ -580,11 +581,9 @@ def test_a_boundary_translation_widens_its_corridor_by_exactly_its_amount(
         if held is None:
             continue
         axis, boundary = _axis_for(reservation.region)
-        ownership = envelope_settlement._translation_ownership(graph, axis, boundary)
+        ownership = envelope_settlement.translation_ownership(graph, axis, boundary)
         state = envelope_settlement._coordinate_state(graph)
-        envelope_settlement._apply_translation(
-            graph, axis, ownership, LEMMA_TRANSLATION
-        )
+        envelope_settlement.apply_translation(graph, axis, ownership, LEMMA_TRANSLATION)
         widened = realise_reservation(graph, reservation)
         envelope_settlement._restore_coordinate_state(graph, state)
         assert widened is not None, (path, reservation.description)
@@ -619,18 +618,18 @@ def test_each_translation_widens_the_corridor_it_records_by_its_amount(
     projection: list = []
     for translation in settlement.translations:
         axis = (
-            envelope_settlement._ROW_AXIS
+            envelope_settlement.ROW_AXIS
             if translation.axis is SettlementAxis.ROW
-            else envelope_settlement._COLUMN_AXIS
+            else envelope_settlement.COLUMN_AXIS
         )
         reservation = by_id[translation.reservation_id]
         before = realise_reservation(
             replayed, reservation, coordinate_translations=tuple(projection)
         )
-        envelope_settlement._apply_translation(
+        envelope_settlement.apply_translation(
             replayed,
             axis,
-            envelope_settlement._translation_ownership(
+            envelope_settlement.translation_ownership(
                 replayed, axis, translation.boundary
             ),
             translation.amount,
@@ -820,7 +819,7 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
     assert row_reservations and column_reservations, path
 
     _, row_coordinate = envelope_settlement._settle_axis(
-        graph, plan, row_reservations, envelope_settlement._ROW_AXIS
+        graph, plan, row_reservations, envelope_settlement.ROW_AXIS
     )
     before = {
         item.id: realise_reservation(
@@ -834,7 +833,7 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
         graph,
         plan,
         column_reservations,
-        envelope_settlement._COLUMN_AXIS,
+        envelope_settlement.COLUMN_AXIS,
         tuple(row_coordinate),
     )
     assert column_translations, path
@@ -1020,7 +1019,7 @@ def test_a_straddling_section_that_bounds_its_corridor_is_rejected() -> None:
         "realise_reservation",
         side_effect=bound_by_the_straddling_section,
     ):
-        with pytest.raises(ValueError, match="straddle that boundary"):
+        with pytest.raises(PhaseInvariantError, match="straddle that boundary"):
             envelope_settlement._assert_spanning_sections_bound_nothing_settled(
                 graph,
                 plan,
@@ -1046,7 +1045,7 @@ def test_settlement_rejects_a_translation_that_narrows_a_separation() -> None:
     with mock.patch.object(
         envelope_settlement, "shift_section", side_effect=shift_the_wrong_way
     ):
-        with pytest.raises(ValueError, match="narrowed the row separation"):
+        with pytest.raises(PhaseInvariantError, match="narrowed the row separation"):
             settle_route_envelopes(graph, plan)
     assert _geometry(graph) == before
 
@@ -1100,7 +1099,7 @@ def test_a_column_phase_that_narrows_a_row_corridor_is_rejected() -> None:
     reservation = next(
         item for item in plan.reservations if isinstance(item.region, RowGapRegion)
     )
-    with pytest.raises(ValueError, match="narrowed the row corridor"):
+    with pytest.raises(PhaseInvariantError, match="narrowed the row corridor"):
         envelope_settlement._assert_the_column_phase_left_the_row_phase_standing(
             {reservation.id: 96.0}, {reservation.id: 48.0}
         )
@@ -2049,7 +2048,7 @@ def test_a_clearance_demand_settlement_cannot_close_is_refused() -> None:
             ),
         )
 
-    with pytest.raises(ValueError, match="left a boundary owing clearance"):
+    with pytest.raises(PhaseInvariantError, match="left a boundary owing clearance"):
         settle_route_envelopes(graph, plan, clearance=insatiable)
     assert _geometry(graph) == before
 

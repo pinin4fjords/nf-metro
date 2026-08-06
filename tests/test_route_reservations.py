@@ -12,6 +12,7 @@ import pytest
 from layout_metrics import compute_metrics
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout import route_reservations
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
@@ -910,6 +911,44 @@ def test_a_box_a_corridors_run_ends_inside_does_not_bound_its_boundary() -> None
     assert passing_realised.positive_blocker_ids == ("section-header:quantification",)
     assert landed_realised.positive_blocker_ids == ("section-header:te",)
     assert landed_realised.region_end == pytest.approx(graph.sections["te"].bbox_y)
+
+
+def test_a_box_only_one_claims_run_ends_inside_bounds_the_whole_reservation() -> None:
+    """One reservation states one measurement, so its landing set intersects.
+
+    Three claims share ``reportho``'s column 4/5 corridor.  One is the final
+    segment of a route that ends inside ``report``; the other two are interior
+    segments of routes crossing the boundary, for which ``report`` is a box in the
+    way.  United, the set would drop ``report`` from the measurement for all
+    three and the corridor would be measured to a box edge two of its runs are
+    stopped by.  Intersected, it drops it for none, and ``report`` bounds the
+    boundary alongside the box beside it.
+    """
+    graph, routes, plan = _observe(REPORT_HO)
+    query = build_route_plan_query(plan)
+    corridor = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, ColumnGapRegion)
+        and item.region.right_column == 5
+        and len(item.claims) == 3
+    )
+    per_claim = sorted(
+        (route_reservations._route_landing_section(graph, routes[claim.path_rank]),)
+        if claim.segment_end_rank + 2 == len(routes[claim.path_rank].points)
+        else ()
+        for claim in corridor.claims
+    )
+    assert per_claim == [(), (), ("report",)]
+
+    assert corridor.landing_section_ids == ()
+    realised = query.realised_reservation(corridor.id)
+    assert realised is not None
+    assert realised.positive_blocker_ids == (
+        "section-left:create_samplesheets",
+        "section-left:report",
+    )
+    assert realised.region_end == pytest.approx(graph.sections["report"].bbox_x)
 
 
 # A fan plan that emits its runs from a junction standing in the row gap the

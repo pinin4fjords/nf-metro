@@ -46,6 +46,20 @@ planned grant can be a coincidence of alignment rather than a threshold.  A
 single grant is therefore not evidence.  The verdict is taken from a *tail*: a
 system counts as reached only when it is planned at some granted capacity and at
 every larger one, which no isolated coincidence satisfies.
+
+A grant has three outcomes, not two.  The re-plan can own the system, leave it
+where the control left it, or come back describing neither -- the system gone, or
+split across both dispositions.  That third outcome is recorded as its own
+``GrantOutcome`` and taken out of the verdict, because "the planner wants more
+room here" and "the planner is not talking about this system" are different
+findings and only the first bears on allocation.  A system every grant diverges
+on has no interpretable counterfactual at all, which is ``GRANTS_DIVERGED``
+rather than the negative result.
+
+The probe reaches into settlement for the translation itself (``ROW_AXIS``,
+``COLUMN_AXIS``, ``translation_ownership``, ``apply_translation``) rather than
+reimplementing it, so what a grant hands the planner is the geometry settlement
+would hand it.
 """
 
 from __future__ import annotations
@@ -56,12 +70,12 @@ from enum import Enum
 
 from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.envelope_settlement import (
-    _COLUMN_AXIS,
-    _ROW_AXIS,
-    _apply_translation,
-    _Axis,
-    _translation_ownership,
+    COLUMN_AXIS,
+    ROW_AXIS,
+    SettlementAxisGeometry,
+    apply_translation,
     quantised_allocation,
+    translation_ownership,
 )
 from nf_metro.layout.route_plan import (
     ConvergenceConflictKind,
@@ -94,20 +108,6 @@ class CapacityScope(Enum):
     lies outside the system's own claims is still offered the room."""
 
 
-class _ReplanOutcome(Enum):
-    """What re-planning one system's convergences on a copy came back with."""
-
-    PLANNED = "planned"
-    """Every convergence of the system came back planned."""
-
-    COMPATIBLE = "compatible"
-    """Every one came back on the compatibility path."""
-
-    LOST = "lost"
-    """The system did not come back whole -- it vanished, or its convergences
-    disagree about which path they took -- so there is nothing to measure."""
-
-
 class CapacityVerdict(Enum):
     """What granting boundary capacity did to one compatibility system."""
 
@@ -128,6 +128,31 @@ class CapacityVerdict(Enum):
     """Re-planning the untouched copy did not reproduce the disposition the map
     publishes, so nothing measured against it would mean anything."""
 
+    GRANTS_DIVERGED = "grants-diverged"
+    """Every granted capacity took the system somewhere neither disposition
+    describes, so the probe holds no counterfactual it can read an answer off."""
+
+
+class GrantOutcome(Enum):
+    """What a re-plan decided about the whole system.
+
+    Read of the control re-plan as well as of each granted capacity, so the
+    baseline and the counterfactuals are described in one vocabulary.
+    """
+
+    PLANNED = "planned"
+    """The re-plan owns every member of the system."""
+
+    COMPATIBLE = "compatible"
+    """The re-plan leaves every member of the system on the compatibility path,
+    which is the same disposition the control reproduced."""
+
+    DIVERGED = "diverged"
+    """The re-plan lost the system or split it across both dispositions, so this
+    capacity says nothing about whether room is what the system lacks.  Reading
+    it as compatible would let a grant that stopped describing the system count
+    as one that described it and found the room wanting."""
+
 
 @dataclass(frozen=True, slots=True)
 class CapacityGrant:
@@ -135,7 +160,15 @@ class CapacityGrant:
 
     scope: CapacityScope
     capacity: float
-    planned: bool
+    outcome: GrantOutcome
+
+    @property
+    def planned(self) -> bool:
+        return self.outcome is GrantOutcome.PLANNED
+
+    @property
+    def diverged(self) -> bool:
+        return self.outcome is GrantOutcome.DIVERGED
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,9 +192,25 @@ class CapacityProbe:
     control_conflict: ConvergenceConflictKind | None
 
     @property
+    def measured_grants(self) -> tuple[CapacityGrant, ...]:
+        """The grants whose re-plan describes the system.
+
+        The verdict is read off these alone.  A diverged grant is a
+        counterfactual the probe could not interpret, which is a different thing
+        from a counterfactual that came back short of room, and only the second
+        is evidence about allocation.
+        """
+        return tuple(item for item in self.grants if not item.diverged)
+
+    @property
+    def diverged_grants(self) -> tuple[CapacityGrant, ...]:
+        """The grants whose re-plan neither owned nor kept the whole system."""
+        return tuple(item for item in self.grants if item.diverged)
+
+    @property
     def sufficient(self) -> tuple[CapacityScope, float] | None:
         """The cheapest capacity planned at, and at every larger one granted."""
-        return _least_sufficient(self.grants)
+        return _least_sufficient(self.measured_grants)
 
     @property
     def verdict(self) -> CapacityVerdict:
@@ -169,8 +218,10 @@ class CapacityProbe:
             return CapacityVerdict.CONTROL_DIVERGED
         if self.sufficient is not None:
             return CapacityVerdict.ALLOCATION_REACHES
-        if any(item.planned for item in self.grants):
+        if any(item.planned for item in self.measured_grants):
             return CapacityVerdict.ALLOCATION_UNSTABLE
+        if not self.measured_grants:
+            return CapacityVerdict.GRANTS_DIVERGED
         return CapacityVerdict.BEYOND_ALLOCATION
 
     @property
@@ -183,7 +234,7 @@ class CapacityProbe:
         """
         if self.sufficient is not None:
             return self.sufficient
-        planned = [item for item in self.grants if item.planned]
+        planned = [item for item in self.measured_grants if item.planned]
         if not planned:
             return None
         cheapest = min(planned, key=lambda item: (item.capacity, item.scope.value))
@@ -202,13 +253,28 @@ class CapacityProbe:
             if self.control_conflict is None
             else self.control_conflict.reason
         )
-        granted = max((item.capacity for item in self.grants), default=0.0)
+        if self.verdict is CapacityVerdict.GRANTS_DIVERGED:
+            return (
+                f"route system {self.system_id} could not be probed: all "
+                f"{len(self.grants)} boundary allocations re-planned to something "
+                f"that neither owns the whole system nor leaves the whole of it on "
+                f"compatibility, so none of them says whether room is what it lacks"
+            )
+        aside = (
+            ""
+            if not self.diverged_grants
+            else (
+                f", setting aside {len(self.diverged_grants)} that re-planned to "
+                f"neither disposition"
+            )
+        )
+        granted = max((item.capacity for item in self.measured_grants), default=0.0)
         if self.verdict is CapacityVerdict.BEYOND_ALLOCATION:
             return (
                 f"route system {self.system_id} stays on compatibility under "
                 f"every capacity this probe granted, up to {granted:.2f}px at "
-                f"{len(self.grants)} boundary allocations; what holds it is "
-                f"{held}, and no envelope allocation supplies it"
+                f"{len(self.measured_grants)} boundary allocations{aside}; what "
+                f"holds it is {held}, and no envelope allocation supplies it"
             )
         quoted = self.quoted
         assert quoted is not None
@@ -293,7 +359,7 @@ def _probe_system(
     system_id: RouteSystemId,
     conflict: ConvergenceConflictKind | None,
 ) -> CapacityProbe:
-    if _replan_outcome(baseline.control, system_id) is not _ReplanOutcome.COMPATIBLE:
+    if _replan_outcome(baseline.control, system_id) is not GrantOutcome.COMPATIBLE:
         return CapacityProbe(
             system_id=system_id,
             unit=0.0,
@@ -317,9 +383,7 @@ def _probe_system(
         CapacityGrant(
             scope,
             amount,
-            _plans_with_capacity(
-                baseline.graph, system_id, at_rows, at_columns, amount
-            ),
+            _grant_outcome(baseline.graph, system_id, at_rows, at_columns, amount),
         )
         for scope, at_rows, at_columns in (
             (CapacityScope.CLAIMED_BOUNDARIES, rows, columns),
@@ -384,24 +448,26 @@ def _least_sufficient(
     return scope, capacity
 
 
-def _plans_with_capacity(
+def _grant_outcome(
     graph: MetroGraph,
     system_id: RouteSystemId,
     rows: tuple[int, ...],
     columns: tuple[int, ...],
     amount: float,
-) -> bool:
-    """Whether the planner plans *system_id* once those boundaries carry *amount*.
+) -> GrantOutcome:
+    """What the planner decides about *system_id* once those boundaries carry *amount*.
 
     A re-plan that raises is left to propagate.  Folding it into "not planned"
     would let a defect in the counterfactual geometry read as the one conclusion
     this module asks to be trusted, so a probe that cannot run is a failure
-    rather than a verdict.
+    rather than a verdict.  A re-plan that returns without describing the whole
+    system is the same hazard one step in: it is reported as ``DIVERGED`` and
+    read as neither answer.
     """
     probe_graph = copy.deepcopy(graph)
     translate_boundaries(probe_graph, rows, columns, amount)
     replanned, _offset_step = _replan(probe_graph)
-    return _replan_outcome(replanned, system_id) is _ReplanOutcome.PLANNED
+    return _replan_outcome(replanned, system_id)
 
 
 def translate_boundaries(
@@ -421,13 +487,16 @@ def translate_boundaries(
     """
     from nf_metro.layout.phases.junctions import reanchor_junctions
 
-    for axis, boundaries in ((_ROW_AXIS, rows), (_COLUMN_AXIS, columns)):
+    for axis, boundaries in ((ROW_AXIS, rows), (COLUMN_AXIS, columns)):
         _widen(graph, axis, boundaries, amount)
     reanchor_junctions(graph)
 
 
 def _widen(
-    graph: MetroGraph, axis: _Axis, boundaries: tuple[int, ...], amount: float
+    graph: MetroGraph,
+    axis: SettlementAxisGeometry,
+    boundaries: tuple[int, ...],
+    amount: float,
 ) -> None:
     """Translate everything at or beyond each boundary, exactly as settlement does.
 
@@ -436,8 +505,8 @@ def _widen(
     ``amount`` rather than the last one alone.
     """
     for boundary in sorted(boundaries):
-        _apply_translation(
-            graph, axis, _translation_ownership(graph, axis, boundary), amount
+        apply_translation(
+            graph, axis, translation_ownership(graph, axis, boundary), amount
         )
 
 
@@ -479,7 +548,7 @@ def _replan(
 def _replan_outcome(
     by_system: dict[RouteSystemId, tuple[ConvergencePlan, ...]],
     system_id: RouteSystemId,
-) -> _ReplanOutcome:
+) -> GrantOutcome:
     """What a re-plan made of the whole system.
 
     A system is planned or compatible as a whole, so a mixed result is a
@@ -488,10 +557,10 @@ def _replan_outcome(
     """
     plans = by_system.get(system_id)
     if not plans:
-        return _ReplanOutcome.LOST
+        return GrantOutcome.DIVERGED
     dispositions = {item.disposition for item in plans}
     if dispositions == {ConvergenceDisposition.PLANNED}:
-        return _ReplanOutcome.PLANNED
+        return GrantOutcome.PLANNED
     if dispositions == {ConvergenceDisposition.LEGACY}:
-        return _ReplanOutcome.COMPATIBLE
-    return _ReplanOutcome.LOST
+        return GrantOutcome.COMPATIBLE
+    return GrantOutcome.DIVERGED
