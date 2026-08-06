@@ -1444,13 +1444,17 @@ in pipeline order.
   clearance demands; the demand vocabulary itself is
   `layout/settlement_demand.py`, held apart from settlement so a layout phase
   can state a demand without importing the routing stack the ledger is built on.
+  Rail layouts raise no clearance demand: their row pitch comes from the
+  interchange idiom rather than the declared section gap, and widening one of
+  their boundaries to that gap turns a flat inter-row run into a staircase --
+  a decision change, which `_assert_settlement_decisions_frozen` refuses.
 - **The two demands do not cover the same axes.** The reservation ledger is
   settled on both: `_settle_axis` runs once per axis and every row-gap and
   column-gap claim is measured. The clearance demand is **row-only**.
   `measure_row_gap_clearance` is the sole `ClearanceMeasurement` in the tree and
   emits `SettlementAxis.ROW` exclusively, so `_clearance_at(graph, COLUMN_AXIS,
-  clearance)` is always empty and no column boundary has ever settled a clearance
-  demand. That is the scope of the pass it stands in for,
+  clearance)` is always empty and no column boundary settles a clearance demand.
+  That is the scope of the pass it stands in for,
   `push_lower_rows_after_bbox_grow` (a row push after a bbox grow -- see the
   migration table below); `_clearance_at` and
   `_assert_clearance_demands_are_met` are written for both axes because the
@@ -1459,10 +1463,6 @@ in pipeline order.
   column boundary can have its declared gap eaten with nothing measuring the
   deficit. Adding the column measurement is a behaviour change and is not part of
   this contract.
-  Rail layouts raise no clearance demand: their row pitch comes from the
-  interchange idiom rather than the declared section gap, and widening one of
-  their boundaries to that gap turns a flat inter-row run into a staircase --
-  a decision change, which `_assert_settlement_decisions_frozen` refuses.
 - **Precondition**: `compute_layout` has finished, routing has published the
   reservation ledger, render-time label wrapping has taken its bbox growth, and
   the header-collision reconcile has run. Local station geometry, section bbox
