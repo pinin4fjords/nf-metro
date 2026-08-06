@@ -60,6 +60,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     perp_peeloff_off_horizontal_junction,
+    planner_owns_segment,
     seat_peeloff_port_y,
     symmetric_bundle_midpoint,
     tail_on_slot,
@@ -85,7 +86,11 @@ from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBand
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    corridor_clearance_band,
+    resolved_band,
+)
 from nf_metro.parser.model import MetroGraph, Port, PortSide
 
 
@@ -257,9 +262,7 @@ def _bundle_claim_band(
     ]
     if not bands:
         return None
-    lo = max(band.lo for band in bands)
-    hi = min(band.hi for band in bands)
-    return ReservedBand(lo, hi) if hi >= lo - COORD_TOLERANCE else None
+    return resolved_band(max(b.lo for b in bands), min(b.hi for b in bands))
 
 
 def _hold_bundle_in_claim_band(
@@ -620,20 +623,9 @@ def _locate_slot_channel(
     return None
 
 
-def _planner_owns_segment(route: RoutedPath, rank: int) -> bool:
-    """Whether a pre-routing plan owns the final geometry of one route segment."""
-    return (
-        convergence_owns_segment_boundary(route, rank)
-        or route.fan_route_emitter is not None
-        or (
-            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
-        )
-    )
-
-
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
-    return _planner_owns_segment(channel.route, channel.idx)
+    return planner_owns_segment(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -3944,9 +3936,7 @@ def _corridor_run_band(
     That covers the first routing pass, which publishes the ledger and so has
     none to read, and unclaimed geometry on the re-route.
     """
-    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
-
-    if not section_ids or _planner_owns_segment(route, idx):
+    if not section_ids or planner_owns_segment(route, idx):
         return None
     claimed = _segment_claim_band(ctx, route, idx)
     if claimed is not None:
@@ -4158,13 +4148,13 @@ def _group_shift(
     """The least further shift seating every bundle in *members* in its own band.
 
     The group moves rigidly, so one shift has to satisfy what every member has
-    left of its own range and clear every peer outside the group.
+    left of its own range and clear every peer outside the group.  Every member
+    has a range: the caller checks its own before asking, and
+    :func:`_denying_bundles` reports only bundles that can move.
     """
     ranges = [
         _remaining_shift_range(bundles[index], settled[index]) for index in members
     ]
-    if any(item is None for item in ranges):
-        return None
     lower = max(item[0] for item in ranges if item is not None)
     upper = min(item[1] for item in ranges if item is not None)
     if lower > upper + COORD_TOLERANCE_FINE:
@@ -4193,17 +4183,17 @@ def _seatable_group(
     """
     if _remaining_shift_range(bundles[index], settled[index]) is None:
         return None
-    shift = _group_shift(bundles, settled, (index,), ctx)
+    members = frozenset({index})
+    shift = _group_shift(bundles, settled, members, ctx)
     if shift is None:
         blockers = _denying_bundles(bundles, settled, index, ctx)
-        members = frozenset({index, *blockers})
-        shift = None if not blockers else _group_shift(bundles, settled, members, ctx)
-        if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
+        if not blockers:
             return None
-        return members, shift
-    if abs(shift) <= COORD_TOLERANCE_FINE:
+        members = frozenset({index, *blockers})
+        shift = _group_shift(bundles, settled, members, ctx)
+    if shift is None or abs(shift) <= COORD_TOLERANCE_FINE:
         return None
-    return frozenset({index}), shift
+    return members, shift
 
 
 def _denying_bundles(
@@ -4212,7 +4202,13 @@ def _denying_bundles(
     index: int,
     ctx: _RoutingCtx,
 ) -> frozenset[int]:
-    """The bundles that deny *index* every shift its own band asks for."""
+    """The bundles that deny *index* every shift its own band asks for.
+
+    Only bundles that can themselves move are reported.  One that cannot is
+    denying *index* from a coordinate nothing may change, so taking it into the
+    group could not free the shift it denies; it stays a peer, and its window
+    keeps denying from there.
+    """
     remaining = _remaining_shift_range(bundles[index], settled[index])
     assert remaining is not None
     lower, upper = remaining
@@ -4221,6 +4217,7 @@ def _denying_bundles(
         other
         for other, bundle in enumerate(bundles)
         if other != index
+        and _remaining_shift_range(bundle, settled[other]) is not None
         and _least_uncrowded_shift(
             lower,
             upper,

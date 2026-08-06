@@ -11,9 +11,11 @@ from typing import TypeAlias
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
+    CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
 )
 from nf_metro.layout.geometry import (
+    cotravelling_lane_clearance,
     point_to_polyline_distance,
     spans_share_corridor,
 )
@@ -1373,13 +1375,21 @@ def _plan_gap_channels(
 
 
 def _gap_channels_crowd(first: _PlanGapChannel, second: _PlanGapChannel) -> bool:
-    """Whether two counter-running legs share one corridor below the bundle floor."""
+    """Whether two counter-running legs share one corridor below the bundle floor.
+
+    ``same_line=False`` is sound because the caller filters an obstacle sharing
+    any of the leg's lines before asking (:func:`_settle_opposing_gap_flanks`),
+    so every pair reaching here carries distinct lines.
+    """
     return (
         first.gap == second.gap
         and first.down is not second.down
         and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
         and abs(first.coordinate - second.coordinate)
-        < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+        < cotravelling_lane_clearance(
+            same_line=False, counter_running=True, curve_radius=CURVE_RADIUS
+        )
+        - COORD_TOLERANCE
     )
 
 

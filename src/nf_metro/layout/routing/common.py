@@ -2297,8 +2297,8 @@ def _center_inter_row_channel(
     caller had to hand.  A *reserved* band here is
     :meth:`ReservedBands.at`'s boundary-wide intersection, which every claim
     crossing the boundary has to satisfy at once and so can be narrower than any
-    one of them -- 49 of the corpus's published boundary bands are a single
-    coordinate.  :meth:`ReservedBand.place` therefore keeps the stagger rather
+    one of them, down to a single coordinate.  :meth:`ReservedBand.place`
+    therefore keeps the stagger rather
     than collapsing it, and a bundle wider than the intersection overruns it,
     which the closing guard reports.
 
@@ -2374,18 +2374,24 @@ def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     )
 
 
-def _run_is_plan_owned(run: CorridorRun) -> bool:
-    """Whether a pre-routing plan fixes this run's coordinate.
+def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+    """Whether a pre-routing plan fixes the coordinate of one route segment.
 
     A convergence-owned segment boundary, a fan emission and a planned exit turn
     are all resolved against a plan the closing validators check the geometry
     against, so their coordinate is not a normalisation pass's to choose.
+
+    Stated once because the passes that move a coordinate and the guards that
+    refuse the result both have to agree on which coordinates are theirs: a pass
+    reading a wider rule than its guard would move geometry the guard then
+    refuses, and a narrower one would leave a defect neither reports.
     """
-    route = run.route
     return (
-        convergence_owns_segment_boundary(route, run.idx)
+        convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
-        or route.exit_turn_segment_rank == run.idx
+        or (
+            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
+        )
     )
 
 
@@ -2475,7 +2481,7 @@ class CorridorLane:
     @property
     def pinned(self) -> bool:
         """Whether a pre-routing plan fixes this track's coordinate."""
-        return any(_run_is_plan_owned(run) for run in self.runs)
+        return any(planner_owns_segment(run.route, run.idx) for run in self.runs)
 
     @property
     def handler_owned(self) -> bool:

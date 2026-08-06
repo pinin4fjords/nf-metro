@@ -8,6 +8,14 @@ from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    COORD_TOLERANCE_FINE,
+    MIN_CORRIDOR_Y_OVERLAP,
+    OFFSET_STEP,
+)
+
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
@@ -711,8 +719,6 @@ def spans_share_corridor(
     free to spread across the gap; only a substantial overlap makes them
     neighbours that have to be separated from each other.
     """
-    from nf_metro.layout.constants import MIN_CORRIDOR_Y_OVERLAP
-
     return min(first_hi, second_hi) - max(first_lo, second_lo) > MIN_CORRIDOR_Y_OVERLAP
 
 
@@ -739,8 +745,6 @@ def cotravelling_lanes_fuse(
     half of the question, shared so the pitch a pass restores and the pitch a
     guard demands can never disagree.
     """
-    from nf_metro.layout.constants import COORD_TOLERANCE_FINE
-
     tolerance = COORD_TOLERANCE_FINE if slack is None else slack
     return (
         spans_share_corridor(*first_span, *second_span)
@@ -764,12 +768,6 @@ def cotravelling_lane_clearance(
     separating channels it has already drawn, and the reservation ledger stating
     how much room a boundary carrying several corridors has to be given.
     """
-    from nf_metro.layout.constants import (
-        BUNDLE_TO_BUNDLE_CLEARANCE,
-        COORD_TOLERANCE,
-        OFFSET_STEP,
-    )
-
     if not counter_running:
         return 0.0 if same_line else OFFSET_STEP
     return curve_radius + COORD_TOLERANCE if same_line else BUNDLE_TO_BUNDLE_CLEARANCE
