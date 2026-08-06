@@ -32,6 +32,7 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     GUARD_TOLERANCE,
     INTER_ROW_EDGE_CLEARANCE,
+    JUNCTION_MARGIN,
     MIN_STATION_FLAT_LENGTH,
     ROW_BAND_SLACK,
     SAME_COORD_TOLERANCE,
@@ -2036,6 +2037,90 @@ def test_stacked_elbow_check_detects_graze():
     violations = check_stacked_elbow_clearance(graph, routes, {})
     assert violations, "expected a stacked-elbow graze to be detected"
     assert {violations[0].line_a, violations[0].line_b} == {"red", "blue"}
+
+
+def _flow_side_junction_wall_clearances(
+    graph, routes, offsets
+) -> list[tuple[str, float, bool]]:
+    """``(junction, wall margin, own column carries a drop)`` per flow-side junction.
+
+    A junction fed by a LEFT/RIGHT exit port stands off the wall that port sits
+    on, so the port's own X is the wall's.  Whether the junction's column is
+    itself a channel is read from the drawn geometry: a branch that descends the
+    junction's X puts a vertical run there, while one that turns a corner first
+    puts its run a curve radius further on.
+    """
+    columns: dict[str, set[float]] = defaultdict(set)
+    for rp in routes:
+        if rp.edge.source not in graph.junctions:
+            continue
+        pts = apply_route_offsets(rp, offsets)
+        for p1, p2 in zip(pts, pts[1:]):
+            if (
+                abs(p1[0] - p2[0]) <= SAME_COORD_TOLERANCE
+                and abs(p1[1] - p2[1]) > SAME_COORD_TOLERANCE
+            ):
+                columns[rp.edge.source].add(p1[0])
+
+    out: list[tuple[str, float, bool]] = []
+    for jid in graph.junctions:
+        junction = graph.stations.get(jid)
+        if junction is None:
+            continue
+        for edge in graph.edges_to(jid):
+            port = graph.ports.get(edge.source)
+            if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            out.append(
+                (
+                    jid,
+                    abs(junction.x - graph.stations[edge.source].x),
+                    any(
+                        abs(x - junction.x) <= SAME_COORD_TOLERANCE
+                        for x in columns[jid]
+                    ),
+                )
+            )
+    return out
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "topologies/peeloff_straight_drop_near_wall.mmd",
+        "topologies/exit_lane_settlement_without_crossings.mmd",
+        "variantbenchmarking.mmd",
+        "topologies/fanout_intersection_shared_channel.mmd",
+    ],
+)
+def test_flow_side_junction_reserves_only_the_clearance_its_column_needs(fixture):
+    """A flow-side junction stands off the wall by what its own column needs.
+
+    Where a branch descends the junction's X, that column is a channel in the
+    inter-column gap and owes ``EDGE_TO_BUNDLE_CLEARANCE`` from the edges
+    bounding it.  Where every branch turns a corner first, the channel stands a
+    whole curve radius further on and is already clear, so the junction keeps
+    only its runway: spending more would push the channel off the lanes nested
+    beside it without buying any clearance.
+    """
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    clearances = _flow_side_junction_wall_clearances(graph, routes, offsets)
+    assert clearances, f"{fixture}: no flow-side fan-out junction to measure"
+    offenders = [
+        (jid, margin, own)
+        for jid, margin, own in clearances
+        if (
+            margin < EDGE_TO_BUNDLE_CLEARANCE - GUARD_TOLERANCE
+            if own
+            else margin > JUNCTION_MARGIN + GUARD_TOLERANCE
+        )
+    ]
+    assert not offenders, "; ".join(
+        f"{jid}: {margin:.0f}px from the wall, own column carries a drop: {own}"
+        for jid, margin, own in offenders
+    )
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_MULTI_SECTION)
@@ -9590,31 +9675,37 @@ def test_cross_row_top_entry_bundle_corners_are_concentric():
     corner and the two trunk corners: their arc centres must coincide there
     (the final jog onto the shared port point is exempt, as both lines must
     converge on one marker).
+
+    Measured on the settled render geometry, which is where the pair's lane
+    separation is resolved: the lead-in laterals are the settlement's, and the
+    landing laterals are the port's own crossing Xs.
     """
     import math
 
-    graph = _layout("topologies/cross_row_gap_wrap.mmd")
-    routes = route_edges(graph)
-    offsets = compute_station_offsets(graph)
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
 
-    from nf_metro.render.svg import apply_route_offsets
+    path = _resolve_fixture("topologies/cross_row_gap_wrap.mmd")
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph))
 
-    bundle = [
-        r
-        for r in routes
-        if r.edge.source == "__junction_8" and r.edge.target == "merge_pt__entry_top_6"
-    ]
+    bundle = []
+    for record in observed.plan.routes:
+        values = dict(record.values.entries)
+        edge = dict(values["edge"].values.entries)
+        if (edge["source"], edge["target"]) == (
+            "__junction_8",
+            "merge_pt__entry_top_6",
+        ):
+            bundle.append((values["line_id"], values["points"], values["curve_radii"]))
     assert len(bundle) == 2, f"expected 2 lines, got {len(bundle)}"
-    bundle.sort(key=lambda r: r.line_id)
+    bundle.sort()
 
-    rendered = [(r, apply_route_offsets(r, offsets)) for r in bundle]
-    # The reference line drops straight into the port (no jog, 5 points); the
-    # offset line steps across with a converging jog (6 points).  Compare the
-    # three shared bends C1 (lead-in), C2 and C3 (trunk).
+    # C1 is the lead-in bend and C2/C3 the two trunk bends.
     centers = []
-    for r, pts in rendered:
+    for _line_id, pts, radii in bundle:
         cs = [
-            _corner_arc_center(pts[k - 1], pts[k], pts[k + 1], r.curve_radii[k - 1])
+            _corner_arc_center(pts[k - 1], pts[k], pts[k + 1], radii[k - 1])
             for k in range(1, 4)
         ]
         centers.append(cs)

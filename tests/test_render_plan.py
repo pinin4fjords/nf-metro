@@ -39,7 +39,7 @@ def _plan(path: str) -> tuple[MetroGraph, RenderPlan]:
     [
         ("examples/guide/01_minimal.mmd", 6, 7, (488, 286)),
         ("examples/topologies/divergent_fanout_split.mmd", 9, 8, (640, 422)),
-        ("examples/guide/03b_fan_in_merge.mmd", 18, 24, (880, 325)),
+        ("examples/guide/03b_fan_in_merge.mmd", 18, 24, (880, 326)),
         ("examples/topologies/fold_double.mmd", 55, 108, (1537, 716)),
         (
             "examples/topologies/lr_perp_top_entry_bottom_exit.mmd",

@@ -17,7 +17,12 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import DEBUG_ROW_GRID_COLOR
-from nf_metro.render.svg import compute_station_offsets, render_svg, station_marker_box
+from nf_metro.render.svg import (
+    _settled_render_graph,
+    compute_station_offsets,
+    render_svg,
+    station_marker_box,
+)
 from nf_metro.themes import NFCORE_THEME
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
@@ -57,7 +62,14 @@ def _row_grid_line_ys(svg: str) -> list[float]:
 
 
 def _anchor_ys(graph) -> set[float]:
-    return {round(st.y, 1) for st in graph.stations.values() if not st.is_port}
+    """Row anchors of the geometry the render actually draws.
+
+    Envelope settlement translates rows on the render's private copy of the
+    graph, so anchors read straight off the laid-out graph are the pre-render
+    ones and would not line up with the drawn grid.
+    """
+    settled = _settled_render_graph(graph, NFCORE_THEME)
+    return {round(st.y, 1) for st in settled.stations.values() if not st.is_port}
 
 
 @pytest.mark.parametrize("fixture", GRID_FIXTURES)
