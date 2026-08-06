@@ -485,6 +485,7 @@
   "normalize.py::if not 0 <= far < len(pts):::#1",
   "normalize.py::if not _planner_owns_channel(ch):::#1",
   "normalize.py::if not any(not t.route.normalize_exempt for t in grp):::#2",
+  "normalize.py::if not blockers:::#1",
   "normalize.py::if not changed:::#1",
   "normalize.py::if not chans:::#1",
   "normalize.py::if not crossing:::#1",
