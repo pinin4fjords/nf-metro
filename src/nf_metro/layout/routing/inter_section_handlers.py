@@ -3480,12 +3480,11 @@ def _perp_entry_finish_route(
         centerline = [(sx, sy), (final_x, sy), (final_x, ty)]
         transition_leg = 1
     # The lead-in already reaches the landing column, so the channel leg
-    # between them is short enough to drop: run the lead-in to the landing
-    # column itself and turn down once.  Turning down beside it and jogging
-    # across at the port instead would step the line sideways exactly on the
-    # boundary, which the intra-section departure leaves at the landing column.
-    # Where the source already stands in that column the lead-in spans nothing
-    # either, and only the drop is left.
+    # between them is too short to turn through: run the lead-in to that column
+    # and turn down once.  Turning down beside the column and jogging across at
+    # the port would step the line sideways right on the boundary, which the
+    # intra-section departure leaves at the landing column.  A source standing
+    # in that column has no lead-in to run either, and only the drop is left.
     elif abs(lx0 - final_x) <= ctx.curve_radius:
         lead_in = [] if abs(final_x - sx) <= COORD_TOLERANCE else [(final_x, sy)]
         centerline = [(sx, sy), *lead_in, (final_x, ty)]

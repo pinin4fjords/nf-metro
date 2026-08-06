@@ -40,7 +40,6 @@ from nf_metro.layout.phases.junctions import (
     _resolve_source_xy,
 )
 from nf_metro.layout.route_topology import divergence_junction_sources
-from nf_metro.layout.routing.corners import outer_lane_radius
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
 
 
@@ -386,21 +385,23 @@ def _mirror_entry_section_to_seam(
     return True
 
 
-def _feeder_descent_x(
-    graph: MetroGraph, source_id: str, source_x: float, port_id: str
-) -> float:
-    """X of the column a feeder of perpendicular entry *port_id* descends in.
+def _feeder_descent_x(graph: MetroGraph, edge: Edge, source_x: float) -> float:
+    """X of the column *edge* descends in to reach its perpendicular entry port.
 
     A feeder leaving through a LEFT/RIGHT exit port travels away from the box
     before it can turn down, and that turn is drawn at the outer lane's radius,
     so its descent column stands one such runway beyond the exit.  A port seated
-    on the exit's own X instead asks for a vertical arrival in a column the
-    feeder never occupies, and the drop has to step sideways onto the port as it
-    crosses the boundary.  Every other feeder already descends in its own
-    column: a perpendicular exit leaves vertically, and a junction is seated off
-    the box by the same runway when it is placed.
+    on the exit's own X asks for a vertical arrival in a column the feeder never
+    occupies, and the drop steps sideways onto the port marker as it crosses the
+    boundary.  Every other feeder already descends in its own column: a
+    perpendicular exit leaves vertically, and a junction is seated clear of the
+    box by its own margin when it is placed, so *source_x* carries the offset
+    for it already.
     """
-    exit_port = graph.ports.get(source_id)
+    from nf_metro.layout.routing.centrelines import gather_member_edges
+    from nf_metro.layout.routing.corners import outer_lane_radius
+
+    exit_port = graph.ports.get(edge.source)
     if (
         exit_port is None
         or exit_port.is_entry
@@ -408,8 +409,8 @@ def _feeder_descent_x(
     ):
         return source_x
     sign = 1.0 if exit_port.side is PortSide.RIGHT else -1.0
-    bundle = {e.line_id for e in graph.edges_to(port_id) if e.source == source_id}
-    return source_x + sign * outer_lane_radius(len(bundle))
+    _members, line_ids, _by_line = gather_member_edges(graph, edge)
+    return source_x + sign * outer_lane_radius(len(line_ids))
 
 
 def _align_tb_entry_port(
@@ -435,7 +436,7 @@ def _align_tb_entry_port(
         src_section_id = _resolve_source_section_id(graph, edge.source, junction_ids)
         sources.append(
             (
-                _feeder_descent_x(graph, edge.source, src_xy[0], port_id),
+                _feeder_descent_x(graph, edge, src_xy[0]),
                 src_xy[1],
                 src_section_id,
             )
