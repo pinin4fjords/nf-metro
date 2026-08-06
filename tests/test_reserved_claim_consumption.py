@@ -92,11 +92,27 @@ KNOWN_NOT_RENDERING = frozenset(
 )
 
 
-def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
+# Claims drawn outside their band by no more than one ``COORD_TOLERANCE``, which
+# is this codebase's definition of two coordinates being equal, so they satisfy
+# the bound below.  They are enumerated by identity all the same: "zero beyond
+# tolerance" is only worth something if the population sitting just inside the
+# tolerance cannot grow without anyone noticing.  Adding one here is a decision
+# to be argued for, not a side effect.
+WITHIN_TOLERANCE_OVERHANGS: frozenset[tuple[str, int, int]] = frozenset(
+    {
+        ("examples/genomeassembly.mmd", 39, 3),
+        ("tests/fixtures/genomeassembly_organellar.mmd", 42, 3),
+    }
+)
+
+
+def _claim_overhangs(path: Path) -> dict[tuple[int, int], tuple[float, str]] | None:
     """*path*'s claims drawn outside their band, or ``None`` if it cannot render.
 
-    Keyed by the claim's own ``(path_rank, segment_rank)`` so the bound names the
-    leg, with the measured band and drawn interval as the value.
+    Keyed by the claim's own ``(path_rank, segment_rank)`` so a bound names the
+    leg, valued by how far outside it is drawn and the geometry that was
+    measured.  Every overhang is reported, however small, so a caller can hold
+    the ones within tolerance separately from the ones beyond it.
     """
     try:
         with warnings.catch_warnings():
@@ -111,7 +127,7 @@ def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
         return {}
     query = build_route_plan_query(route_plan)
     polylines = observed.plan.route_polylines
-    violations: dict[tuple[int, int], str] = {}
+    overhangs: dict[tuple[int, int], tuple[float, str]] = {}
     for reservation in route_plan.reservations:
         if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
             continue
@@ -122,19 +138,30 @@ def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
             drawn = drawn_corridor_containment(
                 reservation, realised, polylines, (claim,)
             )
-            if (
-                min(drawn.negative_side_slack, drawn.positive_side_slack)
-                >= -COORD_TOLERANCE
-            ):
+            short = -min(drawn.negative_side_slack, drawn.positive_side_slack)
+            if short <= 0.0:
                 continue
-            violations[claim.path_rank, claim.segment_rank] = (
+            overhangs[claim.path_rank, claim.segment_rank] = (
+                short,
                 f"{reservation.id} claim {claim.member_id} "
                 f"(path {claim.path_rank}, segments {claim.segment_rank}.."
                 f"{claim.segment_end_rank}): drawn "
                 f"[{drawn.drawn_start:.2f}, {drawn.drawn_end:.2f}] outside band "
-                f"[{drawn.band_start:.2f}, {drawn.band_end:.2f}]"
+                f"[{drawn.band_start:.2f}, {drawn.band_end:.2f}] by {short:.2f}px",
             )
-    return violations
+    return overhangs
+
+
+def _out_of_band_claims(path: Path) -> dict[tuple[int, int], str] | None:
+    """*path*'s claims drawn further outside their band than tolerance allows."""
+    overhangs = _claim_overhangs(path)
+    if overhangs is None:
+        return None
+    return {
+        key: message
+        for key, (short, message) in overhangs.items()
+        if short > COORD_TOLERANCE
+    }
 
 
 @pytest.mark.parametrize(
@@ -157,3 +184,49 @@ def test_realised_gap_claims_are_drawn_in_their_reserved_band(path: Path) -> Non
         "geometry-derived fallback rather than by its reservation:\n"
         + "\n".join(violations[key] for key in sorted(violations))
     )
+
+
+@pytest.mark.parametrize(
+    "path", _CORPUS, ids=[str(p.relative_to(_ROOT)) for p in _CORPUS]
+)
+def test_claims_drawn_within_one_tolerance_of_their_band_are_the_recorded_ones(
+    path: Path,
+) -> None:
+    """The population sitting just inside the tolerance does not grow unnoticed.
+
+    The bound above is "no claim is drawn more than one ``COORD_TOLERANCE``
+    outside its band".  On its own that lets claims accumulate at 0.99 of a
+    tolerance without any test reddening, and the guarantee would erode while
+    still reading as clean.  This pins the ones that are there by identity.
+    """
+    rel = str(path.relative_to(_ROOT))
+    overhangs = _claim_overhangs(path)
+    if overhangs is None:
+        pytest.skip("fixture does not render")
+    found = {
+        (rel, path_rank, segment_rank)
+        for (path_rank, segment_rank), (short, _message) in overhangs.items()
+        if short <= COORD_TOLERANCE
+    }
+    expected = {item for item in WITHIN_TOLERANCE_OVERHANGS if item[0] == rel}
+    assert found == expected, (
+        "the claims drawn within one tolerance of their band are not the ones "
+        f"recorded: unrecorded {sorted(found - expected)}, recorded but now "
+        f"clean {sorted(expected - found)}. A new one is a claim that stopped "
+        "consuming its reservation exactly and got away with it; one that "
+        "cleaned up means dropping its WITHIN_TOLERANCE_OVERHANGS entry:\n"
+        + "\n".join(
+            message
+            for (_path_rank, _segment_rank), (short, message) in sorted(
+                overhangs.items()
+            )
+            if short <= COORD_TOLERANCE
+        )
+    )
+
+
+def test_every_recorded_within_tolerance_overhang_names_a_corpus_fixture() -> None:
+    """A stale entry would silently excuse a fixture that no longer exists."""
+    corpus = {str(item.relative_to(_ROOT)) for item in _CORPUS}
+    named = {item[0] for item in WITHIN_TOLERANCE_OVERHANGS}
+    assert named <= corpus, named - corpus
