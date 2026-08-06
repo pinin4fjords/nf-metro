@@ -4,20 +4,27 @@ from __future__ import annotations
 
 import copy
 import warnings
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout import capacity_probe
 from nf_metro.layout.capacity_probe import (
     CAPACITY_MULTIPLES,
+    CapacityGrant,
+    CapacityProbe,
     CapacityScope,
     CapacityVerdict,
+    GrantOutcome,
     _replan,
     claimed_boundaries,
     probe_settlement_capacity,
     translate_boundaries,
 )
+from nf_metro.layout.route_plan import RouteSystemId
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
 
@@ -154,6 +161,12 @@ def test_every_compatibility_system_is_probed_against_boundary_capacity(
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.verdict is expected
     assert len(probe.grants) == 2 * len(CAPACITY_MULTIPLES)
+    assert not probe.diverged_grants, (
+        "a grant whose re-plan describes neither disposition says nothing about "
+        "allocation, so a verdict resting on one would be reading an "
+        "uninterpretable counterfactual: "
+        + str([item.capacity for item in probe.diverged_grants])
+    )
     assert probe.capacity > 0.0
     assert probe.control_conflict is not None
     assert probe.control_conflict.reason in probe.message
@@ -252,6 +265,57 @@ def test_the_probe_answers_the_same_way_twice() -> None:
     first = probe_settlement_capacity(graph, plan)
     second = probe_settlement_capacity(graph, plan)
     assert first == second
+
+
+def test_a_grant_the_replan_loses_the_system_on_is_not_a_negative_result() -> None:
+    """A re-plan that neither owns the system nor keeps it whole is uninterpretable.
+
+    ``_is_planned`` returns ``None`` for a system a re-plan lost or split, which
+    is the same disposition-mismatch hazard the control check refuses one step
+    further in: at a grant instead of at the baseline.  Folded into "not planned"
+    it would count as evidence *for* ``BEYOND_ALLOCATION``, so a probe that had
+    stopped describing its system at every capacity would publish the conclusion
+    the exit criteria are read off.
+    """
+    graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
+
+    def lose_the_system(_graph):
+        return {}, 4.0
+
+    with mock.patch.object(capacity_probe, "_replan", side_effect=lose_the_system):
+        outcome = capacity_probe._grant_outcome(
+            graph, RouteSystemId("any"), (), (), 0.0
+        )
+    assert outcome is GrantOutcome.DIVERGED
+
+    probe = _sole(probe_settlement_capacity(graph, plan))
+    diverged = replace(
+        probe,
+        grants=tuple(
+            replace(item, outcome=GrantOutcome.DIVERGED) for item in probe.grants
+        ),
+    )
+    assert probe.verdict is CapacityVerdict.BEYOND_ALLOCATION
+    assert diverged.verdict is CapacityVerdict.GRANTS_DIVERGED
+    assert diverged.measured_grants == ()
+    assert "could not be probed" in diverged.message
+
+
+def test_a_diverged_grant_does_not_break_a_planned_tail() -> None:
+    """The tail is read over the grants that describe the system.
+
+    A grant excluded from the verdict cannot count against it either, or the
+    exclusion would be a third way of saying "not planned".
+    """
+    grants = (
+        CapacityGrant(CapacityScope.CLAIMED_BOUNDARIES, 10.0, GrantOutcome.COMPATIBLE),
+        CapacityGrant(CapacityScope.CLAIMED_BOUNDARIES, 20.0, GrantOutcome.PLANNED),
+        CapacityGrant(CapacityScope.CLAIMED_BOUNDARIES, 40.0, GrantOutcome.DIVERGED),
+        CapacityGrant(CapacityScope.CLAIMED_BOUNDARIES, 80.0, GrantOutcome.PLANNED),
+    )
+    probe = CapacityProbe(RouteSystemId("s"), 1.0, 10.0, grants, True, None)
+    assert probe.verdict is CapacityVerdict.ALLOCATION_REACHES
+    assert probe.sufficient == (CapacityScope.CLAIMED_BOUNDARIES, 20.0)
 
 
 def test_a_control_that_does_not_reproduce_the_map_is_reported_unmeasured() -> None:

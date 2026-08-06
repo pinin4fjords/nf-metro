@@ -1444,6 +1444,21 @@ in pipeline order.
   clearance demands; the demand vocabulary itself is
   `layout/settlement_demand.py`, held apart from settlement so a layout phase
   can state a demand without importing the routing stack the ledger is built on.
+- **The two demands do not cover the same axes.** The reservation ledger is
+  settled on both: `_settle_axis` runs once per axis and every row-gap and
+  column-gap claim is measured. The clearance demand is **row-only**.
+  `measure_row_gap_clearance` is the sole `ClearanceMeasurement` in the tree and
+  emits `SettlementAxis.ROW` exclusively, so `_clearance_at(graph, COLUMN_AXIS,
+  clearance)` is always empty and no column boundary has ever settled a clearance
+  demand. That is the scope of the pass it stands in for,
+  `push_lower_rows_after_bbox_grow` (a row push after a bbox grow -- see the
+  migration table below); `_clearance_at` and
+  `_assert_clearance_demands_are_met` are written for both axes because the
+  vocabulary is axis-neutral, not because both are populated. The consequence is a
+  real one: render-time label wrapping grows `bbox_w` as well as `bbox_h`, so a
+  column boundary can have its declared gap eaten with nothing measuring the
+  deficit. Adding the column measurement is a behaviour change and is not part of
+  this contract.
   Rail layouts raise no clearance demand: their row pitch comes from the
   interchange idiom rather than the declared section gap, and widening one of
   their boundaries to that gap turns a flat inter-row run into a staircase --
@@ -1479,7 +1494,16 @@ in pipeline order.
   every run sharing the corridor ends inside it, and a box one of them merely
   passes bounds it for all of them. Region *selection* is unaffected -- it
   asks which boundary a run occupies, not what that boundary has room for -- so
-  the corpus raises exactly the same claims on the same 557 reservations.
+  the corpus raises exactly the same claims on the same 557 reservations. Six
+  reservations across four fixtures have claims that disagree about a landing box,
+  so the intersection is load-bearing rather than notional; `reportho.metro`'s
+  column 4/5 corridor is the case
+  `test_a_box_only_one_claims_run_ends_inside_bounds_the_whole_reservation` pins,
+  where a union would drop `report` from the measurement for all three of its
+  claims and measure the corridor to a box edge two of its runs are stopped by.
+  Uniting instead is a *weakening* -- it can only remove blockers -- so no
+  capacity bound reds on it, which is why the reduction is pinned by identity
+  rather than left to the closing guard.
 - **A corridor is bounded by the station its own runs launch from**: a
   pre-routing plan that emits its runs out of a station standing inside the gap
   fixes the length of the opening leg and refuses emitted geometry that shortens
@@ -1494,7 +1518,9 @@ in pipeline order.
   `_route_planned_bottom_exit_right_landings` can seat its traverse in the band
   its own reservation realises instead of at a floor the ledger disagrees with.
   The set is the intersection over the reservation's claims, for the same reason
-  `landing_section_ids` is. Settlement is unaffected by this blocker: an
+  `landing_section_ids` is; no corpus reservation's claims disagree about a launch
+  anchor, so the corpus offers no case where that reduction is observable and
+  nothing pins it. Settlement is unaffected by this blocker: an
   anchor stands on the side a translation holds still, so the ownership lemma
   below still gives the corridor the full widening it asks for. Measured on the
   corpus, two fixtures raise an anchored corridor -- both planned bottom-exit
@@ -1575,7 +1601,7 @@ in pipeline order.
   Capacity holds unconditionally, for every arrangement an author can express, by
   the **ownership lemma**: `_row_region_measurement` splits the sections beside
   boundary `b` into an upper set `{row_end(s) <= b-1}` and a lower set
-  `{grid_row(s) >= b}`, and `_translation_ownership(b)` moves exactly
+  `{grid_row(s) >= b}`, and `translation_ownership(b)` moves exactly
   `{grid_row(s) >= b}` and holds everything else. Those are the same inequality,
   so a translation raises the corridor's `end` by its full amount and leaves
   `start` fixed: the corridor widens by exactly what was asked. Columns are the
@@ -1655,6 +1681,20 @@ in pipeline order.
 - **Invariants preserved**: No row or column separation decreases. Section
   sizes, a station's position within its section, plan-owned frames, lane
   order, port sides, and author-pinned grid relationships are unchanged.
+- **How settlement's self-checks fail**: every one of them --
+  `_assert_no_separation_decreased`,
+  `_assert_spanning_sections_bound_nothing_settled`,
+  `_assert_the_column_phase_left_the_row_phase_standing`,
+  `_assert_clearance_demands_are_met`, and the boundary with no translation owner
+  -- raises `PhaseInvariantError`. Each states a conclusion the ownership and
+  monotonicity lemmas above establish, so a violation is engine drift and not
+  something an author can express in a `.mmd`; the type puts it inside
+  `NfMetroError` alongside the mid-layout guards of the same class, and
+  `render_string` documents it. None of them is gated on `graph.strict` or
+  downgraded under `graph.permissive`: a best-effort diagram drawn past a broken
+  allocation lemma is a diagram whose geometry nothing vouches for. The write is
+  transactional, so the pre-settlement coordinates are restored before the error
+  propagates.
 - **Out of scope**: Canvas-side corridors, whose far boundary is the canvas
   edge rather than a grid neighbour; closing one grows a margin, which no row
   or column offset owns. They are gated separately, by
@@ -1753,7 +1793,20 @@ in pipeline order.
   run of one line on one lane through one corridor) so a fused fan-out cannot
   be split, and never moving a track a plan owns.
   `check_no_fused_cotravelling_lines` is its postcondition on the render
-  chokepoint.
+  chokepoint, **for every pair with a re-seatable track**. A pair both of whose
+  tracks a plan owns (`CorridorLane.pinned`, i.e. `planner_owns_segment` holds
+  for one of the lane's runs) is exempt and reported by nothing: the pass may not
+  move either track, so the chokepoint would abort a render on a defect it has no
+  route to a repair for. The exemption is a gap in the guarantee, not a
+  refinement of it: the corpus draws **4 such pairs at 0.00px separation against
+  a 4.00px nesting step**, over 76px, 228px, 727px and 762px of shared corridor,
+  in `tests/fixtures/hash_seed_determinism/seed_15.mmd`, `seed_41.mmd` and
+  `seed_77.mmd`. All three abort on `CurveInvariantError` before a render reaches
+  a caller, so nothing shipped draws a hidden line today. `EXEMPT_FUSED_PAIRS` in
+  `tests/test_fused_cotravelling_lines_invariant.py` pins that population by
+  identity over the whole corpus, measured as the fused pairs the checker itself
+  declines to report, so a new one reds wherever it appears and one that
+  separates has to be removed.
 - **Containment is closed on the drawn geometry, not in the handlers**:
   `ReservedCorridors` answers "what is clear at this boundary", which is the
   intersection of every claim crossing it. That cannot separate two corridors
@@ -1913,6 +1966,17 @@ in pipeline order.
   boundaries 39, 78 and 156px through `settle_route_envelopes` itself leaves the
   re-route's planner on compatibility with its conflict measured at the same
   0.00px separation every time.
+  A grant therefore has **three** outcomes and not two (`GrantOutcome`): the
+  re-plan owns the whole system, leaves the whole of it on compatibility, or comes
+  back describing neither -- the system absent, or split across both dispositions.
+  That third case is `DIVERGED` and is excluded from the verdict, because "the
+  planner wants more room here" and "the planner is not talking about this system"
+  are different findings and only the first bears on allocation; reading a
+  diverged grant as compatible is the same conflation as the stale-junction case
+  above, one step further in. A system every grant diverges on is
+  `GRANTS_DIVERGED`, not `BEYOND_ALLOCATION`. Measured over `COMPATIBILITY_CORPUS`,
+  **0 of the 168 grants diverge**, so no live verdict rests on the distinction and
+  `test_capacity_probe.py` pins that count at zero.
   That is also why a **conditional demand** -- the planner publishing what it
   would have needed when it declines for space, so settlement allocates against
   it in the one pass it makes -- closes nothing for the two
@@ -2096,8 +2160,8 @@ each pass is split first, and only the second half is a candidate:
 - a **global** responsibility -- translating sections the pass does not own, to
   absorb what the local half revealed.
 
-Settlement's translation is exactly `_apply_translation` over
-`_translation_ownership(b)`, which moves `{grid_row(s) >= b}` and holds the
+Settlement's translation is exactly `apply_translation` over
+`translation_ownership(b)`, which moves `{grid_row(s) >= b}` and holds the
 rest. A pass is a migration candidate when its global half applies one amount
 to that same set, in the direction that widens the boundary.
 
@@ -2146,8 +2210,8 @@ carry said it was not:
 - Nothing else about it was out of reach. Its ownership predicate is already
   settlement's: every box the shortfall is measured *from* ends at row `b-1` or
   above and every box it is measured *to* starts at `b` or beyond, which are the
-  two halves of `_translation_ownership(b)`. Its per-section write, via
-  `_shift_rows_from`, is `shift_section` -- the same write `_apply_translation`
+  two halves of `translation_ownership(b)`. Its per-section write, via
+  `_shift_rows_from`, is `shift_section` -- the same write `apply_translation`
   makes. Junction re-derivation is the render path's `reanchor_junctions`
   either way.
 - A boundary carrying both demands is widened **once**, by the larger. Paying
