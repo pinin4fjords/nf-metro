@@ -1715,8 +1715,48 @@ in pipeline order.
   they claim and puts the merged trunk in the very column an *unowned* member of
   the same route system already uses to enter that port, so
   `UNOWNED_MEMBER_CORRIDOR` refuses a planned corridor there and all three of the
-  fixture's convergences take the compatibility disposition as one group. #1660
-  admits that only against evidence, and the evidence is measured on the settled
+  fixture's convergences take the compatibility disposition as one group.
+  That disposition is a temporary dependency on #1658's plan-driven whole-system
+  emission -- the owner `UNOWNED_MEMBER_CORRIDOR` already names -- and not the
+  state this geometry should settle at. Two things stand between the drawn
+  geometry and a planned disposition, and only the first is the one the conflict
+  names.
+  The conflict is measured on geometry a later pass fuses. The unowned member is
+  `annotation__exit_right_3 -> reporting__entry_top_7`: the same line, landing on
+  the plan's own entry port, which is the pair `_convergent_port_groups` groups
+  and `_coincide_same_line_tracks` fuses onto one column. On the settled map the
+  two runs are one stroke per line, at x = 554, 558 and 562.
+  `UNOWNED_MEMBER_CORRIDOR` compares the planned trunk against a `_trial_route`
+  taken before that fusion, so it reports a contested corridor where the drawn
+  geometry has a shared one.
+  Behind it, the plan cannot state the column its own members are drawn in.
+  `_perp_entry_junction_straight_drop` gives the merge's junction-to-port hop its
+  lane offset along the axis it travels (`ty + tgt_off`), where a TOP port lanes
+  its lines across the edge it sits on (`port_lane_coord`), so the hop ends 4px
+  and 8px past the port for `tumor_only` and `somatic` while their own feeders
+  end on it. `_shared_terminal_axis` finds no feeder terminating where the hop
+  does and declines; the plan falls back to `OUTGOING_CONTINUATION` with its
+  trunk on the junction column (554) while its own feeders stand in the lane
+  columns (558, 562); and `_snap_group` then refuses "one coincidence group
+  contains conflicting planned axes" -- between the plan's own continuation and
+  its own landings, not between the plan and the unowned member. Exempting the
+  unowned member on its own therefore does not restore the disposition: it
+  yields a plan whose trunk the fusion has to move, which
+  `consume_convergence_route` refuses.
+  Both were measured together. Seating that drop on the port's lane column and
+  exempting the same-line sibling landing on the plan's own port makes all three
+  convergences `PLANNED` with `SHARED_TERMINAL_APPROACH` trunks on 554, 558 and
+  562, and takes the corpus from 32 compatibility convergences to 22 -- this
+  fixture, `examples/genomic_pipeline.mmd`,
+  `tests/fixtures/regressions/stacked_collector_fanin.mmd` and
+  `examples/topologies/merge_right_entry.mmd` all migrate. It also moves 5
+  renders and leaves `examples/topologies/straight_drop_below.mmd` and
+  `examples/topologies/peeloff_straight_drop_near_wall.mmd` failing a planned
+  fan-plan invariant, so it is #1658 work carrying its own fallout rather than a
+  disposition-only change. The 32 in this section is therefore a figure with a
+  landing date: 29 once this fixture's three migrate, 22 once the mechanism does.
+  #1660 admits the present disposition only against evidence, and the evidence
+  is measured on the settled
   map: the two conflicting runs are the same column, 0.00px apart in one
   translated column band (`SettlementReach.SEPARATION_FIXED`), so no offset this
   stage owns separates them, and the corpus publishes no `WITHIN_REACH`

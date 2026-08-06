@@ -650,6 +650,12 @@ def test_perpendicular_entry_convergences_take_whole_system_compatibility() -> N
     and a logical group migrates whole or not at all, so all three take the
     compatibility disposition together rather than one of them planning a trunk
     the other two would have to route around.
+
+    The disposition records what the planner is short of rather than a property
+    of this topology; ``src/nf_metro/layout/CONTRACT.md`` names the missing
+    capability, its owner, and the corpus count that follows it.  What the
+    assertions below hold is the transactional fallback, which this stage owes
+    whichever disposition it reaches.
     """
     path = (
         ROOT
