@@ -1628,8 +1628,13 @@ in pipeline order.
   through the translations, not the re-routed one. A demand only the re-routed
   geometry reveals is consequently not chased, and `attach_reroute_ledger_delta`
   records it as a non-blocking plan diagnostic so it is named rather than
-  invisible. Measured on the 219 corpus fixtures that reach the re-route, its
-  gap demand adds no corridor the ledger lacks and drops one.
+  invisible. It compares each corridor's description together with the width it
+  asks for, since a boundary whose corridor survives at a different
+  `minimum_width` is one the translations were sized wrongly for. Measured on
+  the corpus, its gap demand names no corridor either ledger lacks, and 19
+  corridors across 8 fixtures whose required width the re-route states lower
+  than settlement was sized for. None is stated higher, so the frozen ledger
+  never under-sizes a boundary the render draws.
 - **Consumed by**: the re-route. `_settle_render_geometry` hands the
   pre-settlement ledger back to `observe_route_edges_centred` whenever it holds
   any reservation, which builds `ReservedCorridors`

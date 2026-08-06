@@ -605,35 +605,63 @@ def attach_reroute_ledger_delta(
     moving demand across this boundary is visible rather than silent.  The plan
     the render draws from is the frozen one either way, which is why these are
     non-blocking records rather than a refusal.
+
+    A corridor is compared by what settlement had to size for it, which is its
+    description together with the width it asks for: a boundary whose corridor
+    survives the re-route at a different ``minimum_width`` is one the
+    translations were sized wrongly for, and a description alone cannot say so.
+    The widths of the corridors sharing one description are held as a sorted
+    tuple, so a re-route that drops one of a pair of alike corridors differs
+    from one that keeps both.
     """
 
-    def gap_demand(source: RoutePlan) -> set[str]:
-        return {
-            item.description
-            for item in source.reservations
-            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
-        }
+    def gap_demand(source: RoutePlan) -> dict[str, tuple[float, ...]]:
+        widths: dict[str, list[float]] = {}
+        for item in source.reservations:
+            if isinstance(item.region, RowGapRegion | ColumnGapRegion):
+                widths.setdefault(item.description, []).append(item.minimum_width)
+        return {key: tuple(sorted(value)) for key, value in widths.items()}
+
+    def stated(widths: tuple[float, ...]) -> str:
+        return ", ".join(f"{width:.2f}px" for width in widths)
 
     before, after = gap_demand(frozen), gap_demand(routed)
-    added = tuple(
-        RoutePlanDiagnostic(
-            None,
-            "reroute-ledger-demand-appeared",
-            f"the settled re-route demands {description}, which the ledger "
-            "settlement was handed does not carry, so no widening was sized "
-            "for it",
-            blocking=False,
+    added = (
+        tuple(
+            RoutePlanDiagnostic(
+                None,
+                "reroute-ledger-demand-appeared",
+                f"the settled re-route demands {description} at "
+                f"{stated(after[description])}, which the ledger settlement was "
+                "handed does not carry, so no widening was sized for it",
+                blocking=False,
+            )
+            for description in sorted(after.keys() - before.keys())
         )
-        for description in sorted(after - before)
-    ) + tuple(
-        RoutePlanDiagnostic(
-            None,
-            "reroute-ledger-demand-vanished",
-            f"the ledger settlement was handed carries {description}, which "
-            "the settled re-route does not demand",
-            blocking=False,
+        + tuple(
+            RoutePlanDiagnostic(
+                None,
+                "reroute-ledger-demand-vanished",
+                f"the ledger settlement was handed carries {description} at "
+                f"{stated(before[description])}, which the settled re-route does "
+                "not demand",
+                blocking=False,
+            )
+            for description in sorted(before.keys() - after.keys())
         )
-        for description in sorted(before - after)
+        + tuple(
+            RoutePlanDiagnostic(
+                None,
+                "reroute-ledger-demand-rewidened",
+                f"the settled re-route demands {description} at "
+                f"{stated(after[description])} against the "
+                f"{stated(before[description])} the ledger settlement was handed "
+                "carries, so the widening was sized for a different width",
+                blocking=False,
+            )
+            for description in sorted(before.keys() & after.keys())
+            if before[description] != after[description]
+        )
     )
     if not added:
         return plan
