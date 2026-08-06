@@ -14,11 +14,18 @@ disposition that comes back.  A system the planner plans once it has room was
 held by an envelope allocation; a system that stays on the compatibility path
 across every capacity granted was held by something no allocation supplies.
 
-Three properties make the answer usable as evidence.
+Four properties make the answer usable as evidence.
 
 *Read-only.*  Every grant runs on ``copy.deepcopy`` of the graph and the plan is
 only read, so no probe geometry, plan, reservation, or offset can reach the map
 that gets drawn.  Nothing here is called from the render path.
+
+*Faithful.*  A grant only says something about capacity if the geometry it hands
+the planner is geometry settlement could hand it.  A translation moves whole
+sections and the render path derives the coordinates that follow from where they
+sit before it routes again, so the grant derives them too
+(:func:`translate_boundaries`); a grant that skipped the step would report a
+planner decision taken on a map with no drawn counterpart.
 
 *Controlled.*  Re-planning is only meaningful if it reproduces the disposition
 the map already has.  Each system is first re-planned on an untouched copy, and
@@ -28,17 +35,17 @@ its grants would be differences against an unknown baseline.
 
 *Falsifiable.*  A probe that can only ever report "no allocation reaches this"
 would be indistinguishable from a probe that does nothing, so the result has to
-be reachable in both directions.  It is: the corpus contains systems the probe
+be reachable in both directions.  It is: the corpus contains a system the probe
 reports planned, and ``tests/test_capacity_probe.py`` also starves a system that
 the planner plans on its own geometry and watches the probe hand its capacity
 back.
 
-The planner's answer is not monotone in capacity -- a system can be planned at
-one capacity and compatible at a larger one, because moving whole rows and
-columns changes which runs overlap as well as how much room they have.  A single
-grant is therefore not evidence.  The verdict is taken from a *tail*: a system
-counts as reached only when it is planned at some granted capacity and at every
-larger one, which no isolated coincidence of alignment satisfies.
+The planner's answer need not be monotone in capacity: moving whole rows and
+columns changes which runs overlap as well as how much room they have, so one
+planned grant can be a coincidence of alignment rather than a threshold.  A
+single grant is therefore not evidence.  The verdict is taken from a *tail*: a
+system counts as reached only when it is planned at some granted capacity and at
+every larger one, which no isolated coincidence satisfies.
 """
 
 from __future__ import annotations
@@ -376,10 +383,31 @@ def _plans_with_capacity(
     rather than a verdict.
     """
     probe_graph = copy.deepcopy(graph)
-    for axis, boundaries in ((_ROW_AXIS, rows), (_COLUMN_AXIS, columns)):
-        _widen(probe_graph, axis, boundaries, amount)
+    translate_boundaries(probe_graph, rows, columns, amount)
     replanned, _offset_step = _replan(probe_graph)
     return _is_planned(replanned, system_id) is True
+
+
+def translate_boundaries(
+    graph: MetroGraph,
+    rows: tuple[int, ...],
+    columns: tuple[int, ...],
+    amount: float,
+) -> None:
+    """Move *rows* and *columns* by *amount* and derive what that implies.
+
+    The settled render derives a junction from the ports it joins before it
+    routes, so a translation that skips the step offers its reader a map the
+    pipeline cannot produce: the arms of one fan stop meeting at a shared
+    coordinate because their junction was left behind, not because the boundary
+    got wider.  Naming the pair together is what stops a caller taking one
+    without the other.
+    """
+    from nf_metro.layout.phases.junctions import reanchor_junctions
+
+    for axis, boundaries in ((_ROW_AXIS, rows), (_COLUMN_AXIS, columns)):
+        _widen(graph, axis, boundaries, amount)
+    reanchor_junctions(graph)
 
 
 def _widen(

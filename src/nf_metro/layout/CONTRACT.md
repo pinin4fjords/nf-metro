@@ -1771,28 +1771,58 @@ in pipeline order.
   **not** establish that a wider boundary would still leave the planner unable to
   allocate both members, which is the question #1657's exit criteria asked.
   `capacity_probe.probe_settlement_capacity` answers that one directly, and its
-  answer is that **#1657's exit criteria are not met for 6 of the 14**. The probe
+  answer is that **#1657's exit criteria are not met for 1 of the 14**. The probe
   copies the settled graph, translates whole rows and columns to widen the
-  boundaries a system is measured at, re-runs convergence planning on the copy,
-  and reads the disposition: `merge_around_below_leftmost` is planned once its
-  claimed boundaries carry 39px more and at every larger capacity granted,
-  `merge_bottom_row_bypass` and `merge_feeder_shared_channel_gap` from 19.5px,
-  `ambiguous_exit_continuation` from 256px across every boundary and
-  `merge_right_entry` from 576px, while `merge_trunk_out_of_range_section` is
-  planned at 656px but not above it. Those systems are held by an envelope
-  allocation, so their compatibility is #1660's own unfinished work and not an
-  exit to publish; the remaining 8 stay on the compatibility path under every
-  capacity the probe grants, up to sixteen times what one competing pair of runs
-  costs, which is the evidence the criteria ask for. The probe is not on the
-  render path: it plans the map fourteen more times per compatibility system, so
-  it is diagnostic machinery that `tests/test_capacity_probe.py` runs and no
-  render pays for. Its result is only meaningful against a reproduced baseline,
-  so each system is first re-planned untouched and one whose control does not
-  come back on the compatibility path is refused rather than measured; and its
-  positive answer is reachable by construction, which
+  boundaries a system is measured at, re-derives the coordinates that follow from
+  where those sections then sit, re-runs convergence planning on the copy, and
+  reads the disposition: `merge_around_below_leftmost` is planned once its
+  claimed boundaries carry 39px more and at every larger capacity granted. That
+  system is held by an envelope allocation, so its compatibility is #1660's own
+  unfinished work and not an exit to publish; the remaining 13 stay on the
+  compatibility path under every capacity the probe grants, up to sixteen times
+  what one competing pair of runs costs, which is the evidence the criteria ask
+  for. The probe is not on the render path: it plans the map fourteen more times
+  per compatibility system, so it is diagnostic machinery that
+  `tests/test_capacity_probe.py` runs and no render pays for. Its result is only
+  meaningful against a reproduced baseline, so each system is first re-planned
+  untouched and one whose control does not come back on the compatibility path is
+  refused rather than measured; and its positive answer is reachable by
+  construction, which
   `test_a_starved_system_is_handed_back_the_capacity_that_starved_it` shows by
-  taking one offset step out of `fan_in_merge`'s reserved boundaries until the
-  planner drops it onto compatibility and watching the probe return 12.5px.
+  taking 10px out of `fan_in_merge`'s reserved boundaries until the planner drops
+  it onto compatibility and watching the probe return 10.75px.
+  The re-derivation is what makes a grant a counterfactual about capacity rather
+  than about the probe. A junction's coordinates are a function of the ports it
+  joins, and `_settle_render_geometry` derives them from the sections before
+  every re-route, so a grant that translates sections and leaves the junctions
+  where they were hands the planner a map the pipeline cannot draw. On that map
+  the two arms of one fan stop meeting at a shared turn coordinate -- not because
+  the boundary got wider but because the junction that sets the coordinate was
+  left behind -- and the planner falls silent about a pair it no longer
+  recognises as sharing a channel. A grant that skips it reads as five further
+  systems reaching allocation (`merge_bottom_row_bypass` and
+  `merge_feeder_shared_channel_gap` from 19.5px, `ambiguous_exit_continuation`
+  from 256px, `merge_right_entry` from 576px, and
+  `merge_trunk_out_of_range_section` planned at 656px but not above it), none of
+  which the settled pipeline reproduces: handing those systems' own claimed
+  boundaries 39, 78 and 156px through `settle_route_envelopes` itself leaves the
+  re-route's planner on compatibility with its conflict measured at the same
+  0.00px separation every time.
+  That is also why a **conditional demand** -- the planner publishing what it
+  would have needed when it declines for space, so settlement allocates against
+  it in the one pass it makes -- closes nothing for the two
+  `OPPOSING_OPENING_CHANNEL` systems. Their conflict is two arms of one fan
+  turning on a single coordinate and opening opposite ways, and the coordinate
+  belongs to the junction both arms leave. Every offset this stage owns carries
+  that junction with the sections it joins, so both arms move together and the
+  0.00px between them is invariant under the whole space of allocations this
+  stage can make. There is no amount to publish:
+  `test_capacity_carries_a_shared_opening_turn_instead_of_opening_it` reads the
+  separation back at every capacity on the ladder and finds it unchanged. The
+  demand would have to be for a *decision* -- one shared channel, per
+  `ConflictRelief.SHARED_CHANNEL` -- which is the emission owner's
+  (`plan-driven opposing-opening emission (#1658)`), not a distance settlement
+  could allocate.
   Two corridors confined at one boundary are not a source of
   residue either: `peer_width`
   states the room they take together, so settlement widens the boundary for both.

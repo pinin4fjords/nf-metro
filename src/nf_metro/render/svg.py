@@ -52,7 +52,7 @@ from nf_metro.layout.phases.guards import (
     iter_opposing_line_overlaps,
     render_header_collision,
 )
-from nf_metro.layout.phases.junctions import _position_junctions
+from nf_metro.layout.phases.junctions import reanchor_junctions
 from nf_metro.layout.phases.ports import (
     carry_ports_with_section_edges,
     hold_port_anchored_edges,
@@ -95,7 +95,6 @@ from nf_metro.parser.model import (
     MARKER_SHAPE_PILL,
     Interchange,
     LayoutGeometryWarning,
-    LineSpread,
     MarkerStyle,
     MetroGraph,
     Section,
@@ -1130,10 +1129,6 @@ def _settle_render_geometry(
         )
         return observation.routes, observation.plan
 
-    def _reanchor_junctions() -> None:
-        if graph.line_spread is not LineSpread.RAILS:
-            _position_junctions(graph)
-
     def _resettle(
         reservations: RoutePlan | None = None,
         reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
@@ -1143,7 +1138,7 @@ def _settle_render_geometry(
         # obstacle boxes (derived from station Ys, read by the router) so the
         # re-route does not seat a bypass corner against a stale box.
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
-        _reanchor_junctions()
+        reanchor_junctions(graph)
         offsets = compute_station_offsets(graph, offset_step=offset_step)
         moved_routes, moved_plan = _route(
             offsets, reservations, reservation_translations
@@ -1177,7 +1172,7 @@ def _settle_render_geometry(
             assert_render_curve_invariants(graph, routes, station_offsets)
         return station_offsets, routes, route_plan, labels
 
-    _reanchor_junctions()
+    reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
     effective_strict = graph.strict and not graph.permissive

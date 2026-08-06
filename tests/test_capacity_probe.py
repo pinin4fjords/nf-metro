@@ -10,14 +10,13 @@ import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.capacity_probe import (
-    _COLUMN_AXIS,
-    _ROW_AXIS,
     CAPACITY_MULTIPLES,
     CapacityScope,
     CapacityVerdict,
-    _widen,
+    _replan,
     claimed_boundaries,
     probe_settlement_capacity,
+    translate_boundaries,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.render.svg import _settled_render_graph, build_observed_render_plan
@@ -47,19 +46,19 @@ COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict], ...] = (
         TOPOLOGIES / "merge_around_below_leftmost.mmd",
         CapacityVerdict.ALLOCATION_REACHES,
     ),
-    (TOPOLOGIES / "merge_bottom_row_bypass.mmd", CapacityVerdict.ALLOCATION_REACHES),
+    (TOPOLOGIES / "merge_bottom_row_bypass.mmd", CapacityVerdict.BEYOND_ALLOCATION),
     (
         TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-        CapacityVerdict.ALLOCATION_REACHES,
+        CapacityVerdict.BEYOND_ALLOCATION,
     ),
-    (TOPOLOGIES / "merge_right_entry.mmd", CapacityVerdict.ALLOCATION_REACHES),
+    (TOPOLOGIES / "merge_right_entry.mmd", CapacityVerdict.BEYOND_ALLOCATION),
     (
         TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
-        CapacityVerdict.ALLOCATION_UNSTABLE,
+        CapacityVerdict.BEYOND_ALLOCATION,
     ),
     (
         ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
-        CapacityVerdict.ALLOCATION_REACHES,
+        CapacityVerdict.BEYOND_ALLOCATION,
     ),
     (
         ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
@@ -73,11 +72,11 @@ COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict], ...] = (
 )
 
 # A system the planner owns on its own geometry, whose reserved boundaries are
-# narrow enough that taking one offset step out of them starves it onto the
-# compatibility path.  It is what makes a positive probe result reachable by
-# construction rather than only observed.
+# narrow enough that ``STARVATION`` drops it onto the compatibility path.  It is
+# what makes a positive probe result reachable by construction rather than only
+# observed.
 STARVABLE = TOPOLOGIES / "fan_in_merge.mmd"
-STARVATION = -8.0
+STARVATION = -10.0
 
 
 def _settled(path: Path):
@@ -101,7 +100,10 @@ def _starved(path: Path, amount: float):
 
     The plan is re-observed on the narrowed geometry rather than carried over,
     so what the probe is handed is a real compatibility disposition the planner
-    reached, not a record edited to look like one.
+    reached, not a record edited to look like one.  The narrowed map carries the
+    junction placement its own sections imply, so the disposition is one the
+    pipeline could draw its way into rather than one a stranded junction
+    manufactures.
     """
     graph, plan = _settled(path)
     planned = sorted(
@@ -114,8 +116,7 @@ def _starved(path: Path, amount: float):
     system_id = _sole(tuple(planned))
     rows, columns, _widths = claimed_boundaries(plan, system_id)
     graph = copy.deepcopy(graph)
-    _widen(graph, _ROW_AXIS, rows, amount)
-    _widen(graph, _COLUMN_AXIS, columns, amount)
+    translate_boundaries(graph, rows, columns, amount)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         starved_plan = observe_route_edges(
@@ -189,8 +190,12 @@ def test_a_starved_system_is_handed_back_the_capacity_that_starved_it() -> None:
 
 
 def test_the_probe_never_writes_to_the_map_it_measures() -> None:
-    """Nothing a counterfactual moves may reach the geometry that gets drawn."""
-    graph, plan = _settled(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
+    """Nothing a counterfactual moves may reach the geometry that gets drawn.
+
+    Read on a system the probe plans, so the grants behind the check are ones
+    that moved the copy far enough to change what the planner decided.
+    """
+    graph, plan = _settled(TOPOLOGIES / "merge_around_below_leftmost.mmd")
     before = copy.deepcopy(graph)
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.verdict is CapacityVerdict.ALLOCATION_REACHES
@@ -204,6 +209,32 @@ def test_the_probe_never_writes_to_the_map_it_measures() -> None:
     assert {key: (item.x, item.y) for key, item in graph.stations.items()} == {
         key: (item.x, item.y) for key, item in before.stations.items()
     }
+
+
+def test_capacity_carries_a_shared_opening_turn_instead_of_opening_it() -> None:
+    """Two fan arms leaving one junction turn on a coordinate that junction sets,
+    and a boundary translation carries the junction with the sections it joins,
+    so the distance between the two turns is the same at every capacity.
+
+    Reading the separation rather than only the verdict is what tells a limit no
+    allocation reaches apart from one a grant merely stopped measuring: a
+    translation that stranded the junction would report the pair drifting apart
+    and the planner falling silent about them.
+    """
+    graph, plan = _settled(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
+    probe = _sole(probe_settlement_capacity(graph, plan))
+    rows, columns, _widths = claimed_boundaries(plan, probe.system_id)
+    for multiple in CAPACITY_MULTIPLES:
+        amount = probe.capacity * multiple
+        granted = copy.deepcopy(graph)
+        translate_boundaries(granted, rows, columns, amount)
+        replanned, _offset_step = _replan(granted)
+        separations = {
+            round(item.conflict.separation, 6)
+            for item in replanned[probe.system_id]
+            if item.conflict is not None
+        }
+        assert separations == {0.0}, f"at {amount}px: {separations}"
 
 
 def test_the_probe_answers_the_same_way_twice() -> None:

@@ -6,7 +6,7 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     JUNCTION_MARGIN,
 )
-from nf_metro.parser.model import MetroGraph, PortSide, Station
+from nf_metro.parser.model import LineSpread, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import build_route_topology_query
 
 
@@ -65,6 +65,20 @@ def _junction_outgoing_line_count(graph: MetroGraph, jid: str) -> int:
 def _junction_incoming_line_count(graph: MetroGraph, jid: str) -> int:
     """Return the number of distinct line_ids merging into *jid*."""
     return len({e.line_id for e in graph.edges_to(jid)}) or 1
+
+
+def reanchor_junctions(graph: MetroGraph) -> None:
+    """Derive every junction from the section geometry it joins.
+
+    A junction's coordinates are a function of its ports rather than independent
+    data, so anything that moves a section leaves the junctions around it
+    describing geometry nothing stands at, and every reader of the result -- a
+    router, a planner, a guard -- is reading a map with no drawn counterpart.  A
+    graph-wide rail layout anchors its junctions on per-line rail coordinates by
+    a rule this placement does not reproduce, so it keeps the ones it has.
+    """
+    if graph.line_spread is not LineSpread.RAILS:
+        _position_junctions(graph)
 
 
 def _position_junctions(graph: MetroGraph) -> None:
