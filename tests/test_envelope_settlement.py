@@ -28,6 +28,7 @@ from nf_metro.layout.envelope_settlement import (
     SettlementReach,
     SettlementShortfall,
     attribute_compatibility_systems,
+    quantised_allocation,
     settle_route_envelopes,
 )
 from nf_metro.layout.geometry import cotravelling_lane_clearance, shift_section
@@ -47,6 +48,7 @@ from nf_metro.layout.route_reservations import (
     CorridorMeasurementScope,
     RowGapRegion,
     canvas_edge_slack,
+    measured_distance,
     realise_reservation,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
@@ -83,6 +85,25 @@ DEFICIT_CORPUS = (
 # to translate rather than merely confirm.
 COLUMN_DEFICIT_CORPUS = (
     ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
+)
+
+# Offsets a whole map is moved by to check the allocation reads the deficit and
+# not the coordinates it is measured at.  None is a whole pixel and none is
+# representable in binary64, so the difference of two moved coordinates lands
+# beside the difference of the two unmoved ones; the magnitudes span sub-pixel to
+# four figures in both directions, because the error a subtraction leaves scales
+# with its operands and not with its answer.
+ORIGIN_OFFSETS = (0.1, 0.3, 1.0 / 3.0, 7.7, 1000.1, -0.1, -7.7)
+
+# Fixtures whose settlement allocates and which a uniform translation moves
+# rigidly, the router redrawing every route in the same shape at the new origin.
+# `da_pipeline` and `off_track_input_above_consumer` each allocate a different
+# width at one of the offsets above when the deficit is a bare subtraction, on
+# the row axis; `complex_multipath` translates a column as well as a row.
+ORIGIN_CORPUS = (
+    ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
+    TOPOLOGIES / "complex_multipath.mmd",
+    TOPOLOGIES / "off_track_input_above_consumer.mmd",
 )
 
 # Every map with a left-canvas channel: each draws its leftmost line 6px off the
@@ -142,6 +163,36 @@ def _observe_drawn(path: Path):
 def _observe(path: Path):
     graph, plan, _polylines = _observe_drawn(path)
     return graph, plan
+
+
+def _observe_moved(path: Path, delta: float):
+    """*path* laid out, moved bodily by *delta* on both axes, then routed.
+
+    Every section moves by the one amount, so no pair of boxes changes its
+    separation and every boundary owes exactly what it owed: the arrangement is
+    the same one, described at a different canvas origin.  Junctions are a
+    function of the ports they join rather than independent data, so they are
+    re-derived after the move the way the render path re-derives them before each
+    route, not carried across it.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        for section in graph.sections.values():
+            shift_section(graph, section, dx=delta, dy=delta)
+        reanchor_junctions(graph)
+        offsets = compute_station_offsets(graph)
+        observation = observe_route_edges(graph, station_offsets=offsets)
+    polylines = [apply_route_offsets(route, offsets) for route in observation.routes]
+    return graph, observation.plan, polylines
+
+
+def _allocations(graph, plan) -> dict[tuple[SettlementAxis, int], float]:
+    """What settling *plan* on *graph* widens each boundary by."""
+    return {
+        (item.axis, item.boundary): item.amount
+        for item in settle_route_envelopes(graph, plan).translations
+    }
 
 
 def _rendered_plan(path: Path, *, permissive: bool = False):
@@ -260,6 +311,67 @@ def _axis_gaps(graph, axis: SettlementAxis) -> dict[tuple[int, int], float]:
             continue
         gaps[(index - 1, index)] = min(starts[index]) - max(ends[index - 1])
     return gaps
+
+
+def test_a_gap_is_its_width_not_the_coordinates_it_lies_between() -> None:
+    """The arithmetic behind the property below, at the numbers that expose it.
+
+    ``differentialabundance``'s ``functional`` / ``plots`` row gap runs from 458.8
+    to 534.8 and owes 90.0, so it is short by exactly 14.  Neither edge is
+    representable in binary64, and subtracting them reports the gap 6e-14 narrow
+    and therefore the deficit 6e-14 wide -- on the far side of an integer from
+    where a whole quantum lands, which is the difference between the boundary
+    being widened by 14px and by 15px.
+    """
+    required = 90.0
+    assert 534.8 - 458.8 != 76.0
+    assert measured_distance(458.8, 534.8) == 76.0
+
+    assert required - (534.8 - 458.8) == 14.000000000000057
+    assert required - measured_distance(458.8, 534.8) == 14.0
+
+    assert quantised_allocation(14.000000000000057) == 15.0
+    assert quantised_allocation(14.0) == 14.0
+
+
+@pytest.mark.parametrize("delta", ORIGIN_OFFSETS)
+@pytest.mark.parametrize("path", ORIGIN_CORPUS, ids=lambda item: item.name)
+def test_the_allocation_is_a_function_of_the_deficit_not_the_canvas_origin(
+    path: Path, delta: float
+) -> None:
+    """One map at two canvas origins allocates its boundaries identically.
+
+    A deficit is what a boundary owes less the gap it has, and the gap is the
+    distance between two box edges.  Taken as a bare subtraction that carries an
+    error set by the magnitude of the two coordinates rather than by the distance
+    between them, so one arrangement measured at two origins states two
+    deficits, and :func:`quantised_allocation` rounding the wider of them up
+    spends a whole pixel of map on 1e-13 of arithmetic.  A boundary's width
+    follows from the layout, and a canvas origin is not part of the layout.
+
+    Holding this together with ``amount >= deficit`` is why the resolution
+    belongs to the measurement rather than to the ceiling: the ceiling allocates
+    no less than the deficit it is handed, which is the ownership lemma's
+    premise, and the deficit it is handed is the one the geometry states.
+    """
+    reference_graph, reference_plan, reference_polylines = _observe_moved(path, 0.0)
+    reference = _allocations(reference_graph, reference_plan)
+    assert reference, "fixture must carry a deficit for settlement to allocate"
+
+    graph, plan, polylines = _observe_moved(path, delta)
+    assert len(polylines) == len(reference_polylines)
+    for before, after in zip(reference_polylines, polylines, strict=True):
+        # The premise: the router drew the same shape at the new origin. Where it
+        # did not, whatever settlement then allocates says nothing about the
+        # quantiser, so this has to be established rather than assumed.
+        assert len(after) == len(before)
+        moved = {
+            (round(x2 - x1 - delta, 6), round(y2 - y1 - delta, 6))
+            for (x1, y1), (x2, y2) in zip(before, after, strict=True)
+        }
+        assert moved == {(0.0, 0.0)}, f"{path.name} routes differently at {delta}"
+
+    assert _allocations(graph, plan) == reference
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)

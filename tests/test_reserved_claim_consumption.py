@@ -10,8 +10,11 @@ positioned by a geometry-derived fallback instead of its reservation, which is
 exactly what the reservation ledger exists to forbid.
 
 The whole corpus satisfies that, and every fixture is held to it with no
-exceptions.  All but two claims are drawn inside their band at exact precision,
-rather than merely within the tolerance this bound allows.
+exceptions.  All but two of the 1007 claims are drawn inside their band with
+slack to spare, rather than merely within the tolerance this bound allows.  The
+slack is a :func:`~nf_metro.layout.route_reservations.measured_distance`, so a
+run drawn flush against a band edge scores as flush rather than as overrunning it
+by the 1e-13 that subtracting two canvas coordinates leaves behind.
 
 Those two are out by exactly one pixel: the ``hic_reads`` lane turning up into
 ``scaffolding`` in each of the two ``genomeassembly`` maps.  Its column gap is
@@ -111,8 +114,9 @@ def _claim_overhangs(path: Path) -> dict[tuple[int, int], tuple[float, str]] | N
 
     Keyed by the claim's own ``(path_rank, segment_rank)`` so a bound names the
     leg, valued by how far outside it is drawn and the geometry that was
-    measured.  Every overhang is reported, however small, so a caller can hold
-    the ones within tolerance separately from the ones beyond it.
+    measured.  Every overhang the ledger's own measurement resolves is reported,
+    however small, so a caller can hold the ones within tolerance separately from
+    the ones beyond it.
     """
     try:
         with warnings.catch_warnings():

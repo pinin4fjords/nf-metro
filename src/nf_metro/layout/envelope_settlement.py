@@ -426,6 +426,25 @@ def _clearance_at(
     }
 
 
+def quantised_allocation(deficit: float) -> float:
+    """The translation that settles *deficit*, in whole ``SETTLEMENT_QUANTUM``.
+
+    Two claims are on this, and both are needed.  It never allocates less than
+    it was asked for, which is the premise of the ownership lemma: a boundary
+    widened by this much has met the demand outright, so the pass visits each
+    boundary once and stops.  And it is a function of the deficit alone, so the
+    same arrangement allocates the same width wherever on the canvas it sits.
+
+    The second does not come from here -- a ceiling amplifies whatever it is
+    handed, turning a 1e-13 arithmetic residue into a whole quantum of map -- but
+    from the deficit arriving as a distance rather than as the remains of a
+    subtraction of two large coordinates.
+    :func:`nf_metro.layout.route_reservations.measured_distance` is where that is
+    established.
+    """
+    return math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+
+
 def _settle_axis(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -479,7 +498,7 @@ def _settle_axis(
             driving_demand = None
         else:
             continue
-        amount = math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+        amount = quantised_allocation(deficit)
         ownership = _translation_ownership(graph, axis, boundary)
         if not ownership.moved_section_ids:
             raise ValueError(
