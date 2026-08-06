@@ -1417,12 +1417,28 @@ in pipeline order.
 
 ## Post-layout render boundary: envelope settlement
 
-- **Purpose**: Give every reserved corridor the width its `RouteReservation`
-  requires, by translating whole grid rows and whole grid columns and nothing
-  else.
+- **Purpose**: Give every grid boundary the width it owes, by translating whole
+  grid rows and whole grid columns and nothing else. Two demands say what a
+  boundary owes and both are settled by one translation apiece: the width a
+  reserved corridor's `RouteReservation` requires, and the clearance a
+  `BoundaryClearanceDemand` measures between the boxes facing across it, which a
+  render-time box resize can eat with no run involved. A boundary carrying both
+  is widened once, by the larger. Being the single owner of the translation is
+  the point: no separate row push runs before or behind this stage to make up a
+  shortfall it could have paid.
 - **Helpers**: `settle_route_envelopes` (`layout/envelope_settlement.py`),
   driven from `_settle_render_geometry` in `render/svg.py`. Each pass
-  re-measures live geometry through `realise_reservation`.
+  re-measures live geometry through `realise_reservation`, and re-measures the
+  clearance demands the same way and for the same reason -- a figure taken
+  before its own earlier translations would be stale.
+  `measure_row_gap_clearance` (`layout/phases/bbox.py`) states the row-axis
+  clearance demands; the demand vocabulary itself is
+  `layout/settlement_demand.py`, held apart from settlement so a layout phase
+  can state a demand without importing the routing stack the ledger is built on.
+  Rail layouts raise no clearance demand: their row pitch comes from the
+  interchange idiom rather than the declared section gap, and widening one of
+  their boundaries to that gap turns a flat inter-row run into a staircase --
+  a decision change, which `_assert_settlement_decisions_frozen` refuses.
 - **Precondition**: `compute_layout` has finished, routing has published the
   reservation ledger, render-time label wrapping has taken its bbox growth, and
   the header-collision reconcile has run. Local station geometry, section bbox
@@ -1502,7 +1518,12 @@ in pipeline order.
   capacity deficit and nothing else. Measured on the corpus, 5 of the 369
   fixtures state a peer width their boundary lacks; all five grow in height only,
   by 12 to 16px.
-- **Postcondition**: Every row-gap and column-gap reservation *contains* the run
+- **Postcondition**: No boundary still owes what it was measured for. For a
+  clearance demand that is one count, re-measured on the settled geometry by
+  `_assert_clearance_demands_are_met`: it follows arithmetically from the
+  ownership lemma below, and is checked anyway because the lemma is a property of
+  two predicates staying in step. For a reservation, every row-gap and
+  column-gap reservation *contains* the run
   drawn in it. Containment is three counts, all of which
   `assert_reservations_are_settled` refuses on the strict path: non-negative
   capacity slack (the region is wide enough at all), and non-negative slack on
@@ -1541,7 +1562,11 @@ in pipeline order.
   blocker); that row and column offsets are cumulative sums over ascending
   index, so "A above B" implies `A.grid_row <= B.grid_row`; and that section
   sizes are frozen between settlement and the guard, `shift_section` writing only
-  origins. Consequently the strict deficit path is a backstop against ledger or
+  origins. The same inequality covers a `BoundaryClearanceDemand`: every box its
+  shortfall is measured *from* ends at row `b-1` or above and every box it is
+  measured *to* starts at `b` or beyond, including the bypass-span and
+  row-envelope variants, whose deeper edge belongs to a section in the upper row.
+  Consequently the strict deficit path is a backstop against ledger or
   ownership drift rather than an authoring outcome: an "infeasible pinned
   arrangement" is not a state this model admits. The guard stays because the
   lemma is a property of two predicates staying in step, which a future edit
@@ -1613,8 +1638,8 @@ in pipeline order.
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
 - **Idempotence**: A second pass over settled geometry finds no positive
-  deficit and writes nothing, so running settlement twice is an exact
-  geometry no-op.
+  deficit of either kind and writes nothing, so running settlement twice is an
+  exact geometry no-op.
 - **Termination**: Settlement runs once, against one ledger. That pass visits
   each adjacent-index boundary once in ascending order; translating everything
   from boundary `b` onward widens `b` by exactly that amount, leaves earlier
@@ -1891,40 +1916,151 @@ fixture fails on the first pass and passes on the settled routes, so the single
 settled evaluation loses no coverage and the earlier call was redundant rather
 than complementary.
 
-### Row, bbox-top and canvas responsibilities settlement does not take over
+### Row, bbox-top and canvas responsibilities, and which of them settlement owns
 
-Settlement translates whole rows and whole columns, which is also what several
-older passes do as part of their job. Each one below was bypassed at source
-(body stubbed, or its engine call site removed) and the whole render corpus --
-368 fixtures under `examples/` and `tests/fixtures/` -- was re-rendered and
-compared by md5 against the unmodified tree. A pass that changed no render
-would be doing work settlement now covers, and could be deleted; none of them
-is. The counts are the evidence for keeping every one of them, and for
-settlement owning only the translation it adds.
+Settlement translates whole rows and whole columns. Several older passes also
+move something, so each was examined for whether *its* move is the one
+settlement makes. Bypassing a whole pass cannot answer that: it deletes two
+different responsibilities at once and only shows that the pair matters. So
+each pass is split first, and only the second half is a candidate:
 
-| Pass (bypass point) | What it writes | Scope | Renders changed | Verdict |
-| --- | --- | --- | --- | --- |
-| `_shrink_bboxes_to_content_bottom` (`phases/bbox.py`) | each `bbox_h` down to its own content | local | 59 | keep |
-| `_tighten_lower_rows_after_shrink` (`phases/bbox.py`) | rows `>= r` up by the slack the shrink revealed | global | 37 | keep |
-| `_fit_bboxes_to_content_top` (`phases/bbox.py`) | each `bbox_y` / `bbox_h` around its own content top | local | 39, plus 1 fixture newly aborting on a curve invariant | keep |
-| `_reserve_row_gap_for_top_padding` (`phases/bbox.py`) | rows `>= r` down by a blocked section's padding shortfall | global | 5 | keep |
-| `push_lower_rows_after_bbox_grow` (`phases/bbox.py`) | rows `>= r` down by the gap a bbox grow ate | global | 18 | keep |
-| `_shift_graph_into_canvas` (`phases/canvas.py`) | every section down by the canvas-top shortfall | global | 44 | keep |
-| `_snap_canvas_y_to_grid` (`phases/grid_snap.py`) | every section by the canvas-wide off-grid residue | global | 33 | keep |
-| Stage 4.7 `_top_align_row_sections` | row-mate bbox tops flush, stations carried along | local | 8 | keep |
-| Stage 5.3 `_top_align_row_bboxes_only` | row-mate bbox tops flush, stations left alone | local | 8 | keep |
-| Stage 6.6 `_reanchor_off_track_to_consumer` | off-track station Ys, and the bbox top they push up | local | 11 | keep |
-| Stage 6.8 `_reanchor_off_track_to_consumer` | as 6.6, against post-recenter consumers | local | 4 | keep |
-| Stage 6.9 `_top_align_row_bboxes_only` | row-mate bbox tops flush after the 6.8 grow | local | 1 | keep |
-| Stage 6.16 `_align_entry_ports` + `_position_junctions` | perpendicular entry-port and junction Ys | local | 6, plus 2 fixtures newly aborting on a curve invariant | keep |
+- a **local** responsibility -- measuring a shortfall and resizing or
+  repositioning one box against its own content;
+- a **global** responsibility -- translating sections the pass does not own, to
+  absorb what the local half revealed.
 
-The two global row pushes (`_reserve_row_gap_for_top_padding`,
-`push_lower_rows_after_bbox_grow`) are the nearest neighbours of settlement's
-own translation and the obvious migration candidates. They stay because they
-answer a different question: they restore a gap that a *local* bbox change ate,
-which settlement cannot see -- its ledger records what routes claimed, not what
-padding a box is owed. Settlement therefore adds a translation owner rather
-than replacing one.
+Settlement's translation is exactly `_apply_translation` over
+`_translation_ownership(b)`, which moves `{grid_row(s) >= b}` and holds the
+rest. A pass is a migration candidate when its global half applies one amount
+to that same set, in the direction that widens the boundary.
+
+| Pass | Local half | Global half | Candidate |
+| --- | --- | --- | --- |
+| `_shrink_bboxes_to_content_bottom` | `bbox.py:693`, `:704` own `bbox_h`; `:694`, `:705` own BOTTOM ports. Reads row-mate bottoms as a floor (`_row_mate_bottoms`) without writing them | none | no |
+| `_fit_bboxes_to_content_top` | `bbox.py:1168`, `:1176` `move_section_bbox_min_edge` on the section being fitted. `_section_fit_top` *reads* the row above as a ceiling and writes nothing | none | no |
+| Stage 4.7 `_top_align_row_sections` | `row_align.py:535-540`: a per-section `delta = section.bbox_y - min_top`, applied by `shift_section` to that section's own body | none -- no set-wide amount exists | no |
+| Stage 5.3 / 6.9 `_top_align_row_bboxes_only` | `row_align.py:573` per-member `grow_section_bbox_to_anchor`, own `bbox_y` / `bbox_h` and own TOP ports | none | no |
+| Stage 6.6 / 6.8 `_reanchor_off_track_to_consumer` | `off_track.py:1508` own off-track station cross-axis; `:1839`, `:1840`, `:1867`, `:1868` grow the passed section's own edges | none | no |
+| Stage 6.16 `_align_entry_ports` + `_position_junctions` | `_set_port_y` / `_set_port_x` own entry port; `ports.py:396`, `:501`, `:1812` `_expand_bbox_for_y` on its own box; `:494-498` a rigid slide of its own section in `_mirror_entry_section_to_seam`; `:1744`, `:1755` the *feeding* section's exit-port Y when `_clamp_tb_entry_port` bites. `junctions.py:173`-`:226` writes junctions and nothing else | none | no |
+| `_tighten_lower_rows_after_shrink` | `bbox.py:1389` the slack each lower row may rise by | `bbox.py:1401` `_shift_rows_from(graph, r, -slack)` | no -- wrong direction |
+| `_reserve_row_gap_for_top_padding` | `bbox.py:1123` the padding band a blocked section is short of, via `_section_fit_top` / `_section_content_hug_top` | `bbox.py:1126` `_shift_rows_from(graph, r, deficit)` | no -- ordered before a resize |
+| `push_lower_rows_after_bbox_grow` | `measure_row_gap_clearance` (`bbox.py:179`) | `bbox.py:329` `_shift_rows_from(graph, boundary, deficit)` | **yes -- migrated** |
+| `_shift_graph_into_canvas` (`phases/canvas.py:311`) | `_canvas_top_shortfall` | `_translate_graph_y`: every section, uniformly | no -- not compensation |
+| `_snap_canvas_y_to_grid` (`phases/grid_snap.py:271`) | the dominant `station.y % y_spacing` residue | `_translate_graph_y`: every section, uniformly | no -- not compensation |
+
+Measured over all 329 fixtures under `examples/` and `tests/fixtures/`, each of
+the eight local passes was wrapped at its engine call site and every section box
+and station coordinate snapshotted across the call. None writes another
+section's origin, and no call applies one delta to a set: where several boxes
+did move by an equal amount, they had entered the call sharing the coordinate
+the amount was derived from, or the move was an edge grow with a compensating
+`bbox_h`. Stage 4.7 is the boundary case -- it is the one local pass that slides
+a whole section body, 28 calls of 427 -- and it stays local because the amount
+is derived per section from that section's own top, confined to one contiguous
+column group within one grid row.
+
+#### The one that migrated
+
+`push_lower_rows_after_bbox_grow` restores the clearance a row boundary is owed
+after something grew a box into it. Its demand is now
+`BoundaryClearanceDemand`, settlement's second demand alongside the reservation
+ledger, and the render path hands settlement the measurement instead of pushing
+rows itself. What made this migratable, where the sentence this section used to
+carry said it was not:
+
+- The demand is not a corridor, and a `RouteReservation` cannot express it. That
+  type requires authored `connector_ids`, non-empty `claimant_member_ids` and
+  `claims`, a `RouteReservationClaim` per claim naming a real polyline
+  point-pair range with a positive travel interval, `lanes` partitioning those
+  claims, a `route_family_ids`, and a `direction` along the boundary -- every one
+  of which is a property of a *drawn run*. A boundary owed padding has no run.
+  So the vocabulary the demand needed was a second demand type, not a synthetic
+  reservation.
+- Nothing else about it was out of reach. Its ownership predicate is already
+  settlement's: every box the shortfall is measured *from* ends at row `b-1` or
+  above and every box it is measured *to* starts at `b` or beyond, which are the
+  two halves of `_translation_ownership(b)`. Its per-section write, via
+  `_shift_rows_from`, is `shift_section` -- the same write `_apply_translation`
+  makes. Junction re-derivation is the render path's `reanchor_junctions`
+  either way.
+- A boundary carrying both demands is now widened **once**, by the larger. It
+  was previously widened twice in succession, and the sum was larger than either
+  needed: on `diagonal_labels` and `longread_variant_calling` the two owners
+  together left 0.6px and 0.2px more than the single translation does.
+
+Measured on the corpus, the render-time push fired on exactly **1** fixture of
+369, and 5 row boundaries were left short of the clearance they owe with nothing
+to correct them -- because the call site was gated on the header reconcile
+having fired rather than on a shortfall existing. Settling the demand closes 3
+of those 5 (`manual_rl_row_nonconsumer_bypass`,
+`packed_cell_cellmate_bypass`, `packed_cell_cellmate_bypass_adjacent`, each
+recovering the 9px its inter-row bundle was declared) and creates none.
+
+The other 2 are rail layouts (`sarek_metro`, `rail_pitch_vs_labels`), which the
+demand is deliberately not raised for: rail mode pitches adjacent rows so a line
+runs between them without turning, and widening one of those boundaries to the
+declared gap turns those flat runs into staircases -- 7 routes of 91 and 4 of 11
+respectively, which `_assert_settlement_decisions_frozen` refuses as a decision
+change rather than a translation. `tests/test_envelope_settlement.py` measures
+that consequence rather than asserting the exclusion.
+
+#### The two that cannot migrate, and why it is not a render count
+
+`_tighten_lower_rows_after_shrink` pulls rows **up** by the slack a bottom
+shrink revealed, closing a gap that is wider than it needs to be. Settlement's
+invariant is that no row or column separation decreases, asserted by
+`_assert_no_separation_decreased` on every settled layout. The two are opposite
+operations, so there is no amount to publish: a demand for this move would be a
+demand settlement is defined to refuse.
+
+`_reserve_row_gap_for_top_padding` widens a boundary so that
+`_fit_bboxes_to_content_top`, which runs immediately after it, can then grow a
+box top into the room. The fact its demand would have to carry is not a
+distance -- the distance is `fit_top - hug` and is perfectly expressible -- but
+an *order*: the widening is only useful before a resize, and settlement may not
+resize a box (`bbox_h` and `bbox_w` are frozen across it, which
+`test_settlement_preserves_frozen_local_geometry` holds). By the time settlement
+runs, the grow it was making room for has already been refused its ceiling and
+the box is the size it will be drawn at. Settling the same distance then buys a
+wider gap and no padding, which is not what the pass achieves.
+
+Both of these also run inside `compute_layout`, before routing has published any
+ledger at all, and the row positions they produce are inputs to the routing that
+creates the ledger. That is a second, independent reason, but the direction and
+ordering arguments above stand without it.
+
+#### The two canvas passes were never candidates
+
+`_shift_graph_into_canvas` and `_snap_canvas_y_to_grid` both measure something
+and then call `_translate_graph_y`, which moves every section by one amount. A
+uniform translation of everything changes no distance between any two boxes, so
+there is no separation for settlement to own. They are canvas placement, not
+compensation.
+
+That was verified rather than assumed: each pass's `_translate_graph_y` call was
+suppressed with its measurement left running, and the full set of pairwise
+facing box separations (`_axis_gaps`, both axes) compared per fixture on the
+settled render graph. 367 of 369 fixtures show every separation unchanged.
+Exactly 2 change one pair by exactly 1.00px --
+`examples/differentialabundance_default.mmd` and
+`tests/fixtures/da_pipeline.mmd`, the row separation between `functional` and
+`plots` -- and the cause is in settlement's own arithmetic, not in the canvas
+pass. `_settle_axis` quantises with `math.ceil(deficit / SETTLEMENT_QUANTUM)`
+on a raw binary64 subtraction of two absolute box edges: at one canvas origin
+the two edges' representation errors cancel and a 14.0px deficit measures as
+`14.0`, at another they do not and it measures as `14.000000000000057`, which
+the ceiling turns into a whole extra pixel of row translation. Both outcomes
+satisfy the 90px the corridor reserves, so neither render is wrong, but the
+1px is a real coupling from canvas placement into row geometry.
+
+Cleaning the deficit by `COORD_TOLERANCE_FINE` before the ceiling removes it,
+and was measured: it moves exactly those 2 fixtures and no others, and takes
+the boundary to the 90.0px the corridor asks for. Its cost is that both
+fixtures' `bypass-band` claim is then drawn exactly on its band edge, which
+`tests/test_reserved_claim_consumption.py` counts as a new within-tolerance
+overhang at 0.00px. That is a separate change with its own evidence to weigh,
+not part of this one, and the 1px above is stated here so the taxonomy is not
+quoted more strongly than it holds.
 
 
 ## Cross-stage contract: semantic fan planning
