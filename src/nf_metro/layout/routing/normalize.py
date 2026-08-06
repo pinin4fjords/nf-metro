@@ -1044,8 +1044,15 @@ def _seat_merge_feeder_opening(
     graph: MetroGraph,
     *,
     planned: bool = False,
+    carry_tail: bool = True,
 ) -> None:
-    """Seat a merge feeder's opening turn on its planned shared axis."""
+    """Seat a merge feeder's opening turn on its planned shared axis.
+
+    ``carry_tail`` translates everything past the opening with it, which is what
+    keeps a route whose whole run hangs off that turn intact.  A caller whose
+    plan states the rest of the run independently passes ``False``: carrying the
+    tail there would slide geometry the plan has already positioned.
+    """
     channel = (
         _opening_fanout_descent(route) if planned else _initial_fanout_descent(route)
     )
@@ -1057,6 +1064,8 @@ def _seat_merge_feeder_opening(
     tail_start = channel.idx + 2
     _reconcile_moved_gap_slot(channel, coordinate, graph)
     _set_vchannel_x(channel, coordinate)
+    if not carry_tail:
+        return
     route.points = [
         (x + delta, y) if rank >= tail_start else (x, y)
         for rank, (x, y) in enumerate(route.points)

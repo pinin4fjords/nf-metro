@@ -1130,7 +1130,6 @@ def test_every_corridor_the_organellar_map_publishes_is_allocatable() -> None:
 # decision rather than envelope allocation.
 SHARED_SETTLEMENT_CANDIDATES = (
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
-    TOPOLOGIES / "merge_around_below_leftmost.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
     TOPOLOGIES / "merge_bottom_row_bypass.mmd",
@@ -1227,7 +1226,6 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
 COMPATIBILITY_SYSTEMS = (
     REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
-    TOPOLOGIES / "merge_around_below_leftmost.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
     TOPOLOGIES / "merge_bottom_row_bypass.mmd",

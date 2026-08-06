@@ -356,10 +356,43 @@ not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
 evidence that actually settles the question is `layout/capacity_probe.py`, which
 asks the counterfactual directly: it grants a boundary generous capacity on a
 deep copy of the settled geometry, re-plans, and reports whether the disposition
-changes. Thirteen of the corpus's fourteen compatibility systems do not change at
-any capacity up to 4464px, which is what proves their limit is a channel decision
-rather than envelope allocation. One, `merge_around_below_leftmost`, does change,
-and is the reason the settlement work is not finished.
+changes. All thirteen of the corpus's compatibility systems do not change at any
+capacity up to 4464px, which is what proves their limit is a channel decision
+rather than envelope allocation.
+
+Thirteen is the live population; `COMPATIBILITY_CORPUS` carries fourteen rows.
+The fourteenth is a control: a fixture the planner came to own keeps its row,
+asserting that it publishes no compatibility system at all, so a system slipping
+back onto that path fails a test rather than passing unnoticed.
+
+That fourteenth is also where the decision below comes from.
+`merge_around_below_leftmost` did change, at 22.5px, so what held it was
+capacity — and the answer was not to buy it. Its route system converges twice,
+and each convergence read its trunk
+coordinate off a trial route taken with no knowledge of its sibling, so both
+proposed the same lane of one inter-row channel and the planner declined the
+system with `SHARED_TRUNK_CHANNEL`, whose reason names what was missing: one
+shared channel decision.
+
+`_settle_shared_trunk_channels` makes it. The route system, not either plan,
+assigns each trunk a lane by `cotravelling_lane_clearance` — a full turn radius
+between a line and its own return leg, and nothing at all between two runs going
+the same way, which stay one fused stroke. Both channels a trunk shares are laned
+by that one rule: the channel its central run travels, and the channel its flanks
+turn out into. `ConvergenceTrunkAxis.claimant_member_ids` names the members that
+travel a trunk — its trunk member and every feeder that lands on it — so
+settlement projects the lane through the translations those members took.
+
+The lane needs room, and the room arrives through the ledger the first routing
+pass already publishes rather than through a demand of its own: a lane is a drawn
+stroke, so the boundary carrying it is charged as a peer of the claim beside it
+and the reservation's `minimum_width` states the pair. On this fixture that is
+26 negative + 0 bundle + 11 peer + 52 positive = 89px against a 78px gap,
+realised at required 89.00 / available 89.00 with the two trunks on 196 and 207.
+Because the decision is made on the first pass, settlement realises a demand
+against a plan that already exists: the disposition does not change across the
+sweep. Because a lane is measured from the trunk that arrived first rather than
+from a boundary edge, widening the boundary does not move it.
 
 A grant goes through `translate_boundaries`, which widens _and_ re-derives the
 junctions the widened sections carry. Widening alone measures the probe rather
