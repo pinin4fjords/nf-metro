@@ -275,16 +275,20 @@ with the stations and ports they contain. Section sizes, a station's place
 inside its section, plan frames, lane order, port sides, and author pins are
 all frozen inputs.
 
-Two residues are outside what row and column offsets can reach, both measured
-rather than assumed. Canvas-side corridors are bounded on one side by the canvas
-edge, so closing one means growing a margin, which is a different translation
-owner: 22 of 397 realised canvas reservations carry a capacity deficit, and a
-`CanvasRegion` carries none of the row/column locality its gap-region siblings
-do, so claims from unrelated parts of a map group into one reservation and the
-width that follows describes no drawn corridor. Those are reported, not gated.
-And the router's narrow-band fallback, which biases a run against the header
-badge it cannot clear, fires only at gaps the ledger never claimed, so there is
-no reservation to consume there.
+One residue is outside what row and column offsets can reach: the router's
+narrow-band fallback, which biases a run against the header badge it cannot
+clear, fires only at gaps the ledger never claimed, so there is no reservation
+to consume there.
+
+A canvas-side corridor is bounded on one side by the canvas edge rather than by
+a grid boundary, so closing one means growing a margin, which is a different
+translation owner. All 144 realised canvas reservations now meet their required
+width, and `assert_canvas_corridors_hold_their_claims` gates both the canvas-edge
+margin and total capacity. It does not yet gate the _content_ side, because the
+clearance charged there is longitudinally blind and assumes a caption above the
+box; #1693 owns tightening that claim to the badge actually drawn, and the
+shortfalls are published as attributed `reservation-deficit` diagnostics until it
+does.
 
 ## The router's side of the contract
 

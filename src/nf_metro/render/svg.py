@@ -1066,20 +1066,18 @@ def _settle_render_geometry(
     render-time row shift, so a collision involving one is left for the guard to
     surface rather than reflowed into kinked tracks.
 
-    The Tier-A layout guards run on the pre-growth routed geometry (label growth
-    legitimately moves a bbox edge past an invisible port, which the port guards
-    would otherwise flag); the header-clearance guard runs last, on the settled
-    geometry.
+    The Tier-A layout guards run once, on the settled geometry, alongside the
+    header-clearance guard: they judge what the renderer draws rather than an
+    intermediate the later stages then move.  Label growth legitimately carries a
+    bbox edge past a port, so ``carry_ports_with_section_edges`` moves the port
+    with the edge it is anchored to and the port guards see a consistent pair.
 
     A ``group`` caption band below a section grows that section's bottom edge,
     and that edge is the blocker bounding the row corridor beneath it, so the
     growth happens here rather than at draw time: settlement then widens the
-    boundary to keep the corridor it certified.  Like label growth, this
-    happens after the Tier-A bbox/port guards run, so a group-grown box is
-    never checked against them -- only the curve, settlement-freeze, and
-    header-clearance guards that follow see it.  A separate draw-time
-    assertion (``_assert_group_band_room_drawn``) covers the box this
-    reservation grows: it rejects a band drawn past the room reserved for it.
+    boundary to keep the corridor it certified.  A separate draw-time assertion
+    (``_assert_group_band_room_drawn``) covers the box this reservation grows: it
+    rejects a band drawn past the room reserved for it.
 
     Junction coordinates are a function of the ports they join rather than
     independent data, so they are re-derived from the incoming section geometry
