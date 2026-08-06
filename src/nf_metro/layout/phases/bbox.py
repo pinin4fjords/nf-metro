@@ -19,6 +19,7 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     SECTION_HEADER_PROTRUSION,
 )
+from nf_metro.layout.geometry import measured_distance
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases._common import (
@@ -248,7 +249,7 @@ def measure_row_gap_clearance(
             for ls in lower:
                 if ls.bbox_h <= 0 or not _cols_overlap(us, ls):
                     continue
-                d = (us.bbox_y + us.bbox_h + target_gap) - ls.bbox_y
+                d = target_gap - measured_distance(us.bbox_y + us.bbox_h, ls.bbox_y)
                 if d > deficit:
                     deficit, blockers, source = d, (us.id,), "the box above it"
         for (lo, hi), bypass_bot in bypass_by_span.items():
@@ -259,7 +260,7 @@ def measure_row_gap_clearance(
                 ls_hi = ls.grid_col + ls.grid_col_span - 1
                 if ls_hi < lo or ls_lo > hi:
                     continue
-                d = (bypass_bot + target_gap) - ls.bbox_y
+                d = target_gap - measured_distance(bypass_bot, ls.bbox_y)
                 if d > deficit:
                     deficit = d
                     blockers = ()
@@ -268,7 +269,7 @@ def measure_row_gap_clearance(
         if envelope_gap:
             envelope_bottom = max(s.bbox_y + s.bbox_h for s in ending_at_prev)
             envelope_top = min(ls.bbox_y for ls in lower if ls.bbox_h > 0)
-            d = (envelope_bottom + envelope_gap) - envelope_top
+            d = envelope_gap - measured_distance(envelope_bottom, envelope_top)
             if d > deficit:
                 deficit = d
                 blockers = tuple(

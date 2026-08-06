@@ -188,10 +188,17 @@ def _observe_moved(path: Path, delta: float):
 
 
 def _allocations(graph, plan) -> dict[tuple[SettlementAxis, int], float]:
-    """What settling *plan* on *graph* widens each boundary by."""
+    """What settling *plan* on *graph* widens each boundary by.
+
+    Both demand kinds are supplied, as the render path supplies them: a boundary
+    reached only through the clearance its facing boxes owe would otherwise go
+    unmeasured here, and its deficit is stated by the same arithmetic.
+    """
     return {
         (item.axis, item.boundary): item.amount
-        for item in settle_route_envelopes(graph, plan).translations
+        for item in settle_route_envelopes(
+            graph, plan, clearance=_clearance()
+        ).translations
     }
 
 

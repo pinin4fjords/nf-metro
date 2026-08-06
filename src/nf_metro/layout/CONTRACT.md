@@ -1830,10 +1830,10 @@ in pipeline order.
   `examples/topologies/merge_right_entry.mmd`.
   **A plan claims the segments its axis describes, and no more.** A trunk axis
   collapses its flanks onto its own coordinate when the trunk turns straight into
-  the port, and `_trunk_segment_ranks` matched those zero-length flanks as runs,
-  which claims every leg passing through the corner they state -- here the
+  the port, and a zero-length flank must not be matched as a run: doing so claims
+  every leg passing through the corner it states -- here the
   horizontal runway -- and through `convergence_owns_segment_boundary` the
-  feeder's opening descent before it. That took the descent out of
+  feeder's opening descent before it. That takes the descent out of
   `_divergent_source_groups`, the pass that fuses each line's descents at one
   source onto the column its bundle occupies there, and the feeder stood one lane
   off its own colour: three doubled strokes over 40-60px, each overlapping a
@@ -2150,10 +2150,10 @@ carry said it was not:
   `_shift_rows_from`, is `shift_section` -- the same write `_apply_translation`
   makes. Junction re-derivation is the render path's `reanchor_junctions`
   either way.
-- A boundary carrying both demands is now widened **once**, by the larger. It
-  was previously widened twice in succession, and the sum was larger than either
-  needed: on `diagonal_labels` and `longread_variant_calling` the two owners
-  together left 0.6px and 0.2px more than the single translation does.
+- A boundary carrying both demands is widened **once**, by the larger. Paying
+  each owner in succession over-reserves, because the sum exceeds what either
+  needs: on `diagonal_labels` and `longread_variant_calling` two successive
+  translations leave 0.6px and 0.2px more than the single one does.
 
 Measured on the corpus, the render-time push fired on exactly **1** fixture of
 369, and 5 row boundaries were left short of the clearance they owe with nothing

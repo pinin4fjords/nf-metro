@@ -51,17 +51,17 @@ every larger one, which no isolated coincidence satisfies.
 from __future__ import annotations
 
 import copy
-import math
 from dataclasses import dataclass
 from enum import Enum
 
-from nf_metro.layout.constants import CURVE_RADIUS, SETTLEMENT_QUANTUM
+from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.envelope_settlement import (
     _COLUMN_AXIS,
     _ROW_AXIS,
     _apply_translation,
     _Axis,
     _translation_ownership,
+    quantised_allocation,
 )
 from nf_metro.layout.route_plan import (
     ConvergenceConflictKind,
@@ -296,7 +296,7 @@ def _probe_system(
         ),
         default=0.0,
     )
-    capacity = math.ceil((separation + unit) / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+    capacity = quantised_allocation(separation + unit)
     grants = tuple(
         CapacityGrant(
             scope,

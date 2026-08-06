@@ -13,7 +13,6 @@ from typing import NamedTuple, NewType, TypeAlias
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     CANVAS_EDGE_CLEARANCE,
-    COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CURVE_RADIUS,
@@ -24,7 +23,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
-    quantize_coord,
+    measured_distance,
     spans_share_corridor,
 )
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
@@ -83,26 +82,6 @@ LAUNCH_ANCHOR_BLOCKER = "launch-anchor"
 Settlement translates sections, never this: the anchor stands on the side the
 translation holds still, so a boundary widened for the corridor widens away
 from it."""
-
-
-def measured_distance(start: float, end: float) -> float:
-    """The gap from *start* to *end*, at the precision the engine resolves to.
-
-    A width or a slack is the difference of two canvas coordinates, and binary64
-    subtraction of two coordinates carrying decimal fractions leaves an error of
-    order 1e-13 set by the magnitude of the operands rather than by the distance
-    between them.  Two arrangements the same distance apart then measure
-    differently according to where on the canvas each sits, and a consumer
-    reading the result more finely than :data:`COORD_TOLERANCE` amplifies that
-    into a visible quantity: :func:`quantised_allocation` spends a whole
-    ``SETTLEMENT_QUANTUM`` of map height on it, and a containment check testing a
-    slack's sign reports a run drawn flush against its band edge as overrunning
-    it.  Resolving to :data:`COORD_GROUP_DIGITS_FINE` makes the measurement a
-    function of the distance alone, two orders of magnitude finer than
-    :data:`COORD_TOLERANCE_FINE`, the finest distance the engine gives meaning
-    to.
-    """
-    return quantize_coord(end - start, COORD_GROUP_DIGITS_FINE)
 
 
 class CorridorKind(str, Enum):
