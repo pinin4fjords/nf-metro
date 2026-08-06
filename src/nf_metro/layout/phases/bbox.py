@@ -24,6 +24,7 @@ from nf_metro.layout.geometry import (
     measured_distance,
     section_column_span,
     sections_share_a_column,
+    shift_section,
 )
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
@@ -177,16 +178,8 @@ def _shift_rows_from(
     pass reads a junction coordinate can leave them for routing to recompute.
     """
     for s in graph.sections.values():
-        if s.grid_row < from_row:
-            continue
-        s.bbox_y += deficit
-        for stid in s.station_ids:
-            st = graph.stations.get(stid)
-            if st is not None:
-                st.y += deficit
-            port = graph.ports.get(stid)
-            if port is not None:
-                port.y += deficit
+        if s.grid_row >= from_row:
+            shift_section(graph, s, dy=deficit)
     if reposition_junctions:
         _position_junctions(graph)
 
