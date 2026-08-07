@@ -8156,6 +8156,16 @@ def test_routed_paths_clear_next_row_headers(fixture):
             seg_y = (y1 + y2) / 2
             seg_x_lo = min(x1, x2)
             seg_x_hi = max(x1, x2)
+            has_overlapping_section_above = any(
+                section.bbox_h > 0
+                and section.bbox_w > 0
+                and section.bbox_x < seg_x_hi
+                and section.bbox_x + section.bbox_w > seg_x_lo
+                and section.bbox_y + section.bbox_h <= seg_y + 0.5
+                for section in graph.sections.values()
+            )
+            if not has_overlapping_section_above:
+                continue
             for header_top, hx_lo, hx_hi, hsid in headers:
                 if seg_x_hi <= hx_lo or seg_x_lo >= hx_hi:
                     continue

@@ -146,6 +146,9 @@ The numbered circle center sits at bbox_y - circle_r - Y_OFFSET
 11px above that, totaling 26px above bbox_y.
 """
 
+SECTION_HEADER_ROUTE_CLEARANCE: float = 4.0
+"""Minimum gap between routed ink and a drawn section-header keepout."""
+
 MIN_INTER_SECTION_ROW_GAP: float = 12.0
 """Minimum visual gap between section bottom and the next section's header.
 
