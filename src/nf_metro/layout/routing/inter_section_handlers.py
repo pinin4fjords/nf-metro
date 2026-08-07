@@ -2137,8 +2137,11 @@ def _route_planned_bottom_exit_right_landings(
     source_lines = plan.offset_line_order
     if not source_lines or edge.line_id not in source_lines:
         raise RuntimeError(f"planned fan {plan.id!s} lost its source lane order")
-    corridor_x = _right_entry_descent_x(ctx, right_edge, len(source_lines))
     source_offsets = {line_id: -exit_x_offset(line_id) for line_id in source_lines}
+    corridor_x = max(
+        _right_entry_descent_x(ctx, right_edge, len(source_lines)),
+        right_edge + SECTION_ROUTE_CLEARANCE + max(source_offsets.values()),
+    )
     launch_y = _planned_fan_launch_y(
         ctx, edge, src.y, plan.entry_runway, source_offsets, source_lines
     )

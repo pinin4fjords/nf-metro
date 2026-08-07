@@ -20,6 +20,7 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
     SAME_COORD_TOLERANCE,
+    SECTION_HEADER_ROUTE_CLEARANCE,
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
@@ -79,6 +80,7 @@ SECTION_BOTTOM_BLOCKER = "section-bottom"
 SECTION_HEADER_BLOCKER = "section-header"
 SECTION_LEFT_BLOCKER = "section-left"
 SECTION_RIGHT_BLOCKER = "section-right"
+SECTION_TOP_BLOCKER = "section-top"
 LAUNCH_ANCHOR_BLOCKER = "launch-anchor"
 """Names the station a corridor's own runs launch from, when it bounds them.
 
@@ -161,6 +163,26 @@ class CanvasRegion:
 
 
 CorridorRegion: TypeAlias = RowGapRegion | ColumnGapRegion | CanvasRegion
+
+
+class CanvasRect(NamedTuple):
+    """Axis-aligned final-render bounds."""
+
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+
+@dataclass(frozen=True, slots=True)
+class FinalCanvasGeometry:
+    """Final canvas evidence needed to realise canvas reservations."""
+
+    width: float
+    height: float
+    header_keepouts: Mapping[str, CanvasRect]
+    route_polylines: Sequence[Sequence[tuple[float, float]]]
+
 
 CANVAS_EDGE_ON_NEGATIVE_SIDE: frozenset[CanvasSide] = frozenset(
     (CanvasSide.TOP, CanvasSide.LEFT)
@@ -409,10 +431,14 @@ class RealisedRouteReservation:
     positive_side_slack: float
     negative_blocker_ids: tuple[str, ...]
     positive_blocker_ids: tuple[str, ...]
+    negative_side_clearance: float
+    positive_side_clearance: float
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.negative_side_clearance < 0 or self.positive_side_clearance < 0:
+            raise ValueError("realised corridor clearances cannot be negative")
         if self.allocation_axis is DemandAxis.BOTH:
             raise ValueError("a corridor realisation allocates one canvas axis")
         if self.longitudinal_axis is DemandAxis.BOTH:
@@ -443,9 +469,26 @@ def canvas_edge_slack(
     spend all of that room on its content side and be drawn hard against the
     edge.
     """
+    return _canvas_side_slack(region, realised, canvas_side=True)
+
+
+def canvas_content_slack(
+    region: CanvasRegion, realised: RealisedRouteReservation
+) -> float:
+    """*realised*'s clearance from the content opposite its canvas edge."""
+    return _canvas_side_slack(region, realised, canvas_side=False)
+
+
+def _canvas_side_slack(
+    region: CanvasRegion,
+    realised: RealisedRouteReservation,
+    *,
+    canvas_side: bool,
+) -> float:
+    edge_is_negative = region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
     return (
         realised.negative_side_slack
-        if region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
+        if edge_is_negative is canvas_side
         else realised.positive_side_slack
     )
 
@@ -631,6 +674,8 @@ class _RegionMeasurement:
     end: float
     negative_blocker_ids: tuple[str, ...]
     positive_blocker_ids: tuple[str, ...]
+    negative_side_clearance: float | None = None
+    positive_side_clearance: float | None = None
 
 
 def _stable_id(prefix: str, *parts: object) -> str:
@@ -906,7 +951,7 @@ class GapCorridorBand(NamedTuple):
     caller, since only it knows which side a later widening can reach.
     """
 
-    boundary: int
+    boundary: int | None
     lo: float
     hi: float
 
@@ -968,6 +1013,60 @@ def gap_corridor_clearance_band(
         if best is None or width < best[0]:
             best = (width, band)
     return None if best is None else best[1]
+
+
+def canvas_corridor_clearance_band(
+    graph: MetroGraph,
+    orientation: CorridorOrientation,
+    coordinate: float,
+    longitudinal_start: float,
+    longitudinal_end: float,
+) -> GapCorridorBand | None:
+    """The box-edge clearance band for a run outside all placed content."""
+    extents = _ContentExtents.of(graph)
+    if orientation is CorridorOrientation.HORIZONTAL:
+        sections = tuple(
+            section
+            for section in extents.sections
+            if _section_x_overlaps(section, longitudinal_start, longitudinal_end)
+        )
+        if not sections:
+            return None
+        if coordinate < extents.top:
+            return GapCorridorBand(
+                None,
+                -math.inf,
+                min(section.bbox_y for section in sections) - INTER_ROW_EDGE_CLEARANCE,
+            )
+        if coordinate > extents.bottom:
+            return GapCorridorBand(
+                None,
+                max(section.bbox_y + section.bbox_h for section in sections)
+                + INTER_ROW_EDGE_CLEARANCE,
+                math.inf,
+            )
+        return None
+    sections = tuple(
+        section
+        for section in extents.sections
+        if _section_y_overlaps(section, longitudinal_start, longitudinal_end)
+    )
+    if not sections:
+        return None
+    if coordinate < extents.left:
+        return GapCorridorBand(
+            None,
+            -math.inf,
+            min(section.bbox_x for section in sections) - EDGE_TO_BUNDLE_CLEARANCE,
+        )
+    if coordinate > extents.right:
+        return GapCorridorBand(
+            None,
+            max(section.bbox_x + section.bbox_w for section in sections)
+            + EDGE_TO_BUNDLE_CLEARANCE,
+            math.inf,
+        )
+    return None
 
 
 def _candidate_row_gaps(
@@ -1632,7 +1731,7 @@ def _clearances(
         if isinstance(region, CanvasRegion) and region.side is CanvasSide.TOP:
             return (
                 canvas_edge_clearance(),
-                INTER_ROW_HEADER_CLEARANCE,
+                INTER_ROW_EDGE_CLEARANCE,
                 (
                     KeepOutClass.CANVAS,
                     KeepOutClass.HEADER,
@@ -2227,6 +2326,37 @@ def _build_symbolic_records(
     )
 
 
+class _ContentBoundary(NamedTuple):
+    blocker_id: str
+    coordinate: float
+    clearance: float
+
+
+def _content_boundary(
+    candidates: Iterable[_ContentBoundary], *, negative_side: bool
+) -> tuple[float, float, tuple[str, ...]]:
+    """The drawn obstacle that leaves the least usable canvas-side room."""
+    ordered = tuple(candidates)
+    if not ordered:
+        raise ValueError("corridor boundary has no settled blocker")
+
+    def allowed(item: _ContentBoundary) -> float:
+        return item.coordinate + item.clearance * (1 if negative_side else -1)
+
+    limit = (max if negative_side else min)(allowed(item) for item in ordered)
+    selected = min(
+        (item for item in ordered if abs(allowed(item) - limit) <= COORD_TOLERANCE),
+        key=lambda item: (item.coordinate, item.clearance, item.blocker_id),
+    )
+    blockers = tuple(
+        item.blocker_id
+        for item in ordered
+        if abs(item.coordinate - selected.coordinate) <= COORD_TOLERANCE
+        and abs(item.clearance - selected.clearance) <= COORD_TOLERANCE
+    )
+    return selected.coordinate, selected.clearance, blockers
+
+
 def _canvas_region_measurement(
     graph: MetroGraph,
     region: CanvasRegion,
@@ -2234,57 +2364,84 @@ def _canvas_region_measurement(
     longitudinal_end: float,
     canvas_width: float,
     canvas_height: float,
+    header_keepouts: Mapping[str, CanvasRect] | None = None,
 ) -> _RegionMeasurement:
-    if region.side in {CanvasSide.TOP, CanvasSide.BOTTOM}:
-        sections = tuple(
-            section
-            for section in graph.sections.values()
-            if section.bbox_w > 0
-            and _section_x_overlaps(section, longitudinal_start, longitudinal_end)
+    keepouts = header_keepouts or {}
+    allocates_y = region.side in {CanvasSide.TOP, CanvasSide.BOTTOM}
+    canvas_edge_is_negative = region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE
+    side_prefix = {
+        CanvasSide.TOP: SECTION_TOP_BLOCKER,
+        CanvasSide.RIGHT: SECTION_RIGHT_BLOCKER,
+        CanvasSide.BOTTOM: SECTION_BOTTOM_BLOCKER,
+        CanvasSide.LEFT: SECTION_LEFT_BLOCKER,
+    }[region.side]
+    box_clearance = (
+        INTER_ROW_EDGE_CLEARANCE if allocates_y else EDGE_TO_BUNDLE_CLEARANCE
+    )
+
+    candidates: list[_ContentBoundary] = []
+    for section in graph.sections.values():
+        box_start = section.bbox_y if allocates_y else section.bbox_x
+        box_size = section.bbox_h if allocates_y else section.bbox_w
+        overlaps_run = (
+            _section_x_overlaps(section, longitudinal_start, longitudinal_end)
+            if allocates_y
+            else _section_y_overlaps(section, longitudinal_start, longitudinal_end)
         )
-        if region.side is CanvasSide.TOP:
-            end, positive = _edge_blockers(
-                (
-                    (f"{SECTION_HEADER_BLOCKER}:{section.id}", section.bbox_y)
-                    for section in sections
-                ),
-                maximum=False,
-            )
-            return _RegionMeasurement(0.0, end, ("canvas:top",), positive)
-        start, negative = _edge_blockers(
-            (
-                (
-                    f"{SECTION_BOTTOM_BLOCKER}:{section.id}",
-                    section.bbox_y + section.bbox_h,
+        if box_size <= 0 or not overlaps_run:
+            continue
+        box_end = box_start + box_size
+        box_edge = box_start if canvas_edge_is_negative else box_end
+        candidates.append(
+            _ContentBoundary(f"{side_prefix}:{section.id}", box_edge, box_clearance)
+        )
+
+        keepout = keepouts.get(section.id)
+        if keepout is None:
+            continue
+        header_start = keepout.top if allocates_y else keepout.left
+        header_end = keepout.bottom if allocates_y else keepout.right
+        header_edge = header_start if canvas_edge_is_negative else header_end
+        header_overlaps_run = _overlaps(
+            keepout.left if allocates_y else keepout.top,
+            keepout.right if allocates_y else keepout.bottom,
+            longitudinal_start,
+            longitudinal_end,
+        )
+        header_is_outside = (
+            header_edge < box_start - COORD_TOLERANCE
+            if canvas_edge_is_negative
+            else header_edge > box_end + COORD_TOLERANCE
+        )
+        if header_is_outside and header_overlaps_run:
+            candidates.append(
+                _ContentBoundary(
+                    f"{SECTION_HEADER_BLOCKER}:{section.id}",
+                    header_edge,
+                    SECTION_HEADER_ROUTE_CLEARANCE,
                 )
-                for section in sections
-            ),
-            maximum=True,
-        )
-        return _RegionMeasurement(start, canvas_height, negative, ("canvas:bottom",))
-    sections = tuple(
-        section
-        for section in graph.sections.values()
-        if section.bbox_h > 0
-        and _section_y_overlaps(section, longitudinal_start, longitudinal_end)
+            )
+
+    content_edge, clearance, blockers = _content_boundary(
+        candidates, negative_side=not canvas_edge_is_negative
     )
-    if region.side is CanvasSide.LEFT:
-        end, positive = _edge_blockers(
-            (
-                (f"{SECTION_LEFT_BLOCKER}:{section.id}", section.bbox_x)
-                for section in sections
-            ),
-            maximum=False,
+    canvas_size = canvas_height if allocates_y else canvas_width
+    canvas_blocker = (f"canvas:{region.side.value}",)
+    if canvas_edge_is_negative:
+        return _RegionMeasurement(
+            0.0,
+            content_edge,
+            canvas_blocker,
+            blockers,
+            positive_side_clearance=clearance,
         )
-        return _RegionMeasurement(0.0, end, ("canvas:left",), positive)
-    start, negative = _edge_blockers(
-        (
-            (f"{SECTION_RIGHT_BLOCKER}:{section.id}", section.bbox_x + section.bbox_w)
-            for section in sections
-        ),
-        maximum=True,
+    return _RegionMeasurement(
+        content_edge,
+        canvas_size,
+        blockers,
+        canvas_blocker,
+        negative_side_clearance=clearance,
     )
-    return _RegionMeasurement(start, canvas_width, negative, ("canvas:right",))
 
 
 @dataclass(frozen=True, slots=True)
@@ -2335,6 +2492,40 @@ def _projected_claim_bounds(
     )
 
 
+def _drawn_claim_bounds(
+    reservation: RouteReservation,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+) -> _ProjectedClaimBounds:
+    """Canvas-run bounds read from the final polylines the renderer emits."""
+    allocation_axis, longitudinal_axis = _reservation_axes(reservation)
+    allocation_index = 0 if allocation_axis is DemandAxis.X else 1
+    longitudinal_index = 0 if longitudinal_axis is DemandAxis.X else 1
+    coordinates = (
+        (
+            route_polylines[claim.path_rank][rank][longitudinal_index],
+            route_polylines[claim.path_rank][rank][allocation_index],
+        )
+        for claim in reservation.claims
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
+    )
+    first_longitudinal, first_allocation = next(coordinates)
+    longitudinal_start = longitudinal_end = first_longitudinal
+    occupied_start = occupied_end = first_allocation
+    for longitudinal, allocation in coordinates:
+        longitudinal_start = min(longitudinal_start, longitudinal)
+        longitudinal_end = max(longitudinal_end, longitudinal)
+        occupied_start = min(occupied_start, allocation)
+        occupied_end = max(occupied_end, allocation)
+    return _ProjectedClaimBounds(
+        allocation_axis,
+        longitudinal_axis,
+        longitudinal_start,
+        longitudinal_end,
+        occupied_start,
+        occupied_end,
+    )
+
+
 def _launch_anchored_measurement(
     graph: MetroGraph,
     reservation: RouteReservation,
@@ -2375,7 +2566,13 @@ def _launch_anchored_measurement(
                 end, positive = edge, [blocker_id]
             elif edge < end + COORD_TOLERANCE:
                 positive.append(blocker_id)
-    return _RegionMeasurement(start, end, tuple(negative), tuple(positive))
+    return replace(
+        measurement,
+        start=start,
+        end=end,
+        negative_blocker_ids=tuple(negative),
+        positive_blocker_ids=tuple(positive),
+    )
 
 
 def _realise_one(
@@ -2384,12 +2581,18 @@ def _realise_one(
     canvas_width: float | None,
     canvas_height: float | None,
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    header_keepouts: Mapping[str, CanvasRect] | None = None,
+    route_polylines: Sequence[Sequence[tuple[float, float]]] | None = None,
 ) -> RealisedRouteReservation | None:
     if isinstance(reservation.region, CanvasRegion) and (
         canvas_width is None or canvas_height is None
     ):
         return None
-    projected = _projected_claim_bounds(reservation, coordinate_translations)
+    projected = (
+        _drawn_claim_bounds(reservation, route_polylines)
+        if isinstance(reservation.region, CanvasRegion) and route_polylines is not None
+        else _projected_claim_bounds(reservation, coordinate_translations)
+    )
     longitudinal_start = projected.longitudinal_start
     longitudinal_end = projected.longitudinal_end
     occupied_start = projected.occupied_start
@@ -2424,9 +2627,26 @@ def _realise_one(
             longitudinal_end,
             canvas_width,
             canvas_height,
+            header_keepouts,
         )
     measurement = _launch_anchored_measurement(
         graph, reservation, measurement, occupied_start, occupied_end
+    )
+    negative_clearance = (
+        reservation.negative_side_clearance
+        if measurement.negative_side_clearance is None
+        else measurement.negative_side_clearance
+    )
+    positive_clearance = (
+        reservation.positive_side_clearance
+        if measurement.positive_side_clearance is None
+        else measurement.positive_side_clearance
+    )
+    required = (
+        negative_clearance
+        + reservation.bundle_width
+        + reservation.peer_width
+        + positive_clearance
     )
     available = measured_distance(measurement.start, measurement.end)
     return RealisedRouteReservation(
@@ -2441,12 +2661,14 @@ def _realise_one(
         occupied_start,
         occupied_end,
         available,
-        reservation.minimum_width,
-        available - reservation.minimum_width,
-        occupied_start - (measurement.start + reservation.negative_side_clearance),
-        measurement.end - reservation.positive_side_clearance - occupied_end,
+        required,
+        available - required,
+        occupied_start - (measurement.start + negative_clearance),
+        measurement.end - positive_clearance - occupied_end,
         measurement.negative_blocker_ids,
         measurement.positive_blocker_ids,
+        negative_clearance,
+        positive_clearance,
         CoordinateRegime.LAYOUT_CANVAS,
         coordinate_translations,
     )
@@ -2459,6 +2681,7 @@ def realise_reservation(
     canvas_width: float | None = None,
     canvas_height: float | None = None,
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    header_keepouts: Mapping[str, CanvasRect] | None = None,
 ) -> RealisedRouteReservation | None:
     """Measure one reservation against *graph* as it currently stands.
 
@@ -2474,6 +2697,7 @@ def realise_reservation(
         canvas_width,
         canvas_height,
         coordinate_translations,
+        header_keepouts,
     )
 
 
@@ -2528,8 +2752,8 @@ def drawn_corridor_containment(
         for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
     )
     return DrawnCorridorContainment(
-        realised.region_start + reservation.negative_side_clearance,
-        realised.region_end - reservation.positive_side_clearance,
+        realised.region_start + realised.negative_side_clearance,
+        realised.region_end - realised.positive_side_clearance,
         min(drawn),
         max(drawn),
     )
@@ -2541,6 +2765,7 @@ def _realise_all(
     canvas_width: float | None,
     canvas_height: float | None,
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    header_keepouts: Mapping[str, CanvasRect] | None = None,
 ) -> tuple[RealisedRouteReservation, ...]:
     realised = (
         _realise_one(
@@ -2549,6 +2774,7 @@ def _realise_all(
             canvas_width,
             canvas_height,
             coordinate_translations,
+            header_keepouts,
         )
         for reservation in reservations
     )
@@ -2910,6 +3136,23 @@ def _section_blocker_ids(
     return tuple(item for item in blocker_ids if not item.startswith(marker))
 
 
+def _valid_canvas_content_blockers(
+    plan: RoutePlan, blocker_ids: tuple[str, ...], prefixes: tuple[str, ...]
+) -> bool:
+    """Whether every blocker names one section edge or header in *plan*."""
+    if not blocker_ids or len(set(blocker_ids)) != len(blocker_ids):
+        return False
+    section_ids = _section_grid_cells(plan)
+    return all(
+        any(
+            blocker_id.startswith(f"{prefix}:")
+            and blocker_id.removeprefix(f"{prefix}:") in section_ids
+            for prefix in prefixes
+        )
+        for blocker_id in blocker_ids
+    )
+
+
 def _validate_blocker_ids(
     plan: RoutePlan,
     reservation: RouteReservation,
@@ -2949,36 +3192,28 @@ def _validate_blocker_ids(
             negative_side=False,
         )
     elif region.side is CanvasSide.TOP:
-        valid = negative_ids == ("canvas:top",) and _valid_section_blockers(
+        valid = negative_ids == ("canvas:top",) and _valid_canvas_content_blockers(
             plan,
-            reservation,
             positive_ids,
-            prefix=SECTION_HEADER_BLOCKER,
-            negative_side=False,
+            (SECTION_TOP_BLOCKER, SECTION_HEADER_BLOCKER),
         )
     elif region.side is CanvasSide.BOTTOM:
-        valid = _valid_section_blockers(
+        valid = _valid_canvas_content_blockers(
             plan,
-            reservation,
             negative_ids,
-            prefix=SECTION_BOTTOM_BLOCKER,
-            negative_side=True,
+            (SECTION_BOTTOM_BLOCKER, SECTION_HEADER_BLOCKER),
         ) and positive_ids == ("canvas:bottom",)
     elif region.side is CanvasSide.LEFT:
-        valid = negative_ids == ("canvas:left",) and _valid_section_blockers(
+        valid = negative_ids == ("canvas:left",) and _valid_canvas_content_blockers(
             plan,
-            reservation,
             positive_ids,
-            prefix=SECTION_LEFT_BLOCKER,
-            negative_side=False,
+            (SECTION_LEFT_BLOCKER, SECTION_HEADER_BLOCKER),
         )
     else:
-        valid = _valid_section_blockers(
+        valid = _valid_canvas_content_blockers(
             plan,
-            reservation,
             negative_ids,
-            prefix=SECTION_RIGHT_BLOCKER,
-            negative_side=True,
+            (SECTION_RIGHT_BLOCKER, SECTION_HEADER_BLOCKER),
         ) and positive_ids == ("canvas:right",)
     if not valid:
         raise ValueError("realised reservation has invalid boundary blocker ids")
@@ -2993,25 +3228,35 @@ def _validate_reservation_realisation(
     expected_bounds = _projected_claim_bounds(
         reservation, realised.coordinate_translations
     )
-    expected_longitudinal_start = expected_bounds.longitudinal_start
-    expected_longitudinal_end = expected_bounds.longitudinal_end
-    expected_occupied_start = expected_bounds.occupied_start
-    expected_occupied_end = expected_bounds.occupied_end
-    expected_capacity = realised.available_width - reservation.minimum_width
+    if isinstance(reservation.region, CanvasRegion):
+        expected_longitudinal_start = realised.longitudinal_start
+        expected_longitudinal_end = realised.longitudinal_end
+        expected_occupied_start = realised.occupied_start
+        expected_occupied_end = realised.occupied_end
+    else:
+        expected_longitudinal_start = expected_bounds.longitudinal_start
+        expected_longitudinal_end = expected_bounds.longitudinal_end
+        expected_occupied_start = expected_bounds.occupied_start
+        expected_occupied_end = expected_bounds.occupied_end
+    expected_required = (
+        realised.negative_side_clearance
+        + reservation.bundle_width
+        + reservation.peer_width
+        + realised.positive_side_clearance
+    )
+    expected_capacity = realised.available_width - expected_required
     expected_negative = realised.occupied_start - (
-        realised.region_start + reservation.negative_side_clearance
+        realised.region_start + realised.negative_side_clearance
     )
     expected_positive = (
-        realised.region_end
-        - reservation.positive_side_clearance
-        - realised.occupied_end
+        realised.region_end - realised.positive_side_clearance - realised.occupied_end
     )
     expected_coordinate = (realised.occupied_start + realised.occupied_end) / 2
     if (
         realised.allocation_axis is not allocation_axis
         or realised.longitudinal_axis is not longitudinal_axis
         or realised.coordinate_regime is not CoordinateRegime.LAYOUT_CANVAS
-        or not _same_measurement(realised.required_width, reservation.minimum_width)
+        or not _same_measurement(realised.required_width, expected_required)
         or not _same_measurement(realised.capacity_slack, expected_capacity)
         or not _same_measurement(realised.negative_side_slack, expected_negative)
         or not _same_measurement(realised.positive_side_slack, expected_positive)
@@ -3756,8 +4001,7 @@ def realise_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
     *,
-    canvas_width: float,
-    canvas_height: float,
+    final_canvas: FinalCanvasGeometry,
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> RoutePlan:
     """Refresh the realised ledger against final render canvas bounds.
@@ -3780,9 +4024,11 @@ def realise_route_reservations(
             item := _realise_one(
                 graph,
                 reservation,
-                canvas_width,
-                canvas_height,
+                final_canvas.width,
+                final_canvas.height,
                 held_translations.get(reservation.id, coordinate_translations),
+                final_canvas.header_keepouts,
+                final_canvas.route_polylines,
             )
         )
         is not None

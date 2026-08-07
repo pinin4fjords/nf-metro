@@ -6296,11 +6296,13 @@ def _canvas_corridor_deficit_detail(
     realised: RealisedRouteReservation,
     region: CanvasRegion,
     edge_slack: float,
+    content_slack: float,
 ) -> str:
-    """Name the corridor, then which of its two claims fell short and by how much."""
+    """Name the corridor and its edge, content, and capacity slacks."""
     return (
         f"{_corridor_deficit_detail(reservation, realised)}, leaving "
         f"{edge_slack:+.1f}px of slack on its {region.side.value} canvas margin "
+        f"and {content_slack:+.1f}px on its content side, "
         f"and {realised.capacity_slack:+.1f}px of total capacity"
     )
 
@@ -6369,18 +6371,20 @@ def assert_canvas_corridors_hold_their_claims(
     widenable by growing the canvas, so a deficit here is an arrangement the
     render cannot honour rather than a limit of any one stage.
 
-    Two numbers are measured, because the margin and the total are different
-    claims and either can be the one that fails.  The margin is
+    Three numbers are measured because either side or the total can fail. The
+    canvas margin is
     :func:`canvas_edge_slack`: the gap between the ink drawn on the canvas side
     of the corridor and the edge itself, which is what decides whether a stroke
     or a direction chevron is clipped.  Capacity is the corridor's total room,
     which a corridor can hold in full while spending all of it on its content
-    side.  The content-facing side is a section box edge or header badge rather
-    than a canvas matter, and no growth of the canvas moves it; a shortfall
-    there is published as a ``reservation-deficit`` diagnostic on the plan and
-    owned by the box-edge and header guards.
+    side. The opposite margin is measured against the section edge or header
+    keepout actually drawn beside the run.
     """
-    from nf_metro.layout.route_reservations import CanvasRegion, canvas_edge_slack
+    from nf_metro.layout.route_reservations import (
+        CanvasRegion,
+        canvas_content_slack,
+        canvas_edge_slack,
+    )
 
     by_id = {item.id: item for item in plan.reservations}
     worst: tuple[float, str] | None = None
@@ -6389,22 +6393,27 @@ def assert_canvas_corridors_hold_their_claims(
         if reservation is None or not isinstance(reservation.region, CanvasRegion):
             continue
         edge_slack = canvas_edge_slack(reservation.region, realised)
-        slack = min(edge_slack, realised.capacity_slack)
+        content_slack = canvas_content_slack(reservation.region, realised)
+        slack = min(edge_slack, content_slack, realised.capacity_slack)
         if slack >= -COORD_TOLERANCE:
             continue
         if worst is None or slack < worst[0]:
             worst = (
                 slack,
                 _canvas_corridor_deficit_detail(
-                    reservation, realised, reservation.region, edge_slack
+                    reservation,
+                    realised,
+                    reservation.region,
+                    edge_slack,
+                    content_slack,
                 ),
             )
     if worst is None:
         return
     msg = (
         "a canvas-margin corridor is drawn with less clearance than it "
-        f"reserved: {worst[1]}.  Widen the canvas, or move the run off the "
-        "margin, rather than drawing it through a clearance it does not have."
+        f"reserved: {worst[1]}.  Widen the canvas or move the run away from "
+        "the blocking edge rather than drawing through unavailable clearance."
     )
     if strict:
         raise LayoutInvariantError(msg)
