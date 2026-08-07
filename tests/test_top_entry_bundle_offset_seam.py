@@ -43,7 +43,7 @@ FIXTURES = [
     "examples/topologies/fold_left_exit_right_entry.mmd",
     "examples/topologies/straight_drop_below.mmd",
     "examples/topologies/peeloff_straight_drop_near_wall.mmd",
-    "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd",
+    "examples/topologies/lr_perpendicular_ports_overflow.mmd",
     "examples/topologies/bottom_entry_same_row_boundary.mmd",
     "examples/topologies/entry_hint_shared_edge.mmd",
 ]
@@ -51,7 +51,7 @@ FIXTURES = [
 # A TOP entry stacked directly under the RIGHT exit that feeds it: the feeder
 # leaves horizontally, so its descent column stands a turn's runway out from
 # the exit and the port has to stand there with it.
-HORIZONTAL_EXIT_REPRO = "tests/fixtures/regressions/lr_perpendicular_ports_overflow.mmd"
+HORIZONTAL_EXIT_REPRO = "examples/topologies/lr_perpendicular_ports_overflow.mmd"
 
 FAR_SIDE_DIRECTION_CASES = [
     (direction, exit_side, entry_side)

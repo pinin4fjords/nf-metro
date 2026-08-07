@@ -1771,7 +1771,7 @@ gallery:
       exit seats past the trailing station so the line turns out after the marker instead of
       folding back over its own track.
   - id: lr_perpendicular_ports_overflow
-    source_dir: tests/fixtures/regressions
+    source_dir: examples/topologies
     category: Inter-section Routing
     description:
       A RIGHT exit feeds the TOP entry of an LR section directly below it. The entry
