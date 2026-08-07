@@ -26,6 +26,10 @@ CONTRACT = (
     / "layout"
     / "CONTRACT.md"
 )
+CONTRACT_TEXT = CONTRACT.read_text()
+DESIGN_RECORD = (
+    CONTRACT.parents[3] / "docs" / "dev" / "layout_settlement_design_record.md"
+)
 
 _STAGE_HEADING = re.compile(r"^### Stage (\S+?):", re.MULTILINE)
 _HEADING = re.compile(r"^#{1,3} ", re.MULTILINE)
@@ -40,7 +44,7 @@ _LIFECYCLE = re.compile(
 
 def _stage_blocks():
     """Yield (stage_tag, block_text) for each ### Stage entry in the table."""
-    text = CONTRACT.read_text()
+    text = CONTRACT_TEXT
     for m in _STAGE_HEADING.finditer(text):
         start = m.start()
         next_heading = _HEADING.search(text, m.end())
@@ -60,6 +64,12 @@ def test_contract_has_stage_table():
     # Spot-check the table spans Pass-A construction through final Pass-C.
     assert "1.1" in STAGE_IDS
     assert "6.16" in STAGE_IDS
+
+
+def test_contract_links_its_design_record():
+    """The specification keeps dated settlement evidence in a separate file."""
+    assert DESIGN_RECORD.is_file()
+    assert "docs/dev/layout_settlement_design_record.md" in CONTRACT_TEXT
 
 
 @pytest.mark.parametrize("tag,block", STAGE_BLOCKS, ids=STAGE_IDS)
