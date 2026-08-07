@@ -364,13 +364,12 @@ to consume there.
 
 A canvas-side corridor is bounded on one side by the canvas edge rather than by
 a grid boundary, so closing one means growing a margin, which is a different
-translation owner. All 144 realised canvas reservations now meet their required
-width, and `assert_canvas_corridors_hold_their_claims` gates both the canvas-edge
-margin and total capacity. It does not yet gate the _content_ side, because the
-clearance charged there is longitudinally blind and assumes a caption above the
-box; #1693 owns tightening that claim to the badge actually drawn, and the
-shortfalls are published as attributed `reservation-deficit` diagnostics until it
-does.
+translation owner. Its content boundary is resolved after header placement from
+the final route polylines, overlapping section edges, and drawn header keepouts.
+`assert_canvas_corridors_hold_their_claims` gates canvas-edge slack,
+content-side slack, and total capacity. Historical measurements from the earlier
+longitudinally blind model are recorded in the
+[envelope settlement design record](./layout_settlement_design_record/).
 
 ## The router's side of the contract
 
@@ -435,26 +434,19 @@ decision it is actually short of.
 That record on its own is weaker evidence than it reads, because
 `SettlementReach` can only return `WITHIN_REACH` for a conflict whose relief is
 not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
-evidence that actually settles the question is `layout/capacity_probe.py`, which
-asks the counterfactual directly: it grants a boundary generous capacity on a
-deep copy of the settled geometry, re-plans, and reports whether the disposition
-changes. All twelve of the corpus's compatibility systems do not change at any
-capacity up to 4464px, which is what proves their limit is a channel decision
-rather than envelope allocation.
+evidence that settles the question is `layout/capacity_probe.py`, which asks the
+counterfactual directly: it grants a boundary generous capacity on a deep copy
+of the settled geometry, re-plans, and reports whether the disposition changes.
+`COMPATIBILITY_CORPUS` in `tests/test_capacity_probe.py` owns the live population
+and each expected verdict. Planned controls remain in that table so a system
+slipping back onto compatibility fails the test. Historical population and
+grant totals are recorded in the
+[envelope settlement design record](./layout_settlement_design_record/).
 
-Twelve is the live population, carried by twelve fixtures and collapsing to nine
-distinct system-id strings because sibling fixtures share connector names;
-`COMPATIBILITY_CORPUS` carries fourteen rows. The other two are controls: a
-fixture the planner came to own keeps its row, asserting that it publishes no
-compatibility system at all, so a system slipping back onto that path fails a
-test rather than passing unnoticed.
-
-One of those controls is where the decision below comes from.
-`merge_around_below_leftmost` did change, at 22.5px, so what held it was
-capacity, and the answer was not to buy it. Its route system converges twice,
-and each convergence read its trunk
+`merge_around_below_leftmost` demonstrates the shared-channel decision below.
+Its route system converges twice, and each convergence reads its trunk
 coordinate off a trial route taken with no knowledge of its sibling, so both
-proposed the same lane of one inter-row channel and the planner declined the
+propose the same lane of one inter-row channel and the planner declines the
 system with `SHARED_TRUNK_CHANNEL`, whose reason names what was missing: one
 shared channel decision.
 
