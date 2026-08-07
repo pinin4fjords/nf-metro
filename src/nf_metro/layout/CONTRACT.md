@@ -459,8 +459,12 @@ in pipeline order.
   positions are unknown - the helper uses `_resolve_source_xy` to
   derive junction coords on-the-fly.
 - **Postcondition**: Each entry port's coordinate on the axis along
-  its bbox edge matches its source's coordinate on that axis (within
-  the section's bbox extent).
+  its bbox edge matches the coordinate its source's inter-section run
+  reaches the port on (within the section's bbox extent): the source's
+  own for a source that leaves along the run's axis, and one turn's
+  runway out from it for a perpendicular entry fed by a LEFT/RIGHT
+  exit, which turns onto its descent column only once clear of the box
+  (`_feeder_descent_x`).
 - **Invariants preserved**: Real station coords (Pass-A is port- and
   bbox-only). Exit ports. Junctions still unpositioned.
 - **Related tests**: `test_no_kink_at_section_boundary` (the
