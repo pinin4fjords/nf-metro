@@ -8,11 +8,12 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
+from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import RouteSystemId
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
     FinalConvergenceFeasibilityError,
-    empty_convergence_plan_execution,
     settle_global_convergence_execution,
 )
 from nf_metro.layout.routing.core import observe_route_edges
@@ -21,6 +22,178 @@ from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser.route_topology import ResolvedEdge
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_same_source_channels_from_distinct_systems_never_share_a_carrier() -> None:
+    first = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"line"}),
+        frozenset({"first-member"}),
+        frozenset({"source"}),
+        frozenset({"connector"}),
+        RouteSystemId("first-system"),
+        frozenset({"source"}),
+        False,
+    )
+    second = replace(
+        first,
+        claimant_member_ids=frozenset({"second-member"}),
+        system_id=RouteSystemId("second-system"),
+    )
+
+    assert not convergences._channels_share_source_carrier(first, second)
+
+
+def test_disjoint_same_system_exit_channels_do_not_share_a_carrier() -> None:
+    first = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"line"}),
+        frozenset({"first-member"}),
+        frozenset({"first-exit"}),
+        frozenset({"first-connector"}),
+        RouteSystemId("system"),
+        frozenset({"first-exit"}),
+        False,
+    )
+    second = replace(
+        first,
+        claimant_member_ids=frozenset({"second-member"}),
+        source_junction_ids=frozenset({"second-exit"}),
+        connector_ids=frozenset({"second-connector"}),
+        continuation_endpoint_ids=frozenset({"second-target"}),
+    )
+
+    assert not convergences._channels_share_source_carrier(first, second)
+
+
+def test_same_direction_distinct_lines_require_the_full_lane_step() -> None:
+    first = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        False,
+        (0, 0),
+        frozenset({"first"}),
+        frozenset({"first-member"}),
+        frozenset({"source"}),
+        frozenset({"first-connector"}),
+        RouteSystemId("system"),
+        frozenset({"target"}),
+        False,
+    )
+    fused = replace(
+        first,
+        coordinate=first.coordinate + OFFSET_STEP - COORD_TOLERANCE,
+        line_ids=frozenset({"second"}),
+        claimant_member_ids=frozenset({"second-member"}),
+        connector_ids=frozenset({"second-connector"}),
+    )
+
+    assert convergences._gap_channels_crowd(first, fused)
+    assert not convergences._gap_channels_crowd(
+        first, replace(fused, coordinate=first.coordinate + OFFSET_STEP)
+    )
+
+
+@pytest.mark.parametrize(
+    "field",
+    ("claimant_member_ids", "source_junction_ids", "connector_ids"),
+)
+def test_plan_gap_channel_rejects_missing_carrier_provenance(field: str) -> None:
+    values = {
+        "claimant_member_ids": frozenset({"member"}),
+        "source_junction_ids": frozenset({"source"}),
+        "connector_ids": frozenset({"connector"}),
+    }
+    values[field] = frozenset()
+
+    with pytest.raises(ValueError, match="complete carrier provenance"):
+        convergences._PlanGapChannel(
+            None,
+            100.0,
+            0.0,
+            100.0,
+            True,
+            (0, 0),
+            frozenset({"line"}),
+            values["claimant_member_ids"],
+            values["source_junction_ids"],
+            values["connector_ids"],
+            RouteSystemId("system"),
+            frozenset({"source"}),
+            False,
+        )
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+        ROOT / "examples" / "topologies" / "merge_bottom_row_bypass.mmd",
+        ROOT / "examples" / "topologies" / "merge_feeder_shared_channel_gap.mmd",
+    ),
+)
+def test_distinct_source_convergences_keep_opposing_same_line_channels(path) -> None:
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    lookup = convergences.gap_lookup_geometry(graph)
+    channels = tuple(
+        (plan_rank, channel)
+        for plan_rank, plan in enumerate(observation.plan.convergence_plans)
+        for channel in convergences._plan_gap_channels(plan, graph, lookup)
+    )
+    opposing = tuple(
+        (first, second)
+        for rank, (first_plan_rank, first) in enumerate(channels)
+        for second_plan_rank, second in channels[rank + 1 :]
+        if first_plan_rank != second_plan_rank
+        if first.line_ids & second.line_ids
+        and first.source_junction_ids.isdisjoint(second.source_junction_ids)
+        and first.down is not second.down
+        and first.gap == second.gap
+        and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
+    )
+    clearance = cotravelling_lane_clearance(
+        same_line=True, counter_running=True, curve_radius=CURVE_RADIUS
+    )
+
+    assert opposing
+    assert all(
+        abs(first.coordinate - second.coordinate) >= clearance - COORD_TOLERANCE
+        for first, second in opposing
+    )
+
+
+def test_shared_source_convergences_fuse_one_opening_carrier() -> None:
+    path = ROOT / "examples" / "topologies" / "merge_around_below_leftmost.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    lookup = convergences.gap_lookup_geometry(graph)
+    channels = tuple(
+        (rank, channel)
+        for rank, plan in enumerate(observation.plan.convergence_plans)
+        for channel in convergences._plan_gap_channels(plan, graph, lookup)
+        if channel.gap == (1, 0)
+        and channel.source_junction_ids == frozenset({"__junction_4"})
+    )
+
+    assert {rank for rank, _channel in channels} == {0, 1}
+    assert len({channel.coordinate for _rank, channel in channels}) == 1
 
 
 def test_coupled_flank_moves_do_not_leave_order_dependent_resident_channels(
@@ -47,6 +220,11 @@ def test_coupled_flank_moves_do_not_leave_order_dependent_resident_channels(
                 (0, 0),
                 frozenset({plan.line_id}),
                 frozenset({plan.tag}),
+                frozenset({plan.line_id}),
+                frozenset({f"{plan.line_id}-connector"}),
+                RouteSystemId("system"),
+                frozenset({plan.line_id}),
+                False,
             ),
         )
 
@@ -59,6 +237,11 @@ def test_coupled_flank_moves_do_not_leave_order_dependent_resident_channels(
         (0, 0),
         frozenset({"fixed"}),
         frozenset({"fixed"}),
+        frozenset({"fixed-source"}),
+        frozenset({"fixed-connector"}),
+        RouteSystemId("system"),
+        frozenset({"fixed-source"}),
+        True,
     )
     monkeypatch.setattr(convergences, "gap_lookup_geometry", lambda graph: None)
     monkeypatch.setattr(convergences, "_plan_gap_channels", channels)
@@ -264,16 +447,15 @@ def test_organellar_joint_allocation_freezes_member_before_emission() -> None:
 
 
 def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> None:
-    system_id = RouteSystemId("system")
-    plan = SimpleNamespace(
-        id="convergence-plan",
-        system_id=system_id,
-        owns_geometry=True,
-        line_ids=("convergence",),
-        trunk_axis=None,
-        endpoint_ownership=(),
+    path = ROOT / "examples" / "topologies" / "fan_in_merge.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
     )
-    query = empty_convergence_plan_execution().query
+    plan = observation.plan.convergence_plans[0]
+    system_id = plan.system_id
+    edge_order = tuple(member.edge for member in observation.plan.members)
+    query = convergences._query((plan,), edge_order)
     execution = ConvergencePlanExecution((plan,), (), (), (), query)
     convergence_channel = convergences._PlanGapChannel(
         1,
@@ -284,6 +466,11 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         (0, 0),
         frozenset({"convergence"}),
         frozenset({"convergence-member"}),
+        frozenset({"convergence-source"}),
+        frozenset({"convergence-connector"}),
+        system_id,
+        frozenset({"convergence-source"}),
+        False,
     )
     member_channel = convergences._PlanGapChannel(
         None,
@@ -294,6 +481,11 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         (0, 0),
         frozenset({"member"}),
         frozenset({"member"}),
+        frozenset({"member-source"}),
+        frozenset({"member-connector"}),
+        system_id,
+        frozenset({"member-source"}),
+        True,
     )
 
     monkeypatch.setattr(
@@ -332,7 +524,7 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
     ):
         settle_global_convergence_execution(
             execution,
-            SimpleNamespace(),
+            graph,
             SimpleNamespace(curve_radius=8.0),
             exit_turn_plans=(),
             member_geometry=empty_member_geometry_execution(),

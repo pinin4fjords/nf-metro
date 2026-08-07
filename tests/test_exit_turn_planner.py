@@ -28,6 +28,7 @@ from nf_metro.layout.route_plan import (
     ExitTurnDisposition,
     RouteFamilyId,
     RouteSystemDisposition,
+    RouteSystemId,
     SharedReferenceKind,
     build_route_plan_query,
 )
@@ -87,11 +88,17 @@ def _observe(path: Path):
     return graph, offsets, observation
 
 
-def _build_execution(path: Path):
+def _build_execution(path: Path, *, offset_step: float | None = None):
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
+    offsets = compute_station_offsets(graph, offset_step=offset_step)
     original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+    ctx = _build_routing_context(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        offsets,
+        offset_step=offset_step,
+    )
     execution = exit_turns.build_exit_turn_execution(graph, ctx)
     return graph, offsets, original_offsets, execution
 
@@ -388,7 +395,10 @@ def test_merge_feeder_does_not_compress_a_terminal_landing_curve() -> None:
 
 def test_leftward_upturn_preserves_source_lane_order() -> None:
     graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
-    plan = _plan_for_source(observation, "s7__exit_left_5")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        FROZEN / "seed_72.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "s7__exit_left_5")
     system = next(
         item for item in observation.plan.systems if item.id == plan.system_id
     )
@@ -420,7 +430,12 @@ def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
     graph, offsets, observation = _observe(
         TOPOLOGIES / "leftward_up_exit_turn_order.mmd"
     )
-    plan = _plan_for_source(observation, "source__exit_left_3")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "leftward_up_exit_turn_order.mmd"
+    )
+    plan = next(
+        item for item in execution.plans if item.source_id == "source__exit_left_3"
+    )
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("branch", "shared")
@@ -431,6 +446,10 @@ def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
         for assignment in plan.assignments
     )
     assert not plan.axes
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -849,9 +868,12 @@ def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> Non
     graph, offsets, observation = _observe(
         TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
     )
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
+    )
     plans = {
         plan.source_id: plan
-        for plan in observation.plan.exit_turn_plans
+        for plan in execution.plans
         if any(lane.line_id == "straight" for lane in plan.source_lanes)
     }
 
@@ -955,8 +977,10 @@ def test_unsupported_continuations_use_whole_group_legacy(
     source_id: str,
     reason: str,
 ) -> None:
-    _graph, _offsets, observation = _observe(FIXTURES / fixture)
-    plan = _plan_for_source(observation, source_id)
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / fixture
+    )
+    plan = next(item for item in execution.plans if item.source_id == source_id)
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason == reason
@@ -1156,10 +1180,13 @@ def test_lane_transitions_stay_within_one_section_frame(path: Path) -> None:
 
 def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
     _graph, offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
-    plan = _plan_for_source(observation, "__junction_11")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "complex_multipath.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_11")
     ordered_turns = next(
         item
-        for item in observation.plan.demands
+        for item in execution.demands
         if item.id in plan.demand_ids and item.kind is DemandKind.ORDERED_TURNS
     )
 
@@ -2124,7 +2151,6 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
         item
         for item in observation.plan.reservations
         if item.orientation is CorridorOrientation.VERTICAL
-        and item.system_id != plan.system_id
     )
     span = next(
         item.span for item in observation.plan.demands if item.id == plan.demand_ids[0]
@@ -2132,6 +2158,7 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
     axis = plan.axes[0]
     conflicting_reservation = replace(
         reservation,
+        system_id=RouteSystemId("foreign-system"),
         span=span,
         claims=tuple(
             replace(claim, allocation_coordinate=axis.coordinate)
@@ -2140,10 +2167,7 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
     )
     modified = replace(
         observation.plan,
-        reservations=tuple(
-            conflicting_reservation if item.id == reservation.id else item
-            for item in observation.plan.reservations
-        ),
+        reservations=(*observation.plan.reservations, conflicting_reservation),
     )
 
     conflicts = expected_exit_turn_foreign_references(modified)
@@ -2153,9 +2177,12 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
 
 def test_perpendicular_plan_axes_do_not_create_foreign_conflicts() -> None:
     _graph, _offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "complex_multipath.mmd"
+    )
     first, second = (
         item
-        for item in observation.plan.exit_turn_plans
+        for item in execution.plans
         if item.disposition is ExitTurnDisposition.PLANNED
         and item.axes
         and item.reference_id is not None
@@ -2175,9 +2202,9 @@ def test_perpendicular_plan_axes_do_not_create_foreign_conflicts() -> None:
     )
     modified = replace(
         observation.plan,
+        demands=execution.demands,
         exit_turn_plans=tuple(
-            perpendicular if item.id == second.id else item
-            for item in observation.plan.exit_turn_plans
+            perpendicular if item.id == second.id else item for item in execution.plans
         ),
     )
 
@@ -2191,18 +2218,17 @@ def test_vertical_source_axes_conflict_with_horizontal_corridors() -> None:
         TOPOLOGIES / "tb_bottom_exit_bundle_jog.mmd"
     )
     plan = _plan_for_source(observation, "up__exit_bottom_0")
-    _other_graph, _other_offsets, other = _observe(TOPOLOGIES / "complex_multipath.mmd")
     reservation = next(
         item
-        for item in other.plan.reservations
+        for item in observation.plan.reservations
         if item.orientation is CorridorOrientation.HORIZONTAL
-        and item.system_id != plan.system_id
     )
     span = next(
         item.span for item in observation.plan.demands if item.id == plan.demand_ids[0]
     )
     conflicting_reservation = replace(
         reservation,
+        system_id=RouteSystemId("foreign-system"),
         span=span,
         claims=tuple(
             replace(claim, allocation_coordinate=plan.axes[0].coordinate)
@@ -2291,7 +2317,10 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
         station_offsets=offsets,
         offset_step=10.0,
     )
-    plan = _plan_for_source(observation, "__junction_9")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        path, offset_step=10.0
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_9")
 
     assert plan.spacing == pytest.approx(10.0)
     assert all(
@@ -2304,6 +2333,11 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
         == pytest.approx((right.rank - left.rank) * 10.0)
         for left, right in zip(ordered_axes, ordered_axes[1:])
     )
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert all(route.exit_turn_axis_id is None for route in observation.routes)
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 

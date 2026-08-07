@@ -4632,7 +4632,7 @@ def _route_left_entry_wrap(
                 ctx.reserved_bands.rows.at(src_sec.grid_row + 1),
             )
     else:
-        hy = inter_row_channel_y(
+        channel_y = inter_row_channel_y(
             ctx.graph,
             src,
             tgt,
@@ -4643,7 +4643,12 @@ def _route_left_entry_wrap(
             delta,
             reserved=ctx.reserved_bands.rows,
         )
-        hy -= delta
+        claimed_band = ctx.reserved_bands.claimed_row_band(
+            edge.source, edge.target, edge.line_id
+        )
+        if claimed_band is not None:
+            channel_y = claimed_band.hold(channel_y)
+        hy = channel_y - delta
 
     # V2 descent channel centre, left of the target section.
     vx = _left_entry_descent_x(ctx, tgt.x, pos_n)

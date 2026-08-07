@@ -1461,14 +1461,16 @@ in pipeline order.
 
 - **Purpose**: Emit one complete semantic route system under one ownership
   disposition, in canonical system and member order.
-- **Helpers**: `_route_edges` calls
-  `build_route_system_emission_execution` once after convergence classification
-  to suppress member construction for known compatibility systems, and again
-  after member planning and convergence settlement to freeze the final atomic
-  dispositions. The
-  system loop calls `fresh_member_route` for
+- **Helpers**: `_route_edges` calls `classify_route_system_dispositions` after
+  convergence classification to suppress member construction for known
+  compatibility systems. After member planning and convergence settlement it
+  calls `build_route_system_emission_execution` once to freeze the final atomic
+  dispositions. The system loop calls `fresh_member_route` for
   each planned non-convergence member. Compatibility members alone enter
   `_route_inter_section`'s ordered first-match dispatcher.
+  Whole-graph rail mode freezes a dedicated execution before its direct rail
+  emitter runs, then attributes and validates the returned rail paths against
+  those canonical identities without synthesizing member-geometry plans.
 - **Precondition**: The semantic scaffold, exit-turn, fan, member-geometry, and
   convergence decisions are complete. Layout geometry and route reservations
   are read-only.

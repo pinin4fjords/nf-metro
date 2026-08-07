@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.route_plan import (
+    ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION,
     ConvergenceDisposition,
     ConvergencePlan,
     EmissionMemberId,
@@ -21,6 +22,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemCompatibilityReason,
     RouteSystemDisposition,
     RouteSystemId,
+    route_system_compatibility_follow_up,
 )
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -30,104 +32,6 @@ from nf_metro.parser.route_topology import ResolvedEdge
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
     from nf_metro.layout.routing.common import RoutedPath
-
-
-_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {
-        "exit-turn-plan": frozenset(
-            {
-                "ambiguous-continuation",
-                "ambiguous-source-lane-boundary",
-                "continuation-transition-has-no-runway",
-                "family-changed-after-lane-compaction",
-                "fixed-anchor-owned-by-another-plan",
-                "fixed-axis-conflict",
-                "insufficient-fixed-runway",
-                "insufficient-structural-runway",
-                "invalid-source-turn-requirement",
-                "lane-transition-order-inversion",
-                "linear-entry-frame-ownership-conflict",
-                "missing-or-ambiguous-source-order",
-                "missing-outbound-member",
-                "missing-production-family",
-                "missing-source-turn",
-                "multiple-destinations",
-                "opposed-source-run",
-                "overlapping-planned-turn-axes",
-                "planned-axis-overlaps-compatibility-channel",
-                "shared-source-ownership-conflict",
-                "shared-station-lane-collision",
-                "single-member-group",
-                "source-lane-transition-has-no-runway",
-                "unresolved-perpendicular-entry-seam",
-                "unsupported-family:bottom-exit-junction",
-                "unsupported-family:bypass-family",
-                "unsupported-family:left-entry-wrap-family",
-                "unsupported-family:merge-branch",
-                "unsupported-family:merge-trunk",
-                "unsupported-family:near-vertical-same-col-junction",
-                "unsupported-family:perp-exit",
-                "unsupported-family:perp-exit-far-side-entry-wrap",
-                "unsupported-family:right-entry-plough-bypass",
-                "unsupported-family:right-entry-wrap",
-                "unsupported-family:tb-perp-exit-over",
-                "unsupported-subshape:degenerate-horizontal-straight",
-                "unsupported-subshape:left-exit-right-entry-step",
-                "unsupported-subshape:merge-entry-straight",
-                "unsupported-subshape:nonvertical-tb-exit",
-                "unsupported-subshape:opposed-horizontal-straight",
-                "unsupported-subshape:unaligned-perpendicular-entry",
-                "unsupported-subshape:vertical-source-horizontal-straight",
-            }
-        ),
-        "fan-plan": frozenset(
-            {
-                "ambiguous-branch-to-join",
-                "ambiguous-resolved-branch-tail",
-                "ambiguous-resolved-fork",
-                "ambiguous-resolved-join",
-                "empty-resolved-member-path",
-                "fan-route-system-has-no-emission-member",
-                "local-layout-has-foreign-owner",
-                "missing-centreline-anchor",
-                "missing-resolved-extra-output-path",
-                "missing-resolved-member-path",
-                "off-track-layout-owns-fan-geometry",
-                "offset-carrier-has-unowned-line",
-                "overlapping-branch-lane-ownership",
-                "overlapping-fan-ownership",
-                "rail-layout-owns-fan-geometry",
-                "same-line-open-fan-layout-owns-geometry",
-                "unsupported-branch-line-transition",
-                "unsupported-fan-direction",
-            }
-        ),
-        "convergence-plan": frozenset(
-            {
-                "convergence alignment conflicts with an upstream exit turn",
-                "convergence landing conflicts with an upstream exit turn",
-                "convergence landing has no approach",
-                "convergence template declined its member",
-                "covered continuation is absent from its carrier",
-                "direct convergence has no emitted terminal approach",
-                "feeder template declined its member",
-                "planned convergence approaches and trunks have no settlement room",
-                "planned convergence member has no routing family",
-                "planned trunk has no drawable segment",
-                "primary trunk template declined its member",
-                "primary trunk template emitted no shared run",
-                "unsupported convergence shape",
-            }
-        ),
-        "member-geometry-plan": frozenset(
-            {
-                "canonical-template-declined-member",
-                "missing-emission-edge",
-                "missing-production-family",
-            }
-        ),
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,8 +101,14 @@ class RouteSystemEmissionExecution:
         return self._covered_by_member.get(member_id)
 
     def attribute_route(self, route: RoutedPath) -> None:
-        system = self.system_for_edge(route.edge)
-        member = self.member_for_edge(route.edge)
+        edge = route.edge
+        resolved = (
+            edge
+            if isinstance(edge, ResolvedEdge)
+            else ResolvedEdge(edge.source, edge.target, edge.line_id)
+        )
+        system = self._by_edge.get(resolved)
+        member = self._member_by_edge.get(resolved)
         if system is None or member is None:
             return
         route.route_system_id = str(system.system_id)
@@ -209,16 +119,11 @@ class RouteSystemEmissionExecution:
 
 
 def _compatibility_reason(owner: str, reason: str) -> RouteSystemCompatibilityReason:
-    if reason not in _COMPATIBILITY_REASONS.get(owner, ()):
-        raise ValueError(f"unregistered compatibility reason {owner}:{reason}")
     return RouteSystemCompatibilityReason(
         owner=owner,
         reason=reason,
-        justification=(
-            "The owning planner has no complete geometry for this named family; "
-            "the established compatibility templates remain its explicit emitter."
-        ),
-        follow_up=f"Teach {owner} to own {reason!r}, then remove this registry entry.",
+        justification=ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION,
+        follow_up=route_system_compatibility_follow_up(owner, reason),
     )
 
 
@@ -231,15 +136,15 @@ class RouteSystemDispositionDecision:
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
 
 
-def classify_route_system_dispositions(
-    scaffold: RouteSemanticScaffold,
-    *,
+def _plans_by_system(
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     fan_plans: tuple[FanPlan, ...],
     convergence_plans: tuple[ConvergencePlan, ...],
-    member_geometry_failures: Mapping[RouteSystemId, str] | None = None,
-) -> tuple[RouteSystemDispositionDecision, ...]:
-    """Classify each canonical system without constructing emission members."""
+) -> tuple[
+    dict[RouteSystemId, list[ExitTurnPlan]],
+    dict[RouteSystemId, list[FanPlan]],
+    dict[RouteSystemId, list[ConvergencePlan]],
+]:
     exit_by_system: dict[RouteSystemId, list[ExitTurnPlan]] = defaultdict(list)
     fan_by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
     convergence_by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(
@@ -252,6 +157,38 @@ def classify_route_system_dispositions(
             fan_by_system[fan_plan.system_id].append(fan_plan)
     for convergence_plan in convergence_plans:
         convergence_by_system[convergence_plan.system_id].append(convergence_plan)
+    return exit_by_system, fan_by_system, convergence_by_system
+
+
+def classify_route_system_dispositions(
+    scaffold: RouteSemanticScaffold,
+    *,
+    exit_turn_plans: tuple[ExitTurnPlan, ...],
+    fan_plans: tuple[FanPlan, ...],
+    convergence_plans: tuple[ConvergencePlan, ...],
+    member_geometry_failures: Mapping[RouteSystemId, str] | None = None,
+) -> tuple[RouteSystemDispositionDecision, ...]:
+    """Classify each canonical system without constructing emission members."""
+    exit_by_system, fan_by_system, convergence_by_system = _plans_by_system(
+        exit_turn_plans, fan_plans, convergence_plans
+    )
+    return _classify_route_system_dispositions(
+        scaffold,
+        exit_by_system,
+        fan_by_system,
+        convergence_by_system,
+        member_geometry_failures,
+    )
+
+
+def _classify_route_system_dispositions(
+    scaffold: RouteSemanticScaffold,
+    exit_by_system: Mapping[RouteSystemId, list[ExitTurnPlan]],
+    fan_by_system: Mapping[RouteSystemId, list[FanPlan]],
+    convergence_by_system: Mapping[RouteSystemId, list[ConvergencePlan]],
+    member_geometry_failures: Mapping[RouteSystemId, str] | None,
+) -> tuple[RouteSystemDispositionDecision, ...]:
+    """Classify canonical systems from pre-indexed owner plans."""
 
     decisions: list[RouteSystemDispositionDecision] = []
     for system_id in scaffold.ordered_system_ids:
@@ -338,20 +275,12 @@ def build_route_system_emission_execution(
     require_member_geometry: bool = False,
 ) -> RouteSystemEmissionExecution:
     """Freeze canonical system order and one emission disposition per system."""
-    exit_by_system: dict[RouteSystemId, list[ExitTurnPlan]] = defaultdict(list)
-    fan_by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
-    convergence_by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(
-        list
+    exit_by_system, fan_by_system, convergence_by_system = _plans_by_system(
+        exit_turn_plans, fan_plans, convergence_plans
     )
     covered_by_member: dict[EmissionMemberId, EmissionMemberId] = {}
     geometry_by_edge = {plan.edge: plan for plan in member_geometry_plans}
-    for exit_plan in exit_turn_plans:
-        exit_by_system[exit_plan.system_id].append(exit_plan)
-    for fan_plan in fan_plans:
-        if fan_plan.system_id is not None:
-            fan_by_system[fan_plan.system_id].append(fan_plan)
     for convergence_plan in convergence_plans:
-        convergence_by_system[convergence_plan.system_id].append(convergence_plan)
         for ownership in convergence_plan.endpoint_ownership:
             if ownership.covered_by_member_id is None:
                 continue
@@ -365,12 +294,12 @@ def build_route_system_emission_execution(
 
     decisions = {
         decision.system_id: decision
-        for decision in classify_route_system_dispositions(
+        for decision in _classify_route_system_dispositions(
             scaffold,
-            exit_turn_plans=exit_turn_plans,
-            fan_plans=fan_plans,
-            convergence_plans=convergence_plans,
-            member_geometry_failures=member_geometry_failures,
+            exit_by_system,
+            fan_by_system,
+            convergence_by_system,
+            member_geometry_failures,
         )
     }
 
@@ -600,12 +529,28 @@ def validate_published_route_attribution(
 ) -> None:
     """Check final paths against reservations claimed by their emission member."""
     systems = {str(system.id): system for system in plan.systems}
+    members = {str(member.id): member for member in plan.members}
     reservations_by_member = reservation_ids_by_claimant_member(plan.reservations)
     for route in routes:
         if route.route_system_id is None:
             continue
-        system = systems[route.route_system_id]
-        member_id = EmissionMemberId(route.emission_member_id or "")
+        system = systems.get(route.route_system_id)
+        if system is None:
+            raise RuntimeError(
+                f"published route names unknown route system {route.route_system_id!r}"
+            )
+        member = (
+            None
+            if route.emission_member_id is None
+            else members.get(route.emission_member_id)
+        )
+        if member is None or member.system_id != system.id:
+            raise RuntimeError(
+                f"route system {system.id} connectors "
+                f"{', '.join(system.connector_ids)} names unknown emission member "
+                f"{route.emission_member_id or 'none'!r}"
+            )
+        member_id = member.id
         expected = reservations_by_member.get(member_id, ())
         if route.route_reservation_ids != expected:
             raise RuntimeError(

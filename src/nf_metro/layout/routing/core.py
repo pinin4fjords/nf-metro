@@ -37,6 +37,7 @@ from nf_metro.layout.routing.context import (  # noqa: F401
     _tb_x_offset,
     compute_junction_fan_info,
 )
+from nf_metro.layout.routing.dispatch import route_edge_by_handler_priority
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (  # noqa: F401
     _build_right_entry_wrap_route,
@@ -79,9 +80,11 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _bundle_divergent_distinct_traverses,
     _clamp_inter_row_band_top,
     _clear_channel_x_in_band,
+    _clear_compatibility_entry_wrap_leadouts,
     _clear_merge_trunk_opposite_arm,
     _coincide_fanout_opening_descents,
     _coincide_merge_fanout_pivots,
+    _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
     _coincident_trunk_slots,
     _collect_htrunks,
@@ -114,6 +117,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _unify_coincident_corner_radii,
     _VChannel,
 )
+from nf_metro.layout.routing.planning import prepare_route_system_planning
 from nf_metro.layout.routing.postprocess import (  # noqa: F401
     _align_uncentered_siblings,
     _apply_diagonal_spread,
@@ -154,14 +158,6 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
 
 
-def _allocation_eligible_system_ids(
-    preliminary_planned_ids: frozenset[RouteSystemId],
-    member_failure_ids: frozenset[RouteSystemId],
-) -> frozenset[RouteSystemId]:
-    """Remove member-failed systems before shared geometry allocation."""
-    return preliminary_planned_ids - member_failure_ids
-
-
 def _route_edges(  # noqa: C901
     graph: MetroGraph,
     diagonal_run: float,
@@ -172,6 +168,7 @@ def _route_edges(  # noqa: C901
     offset_step: float | None = None,
     reservations: RoutePlan | None = None,
     reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    validate_final_route_frames: bool = True,
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -182,20 +179,65 @@ def _route_edges(  # noqa: C901
     """
     observer: RoutePlanObserver | None
     if graph.line_spread is LineSpread.RAILS:
+        from nf_metro.layout.route_plan import (
+            build_route_plan_observer,
+            build_route_semantic_scaffold,
+        )
         from nf_metro.layout.routing.rail import route_rail_edges
+        from nf_metro.layout.routing.system_emission import (
+            build_route_system_emission_execution,
+            validate_route_system_emission,
+        )
 
+        fan_execution = graph.fan_plan_execution
+        scaffold = fan_execution.scaffold if fan_execution is not None else None
+        if scaffold is None:
+            scaffold = build_route_semantic_scaffold(
+                graph,
+                coupled_connector_groups=tuple(
+                    plan.connector_ids for plan in graph.fan_plans if plan.connector_ids
+                ),
+            )
+        rail_execution = (
+            None
+            if scaffold is None
+            else build_route_system_emission_execution(
+                scaffold,
+                exit_turn_plans=(),
+                fan_plans=(),
+                convergence_plans=(),
+                family_by_edge={
+                    edge: RouteFamilyId.RAIL_INTER_SECTION
+                    for edge in scaffold.edge_order
+                },
+            )
+        )
         rail_graph_routes = route_rail_edges(graph)
+        if rail_execution is not None:
+            for route in rail_graph_routes:
+                rail_execution.attribute_route(route)
+            validate_route_system_emission(rail_graph_routes, rail_execution)
         observer = None
         if observe_plan:
-            from nf_metro.layout.route_plan import build_route_plan_observer
-
-            observer = build_route_plan_observer(graph, None)
+            observer = build_route_plan_observer(
+                graph,
+                None,
+                scaffold=scaffold,
+                route_systems=rail_execution,
+            )
         if observer is not None:
             observer.record_rail_routes(rail_graph_routes)
+        plan = observer.finish(rail_graph_routes) if observer is not None else None
+        if plan is not None:
+            from nf_metro.layout.routing.system_emission import (
+                validate_published_route_attribution,
+            )
+
+            validate_published_route_attribution(rail_graph_routes, plan)
         return (
             rail_graph_routes,
             {},
-            observer.finish(rail_graph_routes) if observer is not None else None,
+            plan,
         )
 
     # Per-section rail mode: route each rail section's own edges with the
@@ -230,6 +272,7 @@ def _route_edges(  # noqa: C901
         curve_radius,
         station_offsets,
         offset_step=offset_step,
+        validate_final_route_frames=validate_final_route_frames,
         reserved_bands=(
             None
             if reservations is None
@@ -242,30 +285,7 @@ def _route_edges(  # noqa: C901
         ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
-    from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
-
-    execution = build_exit_turn_execution(graph, ctx)
-    ctx.exit_turns = execution.query
-    family_by_edge = (
-        {
-            edge: family
-            for edge in execution.scaffold.edge_order
-            if (
-                family := classify_inter_section_family(
-                    ctx.edge_by_key[(edge.source, edge.target, edge.line_id)],
-                    graph.stations[edge.source],
-                    graph.stations[edge.target],
-                    ctx,
-                )
-            )
-            is not None
-        }
-        if execution.scaffold is not None
-        else {}
-    )
     from nf_metro.layout.routing.member_geometry import (
-        build_member_geometry_execution,
-        empty_member_geometry_execution,
         fresh_member_route,
         validate_member_geometry_emission,
     )
@@ -275,202 +295,42 @@ def _route_edges(  # noqa: C901
         if reservations is None
         else reservation_ids_by_claimant_member(reservations.reservations)
     )
-    from nf_metro.layout.routing.convergences import (
-        build_convergence_plan_execution,
-        empty_convergence_plan_execution,
-        preliminary_member_gap_claims,
-        restrict_convergence_execution,
-        settle_global_convergence_execution,
-        settle_preliminary_convergence_execution,
+    planning = prepare_route_system_planning(
+        graph,
+        ctx,
+        include_convergence_resources=observe_plan,
+        reservation_ids_by_member=reservation_ids_by_member,
     )
-
-    convergence_execution = (
-        build_convergence_plan_execution(
-            graph,
-            ctx,
-            execution.scaffold,
-            exit_turn_plans=execution.plans,
-            fan_plans=graph.fan_plans,
-            member_geometry=empty_member_geometry_execution(),
-            include_resources=False,
-        )
-        if execution.scaffold is not None
-        else empty_convergence_plan_execution()
-    )
-    ctx.convergences = convergence_execution.query
-    from nf_metro.layout.routing.system_emission import (
-        build_route_system_emission_execution,
-        classify_route_system_dispositions,
-    )
-
-    preliminary_dispositions = (
-        classify_route_system_dispositions(
-            execution.scaffold,
-            exit_turn_plans=execution.plans,
-            fan_plans=graph.fan_plans,
-            convergence_plans=convergence_execution.plans,
-        )
-        if execution.scaffold is not None
-        else ()
-    )
-    preliminary_compatibility_ids = frozenset(
-        decision.system_id
-        for decision in preliminary_dispositions
-        if decision.disposition is RouteSystemDisposition.COMPATIBILITY
-    )
-    preliminary_planned_ids = frozenset(
-        decision.system_id
-        for decision in preliminary_dispositions
-        if decision.disposition is RouteSystemDisposition.PLANNED
-    )
-    if execution.scaffold is not None:
-        ctx.compatibility_edges = frozenset(
-            (edge.source, edge.target, edge.line_id)
-            for edge in execution.scaffold.edge_order
-            if execution.scaffold.system_for_edge(edge) in preliminary_compatibility_ids
-        )
-        convergence_execution = settle_preliminary_convergence_execution(
-            convergence_execution,
-            graph,
-            ctx,
-            exit_turn_plans=execution.plans,
-            planned_system_ids=preliminary_planned_ids,
-        )
-        ctx.convergences = convergence_execution.query
-    gap_claims = preliminary_member_gap_claims(
-        convergence_execution, graph, preliminary_planned_ids
-    )
-    member_geometry = (
-        build_member_geometry_execution(
-            graph,
-            ctx,
-            execution.scaffold,
-            family_by_edge=family_by_edge,
-            compatibility_system_ids=preliminary_compatibility_ids,
-            preliminary_gap_claims=gap_claims,
-            reservation_ids_by_member=reservation_ids_by_member,
-        )
-        if execution.scaffold is not None
-        else empty_member_geometry_execution()
-    )
-    allocation_planned_ids = _allocation_eligible_system_ids(
-        preliminary_planned_ids,
-        frozenset(member_geometry.failure_reasons),
-    )
-    if execution.scaffold is not None:
-        convergence_execution = settle_global_convergence_execution(
-            convergence_execution,
-            graph,
-            ctx,
-            exit_turn_plans=execution.plans,
-            member_geometry=member_geometry,
-            planned_system_ids=allocation_planned_ids,
-            include_resources=False,
-        )
-        ctx.convergences = convergence_execution.query
-    system_execution = (
-        build_route_system_emission_execution(
-            execution.scaffold,
-            exit_turn_plans=execution.plans,
-            fan_plans=graph.fan_plans,
-            convergence_plans=convergence_execution.plans,
-            reservation_ids_by_member=reservation_ids_by_member,
-            family_by_edge=family_by_edge,
-            member_geometry_plans=member_geometry.plans,
-            member_geometry_failures=member_geometry.failure_reasons,
-            require_member_geometry=True,
-        )
-        if execution.scaffold is not None
-        else None
-    )
-    ctx.route_systems = system_execution
-    planned_system_ids = None
-    if system_execution is not None:
-        planned_system_ids = frozenset(
-            system.system_id
-            for system in system_execution.systems
-            if system.disposition is RouteSystemDisposition.PLANNED
-        )
-        ctx.compatibility_edges = frozenset(
-            (member.edge.source, member.edge.target, member.edge.line_id)
-            for system in system_execution.systems
-            if system.disposition is RouteSystemDisposition.COMPATIBILITY
-            for member in system.members
-        )
-        convergence_execution = restrict_convergence_execution(
-            convergence_execution,
-            graph,
-            planned_system_ids=planned_system_ids,
-            compatibility_system_ids=frozenset(
-                system.system_id
-                for system in system_execution.systems
-                if system.disposition is RouteSystemDisposition.COMPATIBILITY
-            ),
-            include_resources=observe_plan,
-        )
-        ctx.exit_turns = execution.query.restrict_to_systems(planned_system_ids)
-        ctx.convergences = convergence_execution.query.restrict_to_systems(
-            planned_system_ids
-        )
+    execution = planning.exit_turns
+    member_geometry = planning.member_geometry
+    convergence_execution = planning.convergences
+    system_execution = planning.route_systems
+    planned_system_ids = planning.planned_system_ids
     observer = None
     if observe_plan:
-        published_exit_turn_plans = tuple(
-            plan
-            for plan in execution.plans
-            if planned_system_ids is not None and plan.system_id in planned_system_ids
-        )
-        published_exit_turn_reference_ids = frozenset(
-            plan.reference_id
-            for plan in published_exit_turn_plans
-            if plan.reference_id is not None
-        )
-        published_exit_turn_demand_ids = frozenset(
-            demand_id
-            for plan in published_exit_turn_plans
-            for demand_id in plan.demand_ids
-        )
-        published_exit_turn_diagnostic_members = frozenset(
-            plan.member_ids[0]
-            for plan in published_exit_turn_plans
-            if plan.member_ids and plan.legacy_reason is not None
-        )
         published_member_geometry = tuple(
             plan
             for plan in member_geometry.plans
-            if planned_system_ids is not None and plan.system_id in planned_system_ids
+            if plan.system_id in planned_system_ids
         )
         observer = build_route_plan_observer(
             graph,
             ctx,
             scaffold=execution.scaffold,
-            exit_turn_plans=published_exit_turn_plans,
-            exit_turn_references=tuple(
-                reference
-                for reference in execution.references
-                if reference.id in published_exit_turn_reference_ids
-            ),
-            exit_turn_demands=tuple(
-                demand
-                for demand in execution.demands
-                if demand.id in published_exit_turn_demand_ids
-            ),
-            exit_turn_diagnostics=tuple(
-                diagnostic
-                for diagnostic in execution.diagnostics
-                if diagnostic.member_id in published_exit_turn_diagnostic_members
-            ),
+            exit_turn_plans=execution.plans,
+            exit_turn_references=execution.references,
+            exit_turn_demands=execution.demands,
+            exit_turn_diagnostics=execution.diagnostics,
             convergence_plans=convergence_execution.plans,
             convergence_references=tuple(
                 reference
                 for reference in convergence_execution.references
-                if planned_system_ids is not None
-                and reference.system_id in planned_system_ids
+                if reference.system_id in planned_system_ids
             ),
             convergence_demands=tuple(
                 demand
                 for demand in convergence_execution.demands
-                if planned_system_ids is not None
-                and demand.system_id in planned_system_ids
+                if demand.system_id in planned_system_ids
             ),
             convergence_diagnostics=convergence_execution.diagnostics,
             member_geometry_plans=published_member_geometry,
@@ -516,21 +376,13 @@ def _route_edges(  # noqa: C901
         if (edge.source, edge.target, edge.line_id) in rail_internal:
             return
 
-        src, tgt = graph.edge_endpoints(edge)
         edge_key = (edge.source, edge.target, edge.line_id)
-        observe_fallback = (
-            observer is not None
-            and (src.is_port or edge.source in ctx.junction_ids)
-            and (tgt.is_port or edge.target in ctx.junction_ids)
-        )
 
         result = (
             fresh_member_route(geometry_plan, edge)
             if geometry_plan is not None
-            else _route_inter_section(
+            else route_edge_by_handler_priority(
                 edge,
-                src,
-                tgt,
                 ctx,
                 observer=observer,
                 planned_family_id=planned_family_id,
@@ -538,25 +390,13 @@ def _route_edges(  # noqa: C901
         )
         if geometry_plan is not None and observer is not None:
             observer.record_dispatch(edge_key, geometry_plan.family_id)
-        if result is None:
-            result = _route_tb_section(edge, src, tgt, ctx)
-            if result is not None and observer is not None and observe_fallback:
-                observer.record_dispatch(edge_key, RouteFamilyId.TB_SECTION_FALLBACK)
-        if result is None:
-            result = _route_entry_runway(edge, src, tgt, ctx)
-            if result is not None and observer is not None and observe_fallback:
-                observer.record_dispatch(edge_key, RouteFamilyId.ENTRY_RUNWAY_FALLBACK)
-        if result is None:
-            result = _route_intra_section(edge, src, tgt, ctx)
-            if result is not None and observer is not None and observe_fallback:
-                observer.record_dispatch(edge_key, RouteFamilyId.INTRA_SECTION_FALLBACK)
 
         if result is not None:
             if system_execution is not None:
                 system_execution.attribute_route(result)
             routes.append(result)
 
-    emitted_systems: set[str] = set()
+    emitted_systems: set[RouteSystemId] = set()
     next_system_rank = 0
     for edge in graph.edges:
         system = (
@@ -567,7 +407,7 @@ def _route_edges(  # noqa: C901
         if system is None:
             emit_edge(edge)
             continue
-        system_key = str(system.system_id)
+        system_key = system.system_id
         if system_key in emitted_systems:
             continue
         assert system_execution is not None
@@ -615,6 +455,8 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "diagonal spreading")
     _materialize_gap_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "gap-slot materialization")
+    _clear_compatibility_entry_wrap_leadouts(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "wrap-leadout clearance")
     _materialize_trunk_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "trunk-slot materialization")
     # Counter-running flows that entered one inter-row gap from opposite rows
@@ -651,6 +493,8 @@ def _route_edges(  # noqa: C901
     # clear of an L-shaped sibling diverging to another column.
     _coincide_fanout_opening_descents(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "fanout opening coincidence")
+    _coincide_same_line_fanout_traverses(routes, ctx)
+    assert_exit_turn_snapshot(routes, planned_segments, "fanout traverse coincidence")
     # Distinct lines fanning out share the corridor they turn onto; nest their
     # traverses one step apart so the bundle holds a constant width until each
     # line peels off, rather than running on independently-sized bands.
@@ -706,11 +550,7 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "corridor clearance holding")
     _unify_coincident_corner_radii(routes)
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
-    covered_merge_hops = _drop_covered_merge_entry_hops(
-        routes,
-        ctx,
-        report_coverage=observer is not None or system_execution is not None,
-    )
+    covered_merge_hops = _drop_covered_merge_entry_hops(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "covered merge-hop removal")
     if observer is not None:
         observer.record_covered_merge_hops(covered_merge_hops)
@@ -735,12 +575,13 @@ def _route_edges(  # noqa: C901
     validate_fan_route_emissions(
         graph,
         routes,
-        ctx.station_offsets,
+        ctx.station_offsets if validate_final_route_frames else None,
         planned_system_ids=planned_system_ids,
     )
     from nf_metro.layout.routing.convergences import validate_convergence_plans
 
-    validate_convergence_plans(routes, convergence_execution)
+    if validate_final_route_frames:
+        validate_convergence_plans(routes, convergence_execution)
     validate_member_geometry_emission(routes, member_geometry)
 
     plan = observer.finish(routes) if observer is not None else None
@@ -779,6 +620,28 @@ def route_edges(
         station_offsets,
         observe_plan=False,
         offset_step=offset_step,
+    )
+    return routes
+
+
+def route_edges_for_placement_guards(
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float],
+) -> list[RoutedPath]:
+    """Route transient placement geometry for Pass C bisection guards.
+
+    Fan and convergence endpoint frames become final after Stage 6.16. The
+    earlier Pass C checkpoints need routed paths for their own geometric
+    guards, so they retain semantic emission validation without asserting
+    those later frames.
+    """
+    routes, _moves, _plan = _route_edges(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        station_offsets,
+        observe_plan=False,
+        validate_final_route_frames=False,
     )
     return routes
 

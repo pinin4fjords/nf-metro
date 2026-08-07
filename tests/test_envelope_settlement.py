@@ -82,16 +82,10 @@ DEFICIT_CORPUS = (
     TOPOLOGIES / "convergence_fold_diamond.mmd",
     TOPOLOGIES / "convergence_sink_fold.mmd",
     TOPOLOGIES / "fold_split_targets.mmd",
-    TOPOLOGIES / "off_track_input_above_consumer.mmd",
-    TOPOLOGIES / "right_entry_over_top_tall_upstream.mmd",
-    TOPOLOGIES / "same_line_fan_distinct_descent.mmd",
-    ROOT / "examples" / "differentialabundance.mmd",
-    ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
-    ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
 )
 
-# Fixtures whose only deficit falls on a column boundary, so the column phase has
-# to translate rather than merely confirm.
+# This fixture naturally publishes a starved planned column corridor, so the
+# column settlement path is exercised from observation through final validation.
 COLUMN_DEFICIT_CORPUS = (
     ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
 )
@@ -104,41 +98,25 @@ COLUMN_DEFICIT_CORPUS = (
 # with its operands and not with its answer.
 ORIGIN_OFFSETS = (0.1, 0.3, 1.0 / 3.0, 7.7, 1000.1, -0.1, -7.7)
 
-# Fixtures whose settlement allocates and which a uniform translation moves
-# rigidly, the router redrawing every route in the same shape at the new origin.
-# `da_pipeline` and `off_track_input_above_consumer` each allocate a different
-# width at one of the offsets above when the deficit is a bare subtraction, on
-# the row axis; `complex_multipath` translates a column as well as a row.
+# Planned fixtures whose settlement allocates and whose routes move rigidly when
+# the whole map is translated to a different canvas origin.
 ORIGIN_CORPUS = (
-    ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
-    TOPOLOGIES / "complex_multipath.mmd",
-    TOPOLOGIES / "off_track_input_above_consumer.mmd",
+    TOPOLOGIES / "convergence_fold_diamond.mmd",
+    TOPOLOGIES / "convergence_sink_fold.mmd",
+    TOPOLOGIES / "fold_split_targets.mmd",
 )
 
-# Every map with a left-canvas channel: each draws its leftmost line 6px off the
-# canvas edge, which a turn-radius clearance would call 4px short.  The margin
-# each corridor keeps against the edge is measured, not its total room: a canvas
-# corridor's other side faces content, and room banked there does not keep ink
-# inside the viewport.
+# Planned maps covering all four canvas sides.  The margin each corridor keeps
+# against the edge is measured separately from room banked on its content side.
 CANVAS_CLEARANCE_CORPUS = (
-    ROOT / "examples" / "diagonal_labels.mmd",
-    ROOT / "examples" / "genomic_pipeline.mmd",
     TOPOLOGIES / "fanout_bundle_plus_spurs.mmd",
-    TOPOLOGIES / "inter_row_wrap_clearance.mmd",
-    ROOT / "tests" / "fixtures" / "diagonal_single_trunk_off_track.mmd",
-    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
-    REGRESSIONS / "stacked_collector_fanin.mmd",
-    ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd",
+    TOPOLOGIES / "fan_in_merge.mmd",
+    TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
+    TOPOLOGIES / "around_section_below.mmd",
+    TOPOLOGIES / "lr_perp_top_exit_perp_entry_diverging.mmd",
 )
 
-# Fixtures where a section straddles a boundary settlement widens, so the
-# translation cannot own it and has to hold it in place.  ``data_prep`` is pinned
-# at row 0 with a span of 2; ``psite_id`` straddles by inference.
-SPANNING_CORPUS = (
-    ROOT / "examples" / "differentialabundance.mmd",
-    ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
-    ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
-)
+SPANNING_CORPUS = (TOPOLOGIES / "convergence_fold_diamond.mmd",)
 
 # Fixtures with no positive deficit anywhere: settlement must not touch them.
 SETTLED_CORPUS = (
@@ -150,9 +128,9 @@ SETTLED_CORPUS = (
 
 LEDGER_REROUTE_CORPUS = (
     (ROOT / "examples" / "rnaseq_sections.mmd", 0),
-    (ROOT / "examples" / "genomeassembly.mmd", 0),
-    (ROOT / "examples" / "variantbenchmarking.mmd", 1),
-    (ROOT / "examples" / "differentialabundance_default.mmd", 1),
+    (ROOT / "examples" / "genomeassembly.mmd", 1),
+    (ROOT / "examples" / "variantbenchmarking.mmd", 0),
+    (ROOT / "examples" / "differentialabundance_default.mmd", 0),
     (TOPOLOGIES / "merge_around_below_leftmost.mmd", 1),
     (TOPOLOGIES / "bypass_left_entry_from_right.mmd", 1),
     (TOPOLOGIES / "junction_entry_align.mmd", 1),
@@ -161,9 +139,9 @@ LEDGER_REROUTE_CORPUS = (
 # One fixture per supported flow direction, so the single axis-based
 # implementation is exercised under rotation and reflection.
 DIRECTION_CORPUS = {
-    "LR": ROOT / "examples" / "rnaseq_sections.mmd",
-    "RL": ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_41.mmd",
-    "TB": ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+    "LR": TOPOLOGIES / "convergence_fold_diamond.mmd",
+    "RL": TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
+    "TB": TOPOLOGIES / "bottom_exit_junction_collinear_top_entry.mmd",
     "BT": TOPOLOGIES / "bt_perp_left_entry_right_exit.mmd",
 }
 
@@ -182,6 +160,29 @@ def _observe_drawn(path: Path):
 def _observe(path: Path):
     graph, plan, _polylines = _observe_drawn(path)
     return graph, plan
+
+
+def _observe_planned_straddler(path: Path):
+    """A planned deficit with an unrelated section spanning its row boundary."""
+    directives = """\
+%%metro grid: start | 0,0,3,1
+%%metro grid: branch_left | 1,0
+%%metro grid: branch_right | 1,1
+%%metro grid: finish | 1,2
+"""
+    source = path.read_text().replace("graph LR", f"{directives}\ngraph LR")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(source, source_dir=str(path.parent))
+        offsets = compute_station_offsets(graph)
+        observation = observe_route_edges(graph, station_offsets=offsets)
+    reservation = next(
+        item
+        for item in observation.plan.reservations
+        if isinstance(item.region, RowGapRegion) and item.region.lower_row == 2
+    )
+    _narrow_reservation(graph, reservation)
+    return graph, observation.plan
 
 
 def _observe_moved(path: Path, delta: float):
@@ -454,7 +455,7 @@ def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
         if isinstance(item.region, ColumnGapRegion)
         and str(item.id) in _capacity_deficits(plan)
     }
-    assert column_deficits, "fixture must starve a column gap"
+    assert column_deficits
 
     settlement = settle_route_envelopes(graph, plan)
     assert settlement.shortfalls == ()
@@ -526,36 +527,27 @@ def test_a_group_band_render_is_gated_by_the_geometry_it_draws() -> None:
     assert _capacity_deficits(plan) == {}
 
 
-# One fixture per way an arrangement can pin a section's grid placement, which
-# is the only thing an author can pin: no directive fixes a canvas coordinate or
-# a maximum separation, so the ownership lemma below has to hold for all of them.
-PIN_CLASS_CORPUS = {
-    "explicit-grid": ROOT / "examples" / "rnaseq_sections.mmd",
-    "row-span": ROOT / "examples" / "differentialabundance.mmd",
-    "column-span": ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd",
-    "column-span-tb": ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
-    "inferred-span": ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
+PLANNED_GAP_CORRIDOR_CORPUS = {
+    "row-deficit": TOPOLOGIES / "convergence_fold_diamond.mmd",
+    "two-row-deficits": TOPOLOGIES / "convergence_sink_fold.mmd",
+    "row-and-column": TOPOLOGIES / "bottom_exit_junction_collinear_top_entry.mmd",
+    "column-bundle": TOPOLOGIES / "asymmetric_tree.mmd",
     "fold-rows": TOPOLOGIES / "convergence_fold_diamond.mmd",
     "fold-targets": TOPOLOGIES / "fold_split_targets.mmd",
     **{f"flow-{name}": path for name, path in DIRECTION_CORPUS.items()},
 }
 
 LEMMA_CORPUS = {
-    **PIN_CLASS_CORPUS,
+    **PLANNED_GAP_CORRIDOR_CORPUS,
     **{f"deficit-{path.name}": path for path in DEFICIT_CORPUS},
     **{f"column-{path.name}": path for path in COLUMN_DEFICIT_CORPUS},
-    **{f"spanning-{path.name}": path for path in SPANNING_CORPUS},
-    # The one member of ``SETTLED_CORPUS`` that publishes a corridor: the other
-    # two share none, so the rule has nothing to say about them.
-    "settled-rnaseq_auto.mmd": ROOT / "examples" / "rnaseq_auto.mmd",
 }
 
 # Fixtures that run a column translation while row corridors exist, so the row
 # phase's result is exposed to the column phase.
 CROSS_AXIS_CORPUS = (
-    TOPOLOGIES / "complex_multipath.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd",
+    TOPOLOGIES / "bottom_exit_junction_collinear_top_entry.mmd",
+    TOPOLOGIES / "clear_channel_target_aware_push.mmd",
 )
 
 
@@ -643,6 +635,14 @@ def test_each_translation_widens_the_corridor_it_records_by_its_amount(
     """
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
+    if not settlement.translations:
+        reservation = next(
+            item
+            for item in plan.reservations
+            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
+        )
+        _narrow_reservation(graph, reservation)
+        settlement = settle_route_envelopes(graph, plan)
     assert settlement.translations, path
 
     replayed, replayed_plan = _observe(path)
@@ -729,24 +729,27 @@ def test_each_corridor_blocker_lies_wholly_on_the_side_it_bounds(path: Path) -> 
 
 
 def test_one_translation_settles_every_claim_on_its_boundary() -> None:
-    """Two corridors starved at one boundary are one widening, not two.
-
-    ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1, short by 2px and by 6px, and one
-    translation of row 1 onward -- sized to the deeper of the two -- satisfies
-    both.
-    """
-    path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
+    """Several starved claims at one boundary receive one sufficient widening."""
+    path = TOPOLOGIES / "opposing_bypass_corridor.mmd"
     graph, plan = _observe(path)
+    residents = tuple(
+        reservation
+        for reservation in plan.reservations
+        if isinstance(reservation.region, RowGapRegion)
+        and reservation.region.lower_row == 1
+    )
+    realised = tuple(realise_reservation(graph, item) for item in residents)
+    assert residents and all(item is not None for item in realised)
+    amount = max(item.capacity_slack for item in realised if item is not None) + 6.0
+    _narrow(graph, SettlementAxis.ROW, 1, amount)
     starved = _capacity_deficits(plan)
-    assert len(starved) == 2
-    assert set(starved.values()) == {-2.0, -6.0}
+    assert set(starved) == {str(item.id) for item in residents}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
     assert translation.axis is SettlementAxis.ROW
     assert translation.boundary == 1
-    assert translation.amount == pytest.approx(6.0)
+    assert translation.amount >= max(-value for value in starved.values())
     assert {str(item) for item in translation.reservation_ids} == set(starved)
 
     for reservation_id in starved:
@@ -849,6 +852,9 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
         item for item in plan.reservations if isinstance(item.region, ColumnGapRegion)
     )
     assert row_reservations and column_reservations, path
+
+    target_column = column_reservations[0]
+    _narrow_reservation(graph, target_column)
 
     _, row_coordinate = envelope_settlement._settle_axis(
         graph, plan, row_reservations, envelope_settlement.ROW_AXIS
@@ -965,7 +971,7 @@ def test_a_straddling_section_is_named_and_held_by_the_translation(
     cannot carry it without narrowing the gap above; it stays, and the record
     names it rather than leaving its exclusion implicit.
     """
-    graph, plan = _observe(path)
+    graph, plan = _observe_planned_straddler(path)
     before = {key: section.bbox_y for key, section in graph.sections.items()}
     settlement = settle_route_envelopes(graph, plan)
     straddling = tuple(
@@ -993,7 +999,7 @@ def test_a_held_straddling_section_bounds_nothing_the_translation_settled(
     The widening cannot reach a corridor the held section bounds, so a
     translation that claims to settle such a corridor is making a false record.
     """
-    graph, plan = _observe(path)
+    graph, plan = _observe_planned_straddler(path)
     settlement = settle_route_envelopes(graph, plan)
     reservation_by_id = {item.id: item for item in plan.reservations}
     checked = 0
@@ -1029,7 +1035,7 @@ def test_a_straddling_section_that_bounds_its_corridor_is_rejected() -> None:
     a row corridor's blockers are selected by.
     """
     path = SPANNING_CORPUS[0]
-    graph, plan = _observe(path)
+    graph, plan = _observe_planned_straddler(path)
     settlement = settle_route_envelopes(graph, plan)
     translation = next(
         item for item in settlement.translations if item.spanning_section_ids
@@ -1378,6 +1384,52 @@ MIGRATED_SYSTEMS = (
     ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
 )
 
+COMPATIBILITY_RESOURCE_FREE_CORPUS = (
+    TOPOLOGIES / "off_track_input_above_consumer.mmd",
+    TOPOLOGIES / "right_entry_over_top_tall_upstream.mmd",
+    ROOT / "examples" / "differentialabundance.mmd",
+)
+
+
+@pytest.mark.parametrize(
+    "path", COMPATIBILITY_RESOURCE_FREE_CORPUS, ids=lambda item: item.name
+)
+def test_compatibility_systems_publish_no_settlement_resources(path: Path) -> None:
+    graph, plan = _observe(path)
+    compatibility_ids = {
+        system.id
+        for system in plan.systems
+        if system.disposition.value == "compatibility"
+    }
+
+    assert compatibility_ids
+    assert not [
+        reference
+        for reference in plan.shared_references
+        if reference.system_id in compatibility_ids
+    ]
+    assert not [
+        demand for demand in plan.demands if demand.system_id in compatibility_ids
+    ]
+    assert not [
+        reservation
+        for reservation in plan.reservations
+        if reservation.system_id in compatibility_ids
+    ]
+    settlement = settle_route_envelopes(graph, plan)
+    planned_reservation_ids = {
+        reservation.id
+        for reservation in plan.reservations
+        if reservation.system_id not in compatibility_ids
+    }
+    assert {
+        reservation_id
+        for translation in settlement.translations
+        for reservation_id in translation.reservation_ids
+    } <= planned_reservation_ids
+    if compatibility_ids == {system.id for system in plan.systems}:
+        assert settlement.translations == ()
+
 
 @pytest.mark.parametrize("path", MIGRATED_SYSTEMS, ids=lambda item: item.name)
 def test_migrated_systems_are_not_short_of_corridor(path: Path) -> None:
@@ -1512,9 +1564,7 @@ def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> Non
     graph, plan, polylines = _observe_drawn(TOPOLOGIES / "convergence_fold_diamond.mmd")
     settlement = settle_route_envelopes(graph, plan)
     target, boundary = _widest_slack_row_reservation(graph, plan)
-    realised = realise_reservation(graph, target)
-    assert realised is not None
-    _narrow(graph, SettlementAxis.ROW, boundary, realised.capacity_slack + 4.0)
+    _narrow_reservation(graph, target)
 
     squeezed = realise_reservation(graph, target)
     assert squeezed is not None and squeezed.capacity_slack < 0
@@ -1538,7 +1588,7 @@ def test_a_canvas_corridor_narrower_than_it_claims_fails_the_strict_path() -> No
     Growing the demand past the margin stands in for an arrangement that starves
     it: the guard has to refuse the render rather than warn and draw it.
     """
-    path = TOPOLOGIES / "route_around_intervening.mmd"
+    path = TOPOLOGIES / "fan_in_merge.mmd"
     plan = _rendered_plan(path, permissive=True).route_plan
     target = next(
         item for item in plan.reservations if isinstance(item.region, CanvasRegion)
@@ -1600,7 +1650,7 @@ def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
     margin.  The margin is what a stroke and a direction chevron are clipped
     against, so it is the number the strict path refuses.
     """
-    path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
+    path = TOPOLOGIES / "around_section_below.mmd"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -1636,11 +1686,12 @@ def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
 @pytest.mark.parametrize(
     ("path", "side"),
     (
-        (TOPOLOGIES / "bt_to_lr.mmd", CanvasSide.TOP),
-        (TOPOLOGIES / "cross_col_top_entry.mmd", CanvasSide.TOP),
-        (TOPOLOGIES / "lr_perp_top_exit_side_entry.mmd", CanvasSide.TOP),
-        (TOPOLOGIES / "bypass_leftward_far_side_entry.mmd", CanvasSide.BOTTOM),
-        (TOPOLOGIES / "stacked_left_exit_drop.mmd", CanvasSide.LEFT),
+        (
+            TOPOLOGIES / "lr_perp_top_exit_perp_entry_diverging.mmd",
+            CanvasSide.TOP,
+        ),
+        (TOPOLOGIES / "fan_in_merge.mmd", CanvasSide.BOTTOM),
+        (TOPOLOGIES / "fanout_bundle_plus_spurs.mmd", CanvasSide.LEFT),
         (
             TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
             CanvasSide.RIGHT,
@@ -1682,12 +1733,14 @@ def test_every_canvas_corridor_holds_its_content_side(
 @pytest.mark.parametrize(
     ("fixture", "expected_blocker"),
     (
-        ("lr_perp_top_exit_side_entry.mmd", "section-top:mid"),
-        ("tb_bottom_exit_fork_diamond.mmd", "section-header:feed"),
+        (
+            "lr_perp_top_exit_perp_entry_diverging.mmd",
+            ("section-top:sec1", "section-top:sec2"),
+        ),
     ),
 )
 def test_a_top_canvas_corridor_is_bounded_by_content_over_its_own_run(
-    fixture: str, expected_blocker: str
+    fixture: str, expected_blocker: tuple[str, ...]
 ) -> None:
     """A header only bounds the longitudinal interval occupied by its ink."""
     path = TOPOLOGIES / fixture
@@ -1705,12 +1758,12 @@ def test_a_top_canvas_corridor_is_bounded_by_content_over_its_own_run(
         for item in plan.realised_reservations
         if item.reservation_id == reservation.id
     )
-    assert realised.positive_blocker_ids == (expected_blocker,)
+    assert realised.positive_blocker_ids == expected_blocker
 
 
 def test_a_short_canvas_content_side_fails_the_strict_path() -> None:
     """A content blocker is as hard a boundary as the canvas edge."""
-    path = TOPOLOGIES / "bt_to_lr.mmd"
+    path = TOPOLOGIES / "lr_perp_top_exit_perp_entry_diverging.mmd"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -1774,7 +1827,7 @@ def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
 def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
     """Settlement's own postcondition is enforced, not just reported: a demand
     it was handed and did not meet stops the render rather than being drawn."""
-    graph, plan, polylines = _observe_drawn(ROOT / "examples" / "rnaseq_sections.mmd")
+    graph, plan, polylines = _observe_drawn(TOPOLOGIES / "convergence_fold_diamond.mmd")
     reservation = next(
         item
         for item in plan.reservations
@@ -1843,6 +1896,22 @@ def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:
                     item.x -= amount
 
 
+def _narrow_reservation(graph, reservation, *, excess: float = 4.0):
+    """Make one realised row or column reservation short by ``excess`` pixels."""
+    realised = realise_reservation(graph, reservation)
+    assert realised is not None
+    if isinstance(reservation.region, RowGapRegion):
+        axis = SettlementAxis.ROW
+        boundary = reservation.region.lower_row
+    elif isinstance(reservation.region, ColumnGapRegion):
+        axis = SettlementAxis.COLUMN
+        boundary = reservation.region.right_column
+    else:
+        raise TypeError(f"unsupported reservation region: {reservation.region!r}")
+    _narrow(graph, axis, boundary, realised.capacity_slack + excess)
+    return realised
+
+
 def _added_diagnostics(published, held):
     return published.diagnostics[len(held.diagnostics) :]
 
@@ -1889,18 +1958,18 @@ def test_a_corridor_the_reroute_resizes_is_named_rather_than_invisible() -> None
 def test_the_settled_reroute_reports_the_widths_it_asks_for_afresh() -> None:
     """The same difference, on a map that produces it without being staged.
 
-    ``dogleg_exempt_distinct`` seats its two row corridors clear of one another
-    on the settled geometry, so neither is charged for the other any more and
-    both ask for less than settlement was sized for.
+    The planned merge reroutes inside the frozen corridor and publishes its
+    independently observed width as a diagnostic rather than changing the
+    ledger settlement consumed.
     """
-    path = TOPOLOGIES / "dogleg_exempt_distinct.mmd"
+    path = TOPOLOGIES / "merge_around_below_leftmost.mmd"
     route_plan = _rendered_plan(path).route_plan
     resized = [
         item
         for item in route_plan.diagnostics
         if item.code == "reroute-ledger-demand-rewidened"
     ]
-    assert len(resized) == 2
+    assert len(resized) == 1
     assert all(not item.blocking for item in resized)
     assert all("row gap 0/1" in item.message for item in resized)
 

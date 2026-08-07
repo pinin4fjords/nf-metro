@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.pass_metrics import icon_half_height_approx, station_radius_approx
 from nf_metro.layout.phases._common import (
     grow_section_bbox_max_edge,
@@ -118,7 +119,7 @@ def _apply_planned_fan_geometry(
                 f"planned fan {plan.id!r} has no frozen placement centreline"
             ) from error
         _materialise_plan_stations(graph.stations, plan, centreline)
-        _order_straight_fan_vertical_tracks(graph, plan)
+        _order_straight_fan_section_tracks(graph, plan)
         _align_straight_fan_join_station(graph, plan, centreline)
 
         if frame.secondary.name == "y":
@@ -136,7 +137,7 @@ def _apply_planned_fan_geometry(
             )
 
 
-def _order_straight_fan_vertical_tracks(graph: MetroGraph, plan: FanPlan) -> None:
+def _order_straight_fan_section_tracks(graph: MetroGraph, plan: FanPlan) -> None:
     """Carry a straight fan's source-lane order through vertical sections."""
     from nf_metro.layout.constants import COORD_TOLERANCE
     from nf_metro.layout.route_plan import FanAppearancePolicy
@@ -144,7 +145,7 @@ def _order_straight_fan_vertical_tracks(graph: MetroGraph, plan: FanPlan) -> Non
     if plan.appearance_policy is not FanAppearancePolicy.STRAIGHT:
         return
     for section in graph.sections.values():
-        if section.direction not in ("TB", "BT"):
+        if not lanes_run_along_x(section.direction):
             continue
         entry_port_ids = [
             port_id
@@ -188,7 +189,7 @@ def _order_straight_fan_vertical_tracks(graph: MetroGraph, plan: FanPlan) -> Non
             continue
         tracks = sorted(item[2] for item in branch_tracks)
         run_sign = 1.0 if graph.ports[entry_port_id].side is PortSide.LEFT else -1.0
-        turn_sign = 1.0 if section.direction == "TB" else -1.0
+        turn_sign = AxisFrame.flow_sign(section.direction)
         lane_sign = plan.appearance_lane_sign or 1.0
         if -turn_sign * run_sign * lane_sign < 0:
             tracks.reverse()
@@ -203,7 +204,7 @@ def _order_straight_fan_vertical_tracks(graph: MetroGraph, plan: FanPlan) -> Non
 def _align_straight_fan_join_station(
     graph: MetroGraph, plan: FanPlan, centreline: float
 ) -> None:
-    """Align a straight fan's authored join without moving boundary anchors."""
+    """Align a straight fan's authored join within its settled section frame."""
     from nf_metro.layout.route_plan import FanAppearancePolicy
 
     if (
@@ -217,9 +218,21 @@ def _align_straight_fan_join_station(
     if join is None:
         return
     section = graph.sections.get(join.section_id or "")
-    if section is None or section.direction not in ("LR", "RL"):
+    if section is None or not lanes_run_along_y(section.direction):
         return
-    join.y = centreline
+    boundary_y = None
+    for port_id in plan.entry_port_ids:
+        port = graph.ports.get(port_id)
+        if (
+            port is None
+            or port.section_id != section.id
+            or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+            or not any(edge.target == join.id for edge in graph.edges_from(port_id))
+        ):
+            continue
+        boundary_y = graph.stations[port_id].y
+        break
+    join.y = boundary_y if boundary_y is not None else centreline
 
 
 def _materialise_plan_stations(

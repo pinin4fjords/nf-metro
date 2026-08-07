@@ -24,6 +24,7 @@ from typing import Any, Literal, NamedTuple
 import drawsvg as draw
 
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE_FINE,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
     SECTION_Y_GAP,
@@ -63,7 +64,7 @@ from nf_metro.layout.phases.ports import (
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import (
     ConvergencePlan,
-    EmissionMemberId,
+    DemandAxis,
     ExitTurnPlan,
     GridSpan,
     RouteFamilyId,
@@ -82,9 +83,10 @@ from nf_metro.layout.route_reservations import (
     ReservationCoordinateTranslation,
     RowGapRegion,
     adopt_route_reservation_ledger,
+    attach_reservation_ids_to_routes,
     gap_corridor_clearance_band,
+    project_reservation_coordinate,
     realise_route_reservations,
-    reservation_ids_by_claimant_member,
 )
 from nf_metro.layout.routing import (
     RoutedPath,
@@ -92,6 +94,7 @@ from nf_metro.layout.routing import (
     compute_station_offsets,
     observe_route_edges_centred,
 )
+from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
@@ -617,6 +620,7 @@ def _build_render_plan_result(
                 bare=bare,
             )
         except (
+            ConvergenceInvariantError,
             CurveInvariantError,
             FanRouteInvariantError,
             SectionHeaderClashError,
@@ -844,6 +848,7 @@ def _member_geometry_decision(
         plan.system_id,
         plan.member_id,
         plan.edge,
+        plan.connector_ids,
         plan.family_id,
         _route_segment_signature(list(plan.points)),
         plan.offset_regime,
@@ -1092,19 +1097,15 @@ def _attach_published_reservation_attribution(
     routes: list[RoutedPath], plan: RoutePlan
 ) -> None:
     """Attach the adopted ledger's claimant-exact reservations to each route."""
-    reservation_ids_by_member = reservation_ids_by_claimant_member(plan.reservations)
-    for route in routes:
-        if route.route_system_id is not None:
-            route.route_reservation_ids = tuple(
-                reservation_ids_by_member.get(
-                    EmissionMemberId(route.emission_member_id or ""), ()
-                )
-            )
+    attach_reservation_ids_to_routes(routes, plan.reservations)
     validate_published_route_attribution(routes, plan)
 
 
 def _ledger_changes_live_derived_band(
-    graph: MetroGraph, plan: RoutePlan, routes: list[RoutedPath]
+    graph: MetroGraph,
+    plan: RoutePlan,
+    routes: list[RoutedPath],
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
 ) -> bool:
     """Whether consuming *plan* can change any route-system placement.
 
@@ -1189,11 +1190,22 @@ def _ledger_changes_live_derived_band(
                 ledger = corridors.for_segment(
                     route.edge.source, route.edge.target, route.line_id, rank
                 )
+                allocation_coordinate = project_reservation_coordinate(
+                    claim.allocation_coordinate,
+                    DemandAxis.Y
+                    if reservation.orientation is CorridorOrientation.HORIZONTAL
+                    else DemandAxis.X,
+                    claim.member_id,
+                    coordinate_translations,
+                )
                 if ledger is not None and (
                     derived is None
                     or derived.boundary != boundary
                     or derived.lo != ledger.lo
                     or derived.hi != ledger.hi
+                    or not ledger.lo - COORD_TOLERANCE_FINE
+                    <= allocation_coordinate
+                    <= ledger.hi + COORD_TOLERANCE_FINE
                 ):
                     return True
 
@@ -1426,7 +1438,10 @@ def _settle_render_geometry(
     )
     settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
     if settlement.translations or _ledger_changes_live_derived_band(
-        graph, frozen_plan, frozen_routes
+        graph,
+        frozen_plan,
+        frozen_routes,
+        settlement.coordinate_translations,
     ):
         station_offsets, routes, routed_plan = _resettle(
             frozen_plan, settlement.coordinate_translations

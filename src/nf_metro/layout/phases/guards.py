@@ -6099,6 +6099,8 @@ def _ensure_pass_c_inputs(
     graph: MetroGraph,
     offsets: dict[tuple[str, str], float] | None,
     routes: list[RoutedPath] | None,
+    *,
+    validate_final_geometry: bool,
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath] | None]:
     """Compute the shared ``offsets`` / ``routes`` a guard run inspects, once.
 
@@ -6109,12 +6111,17 @@ def _ensure_pass_c_inputs(
     need routes are then skipped.
     """
     from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.layout.routing.core import route_edges_for_placement_guards
 
     if offsets is None:
         offsets = compute_station_offsets(graph)
     if routes is None:
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = (
+                route_edges(graph, station_offsets=offsets)
+                if validate_final_geometry
+                else route_edges_for_placement_guards(graph, offsets)
+            )
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
     return offsets, routes
@@ -6140,7 +6147,12 @@ def run_validate_guards(
     A spec needing ``routes`` is skipped when routing failed.  Returns the
     shared ``(offsets, routes)``.
     """
-    offsets, routes = _ensure_pass_c_inputs(graph, offsets, routes)
+    offsets, routes = _ensure_pass_c_inputs(
+        graph,
+        offsets,
+        routes,
+        validate_final_geometry=include_final,
+    )
     available: dict[str, object] = {
         "offsets": offsets,
         "routes": routes,

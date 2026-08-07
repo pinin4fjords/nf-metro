@@ -2373,6 +2373,10 @@ def centre_inter_column_channel(
     return column_gap_midpoint(graph, col_a, col_b, row) + offset
 
 
+def _segment_set_owns_boundary(owned_ranks: Sequence[int], rank: int) -> bool:
+    return any(item in owned_ranks for item in (rank - 1, rank, rank + 1))
+
+
 def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     """Whether a convergence plan owns the boundary at or beside *rank*.
 
@@ -2380,18 +2384,19 @@ def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     either of the two segments meeting at it would contradict the plan the
     closing validators check the geometry against.
     """
-    return any(
-        item in route.convergence_owned_segment_ranks
-        for item in (rank - 1, rank, rank + 1)
-    )
+    return _segment_set_owns_boundary(route.convergence_owned_segment_ranks, rank)
 
 
 def member_plan_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     """Whether a member geometry plan owns the segment at or beside *rank*."""
-    return any(
-        item in route.route_system_owned_segment_ranks
-        for item in (rank - 1, rank, rank + 1)
-    )
+    return _segment_set_owns_boundary(route.route_system_owned_segment_ranks, rank)
+
+
+def route_system_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether convergence or member geometry owns this segment boundary."""
+    return convergence_owns_segment_boundary(
+        route, rank
+    ) or member_plan_owns_segment_boundary(route, rank)
 
 
 def planner_owns_segment(route: RoutedPath, rank: int) -> bool:

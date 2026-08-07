@@ -48,7 +48,7 @@ from nf_metro.layout.routing.invariants import (
     check_merge_feeders_land_on_trunk,
 )
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
-from nf_metro.parser.route_topology import build_route_topology_query
+from nf_metro.parser.route_topology import ResolvedEdge, build_route_topology_query
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -61,6 +61,10 @@ def _observe(path: Path):
     offsets = compute_station_offsets(graph)
     observed = observe_route_edges(graph, station_offsets=offsets)
     return graph, offsets, observed
+
+
+def _edge_order(observed) -> tuple[ResolvedEdge, ...]:
+    return tuple(member.edge for member in observed.plan.members)
 
 
 def _observe_text(text: str):
@@ -516,7 +520,7 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="planned opening"):
@@ -746,7 +750,7 @@ def test_runtime_guard_rejects_reduced_planned_landing_runway() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="runway"):
@@ -867,7 +871,7 @@ def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError) as error:
@@ -909,7 +913,7 @@ def test_runtime_guard_rejects_a_disconnected_diagonal_trunk() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="does not emit planned"):
@@ -942,7 +946,7 @@ def test_runtime_guard_rejects_a_missing_terminal_trunk_cap() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="does not emit planned"):

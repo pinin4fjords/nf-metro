@@ -30,6 +30,9 @@ from nf_metro.layout.route_plan import (
     EmissionRole,
     ExitTurnDisposition,
     RouteFamilyId,
+    RouteMemberGeometryPlan,
+    RouteMemberGeometryPlanId,
+    RouteSystemCompatibilityReason,
     RouteSystemDisposition,
     SharedReferenceKind,
     build_route_plan_query,
@@ -311,7 +314,182 @@ def test_whole_graph_rail_routes_bind_through_the_final_route_set() -> None:
         (binding,) = query.bindings_for(member.id)
         assert binding.kind is BindingKind.EMITTED
         assert binding.path_rank is not None
-        assert routes[binding.path_rank].line_id == member.line_id
+        emitted = routes[binding.path_rank]
+        assert emitted.line_id == member.line_id
+        assert emitted.route_system_id == str(member.system_id)
+        assert emitted.emission_member_id == str(member.id)
+        assert emitted.route_system_disposition == RouteSystemDisposition.PLANNED.value
+        assert emitted.route_plan_ids == ()
+        assert emitted.route_reservation_ids == tuple(
+            str(reservation.id)
+            for reservation in plan.reservations
+            if member.id in reservation.claimant_member_ids
+        )
+
+    member = rail_members[0]
+    (binding,) = query.bindings_for(member.id)
+    assert binding.path_rank is not None
+    route = routes[binding.path_rank]
+    fake_plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("fake-rail-member-plan"),
+        member.system_id,
+        member.id,
+        member.edge,
+        member.connector_ids,
+        RouteFamilyId.RAIL_INTER_SECTION,
+        tuple(route.points),
+        None if route.curve_radii is None else tuple(route.curve_radii),
+        route.offset_regime,
+        route.normalize_exempt,
+        tuple(route.gap_slots),
+        route.trunk_slot,
+        (),
+    )
+    systems = tuple(
+        dataclasses.replace(
+            system,
+            member_geometry_plan_ids=(fake_plan.id,),
+        )
+        if system.id == member.system_id
+        else system
+        for system in plan.systems
+    )
+    malformed = dataclasses.replace(
+        plan,
+        systems=systems,
+        member_geometry_plans=(fake_plan,),
+    )
+    with pytest.raises(ValueError, match="rail emitter cannot"):
+        build_route_plan_query(malformed)
+
+
+def test_route_system_records_require_exact_public_partitions() -> None:
+    _graph, _routes, plan = _observe(EXAMPLES / "genomeassembly.mmd")
+
+    with pytest.raises(ValueError, match="duplicate route-system"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=(*plan.systems, plan.systems[0]),
+            )
+        )
+
+    owning_system = next(system for system in plan.systems if system.member_ids)
+    missing_member = dataclasses.replace(
+        owning_system, member_ids=owning_system.member_ids[1:]
+    )
+    with pytest.raises(ValueError, match="emission-member partition"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=tuple(
+                    missing_member if system.id == owning_system.id else system
+                    for system in plan.systems
+                ),
+            )
+        )
+
+    missing_connector = dataclasses.replace(
+        owning_system, connector_ids=owning_system.connector_ids[1:]
+    )
+    with pytest.raises(ValueError, match="connector ownership"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=tuple(
+                    missing_connector if system.id == owning_system.id else system
+                    for system in plan.systems
+                ),
+            )
+        )
+
+    reordered_connectors = dataclasses.replace(
+        owning_system, connector_ids=tuple(reversed(owning_system.connector_ids))
+    )
+    with pytest.raises(ValueError, match="connector index is not canonical"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=tuple(
+                    reordered_connectors if system.id == owning_system.id else system
+                    for system in plan.systems
+                ),
+            )
+        )
+
+    missing_exit_group = dataclasses.replace(
+        owning_system, exit_group_ids=owning_system.exit_group_ids[1:]
+    )
+    with pytest.raises(ValueError, match="ownership indexes"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=tuple(
+                    missing_exit_group if system.id == owning_system.id else system
+                    for system in plan.systems
+                ),
+            )
+        )
+
+    assert len(owning_system.bundle_ids) > 1
+    reordered_bundles = dataclasses.replace(
+        owning_system, bundle_ids=tuple(reversed(owning_system.bundle_ids))
+    )
+    with pytest.raises(ValueError, match="bundle index"):
+        build_route_plan_query(
+            dataclasses.replace(
+                plan,
+                systems=tuple(
+                    reordered_bundles if system.id == owning_system.id else system
+                    for system in plan.systems
+                ),
+            )
+        )
+
+    _fan_graph, _fan_routes, fan_plan = _observe(
+        EXAMPLES / "topologies" / "fan_in_merge.mmd"
+    )
+    for label, records, index_name, collection_name in (
+        ("branch", fan_plan.branches, "branch_ids", "branches"),
+        ("feeder", fan_plan.feeders, "feeder_ids", "feeders"),
+    ):
+        assert records
+        duplicate = records[0]
+        owner = next(
+            system for system in fan_plan.systems if system.id == duplicate.system_id
+        )
+        duplicated_owner = dataclasses.replace(
+            owner,
+            **{index_name: (*getattr(owner, index_name), duplicate.id)},
+        )
+        with pytest.raises(ValueError, match=f"duplicate route {label}"):
+            build_route_plan_query(
+                dataclasses.replace(
+                    fan_plan,
+                    systems=tuple(
+                        duplicated_owner if system.id == owner.id else system
+                        for system in fan_plan.systems
+                    ),
+                    **{collection_name: (*records, duplicate)},
+                )
+            )
+
+
+def test_route_system_compatibility_reason_registry_is_public_schema() -> None:
+    with pytest.raises(ValueError, match="unregistered compatibility reason"):
+        RouteSystemCompatibilityReason(
+            owner="member-geometry-plan",
+            reason="arbitrary-private-fallback",
+            justification="not registered",
+            follow_up="not applicable",
+        )
+    with pytest.raises(ValueError, match="metadata is not canonical"):
+        RouteSystemCompatibilityReason(
+            owner="member-geometry-plan",
+            reason="missing-emission-edge",
+            justification="custom explanation",
+            follow_up="custom follow-up",
+        )
 
 
 def test_route_families_and_roles_come_from_production_dispatch() -> None:

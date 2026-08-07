@@ -233,6 +233,32 @@ class ExitTurnExecution:
     diagnostics: tuple[RoutePlanDiagnostic, ...]
     query: ExitTurnPlanQuery
 
+    def restrict_to_systems(
+        self, system_ids: frozenset[RouteSystemId]
+    ) -> ExitTurnExecution:
+        plans = tuple(plan for plan in self.plans if plan.system_id in system_ids)
+        reference_ids = {
+            plan.reference_id for plan in plans if plan.reference_id is not None
+        }
+        demand_ids = {demand_id for plan in plans for demand_id in plan.demand_ids}
+        diagnostic_member_ids = {
+            plan.member_ids[0]
+            for plan in plans
+            if plan.member_ids and plan.legacy_reason is not None
+        }
+        return ExitTurnExecution(
+            self.scaffold,
+            plans,
+            tuple(item for item in self.references if item.id in reference_ids),
+            tuple(item for item in self.demands if item.id in demand_ids),
+            tuple(
+                item
+                for item in self.diagnostics
+                if item.member_id in diagnostic_member_ids
+            ),
+            self.query.restrict_to_systems(system_ids),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _AssignmentSeed:

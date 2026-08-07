@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     )
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.layout.routing.context import _EdgeKey, _RoutingCtx
+    from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
 
 
 RouteSystemId = NewType("RouteSystemId", str)
@@ -149,6 +150,7 @@ class RouteMemberGeometryPlan:
     system_id: RouteSystemId
     member_id: EmissionMemberId
     edge: ResolvedEdge
+    connector_ids: tuple[ConnectorId, ...]
     family_id: RouteFamilyId
     points: tuple[tuple[float, float], ...]
     curve_radii: tuple[float, ...] | None
@@ -169,6 +171,10 @@ class RouteMemberGeometryPlan:
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
 
     def __post_init__(self) -> None:
+        if not self.connector_ids or len(set(self.connector_ids)) != len(
+            self.connector_ids
+        ):
+            raise ValueError("member geometry plan connector ownership is incomplete")
         if len(self.points) < 2 or not all(
             math.isfinite(value) for point in self.points for value in point
         ):
@@ -189,6 +195,21 @@ class RouteMemberGeometryPlan:
             for channel in self.gap_channels
         ):
             raise ValueError("member geometry plan channel exceeds its path segments")
+        if any(
+            any(
+                abs(actual - expected) > COORD_TOLERANCE
+                for actual, expected in zip(
+                    (*channel.start, *channel.end),
+                    (
+                        *self.points[channel.segment_rank],
+                        *self.points[channel.segment_rank + 1],
+                    ),
+                    strict=True,
+                )
+            )
+            for channel in self.gap_channels
+        ):
+            raise ValueError("member geometry plan channel disagrees with its segment")
 
     @property
     def owned_segment_ranks(self) -> tuple[int, ...]:
@@ -231,6 +252,112 @@ class RouteSystemDisposition(str, Enum):
 
     PLANNED = "planned"
     COMPATIBILITY = "compatibility"
+
+
+ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "exit-turn-plan": frozenset(
+            {
+                "ambiguous-continuation",
+                "ambiguous-source-lane-boundary",
+                "continuation-transition-has-no-runway",
+                "family-changed-after-lane-compaction",
+                "fixed-anchor-owned-by-another-plan",
+                "fixed-axis-conflict",
+                "insufficient-fixed-runway",
+                "insufficient-structural-runway",
+                "invalid-source-turn-requirement",
+                "lane-transition-order-inversion",
+                "linear-entry-frame-ownership-conflict",
+                "missing-or-ambiguous-source-order",
+                "missing-outbound-member",
+                "missing-production-family",
+                "missing-source-turn",
+                "multiple-destinations",
+                "opposed-source-run",
+                "overlapping-planned-turn-axes",
+                "planned-axis-overlaps-compatibility-channel",
+                "shared-source-ownership-conflict",
+                "shared-station-lane-collision",
+                "single-member-group",
+                "source-lane-transition-has-no-runway",
+                "unresolved-perpendicular-entry-seam",
+                "unsupported-family:bottom-exit-junction",
+                "unsupported-family:bypass-family",
+                "unsupported-family:left-entry-wrap-family",
+                "unsupported-family:merge-branch",
+                "unsupported-family:merge-trunk",
+                "unsupported-family:near-vertical-same-col-junction",
+                "unsupported-family:perp-exit",
+                "unsupported-family:perp-exit-far-side-entry-wrap",
+                "unsupported-family:right-entry-plough-bypass",
+                "unsupported-family:right-entry-wrap",
+                "unsupported-family:tb-perp-exit-over",
+                "unsupported-subshape:degenerate-horizontal-straight",
+                "unsupported-subshape:left-exit-right-entry-step",
+                "unsupported-subshape:merge-entry-straight",
+                "unsupported-subshape:nonvertical-tb-exit",
+                "unsupported-subshape:opposed-horizontal-straight",
+                "unsupported-subshape:unaligned-perpendicular-entry",
+                "unsupported-subshape:vertical-source-horizontal-straight",
+            }
+        ),
+        "fan-plan": frozenset(
+            {
+                "ambiguous-branch-to-join",
+                "ambiguous-resolved-branch-tail",
+                "ambiguous-resolved-fork",
+                "ambiguous-resolved-join",
+                "empty-resolved-member-path",
+                "fan-route-system-has-no-emission-member",
+                "local-layout-has-foreign-owner",
+                "missing-centreline-anchor",
+                "missing-resolved-extra-output-path",
+                "missing-resolved-member-path",
+                "off-track-layout-owns-fan-geometry",
+                "offset-carrier-has-unowned-line",
+                "overlapping-branch-lane-ownership",
+                "overlapping-fan-ownership",
+                "rail-layout-owns-fan-geometry",
+                "same-line-open-fan-layout-owns-geometry",
+                "unsupported-branch-line-transition",
+                "unsupported-fan-direction",
+            }
+        ),
+        "convergence-plan": frozenset(
+            {
+                "convergence alignment conflicts with an upstream exit turn",
+                "convergence landing conflicts with an upstream exit turn",
+                "convergence landing has no approach",
+                "convergence template declined its member",
+                "covered continuation is absent from its carrier",
+                "direct convergence has no emitted terminal approach",
+                "feeder template declined its member",
+                "planned convergence approaches and trunks have no settlement room",
+                "planned convergence member has no routing family",
+                "planned trunk has no drawable segment",
+                "primary trunk template declined its member",
+                "primary trunk template emitted no shared run",
+                "unsupported convergence shape",
+            }
+        ),
+        "member-geometry-plan": frozenset(
+            {
+                "canonical-template-declined-member",
+                "missing-emission-edge",
+                "missing-production-family",
+            }
+        ),
+    }
+)
+ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION = (
+    "The owning planner has no complete geometry for this named family; "
+    "the established compatibility templates remain its explicit emitter."
+)
+
+
+def route_system_compatibility_follow_up(owner: str, reason: str) -> str:
+    return f"Teach {owner} to own {reason!r}, then remove this registry entry."
 
 
 class ConvergenceTrunkReason(str, Enum):
@@ -620,6 +747,8 @@ class SectionDecisionFacts:
 @dataclass(frozen=True, slots=True)
 class ConnectorDecisionFacts:
     connector_id: ConnectorId
+    line_id: str
+    bundle_id: BundleId
     exit_side: EffectiveDecision[PortSide] | None
     entry_side: EffectiveDecision[PortSide] | None
 
@@ -1269,9 +1398,10 @@ class FanPlan:
             raise ValueError("planned reconvergence has no resolved join")
         local_frame_owned = bool(self.layout_station_ids)
         has_appearance_centreline = self.appearance_centreline_branch_id is not None
-        has_vacant_trunk = (
-            self.authored_join_station_id is not None
-            and sum(branch.is_trunk_continuation for branch in self.branches) > 1
+        has_vacant_trunk = fan_has_vacant_trunk(
+            self.appearance_policy,
+            self.authored_join_station_id,
+            self.branches,
         )
         if (
             planned
@@ -1855,6 +1985,16 @@ class RouteSystemCompatibilityReason:
     def __post_init__(self) -> None:
         if not all((self.owner, self.reason, self.justification, self.follow_up)):
             raise ValueError("route-system compatibility reason is incomplete")
+        if self.reason not in ROUTE_SYSTEM_COMPATIBILITY_REASONS.get(self.owner, ()):
+            raise ValueError(
+                f"unregistered compatibility reason {self.owner}:{self.reason}"
+            )
+        if (
+            self.justification != ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION
+            or self.follow_up
+            != route_system_compatibility_follow_up(self.owner, self.reason)
+        ):
+            raise ValueError("route-system compatibility metadata is not canonical")
 
 
 @dataclass(frozen=True, slots=True)
@@ -2062,6 +2202,8 @@ def _plan_provenance(
     connector_facts = tuple(
         ConnectorDecisionFacts(
             connector.id,
+            connector.line_id,
+            connector.bundle_id,
             provenance.endpoint_decision(
                 provenance.endpoint_key(connector.id, ConnectorEndpointRole.EXIT)
             ),
@@ -2166,6 +2308,7 @@ class RoutePlanObserver:
     graph: MetroGraph
     context: _RoutingCtx | None
     scaffold: RouteSemanticScaffold | None = None
+    route_systems: RouteSystemEmissionExecution | None = None
     exit_turn_plans: tuple[ExitTurnPlan, ...] = ()
     exit_turn_references: tuple[SharedReference, ...] = ()
     exit_turn_demands: tuple[SymbolicDemand, ...] = ()
@@ -2219,6 +2362,7 @@ def build_route_plan_observer(
     context: _RoutingCtx | None,
     *,
     scaffold: RouteSemanticScaffold | None = None,
+    route_systems: RouteSystemEmissionExecution | None = None,
     exit_turn_plans: tuple[ExitTurnPlan, ...] = (),
     exit_turn_references: tuple[SharedReference, ...] = (),
     exit_turn_demands: tuple[SymbolicDemand, ...] = (),
@@ -2234,6 +2378,7 @@ def build_route_plan_observer(
         graph=graph,
         context=context,
         scaffold=scaffold,
+        route_systems=route_systems,
         exit_turn_plans=exit_turn_plans,
         exit_turn_references=exit_turn_references,
         exit_turn_demands=exit_turn_demands,
@@ -2914,9 +3059,9 @@ def _build_route_plan(
             convergence_plan.id
         )
 
-    system_emission = (
-        observer.context.route_systems if observer.context is not None else None
-    )
+    system_emission = observer.route_systems
+    if system_emission is None and observer.context is not None:
+        system_emission = observer.context.route_systems
     if system_emission is None:
         from nf_metro.layout.routing.system_emission import (
             build_route_system_emission_execution,
@@ -2955,6 +3100,9 @@ def _build_route_plan(
         for plan in observer.member_geometry_plans
         if plan.system_id in planned_system_ids
     )
+    member_geometry_plan_ids_by_system: dict[
+        RouteSystemId, list[RouteMemberGeometryPlanId]
+    ] = defaultdict(list)
     reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
         list
     )
@@ -2963,6 +3111,10 @@ def _build_route_plan(
         reference_ids_by_system[reference.system_id].append(reference.id)
     for demand in demands:
         demand_ids_by_system[demand.system_id].append(demand.id)
+    for member_geometry_plan in member_geometry_plans:
+        member_geometry_plan_ids_by_system[member_geometry_plan.system_id].append(
+            member_geometry_plan.id
+        )
 
     systems: list[RouteSystem] = []
     for system_id, connector_ids in zip(ordered_system_ids, components, strict=True):
@@ -2986,11 +3138,7 @@ def _build_route_plan(
                 tuple(exit_turn_ids_by_system[system_id]),
                 tuple(fan_ids_by_system[system_id]),
                 tuple(convergence_plan_ids_by_system[system_id]),
-                tuple(
-                    plan.id
-                    for plan in member_geometry_plans
-                    if plan.system_id == system_id
-                ),
+                tuple(member_geometry_plan_ids_by_system[system_id]),
                 tuple(reference_ids_by_system[system_id]),
                 tuple(demand_ids_by_system[system_id]),
                 (),
@@ -4247,6 +4395,236 @@ def _validate_convergence_records(
     return plans, by_system, by_convergence, by_connector, by_member, by_path
 
 
+def _validate_member_geometry_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> None:
+    """Cross-check immutable member templates against canonical membership."""
+    records = {item.id: item for item in plan.member_geometry_plans}
+    if len(records) != len(plan.member_geometry_plans):
+        raise ValueError("route plan contains duplicate member geometry plan ids")
+    member_ids = tuple(item.member_id for item in plan.member_geometry_plans)
+    if len(set(member_ids)) != len(member_ids):
+        raise ValueError("emission member has more than one member geometry plan")
+    systems = {system.id: system for system in plan.systems}
+    by_system: defaultdict[RouteSystemId, list[RouteMemberGeometryPlan]] = defaultdict(
+        list
+    )
+    for record in plan.member_geometry_plans:
+        system = systems.get(record.system_id)
+        member = members.get(record.member_id)
+        if system is None or system.disposition is not RouteSystemDisposition.PLANNED:
+            raise ValueError("member geometry plan names a non-planned route system")
+        if (
+            member is None
+            or member.system_id != record.system_id
+            or member.id not in system.member_ids
+            or member.family_id is None
+            or bindings[member.id][0].kind is not BindingKind.EMITTED
+        ):
+            raise ValueError("member geometry plan names a non-planned emission member")
+        if member.family_id is RouteFamilyId.RAIL_INTER_SECTION:
+            raise ValueError("rail emitter cannot have a member geometry plan")
+        if (
+            record.edge != member.edge
+            or record.family_id != member.family_id
+            or record.connector_ids != member.connector_ids
+        ):
+            raise ValueError("member geometry plan identity disagrees with its member")
+        by_system[record.system_id].append(record)
+    for system in plan.systems:
+        expected = tuple(item.id for item in by_system.get(system.id, ()))
+        if system.member_geometry_plan_ids != expected:
+            raise ValueError("route system member-geometry index is inconsistent")
+
+
+def _validate_final_geometry_ownership(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> None:
+    """Require one complete geometry owner for every planned emitted member."""
+    systems = {system.id: system for system in plan.systems}
+    expected = {
+        member.id
+        for member in members.values()
+        if systems[member.system_id].disposition is RouteSystemDisposition.PLANNED
+        and bindings[member.id][0].kind is BindingKind.EMITTED
+    }
+    owners = Counter(item.member_id for item in plan.member_geometry_plans)
+    owners.update(
+        ownership.member_id
+        for convergence in plan.convergence_plans
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for ownership in convergence.endpoint_ownership
+        if bindings[ownership.member_id][0].kind is BindingKind.EMITTED
+    )
+    owners.update(
+        member.id
+        for member in members.values()
+        if member.family_id is RouteFamilyId.RAIL_INTER_SECTION
+        and systems[member.system_id].disposition is RouteSystemDisposition.PLANNED
+        and bindings[member.id][0].kind is BindingKind.EMITTED
+    )
+    if set(owners) != expected or any(count != 1 for count in owners.values()):
+        raise ValueError("planned emitted member geometry ownership is incomplete")
+
+
+def _validate_route_system_indexes(
+    plan: RoutePlan,
+    connector_owner: Mapping[ConnectorId, RouteSystemId],
+) -> None:
+    provenance_connector_ids = tuple(
+        connector.connector_id for connector in plan.provenance.connectors
+    )
+    if set(provenance_connector_ids) != set(connector_owner):
+        raise ValueError("route-system connector index disagrees with provenance")
+    expected_system_order = _ordered_unique(
+        connector_owner[connector_id] for connector_id in provenance_connector_ids
+    )
+    if tuple(system.id for system in plan.systems) != expected_system_order:
+        raise ValueError("route systems are not in canonical connector order")
+
+    def record_ids_for(
+        records: Iterable[
+            ResolvedEndpointGroup
+            | RouteDivergence
+            | RouteConvergence
+            | RouteBranch
+            | RouteFeeder
+        ],
+        system_id: RouteSystemId,
+    ) -> tuple[object, ...]:
+        return tuple(record.id for record in records if record.system_id == system_id)
+
+    for system in plan.systems:
+        connector_facts = tuple(
+            connector
+            for connector in plan.provenance.connectors
+            if connector_owner[connector.connector_id] == system.id
+        )
+        if system.connector_ids != tuple(
+            connector.connector_id for connector in connector_facts
+        ):
+            raise ValueError("route-system connector index is not canonical")
+        if system.line_ids != _ordered_unique(
+            connector.line_id for connector in connector_facts
+        ):
+            raise ValueError("route-system line index disagrees with records")
+        if system.bundle_ids != _ordered_unique(
+            connector.bundle_id for connector in connector_facts
+        ):
+            raise ValueError("route-system bundle index disagrees with records")
+        expected_indexes = (
+            record_ids_for(
+                (
+                    record
+                    for record in plan.endpoint_groups
+                    if record.role is ConnectorEndpointRole.EXIT
+                ),
+                system.id,
+            ),
+            record_ids_for(
+                (
+                    record
+                    for record in plan.endpoint_groups
+                    if record.role is ConnectorEndpointRole.ENTRY
+                ),
+                system.id,
+            ),
+            record_ids_for(plan.divergences, system.id),
+            record_ids_for(plan.convergences, system.id),
+            record_ids_for(plan.branches, system.id),
+            record_ids_for(plan.feeders, system.id),
+        )
+        actual_indexes = (
+            system.exit_group_ids,
+            system.entry_group_ids,
+            system.divergence_ids,
+            system.convergence_ids,
+            system.branch_ids,
+            system.feeder_ids,
+        )
+        if actual_indexes != expected_indexes:
+            raise ValueError("route-system ownership indexes disagree with records")
+
+
+def _validate_route_system_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+) -> None:
+    systems = {system.id: system for system in plan.systems}
+    if len(systems) != len(plan.systems):
+        raise ValueError("route plan contains duplicate route-system ids")
+    for label, records in (("branch", plan.branches), ("feeder", plan.feeders)):
+        if len({record.id for record in records}) != len(records):
+            raise ValueError(f"route plan contains duplicate route {label} ids")
+
+    connector_owner: dict[ConnectorId, RouteSystemId] = {}
+    member_owner: dict[EmissionMemberId, RouteSystemId] = {}
+    for system in plan.systems:
+        if len(set(system.connector_ids)) != len(system.connector_ids):
+            raise ValueError(f"route system {system.id} repeats a connector id")
+        if len(set(system.member_ids)) != len(system.member_ids):
+            raise ValueError(f"route system {system.id} repeats an emission member id")
+        for connector_id in system.connector_ids:
+            prior = connector_owner.setdefault(connector_id, system.id)
+            if prior != system.id:
+                raise ValueError("one connector belongs to multiple route systems")
+        for member_id in system.member_ids:
+            prior = member_owner.setdefault(member_id, system.id)
+            if prior != system.id:
+                raise ValueError(
+                    "one emission member belongs to multiple route systems"
+                )
+
+    if set(member_owner) != set(members):
+        raise ValueError("route-system emission-member partition is incomplete")
+    members_by_system: dict[RouteSystemId, list[EmissionMemberId]] = defaultdict(list)
+    referenced_connectors: set[ConnectorId] = set()
+    for member in plan.members:
+        if member.system_id not in systems:
+            raise ValueError(f"emission member {member.id} has an unknown route system")
+        if member_owner[member.id] != member.system_id:
+            raise ValueError("route-system emission-member ownership disagrees")
+        members_by_system[member.system_id].append(member.id)
+        for connector_id in member.connector_ids:
+            if connector_owner.get(connector_id) != member.system_id:
+                raise ValueError("emission member connector ownership disagrees")
+            referenced_connectors.add(connector_id)
+    for system in plan.systems:
+        if tuple(members_by_system[system.id]) != system.member_ids:
+            raise ValueError(
+                "route-system emission-member index disagrees with records"
+            )
+
+    ownership_records: tuple[
+        ResolvedEndpointGroup
+        | RouteDivergence
+        | RouteConvergence
+        | RouteBranch
+        | RouteFeeder,
+        ...,
+    ] = (
+        *plan.endpoint_groups,
+        *plan.divergences,
+        *plan.convergences,
+        *plan.branches,
+        *plan.feeders,
+    )
+    for record in ownership_records:
+        if record.system_id not in systems:
+            raise ValueError("route ownership record has an unknown route system")
+        for connector_id in record.connector_ids:
+            if connector_owner.get(connector_id) != record.system_id:
+                raise ValueError("route ownership record connector ownership disagrees")
+            referenced_connectors.add(connector_id)
+    if referenced_connectors != set(connector_owner):
+        raise ValueError("route-system connector partition is incomplete")
+    _validate_route_system_indexes(plan, connector_owner)
+
+
 def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -4261,6 +4639,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
             raise ValueError(f"route plan contains duplicate {label} ids")
     if len(members) != len(plan.members):
         raise ValueError("route plan contains duplicate emission member ids")
+    _validate_route_system_records(plan, members)
     exit_turn_plans, exit_turns_by_source, exit_turns_by_member = (
         _validate_exit_turn_records(plan, members)
     )
@@ -4300,6 +4679,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         if carrier_binding.kind is not BindingKind.EMITTED:
             raise ValueError("covered members require an emitted carrier")
 
+    _validate_member_geometry_records(plan, members, bindings)
     fan_plans, fan_plans_by_system, fan_plans_by_member = _validate_fan_records(
         plan,
         members,
@@ -4313,6 +4693,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         convergence_plans_by_member,
         convergence_plans_by_path,
     ) = _validate_convergence_records(plan, members, bindings)
+    _validate_final_geometry_ownership(plan, members, bindings)
 
     from nf_metro.layout.route_reservations import build_reservation_query_indexes
 

@@ -1490,6 +1490,11 @@ def _observe_route_geometry(
     claims: list[_ObservedClaim] = []
     unfiled: list[_UnfiledRun] = []
     for member in plan.members:
+        if (
+            system_by_id[member.system_id].disposition
+            is not RouteSystemDisposition.PLANNED
+        ):
+            continue
         binding = binding_by_member[member.id]
         if binding.kind is not BindingKind.EMITTED:
             continue
@@ -3761,6 +3766,22 @@ def reservation_ids_by_claimant_member(
     return {member_id: tuple(ids) for member_id, ids in collected.items()}
 
 
+def attach_reservation_ids_to_routes(
+    routes: Iterable[RoutedPath],
+    reservations: Iterable[RouteReservation],
+) -> None:
+    """Attach each claimant's reservation IDs in canonical ledger order."""
+    reservation_ids_by_member = reservation_ids_by_claimant_member(reservations)
+    for route in routes:
+        if route.emission_member_id is None:
+            continue
+        route.route_reservation_ids = tuple(
+            reservation_ids_by_member.get(
+                EmissionMemberId(route.emission_member_id), ()
+            )
+        )
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -3774,20 +3795,7 @@ def attach_route_reservations(
     if not plan.systems:
         return plan
     offsets = station_offsets or {}
-    planned_system_ids = {
-        str(system.id)
-        for system in plan.systems
-        if system.disposition is RouteSystemDisposition.PLANNED
-    }
     observed = _observe_route_geometry(graph, routes, plan, offsets)
-    observed = replace(
-        observed,
-        claims=tuple(
-            claim
-            for claim in observed.claims
-            if str(claim.system_id) in planned_system_ids
-        ),
-    )
     groups = _group_claims(
         observed.claims,
         {system.id: rank for rank, system in enumerate(plan.systems)},
@@ -3808,16 +3816,7 @@ def attach_route_reservations(
         canvas_width=canvas_width,
         canvas_height=canvas_height,
     )
-    reservation_ids_by_member = reservation_ids_by_claimant_member(
-        finalised.reservations
-    )
-    for route in routes:
-        if route.emission_member_id is not None:
-            route.route_reservation_ids = tuple(
-                reservation_ids_by_member.get(
-                    EmissionMemberId(route.emission_member_id), ()
-                )
-            )
+    attach_reservation_ids_to_routes(routes, finalised.reservations)
     return finalised
 
 

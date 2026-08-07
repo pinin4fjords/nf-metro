@@ -8,6 +8,7 @@ from types import MappingProxyType
 import pytest
 
 import nf_metro.layout.routing.normalize as normalize
+import nf_metro.layout.routing.planning as planning
 import nf_metro.layout.routing.system_emission as system_emission
 from nf_metro.api import prepare_graph
 from nf_metro.layout.route_plan import (
@@ -23,6 +24,7 @@ from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
     classify_route_system_dispositions,
+    validate_published_route_attribution,
     validate_route_system_emission,
 )
 from nf_metro.parser.model import Edge
@@ -292,6 +294,37 @@ def test_attribution_failure_names_the_complete_ownership_chain() -> None:
     assert " reservations " in message
 
 
+@pytest.mark.parametrize("member_id", (None, "unknown-member"))
+def test_published_attribution_rejects_unknown_member_without_reservations(
+    member_id: str | None,
+) -> None:
+    observation = _observe(
+        ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    )
+    route = next(
+        item
+        for item in observation.routes
+        if item.route_system_id is not None and not item.route_reservation_ids
+    )
+    route.emission_member_id = member_id
+
+    with pytest.raises(RuntimeError, match="unknown emission member"):
+        validate_published_route_attribution(observation.routes, observation.plan)
+
+
+def test_published_attribution_rejects_unknown_system() -> None:
+    observation = _observe(
+        ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    )
+    route = next(
+        item for item in observation.routes if item.route_system_id is not None
+    )
+    route.route_system_id = "unknown-system"
+
+    with pytest.raises(RuntimeError, match="unknown route system"):
+        validate_published_route_attribution(observation.routes, observation.plan)
+
+
 def test_compatibility_reason_registry_is_closed() -> None:
     with pytest.raises(ValueError, match="unregistered compatibility reason"):
         system_emission._compatibility_reason("exit-turn-plan", "new-fallback")
@@ -333,7 +366,7 @@ def test_routing_constructs_only_the_final_emission_execution(
 ) -> None:
     path = ROOT / "examples" / "topologies" / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    real_build = system_emission.build_route_system_emission_execution
+    real_build = planning.build_route_system_emission_execution
     calls = 0
 
     def record_build(*args, **kwargs):
@@ -341,9 +374,7 @@ def test_routing_constructs_only_the_final_emission_execution(
         calls += 1
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(
-        system_emission, "build_route_system_emission_execution", record_build
-    )
+    monkeypatch.setattr(planning, "build_route_system_emission_execution", record_build)
     observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
 
     assert calls == 1

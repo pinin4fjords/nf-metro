@@ -230,6 +230,7 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
+    validate_final_route_frames: bool = True
     reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
     prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None
     """Frozen exit-turn dispositions a settlement re-route must redraw.
@@ -401,6 +402,7 @@ def _build_routing_context(
     offset_step: float | None = None,
     reserved_bands: ReservedCorridors | None = None,
     prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None,
+    validate_final_route_frames: bool = True,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
     bands = ReservedCorridors() if reserved_bands is None else reserved_bands
@@ -495,6 +497,7 @@ def _build_routing_context(
         prior_exit_turn_dispositions=prior_exit_turn_dispositions,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
+        validate_final_route_frames=validate_final_route_frames,
         junction_fan_info=junction_fan_info,
         fan_corridors=fan_corridors,
         skip_edges=merge.skip_edges,

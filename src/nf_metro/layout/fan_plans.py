@@ -51,7 +51,7 @@ from nf_metro.layout.route_plan import (
     fan_has_vacant_trunk,
 )
 from nf_metro.parser.commitments import FlowDirection, is_flow_direction
-from nf_metro.parser.model import MetroGraph, PortSide
+from nf_metro.parser.model import LineSpread, MetroGraph, PortSide
 from nf_metro.parser.route_topology import (
     AuthoredEdgeFact,
     BundleId,
@@ -1458,8 +1458,6 @@ def _build_candidate(
     suffix = recognised.suffix
     join_id = recognised.join_id
 
-    appearance_policy = FanAppearancePolicy(graph.diamond_style)
-
     direction = _direction_for_fork(graph, fork_id, source_id, lead_fact_groups[0])
     if direction is None:
         reason = reason or "unsupported-fan-direction"
@@ -1470,6 +1468,11 @@ def _build_candidate(
     )
     offsets = symmetric_lane_offsets(len(branch_targets), lane_pitch)
     layout_section_id = _layout_section_id(graph, fork_id)
+    appearance_policy = (
+        FanAppearancePolicy.SYMMETRIC
+        if graph.section_line_spread(layout_section_id) is LineSpread.CENTERED
+        else FanAppearancePolicy(graph.diamond_style)
+    )
     if layout_section_id is not None and any(
         station_id != authored_join
         and graph.section_for_station(station_id) == layout_section_id

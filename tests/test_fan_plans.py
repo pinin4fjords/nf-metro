@@ -12,7 +12,6 @@ import nf_metro.layout.fan_plans as fan_plans
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
-    SECTION_Y_PADDING,
     X_SPACING,
 )
 from nf_metro.layout.engine import compute_layout, compute_min_y_spacing
@@ -37,6 +36,7 @@ from nf_metro.layout.phases.planned_fans import (
     _apply_planned_fan_port_geometry,
     _snapshot_planned_fan_centrelines,
 )
+from nf_metro.layout.phases.row_align import _top_align_row_bboxes_only
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
@@ -1357,6 +1357,59 @@ def test_runtime_guard_rejects_unowned_carrier_line() -> None:
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
+def test_cross_direction_straight_fan_keeps_join_on_frozen_entry_boundary() -> None:
+    path = ROOT / "tests" / "fixtures" / "tb_right_exit_feeder_slots.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+
+    plan = next(item for item in graph.fan_plans if item.authored_join_station_id)
+    assert plan.owns_geometry
+    assert graph.stations["d1"].y == graph.stations["dst__entry_left_3"].y
+    assert {
+        section.bbox_y
+        for section in graph.sections.values()
+        if section.grid_row == graph.sections["dst"].grid_row
+    } == {graph.sections["dst"].bbox_y}
+
+
+def test_planned_fan_row_settlement_leaves_disconnected_group_unchanged() -> None:
+    graph = MetroGraph()
+    for section_id, col, top in (
+        ("fan", 0, 40.0),
+        ("fan_mate", 1, 70.0),
+        ("distant", 4, 90.0),
+        ("distant_mate", 5, 110.0),
+    ):
+        graph.add_section(
+            Section(
+                section_id,
+                section_id,
+                grid_col=col,
+                grid_row=0,
+                bbox_y=top,
+                bbox_h=100.0,
+            )
+        )
+
+    distant_before = {
+        section_id: (
+            graph.sections[section_id].bbox_y,
+            graph.sections[section_id].bbox_h,
+        )
+        for section_id in ("distant", "distant_mate")
+    }
+    _top_align_row_bboxes_only(graph, section_ids={"fan"})
+
+    assert graph.sections["fan_mate"].bbox_y == graph.sections["fan"].bbox_y
+    assert {
+        section_id: (
+            graph.sections[section_id].bbox_y,
+            graph.sections[section_id].bbox_h,
+        )
+        for section_id in distant_before
+    } == distant_before
+
+
 def test_port_only_fan_freezes_only_structurally_shared_offset_carriers() -> None:
     path = ROOT / "examples" / "topologies" / "disjoint_sameline_trunks.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -1958,20 +2011,16 @@ def test_runtime_guard_rejects_asymmetric_symmetric_fan_plan() -> None:
         )
 
 
-def test_planned_fan_does_not_level_unrelated_row_bbox_tops() -> None:
+def test_planned_fan_levels_its_contiguous_row_group_bbox_tops() -> None:
     path = (
         ROOT / "examples" / "topologies" / "ported_symmetric_fan_centreline_trunk.mmd"
     )
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
 
-    assert graph.sections["input"].bbox_y == pytest.approx(
-        graph.stations["identify"].y - SECTION_Y_PADDING
-    )
-    assert graph.sections["report"].bbox_y == pytest.approx(
-        graph.stations["generate"].y - SECTION_Y_PADDING
-    )
-    assert graph.sections["fetch"].bbox_y < graph.sections["input"].bbox_y
+    assert {
+        graph.sections[section_id].bbox_y for section_id in ("input", "fetch", "report")
+    } == {graph.sections["fetch"].bbox_y}
 
 
 def test_planned_handoff_does_not_reslot_unrelated_same_line_stations() -> None:

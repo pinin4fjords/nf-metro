@@ -76,8 +76,10 @@ Every emitted system member carries its route-system ID, emission-member ID,
 system disposition, owning plan IDs, and claimant-exact reservation IDs on the
 final `RoutedPath`. Compatibility members carry no plan IDs and name one or more
 explicit `RouteSystemCompatibilityReason` records instead. Rail members record
-the rail family at the rail call. A member skipped before dispatch has no
-family ID. If a compatibility inter-section builder declines to emit, the
+the rail family at the rail call. Whole-graph rail mode freezes the same
+canonical system/member execution before invoking the direct rail geometry
+owner, then attributes and validates each returned path against that execution.
+A member skipped before dispatch has no family ID. If a compatibility inter-section builder declines to emit, the
 later TB, entry-runway, or general fallback that emits the member owns its
 family ID. After all normalization passes, the observer binds every member to
 the final route list.
