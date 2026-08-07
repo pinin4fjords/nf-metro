@@ -38,6 +38,7 @@ from nf_metro.parser.grammar import (
     _GraphHeader,
     _Junk,
     _Node,
+    _normalize_multiline_text,
     _Statement,
     _Subgraph,
     _unquote,
@@ -467,9 +468,7 @@ def _apply_node(
     """Declare a node: register it (or set the label on a station an edge
     auto-created) from its id and (shape-stripped) label text."""
     label = _unquote(label.strip())
-    # Convert literal \n sequences to real newlines (multi-line labels)
-    if "\\n" in label:
-        label = "\n".join(part.strip() for part in label.split("\\n"))
+    label = _normalize_multiline_text(label)
     if node_id not in graph.stations:
         graph.register_station(
             Station(

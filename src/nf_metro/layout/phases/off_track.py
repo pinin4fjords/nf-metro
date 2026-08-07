@@ -1674,9 +1674,10 @@ def _bump_off_track_clear_of_trunks(
     # sibling's clearance only when the sibling stacks along that same axis --
     # i.e. on a horizontal (cross=Y) section.  On a vertical section the icons
     # stack along X while captions grow along Y, so the caption never encroaches.
+    caption_line_count = off_st.terminus_caption_line_count
     caption_reach = (
-        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT
-        if cross_axis == "y" and off_st.terminus_names and any(off_st.terminus_names)
+        ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * caption_line_count
+        if cross_axis == "y" and caption_line_count
         else 0.0
     )
     sibling_clearance = 2 * icon_half + caption_reach + OFF_TRACK_TRUNK_CLEARANCE_MARGIN

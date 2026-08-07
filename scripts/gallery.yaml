@@ -62,7 +62,7 @@ gallery:
     source_dir: examples
     category: Feature Showcase
     description:
-      "Terminus icon variants: single-sheet `%%metro file:`, stacked `%%metro files:`
+      "Terminus icon variants with multiline captions: single-sheet `%%metro file:`, stacked `%%metro files:`
       for multiplicity, the `%%metro dir:` folder, and the optional `| banner` format strip."
   - id: file_node_with_outgoing_edge
     source_dir: examples/topologies

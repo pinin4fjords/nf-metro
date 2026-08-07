@@ -31,6 +31,7 @@ from nf_metro.layout.constants import (
     DIAGONAL_SLOPE_RATIO,
     EDGE_TO_BUNDLE_CLEARANCE,
     GUARD_TOLERANCE,
+    ICON_CAPTION_FONT_HEIGHT,
     INTER_ROW_EDGE_CLEARANCE,
     JUNCTION_MARGIN,
     MIN_STATION_FLAT_LENGTH,
@@ -7824,6 +7825,72 @@ def test_row_gap_accommodates_bypass(fixture):
 # ---------------------------------------------------------------------------
 # Auto y_spacing must fit the worst-case content in every LR/RL section
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("direction", ["LR", "RL"])
+def test_auto_y_spacing_reserves_multiline_icon_captions(direction):
+    def spacing(caption: str) -> float:
+        graph = parse_metro_mermaid(
+            "%%metro line: main | Main | #ff0000\n"
+            f"%%metro file: upper | DATA | {caption}\n"
+            "%%metro file: lower | DATA | lower\n"
+            "graph LR\n"
+            "    subgraph sec [Section]\n"
+            f"        %%metro direction: {direction}\n"
+            "        upper[ ]\n"
+            "        lower[ ]\n"
+            "        upper -->|main| node[Node]\n"
+            "        lower -->|main| node\n"
+            "    end\n"
+        )
+        return compute_min_y_spacing(graph)
+
+    single_line = spacing("upper")
+    multiline = spacing(r"upper\ndetail")
+
+    assert multiline >= single_line + ICON_CAPTION_FONT_HEIGHT
+
+
+@pytest.mark.parametrize("n_icons", [1, 2])
+def test_vertical_icon_clearance_reserves_multiline_captions(n_icons):
+    from nf_metro.layout.phases.single_section import (
+        _terminus_icon_clearance_vertical,
+    )
+
+    single_line = _terminus_icon_clearance_vertical(n_icons, 1)
+    multiline = _terminus_icon_clearance_vertical(n_icons, 2)
+
+    assert multiline >= single_line + n_icons * ICON_CAPTION_FONT_HEIGHT
+
+
+def test_off_track_siblings_clear_multiline_icon_captions():
+    from nf_metro.layout.phases.off_track import _bump_off_track_clear_of_trunks
+
+    graph = MetroGraph()
+    section = Section(id="sec", name="Section", direction="LR")
+    station = Station(
+        id="off",
+        label="",
+        section_id=section.id,
+        x=0.0,
+        y=0.0,
+        off_track=True,
+        terminus_labels=["DATA"],
+        terminus_names=["caption\ndetail"],
+    )
+
+    cleared = _bump_off_track_clear_of_trunks(
+        graph,
+        station,
+        candidate=0.0,
+        step=40.0,
+        section=section,
+        junction_ids=set(),
+        sibling_cross=[50.0],
+        direction=-1.0,
+    )
+
+    assert cleared == -40.0
 
 
 @pytest.mark.parametrize(

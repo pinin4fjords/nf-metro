@@ -273,6 +273,14 @@ class Station:
         """A blank file-icon terminus carrying an under-icon caption."""
         return self.is_blank_terminus and any(self.terminus_names)
 
+    @property
+    def terminus_caption_line_count(self) -> int:
+        """Largest rendered line count among this station's icon captions."""
+        return max(
+            (name.count("\n") + 1 for name in self.terminus_names if name),
+            default=0,
+        )
+
 
 @dataclass
 class Edge:
