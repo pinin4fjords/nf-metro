@@ -422,11 +422,10 @@ def _icon_obstacles_by_station(
 
         # Captions render below the icon row, so extend the box downward to
         # cover them and keep neighbouring labels at a distance.
-        if station.terminus_caption_line_count:
+        caption_line_count = station.terminus_caption_line_count
+        if caption_line_count:
             caption_height = (
-                station.terminus_caption_line_count
-                * theme.label_font_size
-                * ICON_NAME_FONT_SCALE
+                caption_line_count * theme.label_font_size * ICON_NAME_FONT_SCALE
             )
             y_max += ICON_NAME_GAP + caption_height
 
@@ -3197,9 +3196,10 @@ def _terminus_icon_marching(
         for name in names
     ]
     if is_vertical_flow:
+        caption_line_count = station.terminus_caption_line_count
         caption_room = (
-            caption_font_size * station.terminus_caption_line_count + ICON_NAME_GAP
-            if station.terminus_caption_line_count
+            caption_font_size * caption_line_count + ICON_NAME_GAP
+            if caption_line_count
             else 0.0
         )
         step = theme.terminus_height + ICON_INTER_GAP + caption_room

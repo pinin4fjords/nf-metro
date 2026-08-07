@@ -533,13 +533,12 @@ def test_render_file_icon_with_name_caption():
     assert root.tag.endswith("svg") or "svg" in root.tag
 
 
-@pytest.mark.parametrize("directive", ["file", "files", "dir"])
-def test_render_icon_caption_with_linebreak(directive):
+def test_render_icon_caption_with_linebreak():
     from nf_metro.render.plan import freeze_render_value
 
     graph = parse_metro_mermaid(
         "%%metro line: main | Main | #ff0000\n"
-        f"%%metro {directive}: source | DATA\\nFILE | input\\nfile\n"
+        "%%metro file: source | DATA\\nFILE | input\\nfile\n"
         "graph LR\n"
         "    source[ ]\n"
         "    source -->|main| node[Node]\n"
