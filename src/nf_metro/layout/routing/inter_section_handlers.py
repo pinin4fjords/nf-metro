@@ -313,31 +313,35 @@ class _InterFacts:
         """A trailing perp (BOTTOM/TOP) exit feeding a LEFT/RIGHT entry on the
         target's *far* side, reached by wrapping through the inter-row gap.
 
-        The trunk leaves a vertical-flow section along the flow, out its trailing
-        TOP/BOTTOM edge; the consumer is a LEFT/RIGHT entry whose port faces away
-        from the source (:attr:`left_entry_from_right` / its right-side mirror).
-        The flow-direction drop (:func:`_route_tb_bottom_exit`) would run down the
-        target's own border to reach the far-edge port, and the LEFT/RIGHT-entry
-        wrap family's sideways lead-out would claw back across the source box; the
-        clean shape leaves the port along the flow into the gap, then wraps around
-        the target to approach the port horizontally.
+        The source leaves through a TOP/BOTTOM edge: perpendicular to a
+        horizontal flow, or along the trailing edge of a vertical flow. The
+        consumer is a LEFT/RIGHT entry whose port faces away from the source
+        (:attr:`left_entry_from_right` / its right-side mirror). The ordinary
+        perpendicular-exit route would descend on the target's near side and
+        cross its interior to reach the far-edge port; the clean shape continues
+        through the gap, then wraps around the target to approach the port from
+        its outward side.
 
         Unlike :attr:`is_tb_bottom_exit` this is offset-independent, so the
         validate and render routing paths dispatch it identically.
         """
-        if not (
-            self.src_port is not None
-            and not self.src_port.is_entry
-            and self.src.section_id in self.ctx.tb_sections
+        if (
+            self.src_port is None
+            or self.src_port.is_entry
+            or self.src.section_id is None
         ):
             return False
         section = self.graph.sections.get(self.src.section_id)
-        if section is None or self.src_port.side != trailing_perp_side(
-            section.direction
-        ):
+        if section is None:
             return False
-        return self.cross_row and (
-            self.left_entry_from_right or self.right_entry_from_left
+        leaves_through_perp_edge = self.is_perp_exit or (
+            self.src.section_id in self.ctx.tb_sections
+            and self.src_port.side == trailing_perp_side(section.direction)
+        )
+        return (
+            self.cross_row
+            and (self.left_entry_from_right or self.right_entry_from_left)
+            and leaves_through_perp_edge
         )
 
     @property
@@ -1415,6 +1419,15 @@ class _Rule:
 # rule sits where it does are documented in
 # docs/dev/inter_section_dispatch.mdx.
 _INTER_SECTION_RULES: list[_Rule] = [
+    # A TOP/BOTTOM exit feeding a LEFT/RIGHT entry on the target's far side
+    # wraps around the target before the generic perpendicular-exit handlers
+    # can descend on its near side and cross the box to reach the port.
+    _Rule(
+        RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+        "perp-exit -> far-side entry wrap",
+        lambda f: f.is_perp_exit_farside_entry_wrap,
+        lambda f: _route_perp_exit_farside_entry_wrap(f),
+    ),
     # A perpendicular (TOP/BOTTOM) exit leaves vertically: route it before the
     # same-Y shortcut, which would graze both boxes when exit and entry share an
     # edge Y.
@@ -1450,19 +1463,6 @@ _INTER_SECTION_RULES: list[_Rule] = [
             and not f.left_entry_from_right
         ),
         _route_straight_connector,
-    ),
-    # A trailing perp (TOP/BOTTOM) exit feeding a LEFT/RIGHT entry on the
-    # target's far side wraps through the inter-row gap and around the target
-    # box, approaching the port horizontally from its outward side.  Offset-
-    # independent, so it claims this class in both the validate and render
-    # routing paths (unlike the offset-gated TB bottom-exit drop below); placed
-    # before that drop and the LEFT/RIGHT-entry wrap families, whose flow-
-    # direction drop / sideways lead-out mis-route this shape.
-    _Rule(
-        RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
-        "perp-exit -> far-side entry wrap",
-        lambda f: f.is_perp_exit_farside_entry_wrap,
-        lambda f: _route_perp_exit_farside_entry_wrap(f),
     ),
     # A TB bottom-exit drop whose column has sections stacked between the source
     # and the (folded-below) target diverts around them through a clear gap; the
