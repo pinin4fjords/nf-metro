@@ -164,13 +164,13 @@ from nf_metro.render.constants import (
     SVG_CURVE_RADIUS,
     TERMINUS_FONT_COLOR,
     TEXT_VCENTER_DY,
-    TITLE_Y_OFFSET,
     WATERMARK_BARE_X_INSET,
     WATERMARK_FILL,
     WATERMARK_FONT_SIZE,
     WATERMARK_PADDING_RATIO,
     WATERMARK_Y_INSET,
     line_style_kwargs,
+    title_baseline_y,
 )
 from nf_metro.render.icons import (
     render_file_icon,
@@ -1807,7 +1807,7 @@ def _emit_render_plan(
                     graph.title,
                     theme.title_font_size,
                     padding,
-                    TITLE_Y_OFFSET,
+                    title_baseline_y(theme.title_font_size),
                     fill=theme.title_color,
                     font_family=theme.label_font_family,
                     font_weight="bold",

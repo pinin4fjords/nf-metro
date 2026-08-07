@@ -62,7 +62,14 @@ from nf_metro.layout.phases.off_track import (
 from nf_metro.layout.phases.planned_fans import (
     apply_planned_fans_to_section_subgraph,
 )
-from nf_metro.parser.model import MetroGraph, PortSide, Section, Station, is_bypass_v
+from nf_metro.parser.model import (
+    ICON_TYPE_FILES,
+    MetroGraph,
+    PortSide,
+    Section,
+    Station,
+    is_bypass_v,
+)
 from nf_metro.text_metrics import (
     DEFAULT_TEXT_METRICS,
     MetricsFace,
@@ -1059,19 +1066,57 @@ def _terminus_icon_clearance(
     icon_width_growth = terminus_width_approx() - TERMINUS_WIDTH
     if n_icons <= 1:
         return TERMINUS_ICON_CLEARANCE + icon_width_growth
+    extra = (n_icons - 1) * _terminus_icon_step(n_icons, names)
+    return TERMINUS_ICON_CLEARANCE + icon_width_growth + extra
+
+
+def _terminus_icon_step(n_icons: int, names: list[str] | None) -> float:
+    """Centre-to-centre step between adjacent icons of one terminus.
+
+    Mirrors the renderer's ``caption_aware_icon_step``, which widens the
+    default ``ICON_INTER_GAP`` step when adjacent captions would overrun it.
+    Layout doesn't know the theme, so caption widths are estimated using the
+    default label size (14px, matches built-in themes); slight over-budget is
+    harmless, costing only a few px of section padding.
+    """
     from nf_metro.render.constants import ICON_NAME_FONT_SCALE
     from nf_metro.render.svg import caption_aware_icon_step
 
     safe_names = names or [""] * n_icons
-    caption_font_size = 14.0 * ICON_NAME_FONT_SCALE
-    caption_style = text_style(caption_font_size, "bold")
+    caption_style = text_style(14.0 * ICON_NAME_FONT_SCALE, "bold")
     name_widths = [
         DEFAULT_TEXT_METRICS.reserve_width(name, caption_style, TextRole.ICON_CAPTION)
         for name in safe_names
     ]
-    step = caption_aware_icon_step(safe_names, name_widths, terminus_width_approx())
-    extra = (n_icons - 1) * step
-    return TERMINUS_ICON_CLEARANCE + icon_width_growth + extra
+    return caption_aware_icon_step(safe_names, name_widths, terminus_width_approx())
+
+
+def terminus_icon_flow_reach(station: Station) -> float:
+    """Px from a terminus's marker centre to the far edge of its icon run.
+
+    The *drawn* extent along the section's flow axis: the marker radius, the
+    marker-to-icon gap, the icon body, a stacked ``files:`` back page's peek
+    past it, and one step per additional icon.  Unlike
+    :func:`_terminus_icon_clearance` this carries no cosmetic section-border
+    margin, so reserving exactly this leaves the icon touching the box edge --
+    which is what a caller wants when it is topping up padding that already
+    supplies its own visual breathing room.
+    """
+    from nf_metro.render.constants import FILES_ICON_OFFSET_RATIO
+
+    n_icons = max(1, len(station.terminus_labels))
+    width = terminus_width_approx()
+    stacked = (
+        width * FILES_ICON_OFFSET_RATIO
+        if ICON_TYPE_FILES in (station.terminus_icon_types or [])
+        else 0.0
+    )
+    extra = (
+        (n_icons - 1) * _terminus_icon_step(n_icons, station.terminus_names)
+        if n_icons > 1
+        else 0.0
+    )
+    return station_radius_approx() + TERMINUS_ICON_GAP + width + stacked + extra
 
 
 def _icon_caption_height() -> float:
@@ -1127,6 +1172,28 @@ def _terminus_icon_flow_overhang(
     body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * icon_half_height_approx()
     step = 2 * icon_half_height_approx() + ICON_INTER_GAP + caption_room
     return body + caption_room + (n_icons - 1) * step
+
+
+def terminus_cross_extents(station: Station) -> tuple[float, float]:
+    """(above, below) px an LR/RL terminus's icon reaches past its marker centre.
+
+    LR/RL icons march horizontally, so their vertical reach is the icon body's
+    half-height plus two asymmetric additions: a stacked ``files:`` icon's back
+    page peeks *upward* past the front page, and a captioned icon hangs its name
+    *below*.  Grid pitch has to clear the sum of an upper icon's ``below`` and a
+    lower icon's ``above`` or the two collide -- which is what an active
+    ``font_scale`` provokes, since every term here scales with it.
+    """
+    from nf_metro.render.constants import FILES_ICON_OFFSET_RATIO
+
+    half = icon_half_height_approx()
+    above = half
+    if ICON_TYPE_FILES in (station.terminus_icon_types or []):
+        above += terminus_width_approx() * FILES_ICON_OFFSET_RATIO
+    below = half
+    if any(station.terminus_names or []):
+        below += ICON_CAPTION_GAP + _icon_caption_height()
+    return above, below
 
 
 def _terminus_icons_extend_forward(is_source: bool, section_dir: str) -> bool:
