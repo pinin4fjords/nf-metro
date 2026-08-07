@@ -1461,7 +1461,7 @@ def _exit_row_icon_reach(
         if not _terminus_icons_extend_forward(is_source, exit_section.direction):
             continue
         overhang = _terminus_icon_flow_overhang(
-            len(st.terminus_labels), st.terminus_names
+            len(st.terminus_labels), st.terminus_caption_line_count
         )
         reach = max(reach, flow * (st.y - trailing_y) + overhang)
     return reach

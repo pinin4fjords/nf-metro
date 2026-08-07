@@ -422,8 +422,13 @@ def _icon_obstacles_by_station(
 
         # Captions render below the icon row, so extend the box downward to
         # cover them and keep neighbouring labels at a distance.
-        if any(station.terminus_names or []):
-            y_max += ICON_NAME_GAP + theme.label_font_size * ICON_NAME_FONT_SCALE
+        if station.terminus_caption_line_count:
+            caption_height = (
+                station.terminus_caption_line_count
+                * theme.label_font_size
+                * ICON_NAME_FONT_SCALE
+            )
+            y_max += ICON_NAME_GAP + caption_height
 
         obstacles[station.id] = (
             x_min - margin,
@@ -3175,7 +3180,7 @@ def caption_aware_icon_step(
 
 
 def _terminus_icon_marching(
-    theme: Theme, names: list[str], is_vertical_flow: bool
+    theme: Theme, station: Station, is_vertical_flow: bool
 ) -> tuple[float, list[float]]:
     """Per-icon centre-to-centre step along the flow axis, and caption widths.
 
@@ -3184,6 +3189,7 @@ def _terminus_icon_marching(
     estimated width, shared by the icon-placement helper and the renderer's
     caption-stagger logic so the two stay in lockstep.
     """
+    names = station.terminus_names or [""] * len(station.terminus_labels)
     caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
     caption_style = text_style(caption_font_size, theme.label_font_weight)
     name_widths = [
@@ -3191,7 +3197,11 @@ def _terminus_icon_marching(
         for name in names
     ]
     if is_vertical_flow:
-        caption_room = caption_font_size + ICON_NAME_GAP if any(names) else 0.0
+        caption_room = (
+            caption_font_size * station.terminus_caption_line_count + ICON_NAME_GAP
+            if station.terminus_caption_line_count
+            else 0.0
+        )
         step = theme.terminus_height + ICON_INTER_GAP + caption_room
     else:
         step = caption_aware_icon_step(names, name_widths, theme.terminus_width)
@@ -3231,8 +3241,7 @@ def _terminus_icon_centers_for(
 
     bundle_center = (min_off + max_off) / 2
 
-    names = station.terminus_names or [""] * len(station.terminus_labels)
-    icon_step, _ = _terminus_icon_marching(theme, names, is_vertical_flow)
+    icon_step, _ = _terminus_icon_marching(theme, station, is_vertical_flow)
 
     is_rail = graph.station_is_rail(station.id)
     offtrack_nub_lift = (
@@ -3333,7 +3342,7 @@ def _render_terminus_icons(
     banners = station.terminus_icon_banners or [False] * len(station.terminus_labels)
 
     caption_font_size = theme.label_font_size * ICON_NAME_FONT_SCALE
-    icon_step, name_widths = _terminus_icon_marching(theme, names, is_vertical_flow)
+    icon_step, name_widths = _terminus_icon_marching(theme, station, is_vertical_flow)
 
     centers = _terminus_icon_centers_for(station, graph, theme, min_off, max_off)
 

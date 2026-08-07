@@ -373,7 +373,7 @@ def compute_min_y_spacing(
     The four worst-case vertical extents considered are:
 
     * captioned file-icon below the marker: ``ICON_HALF_HEIGHT +
-      ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT``
+      ICON_CAPTION_GAP + line_count * ICON_CAPTION_FONT_HEIGHT``
     * captioned file-icon above the marker: ``ICON_HALF_HEIGHT``
     * labeled station, label below: ``LABEL_OFFSET + FONT_HEIGHT +
       DESCENDER_CLEARANCE``
@@ -397,15 +397,9 @@ def compute_min_y_spacing(
     from nf_metro.layout.pass_metrics import active_font_scale
 
     scale = active_font_scale()
-    icon_below = ICON_HALF_HEIGHT + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * scale
     icon_above = ICON_HALF_HEIGHT
     label_extent = LABEL_OFFSET + FONT_HEIGHT * scale + DESCENDER_CLEARANCE
     clearance = ICON_STACK_LABEL_CLEARANCE
-
-    pitch_icon_icon = icon_above + icon_below + clearance
-    # icon_over_label uses icon_below (the larger extent), so it
-    # subsumes the label-over-icon case which uses icon_above.
-    pitch_icon_over_label = icon_below + label_extent + clearance
 
     required = floor
     if not graph.sections:
@@ -415,19 +409,31 @@ def compute_min_y_spacing(
         if section.direction not in ("LR", "RL"):
             continue
         captioned = 0
+        caption_line_count = 0
         labeled = 0
         for sid in section.station_ids:
             st = graph.stations.get(sid)
             if st is None or st.is_port or st.is_hidden:
                 continue
-            has_caption = st.is_terminus and any(
-                bool(n) for n in (st.terminus_names or [])
+            station_caption_lines = (
+                st.terminus_caption_line_count if st.is_terminus else 0
             )
+            has_caption = station_caption_lines > 0
             has_label = bool(st.label) and not st.is_terminus
             if has_caption:
                 captioned += 1
+                caption_line_count = max(caption_line_count, station_caption_lines)
             elif has_label:
                 labeled += 1
+        icon_below = (
+            ICON_HALF_HEIGHT
+            + ICON_CAPTION_GAP
+            + caption_line_count * ICON_CAPTION_FONT_HEIGHT * scale
+        )
+        pitch_icon_icon = icon_above + icon_below + clearance
+        # icon_over_label uses icon_below (the larger extent), so it
+        # subsumes the label-over-icon case which uses icon_above.
+        pitch_icon_over_label = icon_below + label_extent + clearance
         if captioned >= 2:
             required = max(required, pitch_icon_icon)
         if captioned >= 1 and labeled >= 1:
