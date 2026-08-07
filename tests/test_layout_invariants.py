@@ -5882,9 +5882,7 @@ def test_lr_section_all_perpendicular_ports_lays_out_in_its_box():
     stricter render path (#923) is the backstop that the growth actually
     happened.
     """
-    text = (
-        FIXTURES / "regressions" / "lr_perpendicular_ports_overflow.mmd"
-    ).read_text()
+    text = (EXAMPLES / "topologies" / "lr_perpendicular_ports_overflow.mmd").read_text()
 
     def _laid_out() -> MetroGraph:
         graph = parse_metro_mermaid(text)

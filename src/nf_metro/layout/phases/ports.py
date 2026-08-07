@@ -502,6 +502,34 @@ def _mirror_entry_section_to_seam(
     return True
 
 
+def _feeder_descent_x(
+    graph: MetroGraph, edge: Edge, source_x: float, bundle_size: int
+) -> float:
+    """X of the column *edge* descends in to reach its perpendicular entry port.
+
+    A feeder leaving through a LEFT/RIGHT exit port travels away from the box
+    before it can turn down, and that turn is drawn at the outer lane's radius,
+    so its descent column stands one such runway beyond the exit.  A port seated
+    on the exit's own X asks for a vertical arrival in a column the feeder never
+    occupies, and the drop steps sideways onto the port marker as it crosses the
+    boundary.  Every other feeder already descends in its own column: a
+    perpendicular exit leaves vertically, and a junction is seated clear of the
+    box by its own margin when it is placed, so *source_x* carries the offset
+    for it already.
+    """
+    from nf_metro.layout.routing.corners import outer_lane_radius
+
+    exit_port = graph.ports.get(edge.source)
+    if (
+        exit_port is None
+        or exit_port.is_entry
+        or exit_port.side not in (PortSide.LEFT, PortSide.RIGHT)
+    ):
+        return source_x
+    sign = 1.0 if exit_port.side is PortSide.RIGHT else -1.0
+    return source_x + sign * outer_lane_radius(bundle_size)
+
+
 def _align_tb_entry_port(
     graph: MetroGraph,
     port_id: str,
@@ -511,9 +539,16 @@ def _align_tb_entry_port(
 ) -> None:
     """Align a TOP/BOTTOM entry port with its incoming sources."""
     # Collect all incoming sources.  Coordinates are derived via
-    # _resolve_source_xy so junctions don't need to be pre-positioned.
+    # _resolve_source_xy so junctions don't need to be pre-positioned, and
+    # carried as the column each feeder descends in rather than the point it
+    # leaves from, since only the former is a column the port can align to.
+    incoming_edges = graph.edges_to(port_id)
+    line_ids_by_source: dict[str, set[str]] = {}
+    for edge in incoming_edges:
+        line_ids_by_source.setdefault(edge.source, set()).add(edge.line_id)
+
     sources: list[tuple[float, float, str | None]] = []
-    for edge in graph.edges_to(port_id):
+    for edge in incoming_edges:
         src = graph.station_for_edge_source(edge)
         if not (src.is_port or edge.source in junction_ids):
             continue
@@ -521,7 +556,15 @@ def _align_tb_entry_port(
         if src_xy is None:
             continue
         src_section_id = _resolve_source_section_id(graph, edge.source, junction_ids)
-        sources.append((src_xy[0], src_xy[1], src_section_id))
+        sources.append(
+            (
+                _feeder_descent_x(
+                    graph, edge, src_xy[0], len(line_ids_by_source[edge.source])
+                ),
+                src_xy[1],
+                src_section_id,
+            )
+        )
 
     if not sources:
         return
@@ -583,15 +626,16 @@ def _align_tb_entry_port(
         elif entry_section.direction in ("LR", "RL"):
             _nudge_port_from_stations(port_id, entry_section, graph)
     else:
-        # Same grid column: a stacked source drops in vertically, so align X
-        # to it -- but only when that X lands within the section's own box.  A
-        # same-column neighbour whose actual X sits outside the box (a wide
-        # upstream section sharing the column) would otherwise drag the perp
-        # port off the section's columns; keep the port on its own column and
-        # let routing bridge the cross-column drop instead.
-        src_x, _, _ = sources[0]
-        if _drop_x_within_section(entry_section, src_x):
-            _set_port_x(graph, port_id, src_x)
+        # Same grid column: a stacked source drops in vertically, so align X to
+        # its descent column -- but only when that X lands within the section's
+        # own box.  A same-column neighbour whose descent column sits outside
+        # the box (a wide upstream section sharing the grid column) would
+        # otherwise drag the perp port off the section's columns; keep the port
+        # on its own column and let routing bridge the cross-column drop
+        # instead.
+        descent_x, _, _ = sources[0]
+        if _drop_x_within_section(entry_section, descent_x):
+            _set_port_x(graph, port_id, descent_x)
         elif entry_section.direction in ("LR", "RL"):
             _nudge_port_from_stations(port_id, entry_section, graph)
             graph._cross_column_perp_bridges.add(entry_section.id)
@@ -641,9 +685,10 @@ def _vertical_drop_source_x(
 ) -> float | None:
     """X for a clean vertical drop from a same-column stacked source.
 
-    Returns the source X if a single same-column source sits in the row
-    directly above (TOP) / below (BOTTOM) and that X is clear of the entry
-    section's internal stations; otherwise None (no straight drop available).
+    Returns that source's descent column (:func:`_feeder_descent_x`) if a single
+    same-column source sits in the row directly above (TOP) / below (BOTTOM) and
+    the column is clear of the entry section's internal stations; otherwise None
+    (no straight drop available).
     """
     candidate_xs: set[float] = set()
     for sx, sy, src_sid in sources:
