@@ -3777,12 +3777,22 @@ def attach_route_reservations(
         demands=plan.demands + observed_demands,
         reservations=reservations,
     )
-    return _finalise_reservation_ledger(
+    finalised = _finalise_reservation_ledger(
         plan_with_corridors,
         graph,
         canvas_width=canvas_width,
         canvas_height=canvas_height,
     )
+    reservation_ids_by_member: defaultdict[str, list[str]] = defaultdict(list)
+    for reservation in finalised.reservations:
+        for member_id in reservation.claimant_member_ids:
+            reservation_ids_by_member[str(member_id)].append(str(reservation.id))
+    for route in routes:
+        if route.emission_member_id is not None:
+            route.route_reservation_ids = tuple(
+                reservation_ids_by_member[route.emission_member_id]
+            )
+    return finalised
 
 
 def _project_shared_coordinate(

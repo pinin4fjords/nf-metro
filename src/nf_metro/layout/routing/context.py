@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import ExitTurnPlanId
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
+    from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
 
 _EdgeKey = tuple[str, str, str]
 
@@ -240,6 +241,7 @@ class _RoutingCtx:
     is the one that decides."""
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
+    route_systems: RouteSystemEmissionExecution | None = None
     skip_edges: set[_EdgeKey] = field(default_factory=set)
     built_routes: list[RoutedPath] = field(default_factory=list)
     junction_fan_info: dict[_EdgeKey, tuple[int, int]] = field(default_factory=dict)

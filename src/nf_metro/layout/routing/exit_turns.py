@@ -35,6 +35,7 @@ from nf_metro.layout.route_plan import (
     RoutePlanDiagnostic,
     RoutePlanProvenance,
     RouteSemanticScaffold,
+    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -167,6 +168,28 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
+
+    def restrict_to_systems(
+        self, system_ids: frozenset[RouteSystemId]
+    ) -> ExitTurnPlanQuery:
+        plans = tuple(plan for plan in self.plans if plan.system_id in system_ids)
+        return ExitTurnPlanQuery(
+            plans,
+            MappingProxyType(
+                {
+                    key: membership
+                    for key, membership in self._by_edge.items()
+                    if membership.plan.system_id in system_ids
+                }
+            ),
+            MappingProxyType(
+                {
+                    key: membership
+                    for key, membership in self._transition_by_edge.items()
+                    if membership.plan.system_id in system_ids
+                }
+            ),
+        )
 
 
 def route_planned_lane_transition(
@@ -2540,7 +2563,19 @@ def validate_exit_turn_plans(
     edge_by_key = {
         (edge.source, edge.target, edge.line_id): edge for edge in graph.edges
     }
-    exit_turn_plans = plan.exit_turn_plans if isinstance(plan, RoutePlan) else plan
+    if isinstance(plan, RoutePlan):
+        planned_system_ids = {
+            system.id
+            for system in plan.systems
+            if system.disposition is RouteSystemDisposition.PLANNED
+        }
+        exit_turn_plans = tuple(
+            item
+            for item in plan.exit_turn_plans
+            if item.system_id in planned_system_ids
+        )
+    else:
+        exit_turn_plans = plan
     for exit_turn_plan in exit_turn_plans:
         if exit_turn_plan.disposition is not ExitTurnDisposition.PLANNED:
             continue

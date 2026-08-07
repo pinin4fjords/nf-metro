@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from copy import deepcopy
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -25,7 +26,6 @@ from nf_metro.layout.envelope_settlement import (
     BoundaryClearanceDemand,
     EnvelopeSettlement,
     SettlementAxis,
-    SettlementReach,
     SettlementShortfall,
     attribute_compatibility_systems,
     quantised_allocation,
@@ -56,6 +56,8 @@ from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits, apply_route_offsets
 from nf_metro.render import svg as render_svg_module
 from nf_metro.render.svg import (
+    _assert_settlement_decisions_frozen,
+    _attach_published_reservation_attribution,
     _route_decision_fingerprint,
     _settled_render_graph,
     build_observed_render_plan,
@@ -255,11 +257,6 @@ def _settled(path: Path):
 def _sole(items: tuple):
     assert len(items) == 1, f"expected one compatibility system, found {len(items)}"
     return items[0]
-
-
-def _sole_compatibility_exit(path: Path):
-    graph, plan = _settled(path)
-    return _sole(attribute_compatibility_systems(graph, plan))
 
 
 def _capacity_deficits(plan) -> dict[str, float]:
@@ -1145,6 +1142,83 @@ def test_settlement_preserves_frozen_local_geometry(path: Path) -> None:
     assert _section_local_geometry(graph) == before
 
 
+def test_settlement_freezes_semantic_ownership_but_adopts_reservation_ids() -> None:
+    path = ROOT / "examples" / "rnaseq_sections.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        offsets = compute_station_offsets(graph)
+        observation = observe_route_edges(graph, station_offsets=offsets)
+
+    frozen_routes = deepcopy(observation.routes)
+    route_mutations = {
+        "route_system_id": "settlement-mutated-system",
+        "emission_member_id": "settlement-mutated-member",
+        "route_system_disposition": "settlement-mutated-disposition",
+        "route_plan_ids": ("settlement-mutated-plan",),
+        "route_system_owned_segment_ranks": (len(frozen_routes[0].points),),
+    }
+    for attribute, value in route_mutations.items():
+        realised_routes = deepcopy(observation.routes)
+        owned_route = next(
+            route for route in realised_routes if route.route_system_id is not None
+        )
+        setattr(owned_route, attribute, value)
+        with pytest.raises(
+            LayoutInvariantError,
+            match="changed route topology or geometry ownership",
+        ):
+            _assert_settlement_decisions_frozen(
+                frozen_routes,
+                observation.plan,
+                realised_routes,
+                observation.plan,
+            )
+
+    realised_routes = deepcopy(observation.routes)
+    geometry_plan = observation.plan.member_geometry_plans[0]
+    realised_plan = replace(
+        observation.plan,
+        member_geometry_plans=(
+            replace(geometry_plan, member_id="settlement-mutated-member"),
+            *observation.plan.member_geometry_plans[1:],
+        ),
+    )
+    with pytest.raises(
+        LayoutInvariantError,
+        match="changed route-system planning decisions",
+    ):
+        _assert_settlement_decisions_frozen(
+            frozen_routes,
+            observation.plan,
+            realised_routes,
+            realised_plan,
+        )
+
+    for route in realised_routes:
+        if route.route_system_id is not None:
+            route.route_reservation_ids = ("rerouted-reservation",)
+    _assert_settlement_decisions_frozen(
+        frozen_routes,
+        observation.plan,
+        realised_routes,
+        observation.plan,
+    )
+    _attach_published_reservation_attribution(realised_routes, observation.plan)
+
+    reservations_by_member: dict[str, list[str]] = {}
+    for reservation in observation.plan.reservations:
+        for member_id in reservation.claimant_member_ids:
+            reservations_by_member.setdefault(str(member_id), []).append(
+                str(reservation.id)
+            )
+    for route in realised_routes:
+        if route.route_system_id is not None:
+            assert route.route_reservation_ids == tuple(
+                reservations_by_member.get(route.emission_member_id or "", ())
+            )
+
+
 @pytest.mark.parametrize(
     "path", tuple(DIRECTION_CORPUS.values()), ids=tuple(DIRECTION_CORPUS)
 )
@@ -1272,11 +1346,23 @@ def test_every_corridor_the_organellar_map_publishes_is_allocatable() -> None:
     assert checked
 
 
-# Route systems the convergence planner puts on its compatibility disposition
-# for want of "a wider shared settlement".  Each one's corridors reach their
-# required width, which is the evidence that what limits them is a channel
-# decision rather than envelope allocation.
-SHARED_SETTLEMENT_CANDIDATES = (
+@pytest.mark.parametrize(
+    "path",
+    (
+        TOPOLOGIES / "merge_right_entry.mmd",
+        ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+        ROOT / "examples" / "genomeassembly_staggered.mmd",
+    ),
+    ids=lambda path: path.name,
+)
+def test_planned_convergence_reroutes_strictly_with_settled_column_bands(
+    path: Path,
+) -> None:
+    """Settled column-band reroutes preserve strict reservation invariants."""
+    _rendered_plan(path)
+
+
+MIGRATED_SYSTEMS = (
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
@@ -1285,13 +1371,12 @@ SHARED_SETTLEMENT_CANDIDATES = (
     TOPOLOGIES / "funcprofiler_upstream.mmd",
     TOPOLOGIES / "merge_right_entry.mmd",
     ROOT / "examples" / "genomeassembly.mmd",
+    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
 )
 
 
-@pytest.mark.parametrize(
-    "path", SHARED_SETTLEMENT_CANDIDATES, ids=lambda item: item.name
-)
-def test_compatibility_systems_are_not_short_of_corridor(path: Path) -> None:
+@pytest.mark.parametrize("path", MIGRATED_SYSTEMS, ids=lambda item: item.name)
+def test_migrated_systems_are_not_short_of_corridor(path: Path) -> None:
     observed = _rendered_plan(path, permissive=True)
     assert _capacity_deficits(observed.route_plan) == {}
 
@@ -1371,23 +1456,10 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
     assert settle_route_envelopes(graph, plan).translations == ()
 
 
-COMPATIBILITY_SYSTEMS = (
-    TOPOLOGIES / "exit_run_three_drop_columns.mmd",
-    TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
-    ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
-    TOPOLOGIES / "merge_bottom_row_bypass.mmd",
-    TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-    TOPOLOGIES / "funcprofiler_upstream.mmd",
-    TOPOLOGIES / "merge_right_entry.mmd",
-    ROOT / "examples" / "genomeassembly.mmd",
-    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+PLANNED_SYSTEMS = (
+    *MIGRATED_SYSTEMS,
+    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
 )
-
-# Fixtures probed for a compatibility exit whose route systems the planner owns
-# instead.  They are retained as controls rather than dropped: the assertion is
-# that nothing is published for them, which fails the moment one of them slips
-# back onto the compatibility path.
-PLANNED_SYSTEMS = (REGRESSIONS / "cross_column_perp_entry_overflow.mmd",)
 
 
 @pytest.mark.parametrize("path", PLANNED_SYSTEMS, ids=lambda item: item.name)
@@ -1427,47 +1499,6 @@ def _widest_slack_row_reservation(graph, plan):
     )
     target, _ = min(residents, key=lambda pair: pair[1].capacity_slack)
     return target, boundary
-
-
-@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
-def test_every_compatibility_system_is_attributed_in_the_published_plan(
-    path: Path,
-) -> None:
-    """#1660 lets a system stay on compatibility only with evidence naming a
-    separate owner, so that evidence has to reach the plan a consumer reads."""
-    observed = _rendered_plan(path, permissive=True)
-    published = [
-        item
-        for item in observed.route_plan.diagnostics
-        if item.code == "convergence-settlement-exit"
-    ]
-    assert all(
-        item.blocking is False
-        for item in observed.route_plan.diagnostics
-        if item.code == "envelope-settlement-translation"
-    )
-    assert published
-    for item in published:
-        assert item.blocking is False
-        assert "#1658" in item.message
-
-
-@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
-def test_no_compatibility_system_is_held_by_something_settlement_can_reach(
-    path: Path,
-) -> None:
-    """#1660 may hand a system on only where its limit is out of its own reach.
-
-    A conflict whose two runs an offset this stage owns would pull apart is an
-    envelope allocation to make here, not a channel decision to attribute
-    elsewhere, so finding one within reach withdraws the exit rather than
-    publishing it.
-    """
-    graph, plan = _settled(path)
-    published = attribute_compatibility_systems(graph, plan)
-    assert published
-    for item in published:
-        assert item.reach is not SettlementReach.WITHIN_REACH
 
 
 def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> None:
@@ -1764,89 +1795,6 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
             graph, plan, settlement, polylines, strict=False
         )
     assert any(shortfall.message in str(item.message) for item in caught_warnings)
-
-
-@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
-def test_a_compatibility_exit_quotes_the_geometry_it_was_measured_on(
-    path: Path,
-) -> None:
-    """Every number in the exit has to be re-derivable from the settled map.
-
-    The published sentence is the evidence #1660 accepts, so each quantity in it
-    is checked against the geometry it claims to describe rather than against a
-    remembered wording.
-    """
-    graph, plan = _settled(path)
-    published = attribute_compatibility_systems(graph, plan)
-    assert published
-    for item in published:
-        assert item.conflict is not None
-        slacks = [
-            realised.capacity_slack
-            for reservation in plan.reservations
-            if reservation.system_id == item.system_id
-            and isinstance(reservation.region, RowGapRegion | ColumnGapRegion)
-            and (realised := realise_reservation(graph, reservation)) is not None
-        ]
-        assert item.corridor_count == len(slacks)
-        assert item.worst_capacity_slack == min(slacks)
-        assert f"{item.conflict.separation:.2f}px" in item.message
-        for site in item.conflict.sites:
-            for x, y in site:
-                assert f"({x:.1f},{y:.1f})" in item.message
-        assert item.owner == item.conflict.kind.owner
-        assert "#1658" in item.message
-
-
-def test_one_compatibility_reason_yields_different_evidence_on_different_maps() -> None:
-    """Two systems the planner rejected for the same reason are not the same
-    case, and an exit derived from geometry says so."""
-    fixed = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly.mmd")
-    grows = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly_staggered.mmd")
-    assert fixed.conflict is not None and grows.conflict is not None
-    assert fixed.conflict.kind is grows.conflict.kind
-    assert fixed.reach is SettlementReach.SEPARATION_FIXED
-    assert grows.reach is SettlementReach.SEPARATION_ONLY_GROWS
-    assert fixed.conflict.separation != grows.conflict.separation
-    assert fixed.message != grows.message
-
-
-def test_a_compatibility_exit_stops_claiming_a_limit_settlement_can_reach() -> None:
-    """The exit is a claim about what row and column offsets cannot move, so
-    putting a boundary between the conflicting runs has to withdraw it."""
-    path = TOPOLOGIES / "merge_right_entry.mmd"
-    graph, plan = _settled(path)
-    before = _sole(attribute_compatibility_systems(graph, plan))
-    assert before.reach is SettlementReach.SEPARATION_FIXED
-    conflict = before.conflict
-    assert conflict is not None
-
-    lower, upper = sorted(site[0][1] for site in conflict.sites)
-    for section in graph.sections.values():
-        if section.grid_row >= before.bands[0]:
-            section.bbox_y = max(section.bbox_y, (lower + upper) / 2)
-
-    reach, bands = envelope_settlement._settlement_reach(graph, conflict)
-    assert reach is SettlementReach.WITHIN_REACH
-    assert bands[0] != bands[1]
-    after = replace(before, reach=reach, bands=bands)
-    assert "not attributed away from settlement" in after.message
-
-
-def test_a_compatibility_exit_republishes_the_slack_it_finds() -> None:
-    """The corridor half of the evidence is a live measurement: widening the
-    boundary the corridor stands in has to change the number it publishes.
-
-    Every corridor this system owns stands in a column gap, and the number is
-    the worst of them, so the widening has to reach all of them at once.
-    """
-    graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
-    before = _sole(attribute_compatibility_systems(graph, plan))
-    for section in tuple(graph.sections.values()):
-        shift_section(graph, section, dx=90.0 * section.grid_col)
-    after = _sole(attribute_compatibility_systems(graph, plan))
-    assert after.worst_capacity_slack > before.worst_capacity_slack
-    assert f"{after.worst_capacity_slack:.2f}px to spare" in after.message
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)

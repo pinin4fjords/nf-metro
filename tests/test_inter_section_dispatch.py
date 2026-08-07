@@ -342,6 +342,40 @@ def test_would_route_around_section_below(
     assert H._would_route_around_section_below(edge, ctx) is expected  # type: ignore[arg-type]
 
 
+def test_planned_family_dispatch_does_not_rematch_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    edge = SimpleNamespace(source="s", target="t", line_id="L")
+    station = SimpleNamespace(is_port=True)
+    ctx = SimpleNamespace(junction_ids=set(), exit_turns=None)
+    facts = object()
+    calls: list[object] = []
+    family_id = H._INTER_SECTION_RULES[0].family_id
+    rule = H._Rule(family_id, "planned", lambda _facts: False, calls.append)
+
+    monkeypatch.setattr(H, "_build_inter_facts", lambda *_args: facts)
+    monkeypatch.setattr(
+        H,
+        "_match_inter_section_rule",
+        lambda _facts: (_ for _ in ()).throw(
+            AssertionError("rematched planned family")
+        ),
+    )
+    monkeypatch.setattr(H, "_INTER_SECTION_RULES", [rule])
+
+    assert (
+        H._route_inter_section(
+            edge,
+            station,
+            station,
+            ctx,
+            planned_family_id=family_id,
+        )
+        is None
+    )
+    assert calls == [facts]
+
+
 def test_would_route_around_section_below_propagates_missing_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -798,12 +798,24 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
+    route_system_id: str | None = None
+    """Canonical semantic system that owns this inter-section emission."""
+    emission_member_id: str | None = None
+    """Canonical physical member represented by this route."""
+    route_system_disposition: str | None = None
+    """Whole-system planned or compatibility disposition used for emission."""
+    route_plan_ids: tuple[str, ...] = ()
+    """Immutable child plans contributing to the route-system decision."""
+    route_reservation_ids: tuple[str, ...] = ()
+    """Realised reservation records claimed by this emission member."""
     convergence_plan_id: str | None = None
     """Immutable convergence plan that owns this route's terminal geometry."""
     convergence_member_id: str | None = None
     """Semantic emission member bound to the planned convergence."""
     convergence_owned_segment_ranks: tuple[int, ...] = ()
     """Segments whose final geometry is owned by the convergence plan."""
+    route_system_owned_segment_ranks: tuple[int, ...] = ()
+    """Gap-channel segments frozen by the route-system member plan."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
@@ -2374,6 +2386,14 @@ def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     )
 
 
+def member_plan_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a member geometry plan owns the segment at or beside *rank*."""
+    return any(
+        item in route.route_system_owned_segment_ranks
+        for item in (rank - 1, rank, rank + 1)
+    )
+
+
 def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     """Whether a pre-routing plan fixes the coordinate of one route segment.
 
@@ -2389,6 +2409,7 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     return (
         convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
+        or rank in route.route_system_owned_segment_ranks
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )

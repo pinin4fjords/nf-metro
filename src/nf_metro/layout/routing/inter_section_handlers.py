@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, NamedTuple
 
-from nf_metro.layout.route_plan import FanRouteEmitter
+from nf_metro.layout.route_plan import FanRouteEmitter, RouteSystemDisposition
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -1626,6 +1626,7 @@ def _route_inter_section(
     ctx: _RoutingCtx,
     *,
     observer: RoutePlanObserver | None = None,
+    planned_family_id: RouteFamilyId | None = None,
 ) -> RoutedPath | None:
     """Route an edge between ports/junctions via the dispatch table.
 
@@ -1641,13 +1642,26 @@ def _route_inter_section(
         return None
 
     f = _build_inter_facts(edge, src, tgt, ctx)
-    rule = _match_inter_section_rule(f)
+    rule = (
+        _match_inter_section_rule(f)
+        if planned_family_id is None
+        else next(
+            (
+                candidate
+                for candidate in _INTER_SECTION_RULES
+                if candidate.family_id is planned_family_id
+            ),
+            None,
+        )
+    )
     if rule is not None:
         family_id = rule.family_id
         route = rule.route(f)
     else:
         # Standard L-shape: the default when no rule above claims the edge.
-        family_id = RouteFamilyId.STANDARD_L_SHAPE
+        family_id = planned_family_id or RouteFamilyId.STANDARD_L_SHAPE
+        if family_id is not RouteFamilyId.STANDARD_L_SHAPE:
+            raise RuntimeError(f"planned route family {family_id.value!r} is unknown")
         route = _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
     from nf_metro.layout.route_plan import ExitTurnDisposition
     from nf_metro.layout.routing.exit_turns import (
@@ -2098,6 +2112,13 @@ def _route_planned_bottom_exit_right_landings(
     exit_x_offset: Callable[[str], float],
     target_y: float,
 ) -> RoutedPath | None:
+    if ctx.route_systems is not None:
+        system = ctx.route_systems.system_for_edge(edge)
+        if (
+            system is not None
+            and system.disposition is RouteSystemDisposition.COMPATIBILITY
+        ):
+            return None
     query = ctx.graph.fan_plan_query
     if query is None:
         return None
@@ -5239,6 +5260,15 @@ def _leadout_self_meets_sibling_descent(
                 continue
             if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:
                 return True
+    if ctx.convergences is None:
+        return False
+    for claim in ctx.convergences.prior_vertical_channels_for_edge(edge):
+        if claim.line_id != edge.line_id or claim.owner_source == edge.source:
+            continue
+        if not (corner_x - COORD_TOLERANCE <= claim.x <= gap_right + COORD_TOLERANCE):
+            continue
+        if min(hi, claim.y_hi) - max(lo, claim.y_lo) > COORD_TOLERANCE:
+            return True
     return False
 
 

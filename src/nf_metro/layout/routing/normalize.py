@@ -55,6 +55,7 @@ from nf_metro.layout.routing.common import (
     iter_opposing_entry_confluences,
     iter_port_peeloff_bundles,
     iter_vertical_segments,
+    member_plan_owns_segment_boundary,
     merge_fanout_pivot_reference,
     opposing_entry_confluence_slots,
     packed_cell_neighbor_edges,
@@ -837,7 +838,9 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
         for line_id, trunk in trunks.items():
-            if convergence_owns_segment_boundary(trunk.route, trunk.idx):
+            if convergence_owns_segment_boundary(
+                trunk.route, trunk.idx
+            ) or member_plan_owns_segment_boundary(trunk.route, trunk.idx):
                 continue
             target_y = targets[line_id]
             if abs(trunk.y - target_y) <= COORD_TOLERANCE:
@@ -863,6 +866,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
         and not convergence_owns_segment_boundary(t.route, t.idx)
+        and not member_plan_owns_segment_boundary(t.route, t.idx)
     ]
 
 
@@ -1128,7 +1132,8 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
         routes, lambda rp: _merge_fanout_pivot_spans(rp, fanouts, merges)
     )
     for (src, _down), chans in groups.items():
-        if any(_planner_owns_channel(ch) for ch in chans):
+        planned = [channel.x for channel in chans if _planner_owns_channel(channel)]
+        if planned and max(planned) - min(planned) > COORD_TOLERANCE:
             continue
         source_x = ctx.graph.stations[src].x
         ref = merge_fanout_pivot_reference(
@@ -1161,7 +1166,10 @@ def _coincide_fanout_opening_descents(
     that genuinely diverges to another column.
     """
     for group in _divergent_source_groups(routes):
-        if any(_planner_owns_channel(channel) for channel in group.channels):
+        planned = [
+            channel.x for channel in group.channels if _planner_owns_channel(channel)
+        ]
+        if planned and max(planned) - min(planned) > COORD_TOLERANCE:
             continue
         _snap_group(group, ctx.graph)
     _bundle_divergent_distinct_descents(routes, ctx)
@@ -1199,7 +1207,15 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     for group in _convergent_port_groups(routes, ctx):
         _snap_group(group, ctx.graph)
     for group in _merge_feeder_groups(routes, ctx):
-        _snap_merge_feeder_group(group, ctx.graph)
+        compatibility_channels = [
+            channel
+            for channel in group.channels
+            if channel.route.route_system_disposition == "compatibility"
+        ]
+        if compatibility_channels:
+            _snap_merge_feeder_group(
+                _Coincidence(compatibility_channels, group.ref_x), ctx.graph
+            )
     _join_fanout_upstream_tails(routes, ctx)
 
 
@@ -1549,16 +1565,17 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 y_hi=max(tail.trunk_y, tail.port_y),
                 down=tail.port_y > tail.trunk_y,
             )
-            if not _planner_owns_channel(ch):
-                _restack_channel(
-                    ch,
-                    slot.peel_x,
-                    slot.rank,
-                    n,
-                    step,
-                    ctx.curve_radius,
-                    ch.down,
-                )
+            if _planner_owns_channel(ch):
+                continue
+            _restack_channel(
+                ch,
+                slot.peel_x,
+                slot.rank,
+                n,
+                step,
+                ctx.curve_radius,
+                ch.down,
+            )
             seat_peeloff_port_y(rp, slot.port_y)
 
 
@@ -2045,7 +2062,7 @@ def _divergent_source_spans(
     rp: RoutedPath,
 ) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
     """A route's opening fan-out descent, keyed by source, line and direction."""
-    ch = _initial_fanout_descent(rp)
+    ch = _opening_fanout_descent(rp)
     if ch is not None:
         yield (rp.edge.source, rp.line_id, ch.down), ch
 
@@ -3044,7 +3061,11 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
+        if (
+            id(t.route) in skip
+            or convergence_owns_segment_boundary(t.route, t.idx)
+            or member_plan_owns_segment_boundary(t.route, t.idx)
+        ):
             continue
         hit = next(
             (
@@ -3945,7 +3966,12 @@ def _corridor_run_band(
     That covers the first routing pass, which publishes the ledger and so has
     none to read, and unclaimed geometry on the re-route.
     """
-    if not section_ids or planner_owns_segment(route, idx):
+    touches_planned_geometry = any(
+        planner_owns_segment(route, rank)
+        for rank in (idx - 1, idx, idx + 1)
+        if 0 <= rank < len(route.points) - 1
+    )
+    if not section_ids or touches_planned_geometry:
         return None
     claimed = _segment_claim_band(ctx, route, idx)
     if claimed is not None:

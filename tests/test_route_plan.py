@@ -343,7 +343,7 @@ def test_route_families_and_roles_come_from_production_dispatch() -> None:
     )
 
 
-def test_declined_dispatch_records_the_actual_fallback_emitter(
+def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = EXAMPLES / "topologies" / "fan_in_merge.mmd"
@@ -375,16 +375,11 @@ def test_declined_dispatch_records_the_actual_fallback_emitter(
             for candidate in inter_section_handlers._INTER_SECTION_RULES
         ],
     )
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
-    member = next(
-        member for member in observation.plan.members if member.edge == declined
-    )
-    (binding,) = build_route_plan_query(observation.plan).bindings_for(member.id)
-
-    assert member.family_id is RouteFamilyId.INTRA_SECTION_FALLBACK
-    assert binding.kind is BindingKind.EMITTED
+    with pytest.raises(
+        ValueError,
+        match="unregistered compatibility reason convergence-plan",
+    ):
+        observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
 
 
 def test_schema_names_every_future_reference_and_demand_kind() -> None:

@@ -330,7 +330,7 @@ def test_foreign_merge_frame_keeps_the_complete_fan_on_legacy_layout() -> None:
     )
 
 
-def test_straight_diamond_keeps_established_layout_ownership() -> None:
+def test_straight_diamond_records_established_layout_as_a_complete_plan() -> None:
     path = ROOT / "examples" / "topologies" / "shared_cell_fork_trunk_align.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
@@ -340,9 +340,13 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     assert plan.authored_join_station_id == "p_merge"
     assert plan.join_station_id == "p_merge"
     assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT
-    assert plan.disposition is FanPlanDisposition.LEGACY
-    assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
-    assert plan.layout_station_ids == ()
+    assert plan.disposition is FanPlanDisposition.PLANNED
+    assert plan.legacy_reason is None
+    assert plan.layout_station_ids
+    assert plan.appearance_centreline_branch_id == plan.branches[0].id
+    assert tuple(branch.lane_offset for branch in plan.branches) == pytest.approx(
+        (0.0, plan.appearance_lane_pitch, 2 * plan.appearance_lane_pitch)
+    )
 
 
 @pytest.mark.parametrize(
@@ -488,7 +492,7 @@ def test_runtime_guard_rejects_symmetric_straight_open_fan_plan() -> None:
 
     with pytest.raises(
         PhaseInvariantError,
-        match="straight planned fan .* does not keep its top branch on the centreline",
+        match="straight planned fan .* does not keep its appearance frame",
     ):
         _guard_planned_fan_frame_realised(
             graph,
@@ -1199,37 +1203,26 @@ def test_planned_geometry_requires_every_frozen_centreline() -> None:
         _apply_planned_fan_geometry(graph, {})
 
 
-def test_planned_straight_diamond_is_invalid_at_construction() -> None:
-    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+def test_planned_straight_diamond_preserves_its_frozen_appearance() -> None:
+    path = ROOT / "examples" / "topologies" / "shared_cell_fork_trunk_align.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
 
-    with pytest.raises(
-        ValueError,
-        match="straight-diamond geometry requires established layout",
-    ):
-        replace(plan, appearance_policy=FanAppearancePolicy.STRAIGHT)
+    straight = replace(plan, appearance_policy=FanAppearancePolicy.STRAIGHT)
+
+    assert straight.disposition is FanPlanDisposition.PLANNED
+    assert straight.join_station_id == plan.join_station_id
+    assert straight.branches == plan.branches
 
 
-def test_runtime_guard_rejects_corrupted_straight_diamond_policy() -> None:
-    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+def test_runtime_guard_accepts_a_planned_straight_diamond_policy() -> None:
+    path = ROOT / "examples" / "topologies" / "shared_cell_fork_trunk_align.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     offsets = compute_station_offsets(graph)
-    plan = next(item for item in graph.fan_plans if item.join_station_id is not None)
 
-    object.__setattr__(
-        plan,
-        "appearance_policy",
-        FanAppearancePolicy.STRAIGHT,
-    )
-
-    with pytest.raises(
-        PhaseInvariantError,
-        match="claims geometry for frozen appearance policy 'straight'",
-    ):
-        _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+    _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
 def test_fan_appearance_policy_rejects_string_equivalents() -> None:
@@ -1604,6 +1597,30 @@ def test_intra_section_fan_member_must_have_one_final_route() -> None:
         validate_fan_route_emissions(graph, routes, offsets)
     assert str(plan.id) in str(error.value)
     assert str(plan.system_id) in str(error.value)
+
+
+def test_compatibility_system_does_not_validate_a_planned_child_fan() -> None:
+    path = ROOT / "examples" / "topologies" / "port_fed_three_branch_diamond.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    plan = next(item for item in graph.fan_plans if item.owns_geometry)
+    expectation = next(
+        item for item in plan.route_expectations if item.member_id is None
+    )
+    routes = [
+        route
+        for route in routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        != expectation.edge
+    ]
+
+    validate_fan_route_emissions(
+        graph,
+        routes,
+        offsets,
+        planned_system_ids=frozenset(),
+    )
 
 
 @pytest.mark.parametrize(

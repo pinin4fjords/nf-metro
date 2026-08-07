@@ -21,6 +21,7 @@ import pytest
 
 from nf_metro.api import prepare_graph
 from nf_metro.layout import FoldThresholdError
+from nf_metro.layout.fan_plans import FanRouteInvariantError
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.render import render_svg
 from nf_metro.render.section_header import SectionHeaderClashError
@@ -68,7 +69,10 @@ def test_aggressive_fold_raises_authoring_error_not_internal(
         _render_at(name, fold)
     assert "fold" in str(exc.value).lower()
     assert isinstance(exc.value, ValueError)
-    assert not isinstance(exc.value, (CurveInvariantError, SectionHeaderClashError))
+    assert not isinstance(
+        exc.value,
+        (CurveInvariantError, FanRouteInvariantError, SectionHeaderClashError),
+    )
 
 
 @pytest.mark.parametrize("name, fold", COMPRESSED_ABORTS)

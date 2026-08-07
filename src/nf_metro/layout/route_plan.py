@@ -23,7 +23,13 @@ from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.fan_geometry import fan_lane_offsets
 from nf_metro.layout.geometry import AxisFrame
-from nf_metro.layout.routing.common import Direction, right_normal_axis_sign
+from nf_metro.layout.routing.common import (
+    Direction,
+    GapSlot,
+    OffsetRegime,
+    TrunkSlot,
+    right_normal_axis_sign,
+)
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
 from nf_metro.parser.commitments import FlowDirection
@@ -74,6 +80,7 @@ ExitTurnAxisId = NewType("ExitTurnAxisId", str)
 FanPlanId = NewType("FanPlanId", str)
 FanBranchPlanId = NewType("FanBranchPlanId", str)
 ConvergencePlanId = NewType("ConvergencePlanId", str)
+RouteMemberGeometryPlanId = NewType("RouteMemberGeometryPlanId", str)
 _T = TypeVar("_T")
 
 
@@ -98,6 +105,95 @@ class CoordinateRegime(str, Enum):
     SETTLED_GRID = "settled-grid"
     LAYOUT_CANVAS = "layout-canvas"
     RELATIVE_FRAME = "relative-frame"
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMemberGapChannel:
+    """One immutable inter-column leg owned by a member geometry plan."""
+
+    segment_rank: int
+    start: tuple[float, float]
+    end: tuple[float, float]
+    gap_lo_col: int
+    row: int | None
+    direction: Direction
+
+    def __post_init__(self) -> None:
+        if self.segment_rank < 0:
+            raise ValueError("member gap channel rank must be non-negative")
+        if (
+            not all(
+                math.isfinite(value)
+                for point in (self.start, self.end)
+                for value in point
+            )
+            or abs(self.start[0] - self.end[0]) > COORD_TOLERANCE
+            or abs(self.start[1] - self.end[1]) <= COORD_TOLERANCE
+        ):
+            raise ValueError("member gap channel must be a finite vertical segment")
+        expected = Direction.D if self.end[1] > self.start[1] else Direction.U
+        if self.direction is not expected:
+            raise ValueError("member gap channel direction disagrees with its segment")
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMemberGeometryPlan:
+    """Pre-normalization template with immutable declared channel ownership.
+
+    ``points`` and ``curve_radii`` seed production emission. Downstream global
+    normalization may adjust geometry outside :attr:`owned_segment_ranks`.
+    ``gap_channels`` are the exact geometry this plan owns through those passes.
+    """
+
+    id: RouteMemberGeometryPlanId
+    system_id: RouteSystemId
+    member_id: EmissionMemberId
+    edge: ResolvedEdge
+    family_id: RouteFamilyId
+    points: tuple[tuple[float, float], ...]
+    curve_radii: tuple[float, ...] | None
+    offset_regime: OffsetRegime
+    normalize_exempt: bool
+    gap_slots: tuple[GapSlot, ...]
+    trunk_slot: TrunkSlot | None
+    gap_channels: tuple[RouteMemberGapChannel, ...]
+    exit_turn_plan_id: str | None = None
+    exit_turn_member_id: str | None = None
+    exit_turn_family_id: str | None = None
+    exit_turn_axis_id: str | None = None
+    exit_turn_segment_rank: int | None = None
+    exit_lane_transition_plan_id: str | None = None
+    fan_plan_id: str | None = None
+    fan_route_emitter: str | None = None
+    consumed_reservation_ids: tuple[str, ...] = ()
+    coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+
+    def __post_init__(self) -> None:
+        if len(self.points) < 2 or not all(
+            math.isfinite(value) for point in self.points for value in point
+        ):
+            raise ValueError("member geometry plan requires finite path geometry")
+        claims = tuple(
+            (
+                channel.segment_rank,
+                channel.gap_lo_col,
+                channel.row,
+                channel.direction,
+            )
+            for channel in self.gap_channels
+        )
+        if len(set(claims)) != len(claims):
+            raise ValueError("member geometry plan repeats a symbolic gap claim")
+        if any(
+            channel.segment_rank >= len(self.points) - 1
+            for channel in self.gap_channels
+        ):
+            raise ValueError("member geometry plan channel exceeds its path segments")
+
+    @property
+    def owned_segment_ranks(self) -> tuple[int, ...]:
+        """Physical segments whose coordinates remain immutable after emission."""
+        return tuple(dict.fromkeys(item.segment_rank for item in self.gap_channels))
 
 
 class EmissionRole(str, Enum):
@@ -128,6 +224,13 @@ class ConvergenceDisposition(str, Enum):
 
     PLANNED = "planned"
     LEGACY = "legacy"
+
+
+class RouteSystemDisposition(str, Enum):
+    """Whether emission consumes every available plan for one route system."""
+
+    PLANNED = "planned"
+    COMPATIBILITY = "compatibility"
 
 
 class ConvergenceTrunkReason(str, Enum):
@@ -1151,21 +1254,20 @@ class FanPlan:
             and self.join_station_id is None
         ):
             raise ValueError("planned reconvergence has no resolved join")
-        if (
-            planned
-            and self.authored_join_station_id is not None
-            and self.appearance_policy is FanAppearancePolicy.STRAIGHT
-        ):
-            raise ValueError("straight-diamond geometry requires established layout")
         local_frame_owned = bool(self.layout_station_ids)
         has_appearance_centreline = self.appearance_centreline_branch_id is not None
+        has_vacant_trunk = (
+            self.authored_join_station_id is not None
+            and sum(branch.is_trunk_continuation for branch in self.branches) > 1
+        )
         if (
             planned
             and self.appearance_policy is FanAppearancePolicy.STRAIGHT
-            and local_frame_owned != has_appearance_centreline
+            and has_appearance_centreline
+            != (local_frame_owned and not has_vacant_trunk)
         ):
             raise ValueError(
-                "straight local fan requires one appearance centreline branch"
+                "straight local fan requires one centreline branch or a vacant trunk"
             )
         if (
             self.appearance_policy is FanAppearancePolicy.SYMMETRIC
@@ -1704,9 +1806,33 @@ class RouteSystem:
     exit_turn_plan_ids: tuple[ExitTurnPlanId, ...]
     fan_plan_ids: tuple[FanPlanId, ...]
     convergence_plan_ids: tuple[ConvergencePlanId, ...]
+    member_geometry_plan_ids: tuple[RouteMemberGeometryPlanId, ...]
     shared_reference_ids: tuple[SharedReferenceId, ...]
     demand_ids: tuple[DemandId, ...]
     reservation_ids: tuple[RouteReservationId, ...]
+    disposition: RouteSystemDisposition
+    compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+
+    def __post_init__(self) -> None:
+        compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
+        if compatible != bool(self.compatibility_reasons):
+            raise ValueError("route-system disposition and compatibility disagree")
+        if len(set(self.compatibility_reasons)) != len(self.compatibility_reasons):
+            raise ValueError("route-system compatibility reasons are not unique")
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSystemCompatibilityReason:
+    """One deterministic reason a complete system uses compatibility emission."""
+
+    owner: str
+    reason: str
+    justification: str
+    follow_up: str
+
+    def __post_init__(self) -> None:
+        if not all((self.owner, self.reason, self.justification, self.follow_up)):
+            raise ValueError("route-system compatibility reason is incomplete")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1772,6 +1898,7 @@ class RoutePlan:
     exit_turn_plans: tuple[ExitTurnPlan, ...]
     fan_plans: tuple[FanPlan, ...]
     convergence_plans: tuple[ConvergencePlan, ...]
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...]
     shared_references: tuple[SharedReference, ...]
     demands: tuple[SymbolicDemand, ...]
     reservations: tuple[RouteReservation, ...]
@@ -2025,6 +2152,7 @@ class RoutePlanObserver:
     convergence_references: tuple[SharedReference, ...] = ()
     convergence_demands: tuple[SymbolicDemand, ...] = ()
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
     _covered_hops: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
@@ -2077,6 +2205,7 @@ def build_route_plan_observer(
     convergence_references: tuple[SharedReference, ...] = (),
     convergence_demands: tuple[SymbolicDemand, ...] = (),
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
 ) -> RoutePlanObserver:
     """Create one transient observer after settled routing context construction."""
     return RoutePlanObserver(
@@ -2091,6 +2220,7 @@ def build_route_plan_observer(
         convergence_references=convergence_references,
         convergence_demands=convergence_demands,
         convergence_diagnostics=convergence_diagnostics,
+        member_geometry_plans=member_geometry_plans,
     )
 
 
@@ -2574,6 +2704,7 @@ def _build_route_plan(
             exit_turn_plans=(),
             fan_plans=fan_plans,
             convergence_plans=(),
+            member_geometry_plans=(),
             shared_references=(),
             demands=(),
             reservations=(),
@@ -2769,6 +2900,31 @@ def _build_route_plan(
         *fan_demands,
         *observer.convergence_demands,
     )
+    system_emission = (
+        observer.context.route_systems if observer.context is not None else None
+    )
+    if system_emission is None:
+        from nf_metro.layout.routing.system_emission import (
+            build_route_system_emission_execution,
+        )
+
+        system_emission = build_route_system_emission_execution(
+            scaffold,
+            exit_turn_plans=observer.exit_turn_plans,
+            fan_plans=route_fan_plans,
+            convergence_plans=observer.convergence_plans,
+        )
+    emission_by_system = {item.system_id: item for item in system_emission.systems}
+    planned_system_ids = {
+        item.system_id
+        for item in system_emission.systems
+        if item.disposition is RouteSystemDisposition.PLANNED
+    }
+    member_geometry_plans = tuple(
+        plan
+        for plan in observer.member_geometry_plans
+        if plan.system_id in planned_system_ids
+    )
     reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
         list
     )
@@ -2780,6 +2936,7 @@ def _build_route_plan(
 
     systems: list[RouteSystem] = []
     for system_id, connector_ids in zip(ordered_system_ids, components, strict=True):
+        emission = emission_by_system[system_id]
         systems.append(
             RouteSystem(
                 system_id,
@@ -2799,9 +2956,16 @@ def _build_route_plan(
                 tuple(exit_turn_ids_by_system[system_id]),
                 tuple(fan_ids_by_system[system_id]),
                 tuple(convergence_plan_ids_by_system[system_id]),
+                tuple(
+                    plan.id
+                    for plan in member_geometry_plans
+                    if plan.system_id == system_id
+                ),
                 tuple(reference_ids_by_system[system_id]),
                 tuple(demand_ids_by_system[system_id]),
                 (),
+                emission.disposition,
+                emission.compatibility_reasons,
             )
         )
 
@@ -2816,6 +2980,7 @@ def _build_route_plan(
         exit_turn_plans=observer.exit_turn_plans,
         fan_plans=fan_plans,
         convergence_plans=observer.convergence_plans,
+        member_geometry_plans=member_geometry_plans,
         shared_references=shared_references,
         demands=demands,
         reservations=(),

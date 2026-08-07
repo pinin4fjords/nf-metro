@@ -5228,22 +5228,6 @@ def _guard_planned_fan_frame_realised(
             f"policy {invalid_policy.appearance_policy!r}"
         )
 
-    unsupported = next(
-        (
-            plan
-            for plan in graph.fan_plans
-            if plan.owns_geometry
-            and plan.authored_join_station_id is not None
-            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT
-        ),
-        None,
-    )
-    if unsupported is not None:
-        raise PhaseInvariantError(
-            f"{phase}: planned fan {unsupported.id!s} claims geometry for frozen "
-            f"appearance policy {unsupported.appearance_policy.value!r}"
-        )
-
     missing_join = next(
         (
             plan
@@ -5326,20 +5310,36 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
-        elif plan.layout_station_ids and (
-            plan.appearance_centreline_branch_id is None
-            or sum(offset == 0.0 for offset in lane_offsets) != 1
-            or any(offset is None or offset < 0.0 for offset in lane_offsets)
-            or any(
-                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
-                for actual, target in zip(
-                    lane_offsets, expected_lane_offsets, strict=True
+        else:
+            has_vacant_trunk = (
+                plan.authored_join_station_id is not None
+                and sum(branch.is_trunk_continuation for branch in plan.branches) > 1
+            )
+        if (
+            plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+            and plan.layout_station_ids
+            and (
+                (plan.appearance_centreline_branch_id is None) != has_vacant_trunk
+                or (
+                    not has_vacant_trunk
+                    and (
+                        sum(offset == 0.0 for offset in lane_offsets) != 1
+                        or any(
+                            offset is None or offset < 0.0 for offset in lane_offsets
+                        )
+                    )
+                )
+                or any(
+                    actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                    for actual, target in zip(
+                        lane_offsets, expected_lane_offsets, strict=True
+                    )
                 )
             )
         ):
             raise PhaseInvariantError(
                 f"{phase}: straight planned fan {plan.id!s} does not keep its "
-                f"top branch on the centreline; lane offsets {lane_offsets!r}, "
+                f"appearance frame; lane offsets {lane_offsets!r}, "
                 f"expected {expected_lane_offsets!r}"
             )
 
