@@ -54,6 +54,7 @@ from nf_metro.layout.route_reservations import (
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits, apply_route_offsets
+from nf_metro.render import svg as render_svg_module
 from nf_metro.render.svg import (
     _route_decision_fingerprint,
     _settled_render_graph,
@@ -140,6 +141,16 @@ SETTLED_CORPUS = (
     ROOT / "examples" / "epitopeprediction.mmd",
 )
 
+LEDGER_REROUTE_CORPUS = (
+    (ROOT / "examples" / "rnaseq_sections.mmd", 0),
+    (ROOT / "examples" / "genomeassembly.mmd", 0),
+    (ROOT / "examples" / "variantbenchmarking.mmd", 1),
+    (ROOT / "examples" / "differentialabundance_default.mmd", 1),
+    (TOPOLOGIES / "merge_around_below_leftmost.mmd", 1),
+    (TOPOLOGIES / "bypass_left_entry_from_right.mmd", 1),
+    (TOPOLOGIES / "junction_entry_align.mmd", 1),
+)
+
 # One fixture per supported flow direction, so the single axis-based
 # implementation is exercised under rotation and reflection.
 DIRECTION_CORPUS = {
@@ -209,6 +220,25 @@ def _rendered_plan(path: Path, *, permissive: bool = False):
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         graph.permissive = permissive
         return build_observed_render_plan(graph, resolve_theme(None, graph))
+
+
+@pytest.mark.parametrize(("path", "expected_ledger_reroutes"), LEDGER_REROUTE_CORPUS)
+def test_settlement_reroutes_only_when_ledger_changes_derived_band(
+    path: Path, expected_ledger_reroutes: int
+) -> None:
+    original = render_svg_module.observe_route_edges_centred
+    ledger_reroutes = 0
+
+    def observe(*args, **kwargs):
+        nonlocal ledger_reroutes
+        if kwargs.get("reservations") is not None:
+            ledger_reroutes += 1
+        return original(*args, **kwargs)
+
+    with mock.patch.object(render_svg_module, "observe_route_edges_centred", observe):
+        _rendered_plan(path)
+
+    assert ledger_reroutes == expected_ledger_reroutes
 
 
 def _settled(path: Path):
