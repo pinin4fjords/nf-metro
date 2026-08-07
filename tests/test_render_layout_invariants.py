@@ -165,6 +165,7 @@ BACKTRACK_RENDER_GUARDS = [
     "_guard_inter_section_route_no_full_width_backtrack",
     "_guard_serpentine_no_backtrack",
     "_guard_inter_section_route_clears_own_section_interior",
+    "_guard_entry_approach_from_port_side",
 ]
 
 # Kept under ``regressions/`` (not the auto-discovered corpus root): some

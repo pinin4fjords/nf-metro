@@ -161,7 +161,7 @@ python scripts/guard_cost_audit.py --json /tmp/guard_cost.json
 | `_guard_no_route_through_section`                        | A    |    85.7 | final-only                                |
 | `_guard_inter_section_route_clears_own_section_interior` | A    |    11.3 | final-only                                |
 | `_guard_feeder_exits_section_through_side`               | B    |     8.2 | final-only                                |
-| `_guard_entry_approach_from_port_side`                   | B    |     5.3 | final-only                                |
+| `_guard_entry_approach_from_port_side`                   | A    |     5.3 | final-only                                |
 | `_guard_no_opposing_line_overlap`                        | B    |    86.1 | final-only                                |
 | `_guard_serpentine_no_backtrack`                         | A    |     3.9 | final-only                                |
 | `_guard_no_artefactual_counter_flow`                     | B    |     4.6 | final-only                                |

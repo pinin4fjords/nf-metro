@@ -18,6 +18,9 @@ the zero-offset case.  ``bottom_entry_same_row_boundary`` and
 port whose drop *does* fan the lines apart, and so pin the opposite sign: a
 BOTTOM approach is reached ascending, so the same landing X reads as the
 opposite lateral to a TOP one.
+``lr_perpendicular_ports_overflow`` guards a feeder leaving through a RIGHT
+exit: the descent cannot occupy the exit's own column, so the port stands in
+the column the descent occupies.
 """
 
 from __future__ import annotations
@@ -25,8 +28,10 @@ from __future__ import annotations
 import pytest
 
 from nf_metro import api
+from nf_metro.layout.phases.guards import _entry_approach_offenders
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.layout.routing.common import apply_route_offsets
+from nf_metro.layout.routing.corners import outer_lane_radius
 from nf_metro.layout.routing.invariants import (
     check_perp_entry_boundary_consistent,
     check_seam_segments_meet_at_port,
@@ -38,8 +43,25 @@ FIXTURES = [
     "examples/topologies/fold_left_exit_right_entry.mmd",
     "examples/topologies/straight_drop_below.mmd",
     "examples/topologies/peeloff_straight_drop_near_wall.mmd",
+    "examples/topologies/lr_perpendicular_ports_overflow.mmd",
     "examples/topologies/bottom_entry_same_row_boundary.mmd",
     "examples/topologies/entry_hint_shared_edge.mmd",
+]
+
+# A TOP entry stacked directly under the RIGHT exit that feeds it: the feeder
+# leaves horizontally, so its descent column stands a turn's runway out from
+# the exit and the port has to stand there with it.
+HORIZONTAL_EXIT_REPRO = "examples/topologies/lr_perpendicular_ports_overflow.mmd"
+
+FAR_SIDE_DIRECTION_CASES = [
+    (direction, exit_side, entry_side)
+    for direction in ("LR", "RL")
+    for exit_side in ("top", "bottom")
+    for entry_side in ("left", "right")
+] + [
+    (direction, exit_side, entry_side)
+    for direction, exit_side in (("TB", "bottom"), ("BT", "top"))
+    for entry_side in ("left", "right")
 ]
 
 REPRO = "examples/topologies/top_entry_bundle_offset_seam.mmd"
@@ -96,6 +118,94 @@ def test_top_entry_descent_lands_on_port_x() -> None:
     )
     landing_x = apply_route_offsets(descent, offsets)[-1][0]
     assert landing_x == pytest.approx(port.x, abs=1.0)
+
+
+def test_horizontal_exit_drop_turns_once_onto_the_port_column() -> None:
+    """A TOP entry fed by a RIGHT exit is reached by one turn and one drop.
+
+    A horizontal exit cannot turn down in its own column: the turn needs a run
+    beside the box, so the descent occupies the column one outer-lane radius
+    out.  The port stands in that column, and the descent is then a lead-in of
+    exactly that run, a single turn, and a straight vertical onto the port --
+    no lateral step at the boundary, which the intra-section drop leaves at the
+    port's own X.
+    """
+    graph, routes, offsets = _route(HORIZONTAL_EXIT_REPRO)
+    exit_st = graph.stations["upstream__exit_right_0"]
+    port = graph.ports["annotation__entry_top_2"]
+    assert port.x == pytest.approx(exit_st.x + outer_lane_radius(1), abs=1.0)
+    descent = next(r for r in routes if r.edge.target == port.id)
+    assert apply_route_offsets(descent, offsets) == pytest.approx(
+        [(exit_st.x, exit_st.y), (port.x, exit_st.y), (port.x, port.y)], abs=1.0
+    )
+
+
+def test_perpendicular_exit_wraps_to_left_entry_outward_side() -> None:
+    graph, routes, offsets = _route(HORIZONTAL_EXIT_REPRO)
+    port = graph.ports["downstream__entry_left_3"]
+    approach = next(r for r in routes if r.edge.target == port.id)
+    assert not _entry_approach_offenders(graph, [approach])
+
+    points = apply_route_offsets(approach, offsets)
+    assert points[-3][0] == pytest.approx(points[-2][0], abs=1.0)
+    assert points[-2][0] < graph.sections[port.section_id].bbox_x
+
+
+@pytest.mark.parametrize(
+    ("source_direction", "exit_side", "entry_side"),
+    FAR_SIDE_DIRECTION_CASES,
+)
+def test_perpendicular_exit_far_side_wrap_directional_mirrors(
+    source_direction: str,
+    exit_side: str,
+    entry_side: str,
+) -> None:
+    target_col = 0 if entry_side == "left" else 1
+    source_col = 1 - target_col
+    source_row = 0 if exit_side == "bottom" else 1
+    target_row = 1 - source_row
+    target_direction = "LR" if entry_side == "left" else "RL"
+    graph = api.prepare_graph(
+        f"""%%metro line: l1 | Line 1 | #e64980 | solid
+%%metro grid: source | {source_col},{source_row}
+%%metro grid: target | {target_col},{target_row}
+graph LR
+    subgraph source [Source]
+        %%metro direction: {source_direction}
+        %%metro exit: {exit_side} | l1
+        s1[S1]
+        s2[S2]
+        s1 -->|l1| s2
+    end
+    subgraph target [Target]
+        %%metro direction: {target_direction}
+        %%metro entry: {entry_side} | l1
+        t1[T1]
+        t2[T2]
+        t1 -->|l1| t2
+    end
+    s2 -->|l1| t1
+"""
+    )
+    offsets = compute_station_offsets(graph)
+    routes = route_edges_centred(graph, station_offsets=offsets)
+    port = next(
+        port
+        for port in graph.ports.values()
+        if port.section_id == "target" and port.is_entry
+    )
+    approach = next(route for route in routes if route.edge.target == port.id)
+    assert not _entry_approach_offenders(graph, [approach])
+
+    points = apply_route_offsets(approach, offsets)
+    assert len(points) == 5
+    assert points[0][0] == pytest.approx(points[1][0], abs=1.0)
+    assert points[-3][0] == pytest.approx(points[-2][0], abs=1.0)
+    section = graph.sections[port.section_id]
+    if entry_side == "left":
+        assert points[-2][0] < section.bbox_x
+    else:
+        assert points[-2][0] > section.bbox_x + section.bbox_w
 
 
 def test_bottom_entry_bundle_lands_on_the_drop_lanes() -> None:

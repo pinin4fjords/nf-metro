@@ -63,14 +63,23 @@ from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import (
     ConvergencePlan,
     ExitTurnPlan,
+    GridSpan,
+    RouteFamilyId,
     RoutePlan,
     RouteSystem,
+    grid_span_for_sections,
 )
 from nf_metro.layout.route_reservations import (
     CanvasRect,
+    CanvasRegion,
+    ColumnGapRegion,
+    CorridorOrientation,
     FinalCanvasGeometry,
+    GapCorridorBand,
     ReservationCoordinateTranslation,
+    RowGapRegion,
     adopt_route_reservation_ledger,
+    gap_corridor_clearance_band,
     realise_route_reservations,
 )
 from nf_metro.layout.routing import (
@@ -87,6 +96,7 @@ from nf_metro.layout.routing.invariants import (
     CurveInvariantError,
     assert_render_curve_invariants,
 )
+from nf_metro.layout.routing.reserved_bands import build_reserved_corridors
 from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.manifest import node_data_attrs
 from nf_metro.parser.model import (
@@ -1020,6 +1030,130 @@ def _assert_settlement_decisions_frozen(
         )
 
 
+def _ledger_changes_live_derived_band(
+    graph: MetroGraph, plan: RoutePlan, routes: list[RoutedPath]
+) -> bool:
+    """Whether consuming *plan* can change any route-system placement.
+
+    Gap corridors compare the ledger bands with the bands derived from the live
+    route legs.  Canvas bypasses and top-entry columns also consume frozen
+    route-system state before a claim segment exists, while standard L-shaped
+    columns consume the reserved band's centre.  Those placements therefore
+    need their route-family checks in addition to the segment comparisons.
+    """
+    if any(
+        (
+            isinstance(reservation.region, CanvasRegion)
+            and RouteFamilyId.BYPASS_FAMILY in reservation.route_family_ids
+        )
+        or (
+            isinstance(reservation.region, ColumnGapRegion)
+            and RouteFamilyId.TOP_ENTRY_L_SHAPE in reservation.route_family_ids
+        )
+        for reservation in plan.reservations
+    ):
+        return True
+    corridors = build_reserved_corridors(graph, plan)
+    spans: dict[int, GridSpan | None] = {}
+    live_bands: dict[tuple[int, int, CorridorOrientation], GapCorridorBand | None] = {}
+
+    def route_span(path_rank: int) -> GridSpan | None:
+        if path_rank in spans:
+            return spans[path_rank]
+        route = routes[path_rank]
+        section_ids = tuple(
+            station.section_id
+            for station_id in (route.edge.source, route.edge.target)
+            if (station := graph.stations.get(station_id)) is not None
+            and station.section_id in graph.sections
+        )
+        spans[path_rank] = (
+            grid_span_for_sections(graph, section_ids) if section_ids else None
+        )
+        return spans[path_rank]
+
+    def live_band(
+        path_rank: int, rank: int, orientation: CorridorOrientation
+    ) -> GapCorridorBand | None:
+        key = (path_rank, rank, orientation)
+        if key in live_bands:
+            return live_bands[key]
+        span = route_span(path_rank)
+        if span is None:
+            return None
+        start, end = routes[path_rank].points[rank : rank + 2]
+        horizontal = orientation is CorridorOrientation.HORIZONTAL
+        live_bands[key] = gap_corridor_clearance_band(
+            graph,
+            orientation,
+            span,
+            start[1] if horizontal else start[0],
+            *sorted((start[0], end[0]) if horizontal else (start[1], end[1])),
+        )
+        return live_bands[key]
+
+    for reservation in plan.reservations:
+        region = reservation.region
+        if not isinstance(region, RowGapRegion | ColumnGapRegion):
+            continue
+        boundary = (
+            region.lower_row
+            if isinstance(region, RowGapRegion)
+            else region.right_column
+        )
+        if (
+            isinstance(region, ColumnGapRegion)
+            and RouteFamilyId.STANDARD_L_SHAPE in reservation.route_family_ids
+            and (band := corridors.columns.at(boundary)) is not None
+        ):
+            occupied = [claim.allocation_coordinate for claim in reservation.claims]
+            if (band.lo + band.hi) / 2 != (min(occupied) + max(occupied)) / 2:
+                return True
+        for claim in reservation.claims:
+            route = routes[claim.path_rank]
+            for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
+                derived = live_band(claim.path_rank, rank, reservation.orientation)
+                ledger = corridors.for_segment(
+                    route.edge.source, route.edge.target, route.line_id, rank
+                )
+                if ledger is not None and (
+                    derived is None
+                    or derived.boundary != boundary
+                    or derived.lo != ledger.lo
+                    or derived.hi != ledger.hi
+                ):
+                    return True
+
+    for path_rank, route in enumerate(routes):
+        if not route.is_inter_section:
+            continue
+        if route_span(path_rank) is None:
+            continue
+        for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
+            dx = abs(end[0] - start[0])
+            dy = abs(end[1] - start[1])
+            if (dx > SAME_COORD_TOLERANCE) == (dy > SAME_COORD_TOLERANCE):
+                continue
+            horizontal = dx > SAME_COORD_TOLERANCE
+            derived = live_band(
+                path_rank,
+                rank,
+                CorridorOrientation.HORIZONTAL
+                if horizontal
+                else CorridorOrientation.VERTICAL,
+            )
+            if derived is None:
+                continue
+            reserved = (corridors.rows if horizontal else corridors.columns).at(
+                derived.boundary
+            )
+            if reserved is not None and (
+                reserved.lo != derived.lo or reserved.hi != derived.hi
+            ):
+                return True
+    return False
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
@@ -1218,12 +1352,9 @@ def _settle_render_geometry(
         else partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
     )
     settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
-    # The router can only place a corridor from its reservation on a pass that
-    # is handed one, and the first pass is what publishes the ledger.  So the
-    # re-route runs whenever any corridor was reserved, not only when settlement
-    # had to translate something to make one fit: a reservation that already
-    # fits names blockers the raw row and column edges misjudge.
-    if settlement.translations or frozen_plan.reservations:
+    if settlement.translations or _ledger_changes_live_derived_band(
+        graph, frozen_plan, frozen_routes
+    ):
         station_offsets, routes, routed_plan = _resettle(
             frozen_plan, settlement.coordinate_translations
         )

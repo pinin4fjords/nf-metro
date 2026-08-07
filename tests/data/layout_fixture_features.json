@@ -80,6 +80,7 @@
     "topologies/junction_entry_align.mmd",
     "topologies/left_entry_from_above_far.mmd",
     "topologies/left_exit_sink_below.mmd",
+    "topologies/lr_perpendicular_ports_overflow.mmd",
     "topologies/merge_adjacent_feeder.mmd",
     "topologies/merge_offrow_continuation.mmd",
     "topologies/merge_trunk_over_low_section.mmd",

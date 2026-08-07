@@ -5917,7 +5917,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(
         _guard_entry_approach_from_port_side,
-        "B",
+        "A",
         needs=frozenset({"routes"}),
         issue_pin=("#484",),
         narrow_reason=(
