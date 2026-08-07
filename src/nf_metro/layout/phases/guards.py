@@ -19,7 +19,6 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     FLOW_ALIGNED_PORT_ADVICE,
     GUARD_TOLERANCE,
-    ICON_HALF_HEIGHT,
     INTER_ROW_EDGE_CLEARANCE,
     OFFSET_STEP,
     PERP_PORT_EDGE_CLEARANCE,
@@ -46,7 +45,7 @@ from nf_metro.layout.geometry import (
     section_lane_sign,
     segment_intersects_bbox,
 )
-from nf_metro.layout.pass_metrics import station_radius_approx
+from nf_metro.layout.pass_metrics import icon_half_height_approx, station_radius_approx
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
@@ -258,11 +257,11 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
 
     Tightened from station-centre containment to marker-edge containment:
     we expand the station's render-time footprint by the station pill radius
-    (regular markers) or ``ICON_HALF_HEIGHT`` (terminus / off-track icons)
+    (regular markers) or the icon half-height (terminus / off-track icons)
     and require the expanded box to stay inside the section's bbox.  Centre
     containment alone hides regressions where off-track icons (~16 px half
-    height) spill above the bbox top while still being technically "in" the
-    section.
+    height, more under an active ``font_scale``) spill above the bbox top
+    while still being technically "in" the section.
     """
     tol = GUARD_TOLERANCE
     for sid, st, sec in iter_bbox_checkable_stations(graph):
@@ -270,7 +269,7 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
         # markers render at station-pill scale.  Use the wider reach so the
         # guard catches icon spill-over above the bbox top.
         half_h = (
-            ICON_HALF_HEIGHT
+            icon_half_height_approx()
             if (st.off_track or st.is_terminus)
             else station_radius_approx()
         )

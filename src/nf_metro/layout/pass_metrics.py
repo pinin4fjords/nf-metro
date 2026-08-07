@@ -22,9 +22,11 @@ __all__ = [
     "active_stroke_scale",
     "canvas_edge_clearance",
     "font_scale_context",
+    "icon_half_height_approx",
     "station_radius_approx",
     "station_stroke_approx",
     "stroke_scale_context",
+    "terminus_width_approx",
 ]
 
 from contextlib import contextmanager
@@ -33,8 +35,10 @@ from typing import Iterator
 
 from nf_metro.layout.constants import (
     CANVAS_EDGE_CLEARANCE,
+    ICON_HALF_HEIGHT,
     STATION_RADIUS_APPROX,
     STATION_STROKE_APPROX,
+    TERMINUS_WIDTH,
     WIDEST_THEME_LINE_WIDTH,
 )
 
@@ -80,6 +84,21 @@ def station_radius_approx() -> float:
 def station_stroke_approx() -> float:
     """Station marker stroke width to reserve against, under the active scale."""
     return STATION_STROKE_APPROX * active_stroke_scale()
+
+
+def terminus_width_approx() -> float:
+    """Terminus (file) icon width to reserve against, under the active font scale.
+
+    ``font_scale`` grows the icon body to keep its label from being
+    shrink-to-fit clamped back down, so layout has to reserve the same
+    grown footprint.
+    """
+    return TERMINUS_WIDTH * active_font_scale()
+
+
+def icon_half_height_approx() -> float:
+    """Terminus icon half-height to reserve against, under the active font scale."""
+    return ICON_HALF_HEIGHT * active_font_scale()
 
 
 def canvas_edge_clearance() -> float:

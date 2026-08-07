@@ -24,7 +24,6 @@ from nf_metro.layout.constants import (
     FONT_HEIGHT,
     ICON_CAPTION_FONT_HEIGHT,
     ICON_CAPTION_GAP,
-    ICON_HALF_HEIGHT,
     ICON_STACK_LABEL_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     LABEL_OFFSET,
@@ -394,11 +393,13 @@ def compute_min_y_spacing(
     The result is applied uniformly to the whole render -- the grid
     stays global, no per-section overrides.
     """
-    from nf_metro.layout.pass_metrics import active_font_scale
+    from nf_metro.layout.pass_metrics import active_font_scale, icon_half_height_approx
 
     scale = active_font_scale()
-    icon_below = ICON_HALF_HEIGHT + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * scale
-    icon_above = ICON_HALF_HEIGHT
+    icon_below = (
+        icon_half_height_approx() + ICON_CAPTION_GAP + ICON_CAPTION_FONT_HEIGHT * scale
+    )
+    icon_above = icon_half_height_approx()
     label_extent = LABEL_OFFSET + FONT_HEIGHT * scale + DESCENDER_CLEARANCE
     clearance = ICON_STACK_LABEL_CLEARANCE
 

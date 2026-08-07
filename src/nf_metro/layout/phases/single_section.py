@@ -40,7 +40,12 @@ from nf_metro.layout.labels import (
 )
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
-from nf_metro.layout.pass_metrics import active_font_scale, station_radius_approx
+from nf_metro.layout.pass_metrics import (
+    active_font_scale,
+    icon_half_height_approx,
+    station_radius_approx,
+    terminus_width_approx,
+)
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     _exit_reaching_nodes,
@@ -434,7 +439,7 @@ def _layout_single_section(
         *(
             station.y
             - (
-                ICON_HALF_HEIGHT
+                icon_half_height_approx()
                 if station.off_track or station.is_terminus
                 else station_radius_approx()
             )
@@ -446,7 +451,7 @@ def _layout_single_section(
         *(
             station.y
             + (
-                ICON_HALF_HEIGHT
+                icon_half_height_approx()
                 if station.off_track or station.is_terminus
                 else station_radius_approx()
             )
@@ -1045,9 +1050,15 @@ def _terminus_icon_clearance(
     using the default label size (14px, matches built-in themes).
     Slight over-budget is harmless: bbox just gets a few extra px of
     right padding.
+
+    ``TERMINUS_ICON_CLEARANCE`` bakes in the default (unscaled) icon width;
+    under an active ``font_scale`` the icon itself grows to keep its label
+    from being shrink-to-fit clamped, so the excess over that default width
+    is added back in to keep the reservation matching the drawn icon.
     """
+    icon_width_growth = terminus_width_approx() - TERMINUS_WIDTH
     if n_icons <= 1:
-        return TERMINUS_ICON_CLEARANCE
+        return TERMINUS_ICON_CLEARANCE + icon_width_growth
     from nf_metro.render.constants import ICON_NAME_FONT_SCALE
     from nf_metro.render.svg import caption_aware_icon_step
 
@@ -1058,9 +1069,9 @@ def _terminus_icon_clearance(
         DEFAULT_TEXT_METRICS.reserve_width(name, caption_style, TextRole.ICON_CAPTION)
         for name in safe_names
     ]
-    step = caption_aware_icon_step(safe_names, name_widths, TERMINUS_WIDTH)
+    step = caption_aware_icon_step(safe_names, name_widths, terminus_width_approx())
     extra = (n_icons - 1) * step
-    return TERMINUS_ICON_CLEARANCE + extra
+    return TERMINUS_ICON_CLEARANCE + icon_width_growth + extra
 
 
 def _icon_caption_height() -> float:
@@ -1082,14 +1093,20 @@ def _terminus_icon_clearance_vertical(
     TB/BT counterpart of ``_terminus_icon_clearance``: icons stack along Y,
     so each additional icon adds the icon height plus (when captions are
     present) a caption row, matching the renderer's TB step.
+
+    ``TERMINUS_ICON_CLEARANCE_V`` bakes in the default (unscaled) icon
+    height; under an active ``font_scale`` the icon itself grows, so the
+    excess over that default height is added back in (see
+    ``_terminus_icon_clearance``'s matching horizontal-axis note).
     """
+    icon_height_growth = 2 * (icon_half_height_approx() - ICON_HALF_HEIGHT)
     if n_icons <= 1:
-        return TERMINUS_ICON_CLEARANCE_V
+        return TERMINUS_ICON_CLEARANCE_V + icon_height_growth
     caption_room = (
         ICON_CAPTION_GAP + _icon_caption_height() if names and any(names) else 0.0
     )
-    step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
-    return TERMINUS_ICON_CLEARANCE_V + (n_icons - 1) * step
+    step = 2 * icon_half_height_approx() + ICON_INTER_GAP + caption_room
+    return TERMINUS_ICON_CLEARANCE_V + icon_height_growth + (n_icons - 1) * step
 
 
 def _terminus_icon_flow_overhang(
@@ -1107,8 +1124,8 @@ def _terminus_icon_flow_overhang(
     """
     captioned = bool(names and any(names))
     caption_room = ICON_CAPTION_GAP + _icon_caption_height() if captioned else 0.0
-    body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * ICON_HALF_HEIGHT
-    step = 2 * ICON_HALF_HEIGHT + ICON_INTER_GAP + caption_room
+    body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * icon_half_height_approx()
+    step = 2 * icon_half_height_approx() + ICON_INTER_GAP + caption_room
     return body + caption_room + (n_icons - 1) * step
 
 

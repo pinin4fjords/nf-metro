@@ -713,6 +713,13 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
 
     Returns the theme unchanged at ``scale == 1.0`` so the default render
     is identical to the unscaled theme.
+
+    The terminus icon's own footprint (width/height/fold/corner-radius)
+    scales alongside its font: the icon-body label shrinks to fit inside
+    the icon otherwise, defeating most of the intended enlargement.
+    ``layout.pass_metrics.terminus_width_approx()`` /
+    ``icon_half_height_approx()`` track the same multiplier so the space
+    reserved around a terminus station keeps pace with the bigger icon.
     """
     if scale == 1.0:
         return theme
@@ -724,6 +731,10 @@ def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
         section_label_font_size=theme.section_label_font_size * scale,
         legend_font_size=theme.legend_font_size * scale,
         terminus_font_size=theme.terminus_font_size * scale,
+        terminus_width=theme.terminus_width * scale,
+        terminus_height=theme.terminus_height * scale,
+        terminus_fold_size=theme.terminus_fold_size * scale,
+        terminus_corner_radius=theme.terminus_corner_radius * scale,
     )
 
 

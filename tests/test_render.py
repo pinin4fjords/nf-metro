@@ -351,6 +351,18 @@ def test_font_scale_widens_label_driven_layout():
     assert scaled_w == base_w * scale
 
 
+def test_font_scale_terminus_icon_stays_in_section_bbox():
+    """A scaled-up terminus icon must stay within its section's bbox.
+
+    ``font_scale`` grows the icon body so its label isn't shrink-to-fit
+    clamped back down; the layout-side reservation around the icon has to
+    grow by the same amount, or ``_guard_stations_in_sections`` raises.
+    """
+    text = pathlib.Path(__file__).parent.joinpath("fixtures/font_scale.mmd").read_text()
+    graph = parse_metro_mermaid("%%metro font_scale: 2\n" + text)
+    compute_layout(graph, validate=True)
+
+
 def test_font_scale_default_is_noop():
     """Without `font_scale`, the graph and render match the unscaled default."""
     g = _load_font_scale_fixture()
