@@ -20,7 +20,7 @@ from nf_metro.options import (
     coerce,
     is_line_order,
 )
-from nf_metro.parser.grammar import _split_csv, _unquote
+from nf_metro.parser.grammar import _normalize_multiline_text, _split_csv, _unquote
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
     MARKER_FILL_OPEN,
@@ -145,8 +145,8 @@ def _parse_icon_directive(icon_type: str, value: str, graph: MetroGraph) -> None
         _warn_malformed(icon_type, value, "'station_id | labels [| name [| options]]'")
         return
     station_id = parts[0]
-    labels = _split_csv(parts[1])
-    name = parts[2] if len(parts) >= 3 else ""
+    labels = [_normalize_multiline_text(label) for label in _split_csv(parts[1])]
+    name = _normalize_multiline_text(parts[2]) if len(parts) >= 3 else ""
     options = {o.lower() for o in _split_csv(parts[3])} if len(parts) >= 4 else set()
     banner = "banner" in options
     graph._pending_terminus.setdefault(station_id, []).extend(

@@ -1119,19 +1119,23 @@ def terminus_icon_flow_reach(station: Station) -> float:
     return station_radius_approx() + TERMINUS_ICON_GAP + width + stacked + extra
 
 
-def _icon_caption_height() -> float:
-    """Drawn height of a representative terminus caption."""
+def _icon_caption_height(line_count: int = 1) -> float:
+    """Drawn height of a terminus caption with *line_count* lines."""
     from nf_metro.render.constants import ICON_NAME_FONT_SCALE
 
     style = text_style(FONT_HEIGHT * ICON_NAME_FONT_SCALE * active_font_scale(), "bold")
     if style.face is MetricsFace.FALLBACK:
-        return style.font_size
-    return DEFAULT_TEXT_METRICS.ink_bbox("Ag", style, TextRole.ICON_CAPTION).height
+        first_line_height = style.font_size
+    else:
+        first_line_height = DEFAULT_TEXT_METRICS.ink_bbox(
+            "Ag", style, TextRole.ICON_CAPTION
+        ).height
+    return first_line_height + max(0, line_count - 1) * style.font_size
 
 
 def _terminus_icon_clearance_vertical(
     n_icons: int,
-    names: list[str] | None = None,
+    caption_line_count: int = 0,
 ) -> float:
     """Vertical clearance for *n_icons* file icons stacked along the flow axis.
 
@@ -1144,19 +1148,27 @@ def _terminus_icon_clearance_vertical(
     excess over that default height is added back in (see
     ``_terminus_icon_clearance``'s matching horizontal-axis note).
     """
+    extra_caption_height = (
+        _icon_caption_height(caption_line_count) - _icon_caption_height()
+        if caption_line_count > 1
+        else 0.0
+    )
     icon_height_growth = 2 * (icon_half_height_approx() - ICON_HALF_HEIGHT)
+    base = TERMINUS_ICON_CLEARANCE_V + extra_caption_height + icon_height_growth
     if n_icons <= 1:
-        return TERMINUS_ICON_CLEARANCE_V + icon_height_growth
+        return base
     caption_room = (
-        ICON_CAPTION_GAP + _icon_caption_height() if names and any(names) else 0.0
+        ICON_CAPTION_GAP + _icon_caption_height(caption_line_count)
+        if caption_line_count
+        else 0.0
     )
     step = 2 * icon_half_height_approx() + ICON_INTER_GAP + caption_room
-    return TERMINUS_ICON_CLEARANCE_V + icon_height_growth + (n_icons - 1) * step
+    return base + (n_icons - 1) * step
 
 
 def _terminus_icon_flow_overhang(
     n_icons: int,
-    names: list[str] | None = None,
+    caption_line_count: int = 0,
 ) -> float:
     """Distance from a TB/BT terminus's marker to the far edge of its icons.
 
@@ -1167,8 +1179,11 @@ def _terminus_icon_flow_overhang(
     *edge* so an exit corridor can be placed just clear of it, rather than
     reserving bbox padding.
     """
-    captioned = bool(names and any(names))
-    caption_room = ICON_CAPTION_GAP + _icon_caption_height() if captioned else 0.0
+    caption_room = (
+        ICON_CAPTION_GAP + _icon_caption_height(caption_line_count)
+        if caption_line_count
+        else 0.0
+    )
     body = station_radius_approx() + TERMINUS_ICON_GAP + 2 * icon_half_height_approx()
     step = 2 * icon_half_height_approx() + ICON_INTER_GAP + caption_room
     return body + caption_room + (n_icons - 1) * step
@@ -1179,10 +1194,11 @@ def terminus_cross_extents(station: Station) -> tuple[float, float]:
 
     LR/RL icons march horizontally, so their vertical reach is the icon body's
     half-height plus two asymmetric additions: a stacked ``files:`` icon's back
-    page peeks *upward* past the front page, and a captioned icon hangs its name
-    *below*.  Grid pitch has to clear the sum of an upper icon's ``below`` and a
-    lower icon's ``above`` or the two collide -- which is what an active
-    ``font_scale`` provokes, since every term here scales with it.
+    page peeks *upward* past the front page, and a captioned icon hangs its
+    name -- however many lines it wraps onto -- *below*.  Grid pitch has to
+    clear the sum of an upper icon's ``below`` and a lower icon's ``above`` or
+    the two collide, which is what an active ``font_scale`` provokes since every
+    term here scales with it.
     """
     from nf_metro.render.constants import FILES_ICON_OFFSET_RATIO
 
@@ -1191,8 +1207,9 @@ def terminus_cross_extents(station: Station) -> tuple[float, float]:
     if ICON_TYPE_FILES in (station.terminus_icon_types or []):
         above += terminus_width_approx() * FILES_ICON_OFFSET_RATIO
     below = half
-    if any(station.terminus_names or []):
-        below += ICON_CAPTION_GAP + _icon_caption_height()
+    line_count = station.terminus_caption_line_count
+    if line_count:
+        below += ICON_CAPTION_GAP + _icon_caption_height(line_count)
     return above, below
 
 
@@ -1219,7 +1236,7 @@ def _terminus_y_overhang(
         return 0.0, 0.0
     is_source = not graph.edges_to(station.id)
     extent = _terminus_icon_clearance_vertical(
-        len(station.terminus_labels), station.terminus_names
+        len(station.terminus_labels), station.terminus_caption_line_count
     )
     if _terminus_icons_extend_forward(is_source, section_dir):  # below
         return 0.0, extent
@@ -1250,7 +1267,9 @@ def _adjust_terminus_icon_clearance(
         extends_forward = _terminus_icons_extend_forward(is_source, section_dir)
 
         if icons_march_on_y:
-            needed = _terminus_icon_clearance_vertical(n_icons, station.terminus_names)
+            needed = _terminus_icon_clearance_vertical(
+                n_icons, station.terminus_caption_line_count
+            )
             if extends_forward:  # icons below the station
                 clearance = section.bbox_y + section.bbox_h - station.y
                 if clearance < needed:

@@ -8,6 +8,8 @@ the map follows the viewer's ``color-scheme``.  Line/route colors remain baked
 as presentation attributes (semantic).
 """
 
+import xml.etree.ElementTree as ET
+
 import pytest
 
 from nf_metro.api import render_string
@@ -204,6 +206,21 @@ def test_legend_text_has_nf_metro_legend_text_class():
     """Legend text entries should carry the nf-metro-legend-text class."""
     svg = render_svg(_make_graph(), NFCORE_THEME)
     assert "nf-metro-legend-text" in svg
+
+
+def test_icon_caption_uses_adaptive_label_color():
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | DATA | Caption\n"
+        "graph LR\n"
+        "    source[ ]\n"
+        "    source -->|main| node[Node]\n"
+    )
+    compute_layout(graph)
+    root = ET.fromstring(render_svg(graph, NFCORE_THEME))
+    caption = next(element for element in root.iter() if element.text == "Caption")
+
+    assert "nf-metro-station-label" in caption.attrib.get("class", "").split()
 
 
 # ---------------------------------------------------------------------------

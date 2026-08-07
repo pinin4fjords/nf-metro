@@ -638,6 +638,113 @@ def test_render_file_icon_with_name_caption():
     assert root.tag.endswith("svg") or "svg" in root.tag
 
 
+def test_render_icon_caption_with_linebreak():
+    from nf_metro.render.plan import freeze_render_value
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | DATA\\nFILE | input\\nfile\n"
+        "graph LR\n"
+        "    source[ ]\n"
+        "    source -->|main| node[Node]\n"
+    )
+    compute_layout(graph)
+
+    svg = render_svg(graph, NFCORE_THEME)
+    root = ET.fromstring(svg)
+    tspan_values = [
+        element.text for element in root.iter() if element.tag.endswith("tspan")
+    ]
+
+    assert tspan_values == ["DATA", "FILE", "input", "file"]
+    assert (
+        freeze_render_value(graph.stations["source"]).terminus_caption_line_count == 2
+    )
+    assert r"DATA\nFILE" not in svg
+    assert r"input\nfile" not in svg
+
+
+@pytest.mark.parametrize("direction", ["LR", "RL", "TB", "BT"])
+def test_multiline_icon_caption_fits_render_obstacle(direction):
+    from nf_metro.layout.routing.offsets import compute_station_offsets
+    from nf_metro.render.constants import (
+        ICON_CLEARANCE_MARGIN,
+        ICON_NAME_FONT_SCALE,
+        ICON_NAME_GAP,
+    )
+    from nf_metro.render.svg import (
+        _icon_obstacles_by_station,
+        _terminus_icon_centers_for,
+    )
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | DATA | input\\nfile\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        f"        %%metro direction: {direction}\n"
+        "        source[ ]\n"
+        "        source -->|main| node[Node]\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    station = graph.stations["source"]
+    line_offsets = [
+        offsets.get((station.id, line_id), 0.0)
+        for line_id in graph.station_lines(station.id)
+    ]
+    centers = _terminus_icon_centers_for(
+        station,
+        graph,
+        NFCORE_THEME,
+        min(line_offsets, default=0.0),
+        max(line_offsets, default=0.0),
+    )
+    obstacle = _icon_obstacles_by_station(graph, NFCORE_THEME, offsets)[station.id]
+    caption_height = 2 * NFCORE_THEME.label_font_size * ICON_NAME_FONT_SCALE
+    expected_bottom = (
+        max(cy for _, cy in centers)
+        + NFCORE_THEME.terminus_height / 2
+        + ICON_NAME_GAP
+        + caption_height
+        + ICON_CLEARANCE_MARGIN
+    )
+
+    assert obstacle[3] >= expected_bottom
+
+
+@pytest.mark.parametrize("direction", ["TB", "BT"])
+def test_vertical_icon_stack_reserves_multiline_caption(direction):
+    from nf_metro.render.constants import (
+        ICON_INTER_GAP,
+        ICON_NAME_FONT_SCALE,
+        ICON_NAME_GAP,
+    )
+    from nf_metro.render.svg import _terminus_icon_centers_for
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | A, B | one\\ntwo\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        f"        %%metro direction: {direction}\n"
+        "        source[ ]\n"
+        "        source -->|main| node[Node]\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    centers = _terminus_icon_centers_for(
+        graph.stations["source"], graph, NFCORE_THEME, 0.0, 0.0
+    )
+    caption_height = 2 * NFCORE_THEME.label_font_size * ICON_NAME_FONT_SCALE
+    expected_step = (
+        NFCORE_THEME.terminus_height + ICON_INTER_GAP + ICON_NAME_GAP + caption_height
+    )
+
+    assert abs(centers[1][1] - centers[0][1]) == pytest.approx(expected_step)
+
+
 def test_render_file_icon_with_outgoing_edge():
     fixture = (
         pathlib.Path(__file__).parent.parent

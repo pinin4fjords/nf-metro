@@ -56,6 +56,15 @@ class FrozenRecord:
                         and not self.label.strip()
                         and any(self.terminus_names)
                     )
+                if name == "terminus_caption_line_count":
+                    return max(
+                        (
+                            caption.count("\n") + 1
+                            for caption in self.terminus_names
+                            if caption
+                        ),
+                        default=0,
+                    )
             if self.kind == "Section" and name == "port_ids":
                 return frozenset((*self.entry_ports, *self.exit_ports))
             raise AttributeError(name) from exc

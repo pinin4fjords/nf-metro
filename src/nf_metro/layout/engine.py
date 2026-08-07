@@ -411,7 +411,7 @@ def compute_min_y_spacing(
             if st.is_terminus:
                 above, below = terminus_cross_extents(st)
                 icon_extents.append((above, below))
-                if any(st.terminus_names or []):
+                if st.terminus_caption_line_count:
                     caption_belows.append(below)
             elif st.label:
                 labeled += 1

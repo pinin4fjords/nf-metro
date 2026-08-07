@@ -742,6 +742,23 @@ def test_parse_single_file_icon():
     assert st.terminus_labels == ["FASTQ"]
 
 
+@pytest.mark.parametrize("directive", ["file", "files", "dir"])
+def test_parse_icon_directive_multiline_text(directive):
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        f"%%metro {directive}: source | DATA\\nFILE | input\\nfile\n"
+        "graph LR\n"
+        "    source[ ]\n"
+        "    source -->|main| node[Node]\n"
+    )
+
+    graph = parse_metro_mermaid(text)
+    station = graph.stations["source"]
+
+    assert station.terminus_labels == ["DATA\nFILE"]
+    assert station.terminus_names == ["input\nfile"]
+
+
 def test_parse_multiple_file_icons_comma():
     """Comma-separated labels in one directive produce multiple terminus labels."""
     text = (

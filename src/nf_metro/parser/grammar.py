@@ -171,6 +171,13 @@ def _split_csv(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _normalize_multiline_text(value: str) -> str:
+    """Convert Mermaid ``\\n`` escapes into stripped text lines."""
+    if "\\n" not in value:
+        return value
+    return "\n".join(part.strip() for part in value.split("\\n"))
+
+
 def _edge_line_ids(edge_label: str) -> list[str]:
     """Split a ``|a, b|`` token into line ids; ``["default"]`` when absent/empty."""
     inner = edge_label[1:-1].strip() if edge_label else ""
