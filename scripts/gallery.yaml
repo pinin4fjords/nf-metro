@@ -1770,6 +1770,13 @@ gallery:
       BOTTOM exit. The drop lands left of the trunk, the run passes through the section, and the
       exit seats past the trailing station so the line turns out after the marker instead of
       folding back over its own track.
+  - id: lr_perpendicular_ports_overflow
+    source_dir: tests/fixtures/regressions
+    category: Inter-section Routing
+    description:
+      A RIGHT exit feeds the TOP entry of an LR section directly below it. The entry
+      port sits on the column reached by the exit's turn runway, so the route makes one turn and
+      descends continuously through the section boundary instead of jogging sideways at the port.
   - id: lr_top_entry_bundle_east_turn
     source_dir: examples/topologies
     category: Inter-section Routing
