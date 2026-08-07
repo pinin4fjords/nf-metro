@@ -6,8 +6,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from nf_metro.layout.constants import ICON_HALF_HEIGHT
-from nf_metro.layout.pass_metrics import station_radius_approx
+from nf_metro.layout.pass_metrics import icon_half_height_approx, station_radius_approx
 from nf_metro.layout.phases._common import (
     grow_section_bbox_max_edge,
     grow_section_bbox_min_edge,
@@ -276,7 +275,7 @@ def _fit_planned_fan_bboxes(
                     station.y
                     - max(
                         section_y_padding,
-                        ICON_HALF_HEIGHT
+                        icon_half_height_approx()
                         if station.off_track or station.is_terminus
                         else station_radius_approx(),
                     )
@@ -286,7 +285,7 @@ def _fit_planned_fan_bboxes(
                     station.y
                     + max(
                         section_y_padding,
-                        ICON_HALF_HEIGHT
+                        icon_half_height_approx()
                         if station.off_track or station.is_terminus
                         else station_radius_approx(),
                     )

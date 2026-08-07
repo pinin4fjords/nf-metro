@@ -351,6 +351,111 @@ def test_font_scale_widens_label_driven_layout():
     assert scaled_w == base_w * scale
 
 
+def test_font_scale_terminus_icon_stays_in_section_bbox():
+    """A scaled-up terminus icon must stay within its section's bbox.
+
+    ``font_scale`` grows the icon body so its label isn't shrink-to-fit
+    clamped back down; the layout-side reservation around the icon has to
+    grow by the same amount, or ``_guard_stations_in_sections`` raises.
+    """
+    text = pathlib.Path(__file__).parent.joinpath("fixtures/font_scale.mmd").read_text()
+    graph = parse_metro_mermaid("%%metro font_scale: 2\n" + text)
+    compute_layout(graph, validate=True)
+
+
+_STACKED_INPUTS_MMD = """%%metro font_scale: 2
+%%metro line: main | Main | #3b82f6
+%%metro files: a_in | FASTQ
+%%metro files: b_in | BAM
+graph LR
+    subgraph sec [Section]
+        a_in[ ]
+        b_in[ ]
+        step[Step]
+        a_in -->|main| step
+        b_in -->|main| step
+    end
+"""
+
+_RAILS_SOURCE_ICON_MMD = """%%metro font_scale: 2
+%%metro line_spread: rails
+%%metro line: one | One | #3b82f6
+%%metro line: two | Two | #e63946
+%%metro files: src | CRAM
+graph LR
+    subgraph sec [Section]
+        src[ ]
+        a[Analyse]
+        b[Report]
+        src -->|one,two| a
+        a -->|one,two| b
+    end
+"""
+
+
+def test_font_scale_stacked_terminus_icons_do_not_overlap():
+    """Two terminus icons stacked in one column must clear each other.
+
+    The grid pitch has to cover the upper icon's downward reach plus the
+    lower one's upward reach.  Both scale with ``font_scale`` -- including a
+    stacked ``files:`` back page peeking up past its front page -- so a pitch
+    derived from the unscaled icon lets an enlarged pair collide.
+    """
+    from nf_metro.layout.pass_metrics import font_scale_context
+    from nf_metro.layout.phases.single_section import terminus_cross_extents
+
+    graph = parse_metro_mermaid(_STACKED_INPUTS_MMD)
+    compute_layout(graph, validate=True)
+    upper, lower = sorted(
+        (graph.stations["a_in"], graph.stations["b_in"]), key=lambda s: s.y
+    )
+    with font_scale_context(graph.font_scale):
+        _, upper_below = terminus_cross_extents(upper)
+        lower_above, _ = terminus_cross_extents(lower)
+    gap = lower.y - upper.y
+    assert gap >= upper_below + lower_above, (
+        f"icons overlap by {upper_below + lower_above - gap:.1f}px: "
+        f"{upper.id} reaches {upper_below:.1f} below y={upper.y:.1f}, "
+        f"{lower.id} reaches {lower_above:.1f} above y={lower.y:.1f}"
+    )
+
+
+def test_font_scale_rails_source_icon_fits_section_bbox():
+    """A rails-mode source terminus's icons must fit inside the section box.
+
+    Rail mode derives station X from the section's padding, so a source whose
+    icons march *leftward* out of the first column needs that padding topped up
+    to the icons' drawn reach -- which grows with ``font_scale``.
+    """
+    from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
+    from nf_metro.layout.phases.single_section import terminus_icon_flow_reach
+
+    graph = parse_metro_mermaid(_RAILS_SOURCE_ICON_MMD)
+    compute_layout(graph, validate=True)
+    st = graph.stations["src"]
+    section = graph.sections[st.section_id]
+    with font_scale_context(graph.font_scale), stroke_scale_context(graph.stroke_scale):
+        reach = terminus_icon_flow_reach(st)
+    available = st.x - section.bbox_x
+    assert available >= reach, (
+        f"icon run reaches {reach:.1f}px left of {st.id} but the section box "
+        f"only leaves {available:.1f}px"
+    )
+
+
+def test_title_baseline_clears_its_own_ascent():
+    """An enlarged title drops its baseline instead of ascending off-canvas."""
+    from nf_metro.render.constants import (
+        TITLE_ASCENT_RATIO,
+        TITLE_Y_OFFSET,
+        title_baseline_y,
+    )
+
+    assert title_baseline_y(20.0) == TITLE_Y_OFFSET
+    big = TITLE_Y_OFFSET / TITLE_ASCENT_RATIO * 2
+    assert title_baseline_y(big) == pytest.approx(big * TITLE_ASCENT_RATIO)
+
+
 def test_font_scale_default_is_noop():
     """Without `font_scale`, the graph and render match the unscaled default."""
     g = _load_font_scale_fixture()
@@ -531,6 +636,113 @@ def test_render_file_icon_with_name_caption():
     assert "CSV" in svg
     root = ET.fromstring(svg)
     assert root.tag.endswith("svg") or "svg" in root.tag
+
+
+def test_render_icon_caption_with_linebreak():
+    from nf_metro.render.plan import freeze_render_value
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | DATA\\nFILE | input\\nfile\n"
+        "graph LR\n"
+        "    source[ ]\n"
+        "    source -->|main| node[Node]\n"
+    )
+    compute_layout(graph)
+
+    svg = render_svg(graph, NFCORE_THEME)
+    root = ET.fromstring(svg)
+    tspan_values = [
+        element.text for element in root.iter() if element.tag.endswith("tspan")
+    ]
+
+    assert tspan_values == ["DATA", "FILE", "input", "file"]
+    assert (
+        freeze_render_value(graph.stations["source"]).terminus_caption_line_count == 2
+    )
+    assert r"DATA\nFILE" not in svg
+    assert r"input\nfile" not in svg
+
+
+@pytest.mark.parametrize("direction", ["LR", "RL", "TB", "BT"])
+def test_multiline_icon_caption_fits_render_obstacle(direction):
+    from nf_metro.layout.routing.offsets import compute_station_offsets
+    from nf_metro.render.constants import (
+        ICON_CLEARANCE_MARGIN,
+        ICON_NAME_FONT_SCALE,
+        ICON_NAME_GAP,
+    )
+    from nf_metro.render.svg import (
+        _icon_obstacles_by_station,
+        _terminus_icon_centers_for,
+    )
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | DATA | input\\nfile\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        f"        %%metro direction: {direction}\n"
+        "        source[ ]\n"
+        "        source -->|main| node[Node]\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    station = graph.stations["source"]
+    line_offsets = [
+        offsets.get((station.id, line_id), 0.0)
+        for line_id in graph.station_lines(station.id)
+    ]
+    centers = _terminus_icon_centers_for(
+        station,
+        graph,
+        NFCORE_THEME,
+        min(line_offsets, default=0.0),
+        max(line_offsets, default=0.0),
+    )
+    obstacle = _icon_obstacles_by_station(graph, NFCORE_THEME, offsets)[station.id]
+    caption_height = 2 * NFCORE_THEME.label_font_size * ICON_NAME_FONT_SCALE
+    expected_bottom = (
+        max(cy for _, cy in centers)
+        + NFCORE_THEME.terminus_height / 2
+        + ICON_NAME_GAP
+        + caption_height
+        + ICON_CLEARANCE_MARGIN
+    )
+
+    assert obstacle[3] >= expected_bottom
+
+
+@pytest.mark.parametrize("direction", ["TB", "BT"])
+def test_vertical_icon_stack_reserves_multiline_caption(direction):
+    from nf_metro.render.constants import (
+        ICON_INTER_GAP,
+        ICON_NAME_FONT_SCALE,
+        ICON_NAME_GAP,
+    )
+    from nf_metro.render.svg import _terminus_icon_centers_for
+
+    graph = parse_metro_mermaid(
+        "%%metro line: main | Main | #ff0000\n"
+        "%%metro file: source | A, B | one\\ntwo\n"
+        "graph LR\n"
+        "    subgraph sec [Section]\n"
+        f"        %%metro direction: {direction}\n"
+        "        source[ ]\n"
+        "        source -->|main| node[Node]\n"
+        "    end\n"
+    )
+    compute_layout(graph)
+    centers = _terminus_icon_centers_for(
+        graph.stations["source"], graph, NFCORE_THEME, 0.0, 0.0
+    )
+    caption_height = 2 * NFCORE_THEME.label_font_size * ICON_NAME_FONT_SCALE
+    expected_step = (
+        NFCORE_THEME.terminus_height + ICON_INTER_GAP + ICON_NAME_GAP + caption_height
+    )
+
+    assert abs(centers[1][1] - centers[0][1]) == pytest.approx(expected_step)
 
 
 def test_render_file_icon_with_outgoing_edge():

@@ -370,7 +370,11 @@ def _layout_section_rails(
     # top of one another at the section's right edge.  Reserve the icon
     # clearance beyond the standard padding (right side only, without shifting
     # the terminus itself).
-    from nf_metro.layout.phases.single_section import _terminus_icon_clearance
+    from nf_metro.layout.phases.single_section import (
+        _terminus_icon_clearance,
+        terminus_icon_flow_reach,
+    )
+    from nf_metro.render.constants import ICON_BBOX_MARGIN
 
     tail_icon_extra = 0.0
     for sid in real_ids:
@@ -390,8 +394,29 @@ def _layout_section_rails(
         tail_icon_extra = max(tail_icon_extra, need - section_x_padding)
     tail_icon_extra = max(0.0, tail_icon_extra)
 
+    # A source terminus in the first column mirrors that, marching its icons
+    # *leftward* out of the box.  The reach is the drawn one plus the clamp
+    # margin the renderer keeps, since the padding already carries the visual
+    # breathing room; every term scales with font_scale, so this only tops the
+    # padding up once an enlarged icon outgrows it.
+    head_icon_extra = 0.0
+    for sid in real_ids:
+        st = graph.stations.get(sid)
+        if (
+            st is None
+            or st.is_port
+            or st.off_track
+            or not st.terminus_labels
+            or layers.get(sid, 0) != 0
+            or graph.edges_to(sid)  # source only: its icons extend leftward
+        ):
+            continue
+        need = terminus_icon_flow_reach(st) + ICON_BBOX_MARGIN
+        head_icon_extra = max(head_icon_extra, need - section_x_padding)
+    head_icon_extra = max(0.0, head_icon_extra)
+
     def _col_x(col: float) -> float:
-        x = x_offset + section_x_padding + col * x_spacing
+        x = x_offset + section_x_padding + head_icon_extra + col * x_spacing
         if col >= 1:
             x += head_extra
         if col == max_col:
@@ -482,6 +507,7 @@ def _layout_section_rails(
         section_x_padding * 2
         + max_col * x_spacing
         + head_extra
+        + head_icon_extra
         + tail_extra
         + tail_icon_extra
     )

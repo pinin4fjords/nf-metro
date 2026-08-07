@@ -191,7 +191,31 @@ SECTION_STROKE_WIDTH: float = 1.0
 # Title / watermark
 # ---------------------------------------------------------------------------
 TITLE_Y_OFFSET: float = 30.0
-"""Y position for the title text."""
+"""Default baseline Y for the title text.
+
+A floor rather than a fixed position: see :func:`title_baseline_y`, which drops
+the baseline further down when the title's own ascent would otherwise reach
+above the canvas top.
+"""
+
+TITLE_ASCENT_RATIO: float = 0.8
+"""Cap-height above the baseline as a fraction of the title's font size.
+
+Companion to the ``0.25`` descender fraction the header-ceiling maths uses, so
+the two bound the title's glyph band from both sides.
+"""
+
+
+def title_baseline_y(title_font_size: float) -> float:
+    """Baseline Y for the map title at ``title_font_size``.
+
+    ``TITLE_Y_OFFSET`` suits every theme's default title size, but ``font_scale``
+    multiplies that size without moving the baseline, so a sufficiently enlarged
+    title would ascend off the top of the canvas.  Push the baseline down to the
+    glyph ascent once it outgrows the default offset.
+    """
+    return max(TITLE_Y_OFFSET, title_font_size * TITLE_ASCENT_RATIO)
+
 
 WATERMARK_FONT_SIZE: int = 8
 """Font size for the attribution watermark."""

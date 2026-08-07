@@ -48,7 +48,7 @@ def _plan(path: str) -> tuple[MetroGraph, RenderPlan]:
             (373, 628),
         ),
         ("examples/rail_mode.mmd", 11, 32, (531, 965)),
-        ("examples/file_icons.mmd", 9, 8, (540, 385)),
+        ("examples/file_icons.mmd", 9, 8, (540, 419)),
     ],
 )
 def test_representative_plan_geometry_snapshot(
