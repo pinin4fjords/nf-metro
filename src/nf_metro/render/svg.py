@@ -3577,6 +3577,7 @@ def _render_terminus_icons(
                     font_weight=theme.label_font_weight,
                     text_anchor="middle",
                     dominant_baseline="hanging",
+                    class_=_ns("nf-metro-station-label"),
                 )
             )
 
