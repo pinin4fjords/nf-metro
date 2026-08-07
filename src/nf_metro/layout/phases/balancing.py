@@ -8,12 +8,11 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_COARSE,
     COORD_GROUP_DIGITS_FINE,
     DIAGONAL_RUN,
-    ICON_HALF_HEIGHT,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
 )
 from nf_metro.layout.geometry import quantize_coord
-from nf_metro.layout.pass_metrics import station_radius_approx
+from nf_metro.layout.pass_metrics import icon_half_height_approx, station_radius_approx
 from nf_metro.layout.phases._common import (
     _ref_bbox_top,
     _ref_y,
@@ -397,7 +396,8 @@ def _fan_source_inputs_upward(graph: MetroGraph, y_spacing: float) -> None:
         # Reserve icon_half when any source renders as a file icon so the
         # icon's vertical extent stays inside the bbox.
         any_terminus = any(graph.stations[s].is_terminus for s in sources)
-        top_margin = y_spacing / 4 + (ICON_HALF_HEIGHT if any_terminus else 0.0)
+        icon_margin = icon_half_height_approx() if any_terminus else 0.0
+        top_margin = y_spacing / 4 + icon_margin
         slack = trunk_y - _ref_bbox_top(graph, section) - top_margin
         slots = int((slack + 0.5) // y_spacing)
         if slots < 1:

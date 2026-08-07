@@ -22,9 +22,6 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DESCENDER_CLEARANCE,
     FONT_HEIGHT,
-    ICON_CAPTION_FONT_HEIGHT,
-    ICON_CAPTION_GAP,
-    ICON_HALF_HEIGHT,
     ICON_STACK_LABEL_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     LABEL_OFFSET,
@@ -367,37 +364,33 @@ def compute_min_y_spacing(
 
     Scans every LR/RL section and asks, for any pair of stations that
     could land in vertically-adjacent grid slots in the same column:
-    what centre-to-centre pitch is needed for their labels / captioned
-    file icons not to collide?
-
-    The four worst-case vertical extents considered are:
-
-    * captioned file-icon below the marker: ``ICON_HALF_HEIGHT +
-      ICON_CAPTION_GAP + line_count * ICON_CAPTION_FONT_HEIGHT``
-    * captioned file-icon above the marker: ``ICON_HALF_HEIGHT``
-    * labeled station, label below: ``LABEL_OFFSET + FONT_HEIGHT +
-      DESCENDER_CLEARANCE``
-    * labeled station, label above: ``LABEL_OFFSET + FONT_HEIGHT +
-      DESCENDER_CLEARANCE``
+    what centre-to-centre pitch is needed for their labels / file icons
+    not to collide?
 
     Required pitch for two stacked elements is
     ``upper.below_extent + lower.above_extent +
-    ICON_STACK_LABEL_CLEARANCE``.  We take the worst case across all
-    candidate pairs in every LR/RL section, then clamp to ``floor`` so
-    a label-light graph stays at the historical default pitch.
+    ICON_STACK_LABEL_CLEARANCE``.  A terminus icon's two extents come from
+    :func:`~nf_metro.layout.phases.single_section.terminus_cross_extents`
+    (icon body, plus a stacked back page above and a caption below); a
+    labelled station's is ``LABEL_OFFSET + FONT_HEIGHT +
+    DESCENDER_CLEARANCE``.  We take the worst case across all candidate
+    pairs in every LR/RL section, then clamp to ``floor`` so a label-light
+    graph stays at the default pitch.
 
     Label-only stations alternate above/below within a column at the
     default pitch, so they're not the binding constraint on their own.
-    Captioned file icons can't alternate (caption placement is fixed
-    under the icon), so the widening fires when icons enter the mix.
+    File icons can't alternate (the caption's placement under the icon is
+    fixed), so the widening fires when icons enter the mix.  The icon body
+    alone binds once ``font_scale`` grows it past the default pitch, which
+    is why an uncaptioned icon counts here too.
 
     The result is applied uniformly to the whole render -- the grid
     stays global, no per-section overrides.
     """
     from nf_metro.layout.pass_metrics import active_font_scale
+    from nf_metro.layout.phases.single_section import terminus_cross_extents
 
     scale = active_font_scale()
-    icon_above = ICON_HALF_HEIGHT
     label_extent = LABEL_OFFSET + FONT_HEIGHT * scale + DESCENDER_CLEARANCE
     clearance = ICON_STACK_LABEL_CLEARANCE
 
@@ -408,36 +401,34 @@ def compute_min_y_spacing(
     for section in graph.sections.values():
         if section.direction not in ("LR", "RL"):
             continue
-        captioned = 0
-        caption_line_count = 0
+        icon_extents: list[tuple[float, float]] = []
+        caption_belows: list[float] = []
         labeled = 0
         for sid in section.station_ids:
             st = graph.stations.get(sid)
             if st is None or st.is_port or st.is_hidden:
                 continue
-            station_caption_lines = (
-                st.terminus_caption_line_count if st.is_terminus else 0
-            )
-            has_caption = station_caption_lines > 0
-            has_label = bool(st.label) and not st.is_terminus
-            if has_caption:
-                captioned += 1
-                caption_line_count = max(caption_line_count, station_caption_lines)
-            elif has_label:
+            if st.is_terminus:
+                above, below = terminus_cross_extents(st)
+                icon_extents.append((above, below))
+                if st.terminus_caption_line_count:
+                    caption_belows.append(below)
+            elif st.label:
                 labeled += 1
-        icon_below = (
-            ICON_HALF_HEIGHT
-            + ICON_CAPTION_GAP
-            + caption_line_count * ICON_CAPTION_FONT_HEIGHT * scale
-        )
-        pitch_icon_icon = icon_above + icon_below + clearance
-        # icon_over_label uses icon_below (the larger extent), so it
-        # subsumes the label-over-icon case which uses icon_above.
-        pitch_icon_over_label = icon_below + label_extent + clearance
-        if captioned >= 2:
-            required = max(required, pitch_icon_icon)
-        if captioned >= 1 and labeled >= 1:
-            required = max(required, pitch_icon_over_label)
+        if len(icon_extents) >= 2:
+            # Worst-case stack: the deepest downward reach over the tallest
+            # upward one, since either icon may be the upper of the pair.
+            required = max(
+                required,
+                max(below for _, below in icon_extents)
+                + max(above for above, _ in icon_extents)
+                + clearance,
+            )
+        if caption_belows and labeled:
+            # Only a *captioned* icon binds against a label: its caption is
+            # pinned under the icon, whereas a bare station label alternates
+            # above/below within the column to dodge the clash by itself.
+            required = max(required, max(caption_belows) + label_extent + clearance)
 
     return required
 

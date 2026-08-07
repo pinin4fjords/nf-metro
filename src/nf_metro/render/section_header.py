@@ -61,7 +61,7 @@ from nf_metro.render.constants import (
     SECTION_LABEL_TEXT_OFFSET,
     SECTION_NUM_CIRCLE_R_LARGE,
     SECTION_NUM_Y_OFFSET,
-    TITLE_Y_OFFSET,
+    title_baseline_y,
 )
 from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
@@ -318,9 +318,11 @@ def _upward_ceiling(
     ceiling = 0.0
     if title_font_size is not None and graph.title:
         # A quarter of the title's font size approximates its descender depth
-        # below the baseline at ``TITLE_Y_OFFSET`` (mirrors the layout side's
-        # TITLE_BAND_BOTTOM, calibrated the same way for a fixed title size).
-        ceiling = max(ceiling, TITLE_Y_OFFSET + title_font_size * 0.25)
+        # below the baseline (mirrors the layout side's TITLE_BAND_BOTTOM,
+        # calibrated the same way for a fixed title size).
+        ceiling = max(
+            ceiling, title_baseline_y(title_font_size) + title_font_size * 0.25
+        )
     above_bottom = _nearest_section_above(graph, section)
     if above_bottom is not None:
         ceiling = max(ceiling, above_bottom)

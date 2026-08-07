@@ -19,12 +19,12 @@ from nf_metro.layout.constants import (
     OFF_TRACK_TRUNK_CLEARANCE_MARGIN,
     SAME_COORD_TOLERANCE,
     SECTION_Y_PADDING,
-    TERMINUS_WIDTH,
     X_SPACING,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, quantize_coord
 from nf_metro.layout.labels import _label_text_height, label_text_width
+from nf_metro.layout.pass_metrics import icon_half_height_approx, terminus_width_approx
 from nf_metro.layout.phases._common import (
     _content_station_ids,
     _exit_reaching_nodes,
@@ -56,12 +56,6 @@ from nf_metro.parser.model import (
 _DOWNWARD_BRANCH_SLOP: float = ICON_HALF_HEIGHT
 
 _OUTPUT_TAIL: float = OFF_TRACK_OUTPUT_TAIL
-
-# How far past its station the following producer must sit so the next
-# output's divergence passes cleanly under this output's icon (the next
-# diagonal dips beneath the icon rather than clearing its full width, so this
-# is about one glyph-width, not the icon's whole extent).
-_ICON_RIGHT_REACH: float = TERMINUS_WIDTH
 
 
 def _insert_phantom_pass_throughs(
@@ -296,7 +290,12 @@ def _space_off_track_outputs(
             producer_layer = layers[sid]
             layers[target_id] = producer_layer
             if on_track_succ <= 1:
-                clearance = lead + DIAGONAL_RUN + _OUTPUT_TAIL + _ICON_RIGHT_REACH
+                # How far past its station the following producer must sit so the
+                # next output's divergence passes cleanly under this output's icon
+                # (the next diagonal dips beneath the icon rather than clearing its
+                # full width, so this is about one glyph-width, not the icon's
+                # whole extent).
+                clearance = lead + DIAGONAL_RUN + _OUTPUT_TAIL + terminus_width_approx()
                 layer_demand[producer_layer] = max(
                     layer_demand[producer_layer], clearance
                 )
@@ -1621,7 +1620,9 @@ def _bump_off_track_clear_of_trunks(
     off_flow = getattr(off_st, flow_axis)
     # The icon's half-extent along the cross axis: file-icon half-height on Y,
     # half-width on X.
-    icon_half = ICON_HALF_HEIGHT if cross_axis == "y" else TERMINUS_WIDTH / 2
+    icon_half = (
+        icon_half_height_approx() if cross_axis == "y" else terminus_width_approx() / 2
+    )
 
     # Limit attempts so a pathological column doesn't pull the icon off-canvas.
     MAX_STEPS = 6
@@ -1864,7 +1865,7 @@ def _grow_flow_edges_for_off_track_icons(graph: MetroGraph, section: Section) ->
         if flow == "y":
             above, below = _terminus_y_overhang(st, section.direction or "LR", graph)
         else:
-            above = below = TERMINUS_WIDTH / 2
+            above = below = terminus_width_approx() / 2
         grow_section_bbox_min_edge(graph, section, flow, coord - above)
         grow_section_bbox_max_edge(graph, section, flow, coord + below)
 
