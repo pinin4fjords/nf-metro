@@ -9,7 +9,7 @@ This page records corpus measurements and rejected alternatives that informed
 the envelope-settlement design. These observations describe particular commits.
 They are not layout invariants and must not be read as current corpus totals.
 The enforceable specification remains in
-[`src/nf_metro/layout/CONTRACT.md`](../../src/nf_metro/layout/CONTRACT.md).
+[`src/nf_metro/layout/CONTRACT.md`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/CONTRACT.md).
 
 Every figure on this page is historical evidence. A named test identifies a
 related live invariant, not an assertion of the surrounding snapshot totals.
