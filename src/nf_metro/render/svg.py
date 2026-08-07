@@ -63,6 +63,7 @@ from nf_metro.layout.phases.ports import (
 from nf_metro.layout.phases.spacing import _bypass_label_obstacles
 from nf_metro.layout.route_plan import (
     ConvergencePlan,
+    EmissionMemberId,
     ExitTurnPlan,
     GridSpan,
     RouteFamilyId,
@@ -83,6 +84,7 @@ from nf_metro.layout.route_reservations import (
     adopt_route_reservation_ledger,
     gap_corridor_clearance_band,
     realise_route_reservations,
+    reservation_ids_by_claimant_member,
 )
 from nf_metro.layout.routing import (
     RoutedPath,
@@ -1090,16 +1092,13 @@ def _attach_published_reservation_attribution(
     routes: list[RoutedPath], plan: RoutePlan
 ) -> None:
     """Attach the adopted ledger's claimant-exact reservations to each route."""
-    reservation_ids_by_member: dict[str, list[str]] = {}
-    for reservation in plan.reservations:
-        for member_id in reservation.claimant_member_ids:
-            reservation_ids_by_member.setdefault(str(member_id), []).append(
-                str(reservation.id)
-            )
+    reservation_ids_by_member = reservation_ids_by_claimant_member(plan.reservations)
     for route in routes:
         if route.route_system_id is not None:
             route.route_reservation_ids = tuple(
-                reservation_ids_by_member.get(route.emission_member_id or "", ())
+                reservation_ids_by_member.get(
+                    EmissionMemberId(route.emission_member_id or ""), ()
+                )
             )
     validate_published_route_attribution(routes, plan)
 

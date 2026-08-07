@@ -48,6 +48,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemId,
     SharedReferenceId,
     build_route_semantic_scaffold,
+    fan_has_vacant_trunk,
 )
 from nf_metro.parser.commitments import FlowDirection, is_flow_direction
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -1622,10 +1623,10 @@ def _build_candidate(
             )
             for branch in branch_plans
         ]
-    has_vacant_trunk = (
-        appearance_policy is FanAppearancePolicy.STRAIGHT
-        and authored_join is not None
-        and sum(branch.is_trunk_continuation for branch in branch_plans) > 1
+    has_vacant_trunk = fan_has_vacant_trunk(
+        appearance_policy,
+        authored_join,
+        branch_plans,
     )
     if has_vacant_trunk:
         lane_pitch *= 2.0

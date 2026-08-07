@@ -22,6 +22,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemDisposition,
     RouteSystemId,
 )
+from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.parser.model import Edge
 from nf_metro.parser.route_topology import ResolvedEdge
@@ -152,12 +153,14 @@ class RouteSystemEmission:
         compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
         if compatible != bool(self.compatibility_reasons):
             raise ValueError("route-system disposition and compatibility disagree")
-        member_reservation_ids = {
-            reservation_id
-            for member in self.members
-            for reservation_id in member.reservation_ids
-        }
-        if member_reservation_ids != set(self.reservation_ids):
+        member_reservation_ids = tuple(
+            dict.fromkeys(
+                reservation_id
+                for member in self.members
+                for reservation_id in member.reservation_ids
+            )
+        )
+        if member_reservation_ids != self.reservation_ids:
             raise ValueError(
                 "route-system reservation union disagrees with member claimants"
             )
@@ -219,13 +222,115 @@ def _compatibility_reason(owner: str, reason: str) -> RouteSystemCompatibilityRe
     )
 
 
+@dataclass(frozen=True, slots=True)
+class RouteSystemDispositionDecision:
+    """One lightweight whole-system disposition in canonical system order."""
+
+    system_id: RouteSystemId
+    disposition: RouteSystemDisposition
+    compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+
+
+def classify_route_system_dispositions(
+    scaffold: RouteSemanticScaffold,
+    *,
+    exit_turn_plans: tuple[ExitTurnPlan, ...],
+    fan_plans: tuple[FanPlan, ...],
+    convergence_plans: tuple[ConvergencePlan, ...],
+    member_geometry_failures: Mapping[RouteSystemId, str] | None = None,
+) -> tuple[RouteSystemDispositionDecision, ...]:
+    """Classify each canonical system without constructing emission members."""
+    exit_by_system: dict[RouteSystemId, list[ExitTurnPlan]] = defaultdict(list)
+    fan_by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
+    convergence_by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(
+        list
+    )
+    for exit_plan in exit_turn_plans:
+        exit_by_system[exit_plan.system_id].append(exit_plan)
+    for fan_plan in fan_plans:
+        if fan_plan.system_id is not None:
+            fan_by_system[fan_plan.system_id].append(fan_plan)
+    for convergence_plan in convergence_plans:
+        convergence_by_system[convergence_plan.system_id].append(convergence_plan)
+
+    decisions: list[RouteSystemDispositionDecision] = []
+    for system_id in scaffold.ordered_system_ids:
+        exit_plans = tuple(exit_by_system.get(system_id, ()))
+        system_fans = tuple(fan_by_system.get(system_id, ()))
+        convergences = tuple(convergence_by_system.get(system_id, ()))
+        geometry_failure = (
+            None
+            if member_geometry_failures is None
+            else member_geometry_failures.get(system_id)
+        )
+        decisive: tuple[tuple[str, tuple[str, ...]], ...]
+        if geometry_failure is not None:
+            decisive = (("member-geometry-plan", (geometry_failure,)),)
+        elif convergences:
+            decisive = (
+                (
+                    "convergence-plan",
+                    tuple(
+                        convergence_plan.legacy_reason
+                        for convergence_plan in convergences
+                        if convergence_plan.disposition is ConvergenceDisposition.LEGACY
+                        and convergence_plan.legacy_reason is not None
+                    ),
+                ),
+            )
+        elif system_fans and all(
+            fan_plan.disposition is FanPlanDisposition.PLANNED
+            for fan_plan in system_fans
+        ):
+            decisive = ()
+        else:
+            decisive = (
+                (
+                    "exit-turn-plan",
+                    tuple(
+                        exit_plan.legacy_reason
+                        for exit_plan in exit_plans
+                        if exit_plan.disposition is ExitTurnDisposition.LEGACY
+                        and exit_plan.legacy_reason is not None
+                    ),
+                ),
+                (
+                    "fan-plan",
+                    tuple(
+                        fan_plan.legacy_reason
+                        for fan_plan in system_fans
+                        if fan_plan.disposition is FanPlanDisposition.LEGACY
+                        and fan_plan.legacy_reason is not None
+                    ),
+                ),
+            )
+        reasons = tuple(
+            dict.fromkeys(
+                _compatibility_reason(owner, reason)
+                for owner, owner_reasons in decisive
+                for reason in owner_reasons
+            )
+        )
+        decisions.append(
+            RouteSystemDispositionDecision(
+                system_id,
+                (
+                    RouteSystemDisposition.COMPATIBILITY
+                    if reasons
+                    else RouteSystemDisposition.PLANNED
+                ),
+                reasons,
+            )
+        )
+    return tuple(decisions)
+
+
 def build_route_system_emission_execution(
     scaffold: RouteSemanticScaffold,
     *,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     fan_plans: tuple[FanPlan, ...],
     convergence_plans: tuple[ConvergencePlan, ...],
-    reservation_ids_by_system: Mapping[RouteSystemId, tuple[str, ...]] | None = None,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     family_by_edge: Mapping[ResolvedEdge, RouteFamilyId] | None = None,
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
@@ -240,14 +345,14 @@ def build_route_system_emission_execution(
     )
     covered_by_member: dict[EmissionMemberId, EmissionMemberId] = {}
     geometry_by_edge = {plan.edge: plan for plan in member_geometry_plans}
-    for plan in exit_turn_plans:
-        exit_by_system[plan.system_id].append(plan)
-    for plan in fan_plans:
-        if plan.system_id is not None:
-            fan_by_system[plan.system_id].append(plan)
-    for plan in convergence_plans:
-        convergence_by_system[plan.system_id].append(plan)
-        for ownership in plan.endpoint_ownership:
+    for exit_plan in exit_turn_plans:
+        exit_by_system[exit_plan.system_id].append(exit_plan)
+    for fan_plan in fan_plans:
+        if fan_plan.system_id is not None:
+            fan_by_system[fan_plan.system_id].append(fan_plan)
+    for convergence_plan in convergence_plans:
+        convergence_by_system[convergence_plan.system_id].append(convergence_plan)
+        for ownership in convergence_plan.endpoint_ownership:
             if ownership.covered_by_member_id is None:
                 continue
             prior = covered_by_member.setdefault(
@@ -258,14 +363,22 @@ def build_route_system_emission_execution(
                     f"emission member {ownership.member_id} has conflicting carriers"
                 )
 
+    decisions = {
+        decision.system_id: decision
+        for decision in classify_route_system_dispositions(
+            scaffold,
+            exit_turn_plans=exit_turn_plans,
+            fan_plans=fan_plans,
+            convergence_plans=convergence_plans,
+            member_geometry_failures=member_geometry_failures,
+        )
+    }
+
     members_by_system: dict[RouteSystemId, list[RouteSystemEmissionMember]] = (
         defaultdict(list)
     )
     for edge in scaffold.edge_order:
-        connector_ids = tuple(
-            dict.fromkeys(ref.connector_id for ref in scaffold.refs_by_edge[edge])
-        )
-        system_id = scaffold.system_for(connector_ids)
+        system_id = scaffold.system_for_edge(edge)
         members_by_system[system_id].append(
             RouteSystemEmissionMember(
                 scaffold.member_id_by_edge[edge],
@@ -289,66 +402,26 @@ def build_route_system_emission_execution(
         exit_plans = tuple(exit_by_system.get(system_id, ()))
         system_fans = tuple(fan_by_system.get(system_id, ()))
         convergences = tuple(convergence_by_system.get(system_id, ()))
-        geometry_failure = (
-            None
-            if member_geometry_failures is None
-            else member_geometry_failures.get(system_id)
-        )
-        if geometry_failure is not None:
-            decisive = (("member-geometry-plan", (geometry_failure,)),)
-        elif convergences:
-            decisive = (
-                (
-                    "convergence-plan",
-                    tuple(
-                        plan.legacy_reason
-                        for plan in convergences
-                        if plan.disposition is ConvergenceDisposition.LEGACY
-                        and plan.legacy_reason is not None
-                    ),
-                ),
-            )
-        elif system_fans and all(
-            plan.disposition is FanPlanDisposition.PLANNED for plan in system_fans
-        ):
-            decisive = ()
-        else:
-            decisive = (
-                (
-                    "exit-turn-plan",
-                    tuple(
-                        plan.legacy_reason
-                        for plan in exit_plans
-                        if plan.disposition is ExitTurnDisposition.LEGACY
-                        and plan.legacy_reason is not None
-                    ),
-                ),
-                (
-                    "fan-plan",
-                    tuple(
-                        plan.legacy_reason
-                        for plan in system_fans
-                        if plan.disposition is FanPlanDisposition.LEGACY
-                        and plan.legacy_reason is not None
-                    ),
-                ),
-            )
-        reasons = [
-            _compatibility_reason(owner, reason)
-            for owner, owner_reasons in decisive
-            for reason in owner_reasons
-        ]
-        compatibility_reasons = tuple(dict.fromkeys(reasons))
-        disposition = (
-            RouteSystemDisposition.COMPATIBILITY
-            if compatibility_reasons
-            else RouteSystemDisposition.PLANNED
-        )
+        decision = decisions[system_id]
+        compatibility_reasons = decision.compatibility_reasons
+        disposition = decision.disposition
         system_members = tuple(members_by_system.get(system_id, ()))
         if disposition is RouteSystemDisposition.COMPATIBILITY:
             system_members = tuple(
-                replace(member, geometry_plan=None) for member in system_members
+                replace(member, geometry_plan=None, reservation_ids=())
+                for member in system_members
             )
+        system_reservation_ids = (
+            tuple(
+                dict.fromkeys(
+                    reservation_id
+                    for member in system_members
+                    for reservation_id in member.reservation_ids
+                )
+            )
+            if disposition is RouteSystemDisposition.PLANNED
+            else ()
+        )
         systems.append(
             RouteSystemEmission(
                 system_id,
@@ -359,16 +432,20 @@ def build_route_system_emission_execution(
                 (
                     (
                         *tuple(
-                            str(plan.id)
-                            for plan in (*exit_plans, *system_fans, *convergences)
-                            if (
-                                getattr(plan, "disposition", None)
-                                in {
-                                    ExitTurnDisposition.PLANNED,
-                                    FanPlanDisposition.PLANNED,
-                                    ConvergenceDisposition.PLANNED,
-                                }
-                            )
+                            str(exit_plan.id)
+                            for exit_plan in exit_plans
+                            if exit_plan.disposition is ExitTurnDisposition.PLANNED
+                        ),
+                        *tuple(
+                            str(fan_plan.id)
+                            for fan_plan in system_fans
+                            if fan_plan.disposition is FanPlanDisposition.PLANNED
+                        ),
+                        *tuple(
+                            str(convergence_plan.id)
+                            for convergence_plan in convergences
+                            if convergence_plan.disposition
+                            is ConvergenceDisposition.PLANNED
                         ),
                         *tuple(
                             str(item.geometry_plan.id)
@@ -379,11 +456,7 @@ def build_route_system_emission_execution(
                     if disposition is RouteSystemDisposition.PLANNED
                     else ()
                 ),
-                (
-                    reservation_ids_by_system.get(system_id, ())
-                    if reservation_ids_by_system is not None
-                    else ()
-                ),
+                system_reservation_ids,
             )
         )
 
@@ -496,10 +569,18 @@ def validate_route_system_emission(
                     f"route system {system.system_id} covered member {member_id} "
                     "also emitted a route"
                 )
-            if covering_member_id not in canonical:
+            covering_binding = canonical.get(covering_member_id)
+            if covering_binding is None:
                 raise RuntimeError(
                     f"route system {system.system_id} member {member_id} has an "
                     "unknown covering member"
+                )
+            covering_system, _covering_member = covering_binding
+            if covering_system.system_id != system.system_id:
+                raise RuntimeError(
+                    f"route system {system.system_id} member {member_id} has "
+                    f"covering member {covering_member_id} from route system "
+                    f"{covering_system.system_id}"
                 )
             if emitted.get(covering_member_id, 0) != 1:
                 raise RuntimeError(
@@ -519,15 +600,13 @@ def validate_published_route_attribution(
 ) -> None:
     """Check final paths against reservations claimed by their emission member."""
     systems = {str(system.id): system for system in plan.systems}
-    reservations_by_member: defaultdict[str, list[str]] = defaultdict(list)
-    for reservation in plan.reservations:
-        for member_id in reservation.claimant_member_ids:
-            reservations_by_member[str(member_id)].append(str(reservation.id))
+    reservations_by_member = reservation_ids_by_claimant_member(plan.reservations)
     for route in routes:
         if route.route_system_id is None:
             continue
         system = systems[route.route_system_id]
-        expected = tuple(reservations_by_member[route.emission_member_id or ""])
+        member_id = EmissionMemberId(route.emission_member_id or "")
+        expected = reservations_by_member.get(member_id, ())
         if route.route_reservation_ids != expected:
             raise RuntimeError(
                 f"route system {system.id} connectors "

@@ -54,6 +54,7 @@ from nf_metro.layout.route_plan import (
     ReservationDecisionRef,
     RoutePlan,
     RouteSystem,
+    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -3749,6 +3750,17 @@ def _finalise_reservation_ledger(
     )
 
 
+def reservation_ids_by_claimant_member(
+    reservations: Iterable[RouteReservation],
+) -> dict[EmissionMemberId, tuple[str, ...]]:
+    """Index reservation IDs by claimant in their canonical ledger order."""
+    collected: defaultdict[EmissionMemberId, list[str]] = defaultdict(list)
+    for reservation in reservations:
+        for member_id in reservation.claimant_member_ids:
+            collected[member_id].append(str(reservation.id))
+    return {member_id: tuple(ids) for member_id, ids in collected.items()}
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -3762,7 +3774,20 @@ def attach_route_reservations(
     if not plan.systems:
         return plan
     offsets = station_offsets or {}
+    planned_system_ids = {
+        str(system.id)
+        for system in plan.systems
+        if system.disposition is RouteSystemDisposition.PLANNED
+    }
     observed = _observe_route_geometry(graph, routes, plan, offsets)
+    observed = replace(
+        observed,
+        claims=tuple(
+            claim
+            for claim in observed.claims
+            if str(claim.system_id) in planned_system_ids
+        ),
+    )
     groups = _group_claims(
         observed.claims,
         {system.id: rank for rank, system in enumerate(plan.systems)},
@@ -3783,14 +3808,15 @@ def attach_route_reservations(
         canvas_width=canvas_width,
         canvas_height=canvas_height,
     )
-    reservation_ids_by_member: defaultdict[str, list[str]] = defaultdict(list)
-    for reservation in finalised.reservations:
-        for member_id in reservation.claimant_member_ids:
-            reservation_ids_by_member[str(member_id)].append(str(reservation.id))
+    reservation_ids_by_member = reservation_ids_by_claimant_member(
+        finalised.reservations
+    )
     for route in routes:
         if route.emission_member_id is not None:
             route.route_reservation_ids = tuple(
-                reservation_ids_by_member[route.emission_member_id]
+                reservation_ids_by_member.get(
+                    EmissionMemberId(route.emission_member_id), ()
+                )
             )
     return finalised
 

@@ -9,14 +9,18 @@ import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
 from nf_metro.layout.route_plan import (
+    ConvergenceDisposition,
     EmissionMemberId,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
     RouteSystemDisposition,
     RouteSystemId,
+    build_route_plan_query,
+    build_route_semantic_scaffold,
 )
 from nf_metro.layout.routing.common import Direction, OffsetRegime
+from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import (
     _allocation_eligible_system_ids,
     _route_edges,
@@ -63,7 +67,7 @@ def _assert_channels_equal_emission(observation, plan) -> None:
         )
 
 
-def test_member_failure_cannot_contaminate_neighboring_allocation() -> None:
+def test_live_claim_index_exposes_only_eligible_prior_systems_in_order() -> None:
     failed = RouteSystemId("failed")
     survivor = RouteSystemId("survivor")
     future = RouteSystemId("future")
@@ -85,16 +89,59 @@ def test_member_failure_cannot_contaminate_neighboring_allocation() -> None:
     )
     failures = MappingProxyType({failed: "canonical-template-declined-member"})
     eligible_claims = member_geometry._eligible_preliminary_gap_claims(claims, failures)
-    visible_to_survivor = member_geometry._claims_visible_to_system(
-        eligible_claims,
-        survivor,
-        {failed: 0, survivor: 1, future: 2},
+    visible = member_geometry._visible_claims_by_system_gap(
+        eligible_claims, {failed: 0, survivor: 1, future: 2}
     )
 
-    assert {claim.system_id for claim in visible_to_survivor} == {survivor}
+    assert tuple(claim.system_id for claim in visible[(survivor, (0, 0))]) == (
+        survivor,
+    )
+    assert tuple(claim.system_id for claim in visible[(future, (0, 0))]) == (
+        survivor,
+        future,
+    )
     assert _allocation_eligible_system_ids(
         frozenset({failed, survivor, future}), frozenset(failures)
     ) == frozenset({survivor, future})
+
+
+def test_compatibility_context_uses_and_restores_the_narrow_edge_predicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    scaffold = build_route_semantic_scaffold(graph)
+    assert scaffold is not None
+    system_id = scaffold.ordered_system_ids[0]
+    system_edges = tuple(
+        edge
+        for edge in scaffold.edge_order
+        if scaffold.system_for_edge(edge) == system_id
+    )
+    assert system_edges
+    ctx = _build_routing_context(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        compute_station_offsets(graph),
+    )
+    prior_edges = frozenset({("prior", "edge", "line")})
+    ctx.compatibility_edges = prior_edges
+    prior_systems = ctx.route_systems
+
+    def stop(edge, current_ctx):
+        assert current_ctx.is_compatibility_edge(edge)
+        assert current_ctx.route_systems is prior_systems
+        raise RuntimeError("stop after checking compatibility context")
+
+    monkeypatch.setattr(member_geometry, "_route_compatibility_template", stop)
+    with pytest.raises(RuntimeError, match="stop after checking"):
+        member_geometry._append_compatibility_context(
+            ctx, scaffold, system_id, system_edges
+        )
+
+    assert ctx.compatibility_edges == prior_edges
+    assert ctx.route_systems is prior_systems
 
 
 def test_exit_turn_channel_is_a_published_member_geometry_decision() -> None:
@@ -287,7 +334,17 @@ def test_failed_system_discards_member_geometry_before_compatibility_emission(
         plan.system_id != failed_systems[0].id
         for plan in observation.plan.member_geometry_plans
     )
-    assert all(
-        plan.system_id != failed_systems[0].id
+    convergence_plans = tuple(
+        plan
         for plan in observation.plan.convergence_plans
+        if plan.system_id == failed_systems[0].id
     )
+    assert convergence_plans
+    assert all(
+        plan.disposition is ConvergenceDisposition.LEGACY
+        and not plan.endpoint_ownership
+        and not plan.shared_reference_ids
+        and not plan.demand_ids
+        for plan in convergence_plans
+    )
+    build_route_plan_query(observation.plan)

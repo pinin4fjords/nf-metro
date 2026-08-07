@@ -707,7 +707,7 @@ def bundle_width(n_lines: int, offset_step: float = OFFSET_STEP) -> float:
     return max(0, n_lines - 1) * offset_step
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GapSlot:
     """A symbolic position for a vertical channel run within a gap bundle.
 
@@ -735,7 +735,7 @@ class GapSlot:
     n_slots: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrunkSlot:
     """The inter-row gap a route's horizontal bypass trunk runs in.
 

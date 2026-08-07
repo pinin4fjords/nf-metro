@@ -16,11 +16,13 @@ from nf_metro.layout.route_plan import (
     RouteSystemId,
     build_route_semantic_scaffold,
 )
+from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.core import observe_route_edges
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
+    classify_route_system_dispositions,
     validate_route_system_emission,
 )
 from nf_metro.parser.model import Edge
@@ -84,6 +86,47 @@ def test_atomic_emission_accepts_one_emitted_or_covered_binding() -> None:
     assert route.route_reservation_ids == ("carrier-reservation",)
 
 
+def test_atomic_emission_rejects_cross_system_coverage() -> None:
+    execution, route = _atomic_execution()
+    carrier_system = execution.system_for_edge(ResolvedEdge("a", "b", "line"))
+    assert carrier_system is not None
+    foreign_id = EmissionMemberId("foreign-covered")
+    foreign_edge = ResolvedEdge("x", "y", "line")
+    foreign_member = system_emission.RouteSystemEmissionMember(foreign_id, foreign_edge)
+    foreign_system = system_emission.RouteSystemEmission(
+        RouteSystemId("foreign-system"),
+        ("foreign-connector",),
+        (foreign_member,),
+        RouteSystemDisposition.PLANNED,
+        (),
+        (),
+    )
+    cross_system_execution = system_emission.RouteSystemEmissionExecution(
+        (carrier_system, foreign_system),
+        MappingProxyType(
+            {
+                **execution._by_edge,
+                foreign_edge: foreign_system,
+            }
+        ),
+        MappingProxyType(
+            {
+                **execution._member_by_edge,
+                foreign_edge: foreign_member,
+            }
+        ),
+        MappingProxyType(
+            {
+                **execution._covered_by_member,
+                foreign_id: EmissionMemberId("carrier"),
+            }
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="foreign-system.*from route system system"):
+        validate_route_system_emission([route], cross_system_execution)
+
+
 def test_atomic_emission_rejects_missing_duplicate_and_double_bound_members() -> None:
     execution, route = _atomic_execution()
 
@@ -123,6 +166,9 @@ def test_atomic_emission_rejects_attributed_unaccounted_route() -> None:
 )
 def test_migrated_convergence_systems_have_one_planned_emission(path: Path) -> None:
     observation = _observe(path)
+    reservation_ids_by_member = reservation_ids_by_claimant_member(
+        observation.plan.reservations
+    )
     systems = {
         plan.system_id: next(
             system for system in observation.plan.systems if system.id == plan.system_id
@@ -154,17 +200,17 @@ def test_migrated_convergence_systems_have_one_planned_emission(path: Path) -> N
         assert route.route_system_disposition == RouteSystemDisposition.PLANNED.value
         assert route.emission_member_id is not None
         assert route.route_plan_ids
-        assert route.route_reservation_ids == tuple(
-            str(reservation.id)
-            for reservation in observation.plan.reservations
-            if route.emission_member_id
-            in {str(member_id) for member_id in reservation.claimant_member_ids}
+        assert route.route_reservation_ids == reservation_ids_by_member.get(
+            EmissionMemberId(route.emission_member_id), ()
         )
 
 
 def test_compatibility_emission_has_one_explicit_reason_and_no_plan_owner() -> None:
     observation = _observe(
         ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    )
+    reservation_ids_by_member = reservation_ids_by_claimant_member(
+        observation.plan.reservations
     )
     compatible = tuple(
         system
@@ -194,11 +240,8 @@ def test_compatibility_emission_has_one_explicit_reason_and_no_plan_owner() -> N
     assert all(not route.route_plan_ids for route in routes)
     assert all(
         route.route_reservation_ids
-        == tuple(
-            str(reservation.id)
-            for reservation in observation.plan.reservations
-            if route.emission_member_id
-            in {str(member_id) for member_id in reservation.claimant_member_ids}
+        == reservation_ids_by_member.get(
+            EmissionMemberId(route.emission_member_id or ""), ()
         )
         for route in routes
     )
@@ -217,19 +260,22 @@ def test_attribution_failure_names_the_complete_ownership_chain() -> None:
         exit_turn_plans=observation.plan.exit_turn_plans,
         fan_plans=observation.plan.fan_plans,
         convergence_plans=observation.plan.convergence_plans,
-        reservation_ids_by_system={
-            system.id: tuple(str(item) for item in system.reservation_ids)
-            for system in observation.plan.systems
-        },
-        reservation_ids_by_member={
-            member.id: tuple(
-                str(reservation.id)
-                for reservation in observation.plan.reservations
-                if member.id in reservation.claimant_member_ids
-            )
-            for member in observation.plan.members
-        },
+        reservation_ids_by_member=reservation_ids_by_claimant_member(
+            observation.plan.reservations
+        ),
     )
+    for system in execution.systems:
+        expected = tuple(
+            dict.fromkeys(
+                reservation_id
+                for member in system.members
+                for reservation_id in member.reservation_ids
+            )
+        )
+        assert system.reservation_ids == expected
+        if system.disposition is RouteSystemDisposition.COMPATIBILITY:
+            assert not system.reservation_ids
+            assert all(not member.reservation_ids for member in system.members)
     route = next(
         item for item in observation.routes if item.route_system_id is not None
     )
@@ -249,6 +295,58 @@ def test_attribution_failure_names_the_complete_ownership_chain() -> None:
 def test_compatibility_reason_registry_is_closed() -> None:
     with pytest.raises(ValueError, match="unregistered compatibility reason"):
         system_emission._compatibility_reason("exit-turn-plan", "new-fallback")
+
+
+def test_lightweight_dispositions_match_final_execution_in_canonical_order() -> None:
+    path = ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    scaffold = build_route_semantic_scaffold(graph)
+    assert scaffold is not None
+    decisions = classify_route_system_dispositions(
+        scaffold,
+        exit_turn_plans=observation.plan.exit_turn_plans,
+        fan_plans=observation.plan.fan_plans,
+        convergence_plans=observation.plan.convergence_plans,
+    )
+    execution = build_route_system_emission_execution(
+        scaffold,
+        exit_turn_plans=observation.plan.exit_turn_plans,
+        fan_plans=observation.plan.fan_plans,
+        convergence_plans=observation.plan.convergence_plans,
+    )
+
+    assert tuple(item.system_id for item in decisions) == scaffold.ordered_system_ids
+    assert tuple(
+        (item.system_id, item.disposition, item.compatibility_reasons)
+        for item in decisions
+    ) == tuple(
+        (item.system_id, item.disposition, item.compatibility_reasons)
+        for item in execution.systems
+    )
+
+
+def test_routing_constructs_only_the_final_emission_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = ROOT / "examples" / "topologies" / "exit_run_three_drop_columns.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    real_build = system_emission.build_route_system_emission_execution
+    calls = 0
+
+    def record_build(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr(
+        system_emission, "build_route_system_emission_execution", record_build
+    )
+    observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
+
+    assert calls == 1
 
 
 def test_planned_convergence_never_enters_compatibility_merge_snap(

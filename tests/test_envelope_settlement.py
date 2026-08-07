@@ -41,7 +41,11 @@ from nf_metro.layout.phases.guards import (
     assert_reservations_are_settled,
 )
 from nf_metro.layout.phases.junctions import reanchor_junctions
-from nf_metro.layout.route_plan import GridSpan, build_route_plan_query
+from nf_metro.layout.route_plan import (
+    EmissionMemberId,
+    GridSpan,
+    build_route_plan_query,
+)
 from nf_metro.layout.route_reservations import (
     CanvasRegion,
     CanvasSide,
@@ -51,6 +55,7 @@ from nf_metro.layout.route_reservations import (
     canvas_edge_slack,
     measured_distance,
     realise_reservation,
+    reservation_ids_by_claimant_member,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
 from nf_metro.layout.routing.common import _inter_row_band_fits, apply_route_offsets
@@ -1206,16 +1211,15 @@ def test_settlement_freezes_semantic_ownership_but_adopts_reservation_ids() -> N
     )
     _attach_published_reservation_attribution(realised_routes, observation.plan)
 
-    reservations_by_member: dict[str, list[str]] = {}
-    for reservation in observation.plan.reservations:
-        for member_id in reservation.claimant_member_ids:
-            reservations_by_member.setdefault(str(member_id), []).append(
-                str(reservation.id)
-            )
+    reservations_by_member = reservation_ids_by_claimant_member(
+        observation.plan.reservations
+    )
     for route in realised_routes:
         if route.route_system_id is not None:
             assert route.route_reservation_ids == tuple(
-                reservations_by_member.get(route.emission_member_id or "", ())
+                reservations_by_member.get(
+                    EmissionMemberId(route.emission_member_id or ""), ()
+                )
             )
 
 

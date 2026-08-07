@@ -1073,6 +1073,19 @@ class FanCentrelineAnchor:
         return frame.secondary.get(station) - lane_sign * self.lane_offset
 
 
+def fan_has_vacant_trunk(
+    appearance_policy: FanAppearancePolicy,
+    authored_join_station_id: str | None,
+    branches: Iterable[FanBranchPlan],
+) -> bool:
+    """Whether a straight reconvergence reserves an unoccupied centreline."""
+    return (
+        appearance_policy is FanAppearancePolicy.STRAIGHT
+        and authored_join_station_id is not None
+        and sum(branch.is_trunk_continuation for branch in branches) > 1
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FanPlan:
     """Complete immutable decision for one authored fan or diamond.
@@ -1478,6 +1491,15 @@ class FanPlan:
     def owns_geometry(self) -> bool:
         """Whether this complete fan uses its immutable geometry plan."""
         return self.disposition is FanPlanDisposition.PLANNED
+
+    @property
+    def has_vacant_trunk(self) -> bool:
+        """Whether a straight reconvergence reserves an unoccupied centreline."""
+        return fan_has_vacant_trunk(
+            self.appearance_policy,
+            self.authored_join_station_id,
+            self.branches,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2404,6 +2426,10 @@ class RouteSemanticScaffold:
     resolution: _ResolutionRecords
     member_id_by_edge: Mapping[ResolvedEdge, EmissionMemberId]
 
+    def connector_ids_for_edge(self, edge: ResolvedEdge) -> tuple[ConnectorId, ...]:
+        """Return the edge's connectors in canonical topology order."""
+        return _ordered_unique(ref.connector_id for ref in self.refs_by_edge[edge])
+
     def system_for(self, connector_ids: tuple[ConnectorId, ...]) -> RouteSystemId:
         if not connector_ids:
             raise ValueError("route-plan ownership record has no connectors")
@@ -2413,6 +2439,10 @@ class RouteSemanticScaffold:
         ):
             raise ValueError("one topology record spans multiple route systems")
         return system_id
+
+    def system_for_edge(self, edge: ResolvedEdge) -> RouteSystemId:
+        """Return the canonical route system containing *edge*."""
+        return self.system_for(self.connector_ids_for_edge(edge))
 
 
 def build_route_semantic_scaffold(
@@ -2745,9 +2775,9 @@ def _build_route_plan(
     endpoint_facts: dict[str, EndpointFact] = {}
     for edge in edge_order:
         leg_refs = tuple(refs_by_edge[edge])
-        connector_ids = _ordered_unique(ref.connector_id for ref in leg_refs)
+        connector_ids = scaffold.connector_ids_for_edge(edge)
         connectors = tuple(query.connector(item) for item in connector_ids)
-        system_id = system_for(connector_ids)
+        system_id = scaffold.system_for_edge(edge)
         member_id = member_id_by_edge[edge]
         family = observer._family_by_edge.get(edge)
         ranks = route_ranks.get(edge, [])
@@ -2884,22 +2914,6 @@ def _build_route_plan(
             convergence_plan.id
         )
 
-    provenance = _plan_provenance(graph, topology.connectors)
-    fan_references, fan_demands = _build_fan_plan_resources(
-        graph,
-        provenance,
-        route_fan_plans,
-    )
-    shared_references = (
-        *observer.exit_turn_references,
-        *fan_references,
-        *observer.convergence_references,
-    )
-    demands = (
-        *observer.exit_turn_demands,
-        *fan_demands,
-        *observer.convergence_demands,
-    )
     system_emission = (
         observer.context.route_systems if observer.context is not None else None
     )
@@ -2920,6 +2934,22 @@ def _build_route_plan(
         for item in system_emission.systems
         if item.disposition is RouteSystemDisposition.PLANNED
     }
+    provenance = _plan_provenance(graph, topology.connectors)
+    fan_references, fan_demands = _build_fan_plan_resources(
+        graph,
+        provenance,
+        tuple(plan for plan in route_fan_plans if plan.system_id in planned_system_ids),
+    )
+    shared_references = (
+        *observer.exit_turn_references,
+        *fan_references,
+        *observer.convergence_references,
+    )
+    demands = (
+        *observer.exit_turn_demands,
+        *fan_demands,
+        *observer.convergence_demands,
+    )
     member_geometry_plans = tuple(
         plan
         for plan in observer.member_geometry_plans
@@ -3893,7 +3923,11 @@ def _validate_fan_records(
                 or member_bindings[0].kind is BindingKind.UNROUTED
             ):
                 raise ValueError("planned fan member has no final emission binding")
-        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+        owns_emission_resources = (
+            fan_plan.disposition is FanPlanDisposition.PLANNED
+            and system.disposition is RouteSystemDisposition.PLANNED
+        )
+        if owns_emission_resources:
             reference_id = fan_plan.centreline_reference_id
             reference = (
                 references.get(reference_id) if reference_id is not None else None
@@ -3911,7 +3945,7 @@ def _validate_fan_records(
             ):
                 raise ValueError("planned fan resources have inconsistent ownership")
         by_system[system_id].append(fan_plan)
-        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+        if owns_emission_resources:
             for member_id in fan_plan.member_ids:
                 by_member[member_id].append(fan_plan)
 

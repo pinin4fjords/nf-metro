@@ -523,6 +523,9 @@ def _replan(
     from nf_metro.layout.routing.context import _build_routing_context
     from nf_metro.layout.routing.convergences import build_convergence_plan_execution
     from nf_metro.layout.routing.exit_turns import build_exit_turn_execution
+    from nf_metro.layout.routing.member_geometry import (
+        empty_member_geometry_execution,
+    )
 
     context = _build_routing_context(
         graph, DIAGONAL_RUN, CURVE_RADIUS, compute_station_offsets(graph)
@@ -537,6 +540,7 @@ def _replan(
         exit_turns.scaffold,
         exit_turn_plans=exit_turns.plans,
         fan_plans=graph.fan_plans,
+        member_geometry=empty_member_geometry_execution(),
         include_resources=False,
     )
     by_system: dict[RouteSystemId, tuple[ConvergencePlan, ...]] = {}

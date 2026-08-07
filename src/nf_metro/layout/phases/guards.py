@@ -5309,32 +5309,26 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
-        else:
-            has_vacant_trunk = (
-                plan.authored_join_station_id is not None
-                and sum(branch.is_trunk_continuation for branch in plan.branches) > 1
+        straight_frame_invalid = (
+            (plan.appearance_centreline_branch_id is None) != plan.has_vacant_trunk
+            or (
+                not plan.has_vacant_trunk
+                and (
+                    sum(offset == 0.0 for offset in lane_offsets) != 1
+                    or any(offset is None or offset < 0.0 for offset in lane_offsets)
+                )
             )
+            or any(
+                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+                for actual, target in zip(
+                    lane_offsets, expected_lane_offsets, strict=True
+                )
+            )
+        )
         if (
             plan.appearance_policy is FanAppearancePolicy.STRAIGHT
             and plan.layout_station_ids
-            and (
-                (plan.appearance_centreline_branch_id is None) != has_vacant_trunk
-                or (
-                    not has_vacant_trunk
-                    and (
-                        sum(offset == 0.0 for offset in lane_offsets) != 1
-                        or any(
-                            offset is None or offset < 0.0 for offset in lane_offsets
-                        )
-                    )
-                )
-                or any(
-                    actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
-                    for actual, target in zip(
-                        lane_offsets, expected_lane_offsets, strict=True
-                    )
-                )
-            )
+            and straight_frame_invalid
         ):
             raise PhaseInvariantError(
                 f"{phase}: straight planned fan {plan.id!s} does not keep its "

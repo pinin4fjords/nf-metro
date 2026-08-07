@@ -13,9 +13,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
-from nf_metro.layout.route_plan import FanRouteEmitter, RouteSystemDisposition
+from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -1618,6 +1619,23 @@ _INTER_SECTION_RULES: list[_Rule] = [
     ),
 ]
 
+_INDEXED_INTER_SECTION_RULES = _INTER_SECTION_RULES
+_INTER_SECTION_RULE_BY_FAMILY = MappingProxyType(
+    {rule.family_id: rule for rule in _INDEXED_INTER_SECTION_RULES}
+)
+if len(_INTER_SECTION_RULE_BY_FAMILY) != len(_INDEXED_INTER_SECTION_RULES):
+    raise RuntimeError("inter-section route families are not unique")
+
+
+def _inter_section_rule_for_family(family_id: RouteFamilyId) -> _Rule | None:
+    """Resolve a frozen family without re-running dispatch predicates."""
+    if _INTER_SECTION_RULES is _INDEXED_INTER_SECTION_RULES:
+        return _INTER_SECTION_RULE_BY_FAMILY.get(family_id)
+    return next(
+        (rule for rule in _INTER_SECTION_RULES if rule.family_id is family_id),
+        None,
+    )
+
 
 def _route_inter_section(
     edge: Edge,
@@ -1645,14 +1663,7 @@ def _route_inter_section(
     rule = (
         _match_inter_section_rule(f)
         if planned_family_id is None
-        else next(
-            (
-                candidate
-                for candidate in _INTER_SECTION_RULES
-                if candidate.family_id is planned_family_id
-            ),
-            None,
-        )
+        else _inter_section_rule_for_family(planned_family_id)
     )
     if rule is not None:
         family_id = rule.family_id
@@ -2112,13 +2123,8 @@ def _route_planned_bottom_exit_right_landings(
     exit_x_offset: Callable[[str], float],
     target_y: float,
 ) -> RoutedPath | None:
-    if ctx.route_systems is not None:
-        system = ctx.route_systems.system_for_edge(edge)
-        if (
-            system is not None
-            and system.disposition is RouteSystemDisposition.COMPATIBILITY
-        ):
-            return None
+    if ctx.is_compatibility_edge(edge):
+        return None
     query = ctx.graph.fan_plan_query
     if query is None:
         return None

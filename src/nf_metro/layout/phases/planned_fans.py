@@ -214,7 +214,9 @@ def _align_straight_fan_join_station(
     ):
         return
     join = graph.stations.get(plan.authored_join_station_id)
-    section = graph.sections.get(join.section_id or "") if join is not None else None
+    if join is None:
+        return
+    section = graph.sections.get(join.section_id or "")
     if section is None or section.direction not in ("LR", "RL"):
         return
     join.y = centreline

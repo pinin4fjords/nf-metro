@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TypeAlias
 
@@ -155,6 +155,16 @@ class ConvergencePlanExecutionQuery:
     _by_edge: Mapping[ResolvedEdge, ConvergenceRouteMembership]
     _edge_order: tuple[ResolvedEdge, ...]
     _vertical_channels: tuple[PlannedConvergenceVerticalChannel, ...]
+    _edge_rank: Mapping[ResolvedEdge, int] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_edge_rank",
+            MappingProxyType(
+                {edge: rank for rank, edge in enumerate(self._edge_order)}
+            ),
+        )
 
     def membership_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -179,9 +189,8 @@ class ConvergencePlanExecutionQuery:
             if isinstance(edge, ResolvedEdge)
             else ResolvedEdge(edge.source, edge.target, edge.line_id)
         )
-        try:
-            edge_rank = self._edge_order.index(resolved)
-        except ValueError:
+        edge_rank = self._edge_rank.get(resolved)
+        if edge_rank is None:
             return ()
         return tuple(
             claim
@@ -1730,6 +1739,8 @@ def _forked_flank(
     landing leaving that same junction is a sibling arm of the same fan-out: the
     two draw one stroke down to the depth where they part.
     """
+    if flank_rank != 1:
+        return False
     fork = next(
         (
             item.source_junction_id
@@ -1748,7 +1759,7 @@ def _forked_flank(
             ),
             None,
         )
-    return flank_rank == 1 and fork is not None and landing.source_junction_id == fork
+    return fork is not None and landing.source_junction_id == fork
 
 
 def _shared_source_bundle_stroke(
@@ -1769,6 +1780,30 @@ def _shared_source_bundle_stroke(
         and len(landing_sources) > 1
         and landing_sources == trunk_sources
         and landing.source_junction_id in trunk_sources
+        and _segments_coincide(landing_segment, flank)
+    )
+
+
+def _shared_chained_source_stroke(
+    landing_plan: ConvergencePlan,
+    landing: ConvergenceLanding,
+    trunk_plan: ConvergencePlan,
+    flank_rank: int,
+    landing_segment: _Segment,
+    flank: _Segment,
+) -> bool:
+    """Whether chained convergences describe one source carrier twice.
+
+    A source junction can feed more than one downstream convergence in the
+    same route system.  Once same-line settlement seats their exact collinear
+    legs together, those legs are one physical carrier even when the two
+    convergence groups have different complete source sets.
+    """
+    return (
+        flank_rank == 1
+        and landing_plan.system_id == trunk_plan.system_id
+        and landing.source_junction_id
+        in {item.source_junction_id for item in trunk_plan.landings}
         and _segments_coincide(landing_segment, flank)
     )
 
@@ -2087,6 +2122,7 @@ def _flank_lane_coordinate(
     curve_radius: float,
     *,
     carries_coupled_primary: bool = False,
+    jointly_feasible: Callable[[float], bool] | None = None,
 ) -> float | None:
     """Nearest column for *flank_rank* that clears every counter-running obstacle.
 
@@ -2160,7 +2196,7 @@ def _flank_lane_coordinate(
                 return False
             if any(_gap_channels_crowd(channel, obstacle) for obstacle in obstacles):
                 return False
-        return True
+        return jointly_feasible is None or jointly_feasible(candidate)
 
     flank_down = next(
         channel.down
@@ -2189,13 +2225,16 @@ def _exit_owned_flanks(
     plans: tuple[ConvergencePlan, ...],
     exit_turn_plans: tuple[ExitTurnPlan, ...],
 ) -> frozenset[tuple[ConvergencePlanId, int]]:
-    axes_by_member = {
-        assignment.member_id: axes[assignment.axis_id].coordinate
-        for exit_plan in exit_turn_plans
-        for axes in ({axis.id: axis for axis in exit_plan.axes},)
-        for assignment in exit_plan.assignments
-        if assignment.axis_id is not None
-    }
+    axes_by_member: dict[EmissionMemberId, float] = {}
+    for exit_plan in exit_turn_plans:
+        axes = {axis.id: axis for axis in exit_plan.axes}
+        axes_by_member.update(
+            {
+                assignment.member_id: axes[assignment.axis_id].coordinate
+                for assignment in exit_plan.assignments
+                if assignment.axis_id is not None
+            }
+        )
     owned: set[tuple[ConvergencePlanId, int]] = set()
     for plan in plans:
         axis = plan.trunk_axis
@@ -2249,7 +2288,7 @@ def _settle_reserved_gap_flanks(
             settled.append(plan)
             continue
         for flank_rank in (1, 3):
-            flank = _trunk_segments(plan.trunk_axis)[flank_rank]
+            flank = _trunk_segments(axis)[flank_rank]
             if abs(flank[0][1] - flank[1][1]) <= COORD_TOLERANCE:
                 continue
             coordinate = flank[0][0]
@@ -2291,23 +2330,28 @@ def _settle_opposing_gap_flanks(
     """
     if len(plans) < 2 and not fixed_channels:
         return plans
-    plan_rank = {plan.id: rank for rank, plan in enumerate(plans)}
+    rank_by_id = {plan.id: rank for rank, plan in enumerate(plans)}
     ordered = tuple(
         sorted(
             plans,
             key=lambda plan: (
                 not any((plan.id, rank) in exit_owned_flanks for rank in (1, 3)),
-                plan_rank[plan.id],
+                rank_by_id[plan.id],
             ),
         )
     )
     settled = list(ordered)
     lookup = gap_lookup_geometry(graph)
-    # Each plan's channels are read once it has settled and never recomputed, so
-    # a plan already past in this order contributes its obstacles as a constant.
-    resident = list(fixed_channels)
-    for plan_rank, _plan in enumerate(ordered):
-        plan = settled[plan_rank]
+    for current_rank, _plan in enumerate(ordered):
+        resident = [
+            *fixed_channels,
+            *(
+                channel
+                for prior_plan in settled[:current_rank]
+                for channel in _plan_gap_channels(prior_plan, graph, lookup)
+            ),
+        ]
+        plan = settled[current_rank]
         if plan.trunk_axis is None or plan.trunk_axis.axis is not DemandAxis.X:
             continue
         channels = _plan_gap_channels(plan, graph, lookup)
@@ -2351,8 +2395,34 @@ def _settle_opposing_gap_flanks(
                     for channel in seated
                 )
             )
+
+            def moved_coupled_flanks(
+                candidate_coordinate: float,
+            ) -> dict[int, ConvergencePlan]:
+                moved_by_rank: dict[int, ConvergencePlan] = {}
+                for candidate_rank, candidate_flank_rank in coupled_flanks:
+                    candidate_plan = moved_by_rank.get(
+                        candidate_rank, settled[candidate_rank]
+                    )
+                    moved_by_rank[candidate_rank] = _move_trunk_flank(
+                        candidate_plan,
+                        candidate_flank_rank,
+                        candidate_coordinate,
+                    )
+                return moved_by_rank
+
+            def landing_feasible(candidate_coordinate: float) -> bool:
+                moved_by_rank = moved_coupled_flanks(candidate_coordinate)
+                candidate = tuple(
+                    moved_by_rank.get(rank, item) for rank, item in enumerate(settled)
+                )
+                return (
+                    _landing_trunk_flank_conflict(candidate, graph, curve_radius)
+                    is None
+                )
+
             coordinate = _flank_lane_coordinate(
-                settled[plan_rank],
+                settled[current_rank],
                 flank_rank,
                 seated[0].coordinate,
                 obstacles,
@@ -2360,17 +2430,11 @@ def _settle_opposing_gap_flanks(
                 lookup,
                 curve_radius,
                 carries_coupled_primary=len(coupled_flanks) > 1,
+                jointly_feasible=landing_feasible,
             )
             if coordinate is None:
                 continue
-            moved_by_rank: dict[int, ConvergencePlan] = {}
-            for candidate_rank, candidate_flank_rank in coupled_flanks:
-                candidate_plan = moved_by_rank.get(
-                    candidate_rank, settled[candidate_rank]
-                )
-                moved_by_rank[candidate_rank] = _move_trunk_flank(
-                    candidate_plan, candidate_flank_rank, coordinate
-                )
+            moved_by_rank = moved_coupled_flanks(coordinate)
             candidate = tuple(
                 moved_by_rank.get(rank, item) for rank, item in enumerate(settled)
             )
@@ -2381,8 +2445,15 @@ def _settle_opposing_gap_flanks(
                 continue
             for candidate_rank, moved in moved_by_rank.items():
                 settled[candidate_rank] = moved
-            channels = _plan_gap_channels(settled[plan_rank], graph, lookup)
-        resident.extend(channels)
+            resident = [
+                *fixed_channels,
+                *(
+                    channel
+                    for prior_plan in settled[:current_rank]
+                    for channel in _plan_gap_channels(prior_plan, graph, lookup)
+                ),
+            ]
+            channels = _plan_gap_channels(settled[current_rank], graph, lookup)
     by_id = {plan.id: plan for plan in settled}
     return tuple(by_id[plan.id] for plan in plans)
 
@@ -2391,12 +2462,15 @@ def _settle_same_line_gap_flanks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     fixed_channels: tuple[_PlanGapChannel, ...],
+    curve_radius: float,
 ) -> tuple[ConvergencePlan, ...]:
     """Fuse overlapping same-line flanks onto one planned channel.
 
     Stored traversal direction is irrelevant to semantic coincidence: two
     segments of one line can traverse their shared stroke in opposite graph
-    directions and must retain one axis.
+    directions and can retain one axis when that axis is a shared physical
+    stroke. A target flank crossing an upstream landing is a separate run, so a
+    fusion that creates such a collision is rejected.
     """
     lookup = gap_lookup_geometry(graph)
     settled = list(plans)
@@ -2409,9 +2483,13 @@ def _settle_same_line_gap_flanks(
             )
             if not seated:
                 continue
+            obstacles = (
+                *resident,
+                *(channel for channel in channels if channel.flank_rank != flank_rank),
+            )
             coordinates = {
                 obstacle.coordinate
-                for obstacle in resident
+                for obstacle in obstacles
                 for channel in seated
                 if obstacle.line_ids & channel.line_ids
                 if channel.gap == obstacle.gap
@@ -2427,9 +2505,17 @@ def _settle_same_line_gap_flanks(
                 for channel in seated
             ):
                 continue
-            settled[plan_rank] = _move_trunk_flank(
-                settled[plan_rank], flank_rank, coordinate
+            moved = _move_trunk_flank(settled[plan_rank], flank_rank, coordinate)
+            candidate = tuple(
+                moved if rank == plan_rank else item
+                for rank, item in enumerate(settled)
             )
+            if (
+                _landing_trunk_flank_conflict(candidate, graph, curve_radius)
+                is not None
+            ):
+                continue
+            settled[plan_rank] = moved
             channels = _plan_gap_channels(settled[plan_rank], graph, lookup)
         resident.extend(channels)
     return tuple(settled)
@@ -2487,8 +2573,9 @@ def _landing_trunk_flank_conflict(
 
     Two sibling arms off one fork on one column are a single stroke, which is what
     the planner settles a forked flank onto. Complete convergences over the same
-    source set can likewise share an exact source stroke. Other coincident legs
-    are two runs in one place, which is a collision.
+    source set can likewise share an exact source stroke. Chained convergence
+    groups in one route system may also describe the same source carrier.
+    Other coincident legs are two runs in one place, which is a collision.
     """
     return next(
         (
@@ -2516,6 +2603,14 @@ def _landing_trunk_flank_conflict(
                     and _segments_coincide(landing_segment, flank)
                 )
                 or _shared_source_bundle_stroke(
+                    landing_plan,
+                    landing,
+                    trunk_plan,
+                    rank,
+                    landing_segment,
+                    flank,
+                )
+                or _shared_chained_source_stroke(
                     landing_plan,
                     landing,
                     trunk_plan,
@@ -2890,6 +2985,32 @@ def build_convergence_plan_execution(
     )
 
 
+def _settle_convergence_geometry(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    exit_turn_plans: tuple[ExitTurnPlan, ...],
+    fixed_channels: tuple[_PlanGapChannel, ...] = (),
+) -> tuple[ConvergencePlan, ...]:
+    """Apply the shared convergence channel-settlement sequence."""
+    settled = _settle_shared_trunk_channels(plans, ctx.curve_radius)
+    settled = _settle_shared_opening_pivots(settled, graph)
+    settled = _settle_opposing_landing_channels(
+        settled, graph, exit_turn_plans, ctx.curve_radius
+    )
+    settled = _settle_landing_trunk_flanks(settled, graph, ctx.curve_radius)
+    settled = _settle_opposing_gap_flanks(
+        settled,
+        graph,
+        ctx.curve_radius,
+        _exit_owned_flanks(settled, exit_turn_plans),
+        fixed_channels,
+    )
+    return _settle_same_line_gap_flanks(
+        settled, graph, fixed_channels, ctx.curve_radius
+    )
+
+
 def settle_global_convergence_execution(
     execution: ConvergencePlanExecution,
     graph: MetroGraph,
@@ -2910,27 +3031,12 @@ def settle_global_convergence_execution(
         plan for plan in exit_turn_plans if plan.system_id in planned_system_ids
     )
     fixed_channels = _planned_member_gap_channels(eligible, member_geometry)
-    settled = _settle_shared_trunk_channels(eligible, ctx.curve_radius)
-    settled = _settle_shared_opening_pivots(settled, graph)
-    settled = _settle_opposing_landing_channels(
-        settled, graph, planned_exit_turns, ctx.curve_radius
+    settled = _settle_convergence_geometry(
+        eligible, graph, ctx, planned_exit_turns, fixed_channels
     )
-    settled = _settle_landing_trunk_flanks(settled, graph, ctx.curve_radius)
-    settled = _settle_opposing_gap_flanks(
-        settled,
-        graph,
-        ctx.curve_radius,
-        _exit_owned_flanks(settled, planned_exit_turns),
-        fixed_channels,
-    )
-    settled = _settle_same_line_gap_flanks(settled, graph, fixed_channels)
     _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
     settled_by_id = {plan.id: plan for plan in settled}
-    plans = tuple(
-        settled_by_id.get(plan.id, plan)
-        for plan in execution.plans
-        if plan.system_id in planned_system_ids
-    )
+    plans = tuple(settled_by_id.get(plan.id, plan) for plan in execution.plans)
     references, demands = _resources(graph, plans) if include_resources else ((), ())
     return ConvergencePlanExecution(
         plans,
@@ -2958,19 +3064,7 @@ def settle_preliminary_convergence_execution(
     planned_exit_turns = tuple(
         plan for plan in exit_turn_plans if plan.system_id in planned_system_ids
     )
-    settled = _settle_shared_trunk_channels(eligible, ctx.curve_radius)
-    settled = _settle_shared_opening_pivots(settled, graph)
-    settled = _settle_opposing_landing_channels(
-        settled, graph, planned_exit_turns, ctx.curve_radius
-    )
-    settled = _settle_landing_trunk_flanks(settled, graph, ctx.curve_radius)
-    settled = _settle_opposing_gap_flanks(
-        settled,
-        graph,
-        ctx.curve_radius,
-        _exit_owned_flanks(settled, planned_exit_turns),
-    )
-    settled = _settle_same_line_gap_flanks(settled, graph, ())
+    settled = _settle_convergence_geometry(eligible, graph, ctx, planned_exit_turns)
     by_id = {plan.id: plan for plan in settled}
     plans = tuple(by_id.get(plan.id, plan) for plan in execution.plans)
     return ConvergencePlanExecution(
@@ -3010,18 +3104,57 @@ def restrict_convergence_execution(
     graph: MetroGraph,
     planned_system_ids: frozenset[RouteSystemId],
     *,
+    compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
     include_resources: bool,
 ) -> ConvergencePlanExecution:
-    """Publish only geometry owned by final planned route systems."""
+    """Publish final planned ownership and non-owning compatibility records."""
+    compatibility_reason = "whole route system uses compatibility emission"
+    demoted = tuple(
+        plan
+        for plan in execution.plans
+        if plan.system_id in compatibility_system_ids and plan.owns_geometry
+    )
     plans = tuple(
-        plan for plan in execution.plans if plan.system_id in planned_system_ids
+        plan
+        if plan.system_id in planned_system_ids or not plan.owns_geometry
+        else replace(
+            plan,
+            upstream_exit_turn_plan_ids=(),
+            upstream_fan_plan_ids=(),
+            primary_trunk_member_id=None,
+            primary_trunk_reason=None,
+            trunk_axis=None,
+            landings=(),
+            outgoing_continuations=(),
+            lane_order=(),
+            endpoint_ownership=(),
+            shared_reference_ids=(),
+            demand_ids=(),
+            foreign_reference_ids=(),
+            disposition=ConvergenceDisposition.LEGACY,
+            legacy_reason=compatibility_reason,
+            conflict=None,
+        )
+        for plan in execution.plans
+        if plan.system_id in planned_system_ids
+        or plan.system_id in compatibility_system_ids
     )
     references, demands = _resources(graph, plans) if include_resources else ((), ())
     return ConvergencePlanExecution(
         plans,
         references,
         demands,
-        execution.diagnostics,
+        execution.diagnostics
+        + tuple(
+            RoutePlanDiagnostic(
+                None,
+                "convergence-plan-legacy",
+                f"convergence system {plan.system_id} uses legacy routing: "
+                f"{compatibility_reason}",
+                blocking=False,
+            )
+            for plan in demoted
+        ),
         _query(plans, execution.query._edge_order),
     )
 

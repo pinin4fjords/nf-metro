@@ -1,5 +1,6 @@
 """Final convergence settlement cannot publish infeasible planned geometry."""
 
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,133 @@ from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser.route_topology import ResolvedEdge
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_coupled_flank_moves_do_not_leave_order_dependent_resident_channels(
+    monkeypatch,
+) -> None:
+    @dataclass(frozen=True)
+    class Plan:
+        id: str
+        trunk_axis: object
+        coordinate: float
+        line_id: str
+        tag: str
+
+    axis = SimpleNamespace(axis=convergences.DemandAxis.X)
+
+    def channels(plan, graph, lookup):
+        return (
+            convergences._PlanGapChannel(
+                1,
+                plan.coordinate,
+                0.0,
+                100.0,
+                True,
+                (0, 0),
+                frozenset({plan.line_id}),
+                frozenset({plan.tag}),
+            ),
+        )
+
+    fixed = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        False,
+        (0, 0),
+        frozenset({"fixed"}),
+        frozenset({"fixed"}),
+    )
+    monkeypatch.setattr(convergences, "gap_lookup_geometry", lambda graph: None)
+    monkeypatch.setattr(convergences, "_plan_gap_channels", channels)
+    monkeypatch.setattr(
+        convergences,
+        "_gap_channels_crowd",
+        lambda channel, obstacle: bool(
+            channel.claimant_member_ids & {"trigger", "third"}
+        ),
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_move_trunk_flank",
+        lambda plan, flank_rank, coordinate: replace(plan, coordinate=coordinate),
+    )
+    monkeypatch.setattr(
+        convergences, "_landing_trunk_flank_conflict", lambda *args: None
+    )
+
+    def lane_coordinate(plan, flank_rank, coordinate, obstacles, *args, **kwargs):
+        if plan.tag == "trigger":
+            return 20.0
+        return sum({obstacle.coordinate for obstacle in obstacles})
+
+    monkeypatch.setattr(convergences, "_flank_lane_coordinate", lane_coordinate)
+
+    def settle(first_coordinate: float) -> float:
+        plans = (
+            Plan("first", axis, first_coordinate, "shared", "first"),
+            Plan("trigger", axis, first_coordinate, "shared", "trigger"),
+            Plan("third", axis, 50.0, "third", "third"),
+        )
+        settled = convergences._settle_opposing_gap_flanks(
+            plans,
+            SimpleNamespace(),
+            curve_radius=8.0,
+            fixed_channels=(fixed,),
+        )
+        return settled[2].coordinate
+
+    assert settle(3.0) == settle(7.0) == 120.0
+
+
+def test_chained_source_exemption_does_not_hide_target_flank_collision(
+    monkeypatch,
+) -> None:
+    system_id = RouteSystemId("system")
+    landing = SimpleNamespace(
+        edge=ResolvedEdge("source", "target", "line"),
+        source_junction_id="source-junction",
+    )
+    landing_plan = SimpleNamespace(
+        id="landing-plan",
+        system_id=system_id,
+        trunk_axis=None,
+        landings=(landing,),
+    )
+    trunk_axis = convergences.ConvergenceTrunkAxis(
+        convergences.DemandAxis.X,
+        0.0,
+        0.0,
+        100.0,
+        convergences.Direction.R,
+        -10.0,
+        10.0,
+    )
+    trunk_plan = SimpleNamespace(
+        id="trunk-plan",
+        system_id=system_id,
+        trunk_axis=trunk_axis,
+        line_ids=("line",),
+        landings=(SimpleNamespace(source_junction_id="source-junction"),),
+        primary_trunk_member_id=None,
+        endpoint_ownership=(),
+    )
+    target_flank = convergences._trunk_segments(trunk_axis)[3]
+    monkeypatch.setattr(
+        convergences,
+        "_landing_cross_segment",
+        lambda candidate, graph: (
+            (target_flank[1], target_flank[0]) if candidate is landing else None
+        ),
+    )
+
+    conflict = convergences._landing_trunk_flank_conflict(
+        (landing_plan, trunk_plan), SimpleNamespace(), curve_radius=8.0
+    )
+
+    assert conflict is not None
 
 
 def test_fan_in_coupled_convergence_flanks_move_as_one_allocation() -> None:

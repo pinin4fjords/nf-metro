@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
@@ -17,26 +17,35 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import spans_share_corridor
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
-    FanPlan,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
     RouteSemanticScaffold,
-    RouteSystemDisposition,
     RouteSystemId,
-    _ordered_unique,
 )
-from nf_metro.layout.routing.common import Direction, RoutedPath, column_gap_edges
+from nf_metro.layout.routing.common import (
+    Direction,
+    GapSlot,
+    RoutedPath,
+    column_gap_edges,
+)
 from nf_metro.layout.routing.context import _RoutingCtx
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _route_inter_section,
 )
+from nf_metro.layout.routing.intra_handlers import (
+    _route_entry_runway,
+    _route_intra_section,
+)
 from nf_metro.layout.routing.normalize import (
     _locate_slot_channel,
     _materialize_gap_slots,
     _materialize_trunk_slots,
+    _VChannel,
 )
+from nf_metro.layout.routing.reserved_bands import ReservedBand
+from nf_metro.layout.routing.tb_handlers import _route_tb_section
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.parser.route_topology import ResolvedEdge, semantic_route_id
 
@@ -58,43 +67,48 @@ class PreliminaryGapChannelClaim:
     line_ids: frozenset[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _MemberCandidate:
+    route: RoutedPath
+    family_id: RouteFamilyId
+    system_id: RouteSystemId
+
+
+@dataclass(frozen=True, slots=True)
+class _MaterializedChannel:
+    candidate: _MemberCandidate
+    channel: _VChannel
+    slot: GapSlot
+
+    @property
+    def gap(self) -> tuple[int, int | None]:
+        return self.slot.gap_lo_col, self.slot.row
+
+    @property
+    def key(self) -> tuple[RouteSystemId, ResolvedEdge, int]:
+        route = self.candidate.route
+        return (
+            self.candidate.system_id,
+            ResolvedEdge(route.edge.source, route.edge.target, route.line_id),
+            self.channel.idx,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ChannelBounds:
+    gap_lo: float
+    gap_hi: float
+    lo: float
+    hi: float
+    band: ReservedBand | None
+
+
 def _eligible_preliminary_gap_claims(
     claims: tuple[PreliminaryGapChannelClaim, ...],
     failure_reasons: Mapping[RouteSystemId, str],
 ) -> tuple[PreliminaryGapChannelClaim, ...]:
     """Drop convergence claims whose member system cannot own geometry."""
     return tuple(claim for claim in claims if claim.system_id not in failure_reasons)
-
-
-def _claims_visible_to_system(
-    claims: tuple[PreliminaryGapChannelClaim, ...],
-    system_id: RouteSystemId,
-    system_rank: Mapping[RouteSystemId, int],
-) -> tuple[PreliminaryGapChannelClaim, ...]:
-    """Expose own and prior claims in canonical system order."""
-    return tuple(
-        claim
-        for claim in claims
-        if system_rank[claim.system_id] <= system_rank[system_id]
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _CompatibilitySystem:
-    disposition: RouteSystemDisposition = RouteSystemDisposition.COMPATIBILITY
-
-
-@dataclass(frozen=True, slots=True)
-class _CompatibilitySystemLookup:
-    edges: frozenset[ResolvedEdge]
-
-    def system_for_edge(self, edge: Edge | ResolvedEdge) -> _CompatibilitySystem | None:
-        resolved = (
-            edge
-            if isinstance(edge, ResolvedEdge)
-            else ResolvedEdge(edge.source, edge.target, edge.line_id)
-        )
-        return _CompatibilitySystem() if resolved in self.edges else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +200,13 @@ def _route_compatibility_template(edge: Edge, ctx: _RoutingCtx) -> RoutedPath:
     source, target = ctx.graph.edge_endpoints(edge)
     route = _route_inter_section(edge, source, target, ctx)
     if route is None:
-        raise RuntimeError("compatibility inter-section member emitted no route")
+        route = _route_tb_section(edge, source, target, ctx)
+    if route is None:
+        route = _route_entry_runway(edge, source, target, ctx)
+    if route is None:
+        route = _route_intra_section(edge, source, target, ctx)
+    if route is None:
+        raise RuntimeError("compatibility member emitted no route")
     return route
 
 
@@ -197,11 +217,13 @@ def _append_compatibility_context(
     system_edges: tuple[ResolvedEdge, ...],
 ) -> None:
     """Emit one compatibility system solely as ordered planning context."""
-    prior_systems = ctx.route_systems
+    prior_compatibility_edges = ctx.compatibility_edges
     prior_exit_turns = ctx.exit_turns
     prior_convergences = ctx.convergences
     other_systems = frozenset(scaffold.ordered_system_ids) - {system_id}
-    ctx.route_systems = _CompatibilitySystemLookup(frozenset(system_edges))
+    ctx.compatibility_edges = frozenset(
+        (edge.source, edge.target, edge.line_id) for edge in system_edges
+    )
     if ctx.exit_turns is not None:
         ctx.exit_turns = ctx.exit_turns.restrict_to_systems(other_systems)
     if ctx.convergences is not None:
@@ -209,29 +231,25 @@ def _append_compatibility_context(
     try:
         for resolved in system_edges:
             key = (resolved.source, resolved.target, resolved.line_id)
-            if key in ctx.skip_edges:
-                continue
             edge = ctx.edge_by_key[key]
             ctx.built_routes.append(_route_compatibility_template(edge, ctx))
     finally:
-        ctx.route_systems = prior_systems
+        ctx.compatibility_edges = prior_compatibility_edges
         ctx.exit_turns = prior_exit_turns
         ctx.convergences = prior_convergences
 
 
 def _freeze_plan(
     scaffold: RouteSemanticScaffold,
-    route: RoutedPath,
-    family_id: RouteFamilyId,
+    candidate: _MemberCandidate,
     ctx: _RoutingCtx,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]],
 ) -> RouteMemberGeometryPlan:
+    route = candidate.route
+    family_id = candidate.family_id
+    system_id = candidate.system_id
     resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
     member_id = scaffold.member_id_by_edge[resolved]
-    connector_ids = _ordered_unique(
-        item.connector_id for item in scaffold.refs_by_edge[resolved]
-    )
-    system_id = scaffold.system_for(connector_ids)
     channels: list[RouteMemberGapChannel] = []
     channel_claims: set[tuple[int, int, int | None, Direction]] = set()
     for slot in route.gap_slots:
@@ -282,52 +300,155 @@ def _freeze_plan(
     )
 
 
-def _allocate_preliminary_gap_claims(
-    routes: list[RoutedPath],
-    claims: tuple[PreliminaryGapChannelClaim, ...],
+def _materialized_channels(
+    candidates: Iterable[_MemberCandidate], ctx: _RoutingCtx
+) -> tuple[_MaterializedChannel, ...]:
+    return tuple(
+        _MaterializedChannel(candidate, channel, slot)
+        for candidate in candidates
+        for slot in candidate.route.gap_slots
+        if (channel := _locate_slot_channel(candidate.route, slot, ctx.graph))
+        is not None
+    )
+
+
+def _index_claims(
+    claims: Iterable[PreliminaryGapChannelClaim],
+) -> Mapping[
+    tuple[RouteSystemId, tuple[int, int | None]],
+    tuple[PreliminaryGapChannelClaim, ...],
+]:
+    indexed: defaultdict[
+        tuple[RouteSystemId, tuple[int, int | None]],
+        list[PreliminaryGapChannelClaim],
+    ] = defaultdict(list)
+    for claim in claims:
+        indexed[(claim.system_id, claim.gap)].append(claim)
+    return MappingProxyType({key: tuple(value) for key, value in indexed.items()})
+
+
+def _index_materialized_channels(
+    channels: Iterable[_MaterializedChannel],
+) -> Mapping[
+    tuple[RouteSystemId, tuple[int, int | None]],
+    tuple[_MaterializedChannel, ...],
+]:
+    indexed: defaultdict[
+        tuple[RouteSystemId, tuple[int, int | None]], list[_MaterializedChannel]
+    ] = defaultdict(list)
+    for item in channels:
+        indexed[(item.candidate.system_id, item.gap)].append(item)
+    return MappingProxyType({key: tuple(value) for key, value in indexed.items()})
+
+
+def _planner_owns_channel(route: RoutedPath, segment_rank: int) -> bool:
+    if route.exit_lane_transition_plan_id is not None:
+        return True
+    if route.fan_plan_id is not None or route.fan_route_emitter is not None:
+        return True
+    owned_ranks = (
+        *route.convergence_owned_segment_ranks,
+        *(
+            ()
+            if route.exit_turn_segment_rank is None
+            else (route.exit_turn_segment_rank,)
+        ),
+    )
+    return any(abs(owned_rank - segment_rank) <= 1 for owned_rank in owned_ranks)
+
+
+def _channel_bounds(item: _MaterializedChannel, ctx: _RoutingCtx) -> _ChannelBounds:
+    route = item.candidate.route
+    left, right = column_gap_edges(
+        ctx.graph,
+        item.slot.gap_lo_col,
+        item.slot.gap_hi_col,
+        row=item.slot.row,
+    )
+    lo = left + EDGE_TO_BUNDLE_CLEARANCE
+    hi = right - EDGE_TO_BUNDLE_CLEARANCE
+    band = ctx.reserved_bands.for_segment(
+        route.edge.source, route.edge.target, route.line_id, item.channel.idx
+    )
+    if band is not None:
+        lo = max(lo, band.lo)
+        hi = min(hi, band.hi)
+    return _ChannelBounds(left, right, lo, hi, band)
+
+
+def _runway_candidates(
+    item: _MaterializedChannel,
+    bounds: _ChannelBounds,
+    seeds: Iterable[float],
     ctx: _RoutingCtx,
-    system_id_by_route: Mapping[int, RouteSystemId],
-    system_rank: Mapping[RouteSystemId, int],
+) -> set[float]:
+    route = item.candidate.route
+    candidates = {*seeds, bounds.lo, bounds.hi}
+    candidates.update(
+        route.points[rank][0] + sign * ctx.curve_radius
+        for rank in (item.channel.idx - 1, item.channel.idx + 2)
+        if 0 <= rank < len(route.points)
+        for sign in (-1.0, 1.0)
+    )
+    return candidates
+
+
+def _candidate_clears_runway(
+    item: _MaterializedChannel,
+    bounds: _ChannelBounds,
+    candidate: float,
+    ctx: _RoutingCtx,
+    *,
+    shared_carrier: bool = False,
+) -> bool:
+    """Whether a candidate preserves its corridor and both corner runways.
+
+    An exact same-line convergence claim already owns a physical carrier, so
+    extending that stroke may use the whole gap.  It still cannot leave the
+    gap, escape a reservation band, or starve either corner.
+    """
+    route = item.candidate.route
+    if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:
+        return False
+    corridor_lo = bounds.gap_lo if shared_carrier else bounds.lo
+    corridor_hi = bounds.gap_hi if shared_carrier else bounds.hi
+    if (
+        candidate < corridor_lo - COORD_TOLERANCE
+        or candidate > corridor_hi + COORD_TOLERANCE
+    ):
+        return False
+    return all(
+        not (
+            0 <= rank < len(route.points)
+            and abs(route.points[rank][0] - candidate)
+            < ctx.curve_radius - COORD_TOLERANCE
+        )
+        for rank in (item.channel.idx - 1, item.channel.idx + 2)
+    )
+
+
+def _align_same_line_channels(
+    materialized: tuple[_MaterializedChannel, ...],
+    claims_by_system_gap: Mapping[
+        tuple[RouteSystemId, tuple[int, int | None]],
+        tuple[PreliminaryGapChannelClaim, ...],
+    ],
+    ctx: _RoutingCtx,
 ) -> None:
-    """Seat mutable member channels around preliminary convergence claims."""
     from nf_metro.layout.routing.normalize import _set_vchannel_x
 
-    def planner_owns_channel(route: RoutedPath, segment_rank: int) -> bool:
-        if route.exit_lane_transition_plan_id is not None:
-            return True
-        if route.fan_plan_id is not None or route.fan_route_emitter is not None:
-            return True
-        owned_ranks = (
-            *route.convergence_owned_segment_ranks,
-            *(
-                ()
-                if route.exit_turn_segment_rank is None
-                else (route.exit_turn_segment_rank,)
-            ),
-        )
-        return any(abs(owned_rank - segment_rank) <= 1 for owned_rank in owned_ranks)
-
-    if not claims:
-        return
-    materialized = tuple(
-        (route, channel, slot, (slot.gap_lo_col, slot.row))
-        for route in routes
-        for slot in route.gap_slots
-        if (channel := _locate_slot_channel(route, slot, ctx.graph)) is not None
-    )
-    seated: set[tuple[int, int]] = set()
-    for route, channel, slot, gap in materialized:
-        if (id(route), channel.idx) in seated:
+    seated: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
+    for item in materialized:
+        route = item.candidate.route
+        channel = item.channel
+        if item.key in seated or _planner_owns_channel(route, channel.idx):
             continue
-        if planner_owns_channel(route, channel.idx):
-            continue
-        route_system_id = system_id_by_route[id(route)]
         matching = tuple(
             claim
-            for claim in claims
-            if claim.system_id == route_system_id
-            and claim.gap == gap
-            and route.line_id in claim.line_ids
+            for claim in claims_by_system_gap.get(
+                (item.candidate.system_id, item.gap), ()
+            )
+            if route.line_id in claim.line_ids
             and spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
         )
         coordinates = {claim.coordinate for claim in matching}
@@ -336,195 +457,200 @@ def _allocate_preliminary_gap_claims(
         target = next(iter(coordinates))
         if abs(channel.x - target) <= COORD_TOLERANCE:
             continue
-        left, right = column_gap_edges(
-            ctx.graph, slot.gap_lo_col, slot.gap_hi_col, row=slot.row
-        )
-        lo = left + EDGE_TO_BUNDLE_CLEARANCE
-        hi = right - EDGE_TO_BUNDLE_CLEARANCE
-        band = ctx.reserved_bands.for_segment(
-            route.edge.source, route.edge.target, route.line_id, channel.idx
-        )
-        if band is not None:
-            lo = max(lo, band.lo)
-            hi = min(hi, band.hi)
-        candidates = {target, lo, hi}
-        candidates.update(
-            route.points[rank][0] + sign * ctx.curve_radius
-            for rank in (channel.idx - 1, channel.idx + 2)
-            if 0 <= rank < len(route.points)
-            for sign in (-1.0, 1.0)
-        )
-
-        def feasible_same_line(candidate: float) -> bool:
-            return (
-                (band is None or band.lo <= candidate <= band.hi)
-                and lo - COORD_TOLERANCE <= candidate <= hi + COORD_TOLERANCE
-                and all(
-                    not (
-                        0 <= rank < len(route.points)
-                        and abs(route.points[rank][0] - candidate)
-                        < ctx.curve_radius - COORD_TOLERANCE
-                    )
-                    for rank in (channel.idx - 1, channel.idx + 2)
-                )
-            )
-
+        bounds = _channel_bounds(item, ctx)
+        candidates = _runway_candidates(item, bounds, (target,), ctx)
         coordinate = next(
             (
                 candidate
                 for candidate in sorted(
                     candidates,
-                    key=lambda item: (abs(item - target), abs(item - channel.x), item),
+                    key=lambda value: (
+                        abs(value - target),
+                        abs(value - channel.x),
+                        value,
+                    ),
                 )
-                if feasible_same_line(candidate)
+                if _candidate_clears_runway(
+                    item,
+                    bounds,
+                    candidate,
+                    ctx,
+                    shared_carrier=abs(candidate - target) <= COORD_TOLERANCE,
+                )
             ),
             None,
         )
         if coordinate is not None:
             _set_vchannel_x(channel, coordinate)
-            seated.add((id(route), channel.idx))
-    materialized = tuple(
-        (route, channel, (slot.gap_lo_col, slot.row))
-        for route in routes
-        for slot in route.gap_slots
-        if (channel := _locate_slot_channel(route, slot, ctx.graph)) is not None
-    )
-    effective_claims: list[PreliminaryGapChannelClaim] = []
+            seated.add(item.key)
+
+
+def _effective_claims(
+    claims: tuple[PreliminaryGapChannelClaim, ...],
+    channels_by_system_gap: Mapping[
+        tuple[RouteSystemId, tuple[int, int | None]],
+        tuple[_MaterializedChannel, ...],
+    ],
+) -> tuple[PreliminaryGapChannelClaim, ...]:
+    effective: list[PreliminaryGapChannelClaim] = []
     for claim in claims:
         shared_coordinates = {
-            channel.x
-            for route, channel, gap in materialized
-            if system_id_by_route[id(route)] == claim.system_id
-            and gap == claim.gap
-            and route.line_id in claim.line_ids
-            and spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
+            item.channel.x
+            for item in channels_by_system_gap.get((claim.system_id, claim.gap), ())
+            if item.candidate.route.line_id in claim.line_ids
+            and spans_share_corridor(
+                item.channel.y_lo,
+                item.channel.y_hi,
+                claim.y_lo,
+                claim.y_hi,
+            )
         }
-        effective_claims.append(
+        effective.append(
             replace(claim, coordinate=next(iter(shared_coordinates)))
             if len(shared_coordinates) == 1
             else claim
         )
-    seen: set[tuple[int, int]] = set()
-    for route in routes:
-        route_system_id = system_id_by_route[id(route)]
-        visible_claims = _claims_visible_to_system(
-            tuple(effective_claims), route_system_id, system_rank
+    return tuple(effective)
+
+
+def _visible_claims_by_system_gap(
+    claims: tuple[PreliminaryGapChannelClaim, ...],
+    system_rank: Mapping[RouteSystemId, int],
+) -> Mapping[
+    tuple[RouteSystemId, tuple[int, int | None]],
+    tuple[PreliminaryGapChannelClaim, ...],
+]:
+    gaps = tuple(dict.fromkeys(claim.gap for claim in claims))
+    return MappingProxyType(
+        {
+            (system_id, gap): tuple(
+                claim
+                for claim in claims
+                if claim.gap == gap and system_rank[claim.system_id] <= rank
+            )
+            for system_id, rank in system_rank.items()
+            for gap in gaps
+        }
+    )
+
+
+def _claim_clearance(
+    item: _MaterializedChannel, claim: PreliminaryGapChannelClaim
+) -> float:
+    route = item.candidate.route
+    channel = item.channel
+    if route.line_id in claim.line_ids:
+        return 0.0
+    overlap = min(channel.y_hi, claim.y_hi) - max(channel.y_lo, claim.y_lo)
+    if overlap <= MIN_CORRIDOR_Y_OVERLAP:
+        return 0.0
+    return BUNDLE_TO_BUNDLE_CLEARANCE if channel.down is not claim.down else OFFSET_STEP
+
+
+def _allocate_channel_around_claims(
+    item: _MaterializedChannel,
+    obstacles: tuple[PreliminaryGapChannelClaim, ...],
+    ctx: _RoutingCtx,
+) -> None:
+    from nf_metro.layout.routing.normalize import _set_vchannel_x
+
+    route = item.candidate.route
+    channel = item.channel
+    ambiguous = tuple(
+        claim
+        for claim in obstacles
+        if route.line_id in claim.line_ids
+        and abs(channel.x - claim.coordinate) > COORD_TOLERANCE
+    )
+    crowded = tuple(
+        claim
+        for claim in obstacles
+        if (required := _claim_clearance(item, claim)) > 0.0
+        and abs(channel.x - claim.coordinate) < required - COORD_TOLERANCE
+    )
+    if not ambiguous and not crowded:
+        return
+    bounds = _channel_bounds(item, ctx)
+    seeds = {claim.coordinate for claim in ambiguous}
+    seeds.update(
+        claim.coordinate + sign * _claim_clearance(item, claim)
+        for claim in crowded
+        for sign in (-1.0, 1.0)
+    )
+    candidates = _runway_candidates(item, bounds, seeds, ctx)
+
+    def feasible(candidate: float) -> bool:
+        return _candidate_clears_runway(item, bounds, candidate, ctx) and all(
+            route.line_id not in claim.line_ids
+            or abs(candidate - claim.coordinate) <= COORD_TOLERANCE
+            for claim in obstacles
         )
-        for slot in route.gap_slots:
-            channel = _locate_slot_channel(route, slot, ctx.graph)
-            if channel is None or (id(route), channel.idx) in seen:
-                continue
-            seen.add((id(route), channel.idx))
-            if planner_owns_channel(route, channel.idx):
-                continue
-            gap = (slot.gap_lo_col, slot.row)
-            obstacles = tuple(
-                claim
-                for claim in visible_claims
-                if claim.gap == gap
-                and spans_share_corridor(
-                    channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi
-                )
-            )
-            if not obstacles:
-                continue
 
-            def clearance(claim: PreliminaryGapChannelClaim) -> float:
-                if route.line_id in claim.line_ids:
-                    return 0.0
-                overlap = min(channel.y_hi, claim.y_hi) - max(channel.y_lo, claim.y_lo)
-                if overlap <= MIN_CORRIDOR_Y_OVERLAP:
-                    return 0.0
-                return (
-                    BUNDLE_TO_BUNDLE_CLEARANCE
-                    if channel.down is not claim.down
-                    else OFFSET_STEP
-                )
-
-            ambiguous = tuple(
-                claim
+    def rank(candidate: float) -> tuple[int, float, float, float]:
+        residual = sum(
+            required > 0.0
+            and abs(candidate - claim.coordinate) < required - COORD_TOLERANCE
+            for claim in obstacles
+            for required in (_claim_clearance(item, claim),)
+        )
+        separation = min(
+            (
+                abs(candidate - claim.coordinate)
                 for claim in obstacles
-                if route.line_id in claim.line_ids
-                and abs(channel.x - claim.coordinate) > COORD_TOLERANCE
-            )
-            crowded = tuple(
-                claim
-                for claim in obstacles
-                if (required := clearance(claim)) > 0.0
-                and abs(channel.x - claim.coordinate) < required - COORD_TOLERANCE
-            )
-            if not ambiguous and not crowded:
-                continue
-            left, right = column_gap_edges(
-                ctx.graph, slot.gap_lo_col, slot.gap_hi_col, row=slot.row
-            )
-            lo = left + EDGE_TO_BUNDLE_CLEARANCE
-            hi = right - EDGE_TO_BUNDLE_CLEARANCE
-            band = ctx.reserved_bands.for_segment(
-                route.edge.source, route.edge.target, route.line_id, channel.idx
-            )
-            if band is not None:
-                lo = max(lo, band.lo)
-                hi = min(hi, band.hi)
-            candidates = {claim.coordinate for claim in ambiguous}
-            candidates.update(
-                claim.coordinate + sign * clearance(claim)
-                for claim in crowded
-                for sign in (-1.0, 1.0)
-            )
-            candidates.update({lo, hi})
-            candidates.update(
-                route.points[rank][0] + sign * ctx.curve_radius
-                for rank in (channel.idx - 1, channel.idx + 2)
-                if 0 <= rank < len(route.points)
-                for sign in (-1.0, 1.0)
-            )
+                if route.line_id not in claim.line_ids
+            ),
+            default=float("inf"),
+        )
+        return residual, -separation, abs(candidate - channel.x), candidate
 
-            def feasible(candidate: float) -> bool:
-                if band is not None and not band.lo <= candidate <= band.hi:
-                    return False
-                if candidate < lo - COORD_TOLERANCE or candidate > hi + COORD_TOLERANCE:
-                    return False
-                if any(
-                    0 <= rank < len(route.points)
-                    and abs(route.points[rank][0] - candidate)
-                    < ctx.curve_radius - COORD_TOLERANCE
-                    for rank in (channel.idx - 1, channel.idx + 2)
-                ):
-                    return False
-                return all(
-                    route.line_id not in claim.line_ids
-                    or abs(candidate - claim.coordinate) <= COORD_TOLERANCE
-                    for claim in obstacles
-                )
+    coordinate = next(
+        (
+            candidate
+            for candidate in sorted(candidates, key=rank)
+            if feasible(candidate)
+        ),
+        None,
+    )
+    if coordinate is not None:
+        _set_vchannel_x(channel, coordinate)
 
-            def rank(candidate: float) -> tuple[int, float, float, float]:
-                residual = sum(
-                    required > 0.0
-                    and abs(candidate - claim.coordinate) < required - COORD_TOLERANCE
-                    for claim in obstacles
-                    for required in (clearance(claim),)
-                )
-                separation = min(
-                    (
-                        abs(candidate - claim.coordinate)
-                        for claim in obstacles
-                        if route.line_id not in claim.line_ids
-                    ),
-                    default=float("inf"),
-                )
-                return residual, -separation, abs(candidate - channel.x), candidate
 
-            coordinate = next(
-                (
-                    candidate
-                    for candidate in sorted(candidates, key=rank)
-                    if feasible(candidate)
-                ),
-                None,
+def _allocate_preliminary_gap_claims(
+    candidates: tuple[_MemberCandidate, ...],
+    claims: tuple[PreliminaryGapChannelClaim, ...],
+    ctx: _RoutingCtx,
+    system_rank: Mapping[RouteSystemId, int],
+) -> None:
+    """Seat mutable member channels around preliminary convergence claims."""
+    if not claims:
+        return
+    materialized = _materialized_channels(candidates, ctx)
+    _align_same_line_channels(materialized, _index_claims(claims), ctx)
+
+    materialized = _materialized_channels(candidates, ctx)
+    effective_claims = _effective_claims(
+        claims, _index_materialized_channels(materialized)
+    )
+    visible = _visible_claims_by_system_gap(effective_claims, system_rank)
+    seen: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
+    for item in materialized:
+        if item.key in seen:
+            continue
+        seen.add(item.key)
+        if _planner_owns_channel(item.candidate.route, item.channel.idx):
+            continue
+        obstacles = tuple(
+            claim
+            for claim in visible.get((item.candidate.system_id, item.gap), ())
+            if spans_share_corridor(
+                item.channel.y_lo,
+                item.channel.y_hi,
+                claim.y_lo,
+                claim.y_hi,
             )
-            if coordinate is not None:
-                _set_vchannel_x(channel, coordinate)
+        )
+        if obstacles:
+            _allocate_channel_around_claims(item, obstacles, ctx)
 
 
 def build_member_geometry_execution(
@@ -532,25 +658,19 @@ def build_member_geometry_execution(
     ctx: _RoutingCtx,
     scaffold: RouteSemanticScaffold,
     *,
-    exit_turn_plans: tuple,
-    fan_plans: tuple[FanPlan, ...],
     family_by_edge: Mapping[ResolvedEdge, RouteFamilyId],
     compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
     preliminary_gap_claims: tuple[PreliminaryGapChannelClaim, ...] = (),
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
 ) -> MemberGeometryExecution:
     """Freeze each eligible non-convergence member's sole production template."""
-    del exit_turn_plans, fan_plans
     convergence_edges = _convergence_member_edges(scaffold)
     reservation_ids = reservation_ids_by_member or {}
-    candidates: list[tuple[RoutedPath, RouteFamilyId, RouteSystemId]] = []
+    candidates: list[_MemberCandidate] = []
     failures: dict[RouteSystemId, str] = {}
     edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
     for resolved in scaffold.edge_order:
-        connector_ids = _ordered_unique(
-            item.connector_id for item in scaffold.refs_by_edge[resolved]
-        )
-        edges_by_system[scaffold.system_for(connector_ids)].append(resolved)
+        edges_by_system[scaffold.system_for_edge(resolved)].append(resolved)
     built_start = len(ctx.built_routes)
     try:
         for system_id in scaffold.ordered_system_ids:
@@ -559,9 +679,7 @@ def build_member_geometry_execution(
                 _append_compatibility_context(ctx, scaffold, system_id, system_edges)
                 continue
             system_start = len(ctx.built_routes)
-            system_candidates: list[
-                tuple[RoutedPath, RouteFamilyId, RouteSystemId]
-            ] = []
+            system_candidates: list[_MemberCandidate] = []
             for resolved in system_edges:
                 key = (resolved.source, resolved.target, resolved.line_id)
                 if resolved in convergence_edges or key in ctx.skip_edges:
@@ -579,7 +697,7 @@ def build_member_geometry_execution(
                 except MemberGeometryDeclinedError:
                     failures[system_id] = "canonical-template-declined-member"
                     break
-                system_candidates.append((route, family_id, system_id))
+                system_candidates.append(_MemberCandidate(route, family_id, system_id))
                 ctx.built_routes.append(route)
             if system_id not in failures:
                 candidates.extend(system_candidates)
@@ -588,7 +706,7 @@ def build_member_geometry_execution(
             del ctx.built_routes[system_start:]
             _append_compatibility_context(ctx, scaffold, system_id, system_edges)
 
-        candidate_routes = [route for route, _family, _system in candidates]
+        candidate_routes = [candidate.route for candidate in candidates]
         _materialize_gap_slots(candidate_routes, ctx)
         _materialize_trunk_slots(candidate_routes, ctx)
         eligible_claims = _eligible_preliminary_gap_claims(
@@ -596,29 +714,17 @@ def build_member_geometry_execution(
             failures,
         )
         _allocate_preliminary_gap_claims(
-            candidate_routes,
+            tuple(candidates),
             eligible_claims,
             ctx,
-            {id(route): system_id for route, _family, system_id in candidates},
             {
                 system_id: rank
                 for rank, system_id in enumerate(scaffold.ordered_system_ids)
             },
         )
         plans = tuple(
-            _freeze_plan(scaffold, route, family_id, ctx, reservation_ids)
-            for route, family_id, _system_id in candidates
-            if scaffold.system_for(
-                _ordered_unique(
-                    item.connector_id
-                    for item in scaffold.refs_by_edge[
-                        ResolvedEdge(
-                            route.edge.source, route.edge.target, route.line_id
-                        )
-                    ]
-                )
-            )
-            not in failures
+            _freeze_plan(scaffold, candidate, ctx, reservation_ids)
+            for candidate in candidates
         )
     finally:
         del ctx.built_routes[built_start:]

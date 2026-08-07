@@ -21,6 +21,7 @@ import nf_metro.layout.routing.inter_section_handlers as inter_section_handlers
 from nf_metro.api import apply_layout_overrides, prepare_graph, resolve_theme
 from nf_metro.layout.route_plan import (
     BindingKind,
+    ConvergenceDisposition,
     CoordinateRegime,
     CoverageReason,
     DemandAxis,
@@ -29,6 +30,7 @@ from nf_metro.layout.route_plan import (
     EmissionRole,
     ExitTurnDisposition,
     RouteFamilyId,
+    RouteSystemDisposition,
     SharedReferenceKind,
     build_route_plan_query,
     serialize_route_plan,
@@ -375,11 +377,76 @@ def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
             for candidate in inter_section_handlers._INTER_SECTION_RULES
         ],
     )
-    with pytest.raises(
-        ValueError,
-        match="unregistered compatibility reason convergence-plan",
-    ):
-        observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    (system,) = observation.plan.systems
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert tuple(
+        (reason.owner, reason.reason) for reason in system.compatibility_reasons
+    ) == (("member-geometry-plan", "canonical-template-declined-member"),)
+    assert not system.member_geometry_plan_ids
+    assert not system.exit_turn_plan_ids
+    assert not system.shared_reference_ids
+    assert not system.demand_ids
+    assert not system.reservation_ids
+    assert not tuple(
+        plan for plan in observation.plan.exit_turn_plans if plan.system_id == system.id
+    )
+    convergence_plans = tuple(
+        plan
+        for plan in observation.plan.convergence_plans
+        if plan.system_id == system.id
+    )
+    assert convergence_plans
+    assert system.convergence_plan_ids == tuple(plan.id for plan in convergence_plans)
+    assert all(
+        plan.disposition is ConvergenceDisposition.LEGACY
+        and not plan.shared_reference_ids
+        and not plan.demand_ids
+        and not plan.endpoint_ownership
+        for plan in convergence_plans
+    )
+
+    routes = tuple(
+        route for route in observation.routes if route.route_system_id == str(system.id)
+    )
+    assert routes
+    assert all(route.route_system_disposition == "compatibility" for route in routes)
+    assert all(
+        not route.route_plan_ids
+        and route.exit_turn_plan_id is None
+        and route.fan_plan_id is None
+        and route.convergence_plan_id is None
+        and not route.route_system_owned_segment_ranks
+        for route in routes
+    )
+
+    query = build_route_plan_query(observation.plan)
+    assert all(
+        not query.fan_plans_for_member(member_id) for member_id in system.member_ids
+    )
+    assert all(
+        not query.reservations_for_member(member_id) for member_id in system.member_ids
+    )
+    bindings = {
+        member_id: query.bindings_for(member_id) for member_id in system.member_ids
+    }
+    assert all(len(items) == 1 for items in bindings.values())
+    emitted_member_ids = {
+        member_id
+        for member_id, (binding,) in bindings.items()
+        if binding.kind is BindingKind.EMITTED
+    }
+    covered = tuple(
+        binding
+        for (binding,) in bindings.values()
+        if binding.kind is BindingKind.COVERED_MERGE_HOP
+    )
+    assert {
+        route.emission_member_id for route in routes if route.emission_member_id
+    } == {str(member_id) for member_id in emitted_member_ids}
+    assert all(binding.covering_member_id in emitted_member_ids for binding in covered)
 
 
 def test_schema_names_every_future_reference_and_demand_kind() -> None:
