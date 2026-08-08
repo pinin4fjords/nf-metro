@@ -1398,6 +1398,12 @@ class FanPlan:
             and self.join_station_id is None
         ):
             raise ValueError("planned reconvergence has no resolved join")
+        if (
+            planned
+            and self.authored_join_station_id is not None
+            and self.appearance_policy is FanAppearancePolicy.STRAIGHT
+        ):
+            raise ValueError("straight-diamond geometry requires established layout")
         local_frame_owned = bool(self.layout_station_ids)
         has_appearance_centreline = self.appearance_centreline_branch_id is not None
         has_vacant_trunk = fan_has_vacant_trunk(

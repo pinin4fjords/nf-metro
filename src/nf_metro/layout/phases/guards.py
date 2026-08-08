@@ -5242,6 +5242,22 @@ def _guard_planned_fan_frame_realised(
             f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
         )
 
+    unsupported = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.authored_join_station_id is not None
+            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+        ),
+        None,
+    )
+    if unsupported is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned fan {unsupported.id!s} claims geometry for frozen "
+            f"appearance policy {unsupported.appearance_policy.value!r}"
+        )
+
     offset_step = graph_offset_step(graph)
     section_layers: dict[str, dict[str, int]] = {}
     tb_positive_fan = tb_positive_fan_sections(graph)
