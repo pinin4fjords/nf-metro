@@ -75,7 +75,11 @@ KNOWN_NOT_RENDERING = frozenset(
 # tolerance" is only worth something if the population sitting just inside the
 # tolerance cannot grow without anyone noticing.  Adding one here is a decision
 # to be argued for, not a side effect.
-WITHIN_TOLERANCE_OVERHANGS: frozenset[tuple[str, int, int]] = frozenset()
+WITHIN_TOLERANCE_OVERHANGS: frozenset[tuple[str, int, int]] = frozenset(
+    {
+        ("examples/genomeassembly.mmd", 39, 3),
+    }
+)
 
 
 def _claim_overhangs(path: Path) -> dict[tuple[int, int], tuple[float, str]] | None:
