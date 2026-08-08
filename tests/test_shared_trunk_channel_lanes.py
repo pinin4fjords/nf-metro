@@ -5,6 +5,11 @@ no knowledge of its siblings, so two plans of one system taking the same channel
 derive the same coordinate.  The decision belongs to the system: it lanes them by
 ``cotravelling_lane_clearance``, which separates a line from its own return leg by
 a turn radius and fuses two trunks running the same way onto one stroke.
+
+The same clearance bounds the other side of the decision.  Runs that co-travel a
+corridor toward one local destination are lanes of one bundle, so a trial
+coordinate leaving them further apart than their pitch is packed back onto it,
+against a sibling trunk or against a frozen member run already in the corridor.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
-from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS
+from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.geometry import cotravelling_lane_clearance
 from nf_metro.layout.route_plan import (
     ConvergenceContinuation,
@@ -31,6 +36,7 @@ from nf_metro.layout.route_plan import (
     DemandAxis,
     DemandId,
     EmissionMemberId,
+    RoutePlan,
     RouteSystemId,
     SharedReferenceId,
 )
@@ -60,15 +66,21 @@ LANE_CLEARANCE = cotravelling_lane_clearance(
 )
 
 
-def _systems_with_shared_trunks(
-    path: Path,
-) -> dict[str, list[ConvergencePlan]]:
-    """*path*'s route systems that converge more than once, by system."""
+def _published_plan(path: Path) -> RoutePlan:
+    """The route plan *path* publishes through the render chokepoint."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
     assert plan is not None
+    return plan
+
+
+def _systems_with_shared_trunks(
+    path: Path,
+) -> dict[str, list[ConvergencePlan]]:
+    """*path*'s route systems that converge more than once, by system."""
+    plan = _published_plan(path)
     by_system: dict[str, list[ConvergencePlan]] = {}
     for item in plan.convergence_plans:
         by_system.setdefault(str(item.system_id), []).append(item)
@@ -107,6 +119,74 @@ def test_one_system_lanes_the_trunk_channel_its_plans_share(path: Path) -> None:
                     f"a line and its return leg need {LANE_CLEARANCE}px between "
                     f"their lanes, not {separation}px"
                 )
+
+
+def _member_interior_runs(
+    plan: RoutePlan, system_id: RouteSystemId
+) -> list[tuple[float, float, float]]:
+    """Every horizontal run *system_id*'s members hold between two turns."""
+    runs: list[tuple[float, float, float]] = []
+    for member in plan.member_geometry_plans:
+        if member.system_id != system_id:
+            continue
+        points = member.points
+        for rank in range(1, len(points) - 2):
+            start, end = points[rank], points[rank + 1]
+            before, after = points[rank - 1], points[rank + 2]
+            if (
+                abs(start[1] - end[1]) > COORD_TOLERANCE
+                or abs(start[0] - end[0]) <= COORD_TOLERANCE
+                or abs(before[0] - start[0]) > COORD_TOLERANCE
+                or abs(after[0] - end[0]) > COORD_TOLERANCE
+            ):
+                continue
+            runs.append((start[1], min(start[0], end[0]), max(start[0], end[0])))
+    return runs
+
+
+def test_distinct_line_trunks_heading_off_one_junction_hold_bundle_pitch() -> None:
+    """Two trunks fed by the same junctions travel their gap as one bundle.
+
+    They part only at the far end, where each turns off to its own target, so a
+    trial coordinate that leaves them a whole bundle apart reads as two separate
+    corridors crossing the map rather than one bundle of two lines.
+    """
+    plan = _published_plan(
+        ROOT / "examples" / "topologies" / "exit_run_three_drop_columns.mmd"
+    )
+    trunks = {
+        item.line_ids: item.trunk_axis
+        for item in plan.convergence_plans
+        if item.trunk_axis is not None
+    }
+    sheets, report = trunks[("sheets",)], trunks[("report",)]
+
+    assert sheets.direction is report.direction
+    assert abs(sheets.coordinate - report.coordinate) == pytest.approx(OFFSET_STEP)
+
+
+def test_a_trunk_returning_to_an_entry_port_joins_the_member_run_already_there() -> (
+    None
+):
+    """A trunk and a frozen member both ending at one entry port draw one stroke.
+
+    The member's geometry is settled before the trunk's channel is decided, so
+    the coordinate it holds is the one the trunk has to meet rather than a second
+    lane for the same line to run in.
+    """
+    plan = _published_plan(ROOT / "examples" / "topologies" / "merge_right_entry.mmd")
+    trunk = next(item for item in plan.convergence_plans if item.trunk_axis is not None)
+    axis = trunk.trunk_axis
+    assert axis is not None
+
+    shared = [
+        run
+        for run in _member_interior_runs(plan, trunk.system_id)
+        if min(run[2], axis.extent_end) - max(run[1], axis.extent_start) > CURVE_RADIUS
+    ]
+    assert shared, "the fixture no longer routes a member through the trunk's corridor"
+    for coordinate, _lo, _hi in shared:
+        assert coordinate == pytest.approx(axis.coordinate)
 
 
 def _planned_plan(

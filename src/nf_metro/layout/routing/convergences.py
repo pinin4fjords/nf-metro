@@ -68,6 +68,7 @@ from nf_metro.layout.routing.common import (
     column_gap_edges,
     gap_lo_for_x,
     gap_lookup_geometry,
+    inter_row_gap_upper_row,
     iter_horizontal_trunks,
     merge_fanout_pivot_reference,
 )
@@ -1618,6 +1619,203 @@ def _settle_shared_trunk_channels(
     )
     settled = _lane_trunk_runs(list(plans), clearance)
     return tuple(_lane_trunk_flanks(settled, clearance, curve_radius))
+
+
+@dataclass(frozen=True, slots=True)
+class _CotravellingRun:
+    """One axis-aligned run a route system lays along a shared corridor.
+
+    ``corridor`` names the inter-row gap the run travels, and is ``None`` for a
+    run outside every gap.  Naming the corridor is what lets two runs of one
+    system count as neighbours however far apart their trial coordinates landed:
+    without it the only evidence available is proximity, which cannot tell a
+    split bundle from two corridors that happen to be near each other.
+
+    ``carrier_ids`` are the junctions the run leaves and the endpoints it heads
+    to, so locality is decided on where a run starts and stops rather than on
+    the line or system it belongs to over its whole length.
+    """
+
+    system_id: RouteSystemId
+    coordinate: float
+    lo: float
+    hi: float
+    direction: Direction
+    line_ids: frozenset[str]
+    carrier_ids: frozenset[str]
+    corridor: int | None
+
+
+def _bundled_corridor_runs(first: _CotravellingRun, second: _CotravellingRun) -> bool:
+    """Whether two runs are lanes of one bundle rather than two bundles.
+
+    Every clause is local evidence and all of them are required: one route
+    system, one travel direction, a corridor the two genuinely share, an
+    overlapping span, and a carrier one starts or ends on that the other does
+    too.  Counter-running runs are never a bundle, and neither is a pair that
+    only meets a line, a destination or a system somewhere off this span.
+
+    Runs in one named corridor are neighbours at any separation, because that is
+    the corridor's whole width.  Where no gap names the corridor, a separation
+    under ``BUNDLE_TO_BUNDLE_CLEARANCE`` is the evidence instead: that clearance
+    is by definition what distinct bundles keep, so anything inside it is one
+    bundle drawn too wide.
+    """
+    return (
+        first.system_id == second.system_id
+        and first.direction is second.direction
+        and bool(first.carrier_ids & second.carrier_ids)
+        and spans_share_corridor(first.lo, first.hi, second.lo, second.hi)
+        and (
+            first.corridor == second.corridor
+            if first.corridor is not None and second.corridor is not None
+            else abs(first.coordinate - second.coordinate) < BUNDLE_TO_BUNDLE_CLEARANCE
+        )
+    )
+
+
+def _bundle_pitch(first: _CotravellingRun, second: _CotravellingRun) -> float:
+    """The separation two lanes of one bundle hold through their shared span."""
+    return cotravelling_lane_clearance(
+        same_line=first.line_ids == second.line_ids,
+        counter_running=False,
+        curve_radius=CURVE_RADIUS,
+    )
+
+
+def _packed_lane(run: _CotravellingRun, seated: list[_CotravellingRun]) -> float | None:
+    """Where *run* sits once packed onto the bundle *seated* already describes.
+
+    The nearest lane is the reference, and the side *run* already lies on is the
+    side it keeps, so packing narrows a bundle without transposing its order.  A
+    move is declined unless it leaves every other lane of the bundle at its own
+    pitch, since closing one gap at the cost of another would draw one of the
+    lines inside its neighbour.
+    """
+    neighbours = [item for item in seated if _bundled_corridor_runs(run, item)]
+    reference = min(
+        neighbours,
+        key=lambda item: (abs(item.coordinate - run.coordinate), item.coordinate),
+        default=None,
+    )
+    if reference is None:
+        return None
+    pitch = _bundle_pitch(run, reference)
+    side = 1.0 if run.coordinate >= reference.coordinate else -1.0
+    candidate = reference.coordinate + side * pitch
+    if abs(candidate - run.coordinate) <= COORD_TOLERANCE:
+        return None
+    if any(
+        abs(candidate - item.coordinate) < _bundle_pitch(run, item) - COORD_TOLERANCE
+        for item in neighbours
+        if item is not reference
+    ):
+        return None
+    return candidate
+
+
+def _trunk_corridor_run(
+    plan: ConvergencePlan, graph: MetroGraph
+) -> _CotravellingRun | None:
+    """The corridor run *plan*'s central trunk lays, when it lays one."""
+    axis = plan.trunk_axis
+    if axis is None or axis.axis is not DemandAxis.X:
+        return None
+    (start_x, coordinate), (end_x, _end_y) = _trunk_segments(axis)[0]
+    return _CotravellingRun(
+        plan.system_id,
+        coordinate,
+        min(start_x, end_x),
+        max(start_x, end_x),
+        axis.direction,
+        frozenset(plan.line_ids),
+        frozenset(
+            (
+                *(landing.source_junction_id for landing in plan.landings),
+                *plan.target_entry_port_ids,
+            )
+        ),
+        inter_row_gap_upper_row(graph, coordinate),
+    )
+
+
+def _member_corridor_runs(
+    plans: tuple[ConvergencePlan, ...],
+    member_geometry: MemberGeometryExecution,
+    graph: MetroGraph,
+) -> tuple[_CotravellingRun, ...]:
+    """Every horizontal corridor run a system's unowned members already hold.
+
+    The vertical counterpart is :func:`_planned_member_gap_channels`.  Only an
+    interior run between two turns is exposed: a first or last leg is the
+    member's own approach to a station, which no bundle it passes through owns.
+    """
+    owned_edges = frozenset(
+        edge for plan in plans for edge in plan.resolved_member_edges
+    )
+    runs: list[_CotravellingRun] = []
+    for plan in member_geometry.plans:
+        if plan.edge in owned_edges:
+            continue
+        points = plan.points
+        for rank in range(1, len(points) - 2):
+            start, end = points[rank], points[rank + 1]
+            before, after = points[rank - 1], points[rank + 2]
+            if (
+                abs(start[1] - end[1]) > COORD_TOLERANCE
+                or abs(start[0] - end[0]) <= COORD_TOLERANCE
+                or abs(before[0] - start[0]) > COORD_TOLERANCE
+                or abs(after[0] - end[0]) > COORD_TOLERANCE
+            ):
+                continue
+            runs.append(
+                _CotravellingRun(
+                    plan.system_id,
+                    start[1],
+                    min(start[0], end[0]),
+                    max(start[0], end[0]),
+                    _direction(start, end),
+                    frozenset({plan.edge.line_id}),
+                    frozenset({plan.edge.source, plan.edge.target}),
+                    inter_row_gap_upper_row(graph, start[1]),
+                )
+            )
+    return tuple(runs)
+
+
+def _pack_cotravelling_corridor_runs(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    member_runs: tuple[_CotravellingRun, ...],
+) -> tuple[ConvergencePlan, ...]:
+    """Hold co-travelling trunk runs of one system at bundle pitch.
+
+    A trial route is derived with no knowledge of the siblings and frozen members
+    it will share a corridor with, so two runs that head for the same local
+    destination on the same carrier can arrive at coordinates a whole bundle
+    apart.  Packing is the mirror of the laning
+    :func:`_settle_shared_trunk_channels` performs: laning states the separation
+    two lanes need at least, this states the separation one bundle holds at most,
+    and both read it from ``cotravelling_lane_clearance``.
+
+    Frozen member runs seat first because their geometry is settled before the
+    plans reach here, so the bundle they already describe is the reference the
+    plans pack onto rather than something to be moved.
+    """
+    settled = list(plans)
+    seated = list(member_runs)
+    for plan_rank, plan in enumerate(settled):
+        run = _trunk_corridor_run(plan, graph)
+        if run is None:
+            continue
+        coordinate = _packed_lane(run, seated)
+        if coordinate is not None:
+            settled[plan_rank] = _move_trunk_axis(plan, coordinate)
+            moved = _trunk_corridor_run(settled[plan_rank], graph)
+            assert moved is not None
+            run = moved
+        seated.append(run)
+    return tuple(settled)
 
 
 def _settle_shared_opening_pivots(
@@ -3419,9 +3617,11 @@ def _settle_convergence_geometry(
     ctx: _RoutingCtx,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     fixed_channels: tuple[_PlanGapChannel, ...] = (),
+    member_runs: tuple[_CotravellingRun, ...] = (),
 ) -> tuple[ConvergencePlan, ...]:
     """Apply the shared convergence channel-settlement sequence."""
-    settled = _settle_shared_trunk_channels(plans, ctx.curve_radius)
+    settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
+    settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
     settled = _settle_shared_opening_pivots(settled, graph)
     settled = _settle_shared_source_openings(settled, ctx.curve_radius)
     settled = _settle_opposing_landing_channels(
@@ -3468,7 +3668,12 @@ def settle_global_convergence_execution(
     )
     fixed_channels = _planned_member_gap_channels(eligible, member_geometry)
     settled = _settle_convergence_geometry(
-        eligible, graph, ctx, planned_exit_turns, fixed_channels
+        eligible,
+        graph,
+        ctx,
+        planned_exit_turns,
+        fixed_channels,
+        _member_corridor_runs(eligible, member_geometry, graph),
     )
     _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
     settled_by_id = {plan.id: plan for plan in settled}

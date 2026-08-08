@@ -90,20 +90,12 @@ _ExemptPair = tuple[str, str, str, str, float, float]
 # Recorded as ``(fixture, axis, the two line ids sorted, and each line's
 # coordinate)``: two lines painted over each other is a line the reader cannot
 # see, so the population the exemption covers is enumerated rather than trusted
-# to stay small.  All four sit at 0.00px separation against a 4.00px nesting
-# step, over 76px to 762px of shared corridor, and all three fixtures abort on
-# `CurveInvariantError` before a render of them reaches a caller.  An entry may
+# to stay small.  The one entry sits at 0.00px separation against a 4.00px
+# nesting step, over 727px of shared corridor, and its fixture aborts on
+# `CurveInvariantError` before a render of it reaches a caller.  An entry may
 # be removed when its pair separates; adding one is a decision to argue for.
 EXEMPT_FUSED_PAIRS: frozenset[_ExemptPair] = frozenset(
     {
-        (
-            "tests/fixtures/hash_seed_determinism/seed_15.mmd",
-            "Y",
-            "l0",
-            "l2",
-            624.0,
-            624.0,
-        ),
         (
             "tests/fixtures/hash_seed_determinism/seed_41.mmd",
             "Y",
