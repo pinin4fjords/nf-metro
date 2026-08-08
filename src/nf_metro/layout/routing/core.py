@@ -279,9 +279,7 @@ def _route_edges(  # noqa: C901
             else build_reserved_corridors(graph, reservations, reservation_translations)
         ),
         prior_exit_turn_dispositions=(
-            None
-            if reservations is None
-            else {plan.id: plan.legacy_reason for plan in reservations.exit_turn_plans}
+            None if reservations is None else dict(reservations.exit_turn_dispositions)
         ),
     )
     from nf_metro.layout.route_plan import build_route_plan_observer
@@ -334,6 +332,7 @@ def _route_edges(  # noqa: C901
             ),
             convergence_diagnostics=convergence_execution.diagnostics,
             member_geometry_plans=published_member_geometry,
+            exit_turn_dispositions=planning.exit_turn_dispositions,
         )
     # Route into the context's own list so handlers can read the routes settled
     # so far (a wrap clearing an already-placed sibling channel); it grows as

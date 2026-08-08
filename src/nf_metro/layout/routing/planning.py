@@ -8,6 +8,7 @@ from types import MappingProxyType
 
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
+    ExitTurnPlanId,
     RouteSystemDisposition,
     RouteSystemId,
 )
@@ -48,6 +49,13 @@ class RoutePlanningExecution:
     member_geometry: MemberGeometryExecution
     route_systems: RouteSystemEmissionExecution | None
     planned_system_ids: frozenset[RouteSystemId]
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
+    """Every plan's frozen verdict, including systems whose record is restricted.
+
+    Settlement re-routes across moved geometry, so a fresh planning pass can
+    reach a different verdict on a plan sitting near a tolerance boundary.
+    Replay reads the verdict from here, which is why it is captured before the
+    published record is narrowed to planned systems."""
 
 
 def _allocation_eligible_system_ids(
@@ -86,6 +94,7 @@ def prepare_route_system_planning(
             empty_members,
             None,
             frozenset(),
+            tuple((plan.id, plan.legacy_reason) for plan in exit_turns.plans),
         )
 
     family_by_edge = MappingProxyType(
@@ -205,6 +214,9 @@ def prepare_route_system_planning(
         compatibility_system_ids=compatibility_system_ids,
         include_resources=include_convergence_resources,
     )
+    exit_turn_dispositions = tuple(
+        (plan.id, plan.legacy_reason) for plan in exit_turns.plans
+    )
     exit_turns = exit_turns.restrict_to_systems(planned_system_ids)
     ctx.exit_turns = exit_turns.query
     ctx.convergences = convergences.query.restrict_to_systems(planned_system_ids)
@@ -214,4 +226,5 @@ def prepare_route_system_planning(
         member_geometry,
         route_systems,
         planned_system_ids,
+        exit_turn_dispositions,
     )

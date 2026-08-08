@@ -292,6 +292,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
                 "unsupported-family:perp-exit-far-side-entry-wrap",
                 "unsupported-family:right-entry-plough-bypass",
                 "unsupported-family:right-entry-wrap",
+                "unsupported-family:tb-bottom-exit-around-stack",
                 "unsupported-family:tb-perp-exit-over",
                 "unsupported-subshape:degenerate-horizontal-straight",
                 "unsupported-subshape:left-exit-right-entry-step",
@@ -320,6 +321,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
                 "overlapping-fan-ownership",
                 "rail-layout-owns-fan-geometry",
                 "same-line-open-fan-layout-owns-geometry",
+                "straight-diamond-layout-owns-geometry",
                 "unsupported-branch-line-transition",
                 "unsupported-fan-direction",
             }
@@ -2069,6 +2071,12 @@ class RoutePlan:
     bindings: tuple[EmissionBinding, ...]
     provenance: RoutePlanProvenance
     diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
+    """Every exit-turn plan's frozen verdict, keyed by plan id.
+
+    Carries the verdicts of plans whose record ``exit_turn_plans`` omits, so a
+    settlement re-route replays the frozen decision instead of re-deriving one
+    from moved geometry."""
 
 
 @dataclass(slots=True)
@@ -2318,6 +2326,7 @@ class RoutePlanObserver:
     convergence_demands: tuple[SymbolicDemand, ...] = ()
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
     _covered_hops: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
@@ -2372,6 +2381,7 @@ def build_route_plan_observer(
     convergence_demands: tuple[SymbolicDemand, ...] = (),
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = (),
 ) -> RoutePlanObserver:
     """Create one transient observer after settled routing context construction."""
     return RoutePlanObserver(
@@ -2388,6 +2398,7 @@ def build_route_plan_observer(
         convergence_demands=convergence_demands,
         convergence_diagnostics=convergence_diagnostics,
         member_geometry_plans=member_geometry_plans,
+        exit_turn_dispositions=exit_turn_dispositions,
     )
 
 
@@ -3156,6 +3167,7 @@ def _build_route_plan(
         branches=tuple(branches),
         feeders=tuple(feeders),
         exit_turn_plans=observer.exit_turn_plans,
+        exit_turn_dispositions=observer.exit_turn_dispositions,
         fan_plans=fan_plans,
         convergence_plans=observer.convergence_plans,
         member_geometry_plans=member_geometry_plans,

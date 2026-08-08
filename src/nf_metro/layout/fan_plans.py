@@ -1934,6 +1934,14 @@ def _build_candidate(
         for carrier in offset_carriers
     ):
         reason = reason or "offset-carrier-has-unowned-line"
+    # A straight-appearance diamond keeps its top branch on the main track, so
+    # its lane frame is the section allocator's symmetric one, not the fan's.
+    if (
+        reason is None
+        and authored_join is not None
+        and appearance_policy is FanAppearancePolicy.STRAIGHT
+    ):
+        reason = "straight-diamond-layout-owns-geometry"
     # Same-line terminal and boundary arms have no semantic trunk identity.
     # The section allocator must choose their tracks before it sizes the box.
     if (
