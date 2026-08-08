@@ -217,6 +217,20 @@ def _route_compatibility_template(edge: Edge, ctx: _RoutingCtx) -> RoutedPath:
     return route
 
 
+def _convergence_context_route(
+    ctx: _RoutingCtx, key: tuple[str, str, str]
+) -> RoutedPath | None:
+    """One convergence-owned leg, emitted solely as gap-population context.
+
+    A gap pass seats a channel on the slot its rank among every co-resident
+    stroke earns, so a convergence leg has to reach those passes even though it
+    contributes no candidate: a rank read from the candidates alone is a
+    different rank, and freezing the channel makes it permanent.
+    """
+    edge = ctx.edge_by_key.get(key)
+    return None if edge is None else route_edge_by_handler_priority(edge, ctx)
+
+
 def _append_compatibility_context(
     ctx: _RoutingCtx,
     scaffold: RouteSemanticScaffold,
@@ -977,6 +991,7 @@ def build_member_geometry_execution(
     convergence_edges = _convergence_member_edges(scaffold)
     reservation_ids = reservation_ids_by_member or {}
     candidates: list[_MemberCandidate] = []
+    context_routes: list[RoutedPath] = []
     failures: dict[RouteSystemId, str] = {}
     edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
     for resolved in scaffold.edge_order:
@@ -992,7 +1007,12 @@ def build_member_geometry_execution(
             system_candidates: list[_MemberCandidate] = []
             for resolved in system_edges:
                 key = (resolved.source, resolved.target, resolved.line_id)
-                if resolved in convergence_edges or key in ctx.skip_edges:
+                if resolved in convergence_edges:
+                    context = _convergence_context_route(ctx, key)
+                    if context is not None:
+                        context_routes.append(context)
+                    continue
+                if key in ctx.skip_edges:
                     continue
                 edge = ctx.edge_by_key.get(key)
                 if edge is None:
@@ -1029,11 +1049,15 @@ def build_member_geometry_execution(
             _append_compatibility_context(ctx, scaffold, system_id, system_edges)
 
         candidate_routes = [candidate.route for candidate in candidates]
-        _materialize_gap_slots(candidate_routes, ctx)
-        _materialize_trunk_slots(candidate_routes, ctx)
-        _coincide_same_line_tracks(candidate_routes, ctx)
-        _coincide_fanout_opening_descents(candidate_routes, ctx)
-        _coincide_same_line_fanout_traverses(candidate_routes, ctx)
+        # Each channel pass ranks a gap over its whole population, and the freeze
+        # makes that rank permanent, so the immutable convergence strokes travel
+        # with the candidates rather than being discovered after the fact.
+        co_resident = [*candidate_routes, *context_routes]
+        _materialize_gap_slots(co_resident, ctx)
+        _materialize_trunk_slots(co_resident, ctx)
+        _coincide_same_line_tracks(co_resident, ctx)
+        _coincide_fanout_opening_descents(co_resident, ctx)
+        _coincide_same_line_fanout_traverses(co_resident, ctx)
         _bundle_divergent_distinct_traverses(candidate_routes, ctx)
         eligible_claims = _eligible_preliminary_gap_claims(
             preliminary_gap_claims,
