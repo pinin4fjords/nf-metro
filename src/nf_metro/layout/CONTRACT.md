@@ -1383,6 +1383,15 @@ in pipeline order.
   `tests/test_route_plan.py`, and the topology fixtures
   `leftward_up_exit_turn_order.mmd` and
   `terminated_exit_lane_compaction.mmd`.
+- **Settlement replay**: `RoutePlan.exit_turn_dispositions` carries every plan's
+  verdict, including the plans of systems whose published record is narrowed to
+  the owners of shared settlement resources. A settlement re-route replans across
+  translated geometry, so a plan sitting near a tolerance boundary can reach a
+  different verdict on the second pass; `_adopt_prior_dispositions` replays the
+  frozen one from this record, and the diagnostic it emits survives that
+  narrowing because it is the only evidence the replay ran. A plan claiming no
+  reference, demand, or turn axis is published whatever its system's disposition:
+  it is inert, and the compatibility census needs its verdict.
 - **Lifecycle:** invariant - every planned lane, lane transition, route family,
   and turn axis matches the final routed paths, and every assignment is
   consumed exactly once at the render boundary.
@@ -1395,7 +1404,13 @@ in pipeline order.
 - **Helpers**: `classify_inter_section_family` freezes one stable
   `RouteFamilyId` per member. `build_member_geometry_execution` visits members
   in scaffold order, calls only that family, materializes the candidate gap
-  slots once, and freezes `RouteMemberGeometryPlan` records.
+  slots once, and freezes `RouteMemberGeometryPlan` records. The convergence-owned
+  legs of the same systems are emitted as immutable context and carried through
+  those channel passes: a pass seats a channel on the rank it earns among every
+  stroke resident in the gap, and the freeze makes that rank permanent, so a rank
+  read from the candidates alone would be a different rank that no later pass can
+  correct. `_bundle_divergent_distinct_traverses` runs here for the same reason,
+  in the position it holds in the emission chain.
 - **Precondition**: The semantic scaffold, exit-turn and fan decisions,
   station offsets, layout coordinates, and any realised reservation bands for
   this routing pass are settled. No production member has been emitted.
@@ -1432,7 +1447,15 @@ in pipeline order.
   mutable member allocator. Before final route-system disposition,
   `settle_global_convergence_execution` allocates preliminarily planned
   convergence systems against frozen `RouteMemberGapChannel` records and
-  immutable prior convergence claims.
+  immutable prior convergence claims. Its channel sequence bounds a shared
+  corridor from both sides: `_pack_cotravelling_corridor_runs` holds runs that
+  co-travel one corridor at bundle pitch, `_settle_shared_trunk_channels` lanes
+  apart the ones that need clearance, and both read the separation from
+  `cotravelling_lane_clearance`, so a maximum and a minimum cannot disagree.
+  Two runs count as one bundle only on local evidence: one route system, one
+  travel direction, an overlapping span, a shared carrier junction or entry
+  port, and either one named inter-row gap or a separation already inside
+  `BUNDLE_TO_BUNDLE_CLEARANCE`.
 - **Precondition**: The semantic route scaffold, exit-turn decisions, station
   offsets, layout coordinates, topology resolution, compatibility merge
   classification, and stable member family IDs are settled. Final global
