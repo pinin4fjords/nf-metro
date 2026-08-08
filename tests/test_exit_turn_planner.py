@@ -412,12 +412,11 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
     routes = {
         route.line_id: route
         for route in observation.routes
-        if route.edge.source == plan.source_id
+        if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
     }
     assert all(
         route.route_system_disposition == "compatibility" for route in routes.values()
     )
-    assert all(route.exit_turn_axis_id is None for route in routes.values())
     turn_x = {
         line_id: apply_route_offsets(route, offsets)[1][0]
         for line_id, route in routes.items()
@@ -1199,7 +1198,6 @@ def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
         item for item in observation.plan.systems if item.id == plan.system_id
     )
     assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert all(route.exit_turn_axis_id is None for route in routes.values())
     turn_gap = abs(
         apply_route_offsets(routes["standard"], offsets)[1][0]
         - apply_route_offsets(routes["legacy"], offsets)[1][0]
@@ -2332,7 +2330,6 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
         item for item in observation.plan.systems if item.id == plan.system_id
     )
     assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert all(route.exit_turn_axis_id is None for route in observation.routes)
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 

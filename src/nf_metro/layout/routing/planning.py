@@ -216,8 +216,15 @@ def prepare_route_system_planning(
     exit_turn_dispositions = tuple(
         (plan.id, plan.legacy_reason) for plan in exit_turns.plans
     )
+    # A compatibility system emits through the established templates, and those
+    # consult the exit-turn query for the axis a turn opens on.  Emission
+    # therefore reads every plan, while only the published record narrows to
+    # planned ownership: a member whose axis the query hides emits a coordinate
+    # no plan fixes, which every gap pass is then free to move and every guard
+    # is then free to accept.
+    emission_exit_turns = exit_turns.query
     exit_turns = exit_turns.restrict_to_systems(planned_system_ids)
-    ctx.exit_turns = exit_turns.query
+    ctx.exit_turns = emission_exit_turns
     ctx.convergences = convergences.query.restrict_to_systems(planned_system_ids)
     return RoutePlanningExecution(
         exit_turns,
