@@ -48,8 +48,10 @@ system counts as reached only when it is planned at some granted capacity and at
 every larger one, which no isolated coincidence satisfies.
 
 A grant has three outcomes, not two.  The re-plan can own the system, leave it
-where the control left it, or come back describing neither -- the system gone, or
-split across both dispositions.  That third outcome is recorded as its own
+where the control left it, or come back describing neither -- the system gone,
+split across both dispositions, or rejected as geometry the planner cannot emit,
+which a translation reaches once it leaves a member without the runway its own
+plan needs.  That third outcome is recorded as its own
 ``GrantOutcome`` and taken out of the verdict, because "the planner wants more
 room here" and "the planner is not talking about this system" are different
 findings and only the first bears on allocation.  A system every grant diverges
@@ -148,10 +150,11 @@ class GrantOutcome(Enum):
     which is the same disposition the control reproduced."""
 
     DIVERGED = "diverged"
-    """The re-plan lost the system or split it across both dispositions, so this
-    capacity says nothing about whether room is what the system lacks.  Reading
-    it as compatible would let a grant that stopped describing the system count
-    as one that described it and found the room wanting."""
+    """The re-plan lost the system, split it across both dispositions, or
+    rejected the geometry as one it cannot emit, so this capacity says nothing
+    about whether room is what the system lacks.  Reading it as compatible would
+    let a grant that stopped describing the system count as one that described
+    it and found the room wanting."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,20 +460,24 @@ def _grant_outcome(
 ) -> GrantOutcome:
     """What the planner decides about *system_id* once those boundaries carry *amount*.
 
-    An arbitrary re-plan failure propagates.  A final convergence feasibility
-    rejection is a valid planner finding that owns no complete system geometry,
-    so the grant is ``DIVERGED`` rather than compatible.  A re-plan that returns
-    without describing the whole system is read the same way.
+    An arbitrary re-plan failure propagates.  A convergence rejection is a valid
+    planner finding that owns no complete system geometry, so the grant is
+    ``DIVERGED`` rather than compatible: planning emits every convergence-owned
+    leg onto the coordinates its plan names, so a translation wide enough to
+    leave a feeder without the runway its landing needs is a counterfactual with
+    no drawable map behind it, and the answer it would otherwise report is one
+    the render path could not produce.  A re-plan that returns without
+    describing the whole system is read the same way.
     """
     probe_graph = copy.deepcopy(graph)
     translate_boundaries(probe_graph, rows, columns, amount)
     from nf_metro.layout.routing.convergences import (
-        FinalConvergenceFeasibilityError,
+        ConvergenceInvariantError,
     )
 
     try:
         replanned, _offset_step = _replan(probe_graph)
-    except FinalConvergenceFeasibilityError:
+    except ConvergenceInvariantError:
         return GrantOutcome.DIVERGED
     return _replan_outcome(replanned, system_id)
 

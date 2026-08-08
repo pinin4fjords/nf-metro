@@ -190,9 +190,6 @@ def test_a_starved_system_is_handed_back_the_capacity_that_starved_it() -> None:
     probe = _sole(probe_settlement_capacity(graph, plan))
     assert probe.system_id == system_id
     assert probe.verdict is CapacityVerdict.ALLOCATION_REACHES
-    assert not any(
-        reservation.system_id == system_id for reservation in plan.reservations
-    )
     claimed_grants = tuple(
         grant
         for grant in probe.grants

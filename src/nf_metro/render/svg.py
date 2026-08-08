@@ -1203,9 +1203,18 @@ def _ledger_changes_live_derived_band(
                     or derived.boundary != boundary
                     or derived.lo != ledger.lo
                     or derived.hi != ledger.hi
-                    or not ledger.lo - COORD_TOLERANCE_FINE
-                    <= allocation_coordinate
-                    <= ledger.hi + COORD_TOLERANCE_FINE
+                    # Only a translation can make a claim's coordinate a
+                    # consequence of consuming the ledger.  A run that hugs the
+                    # box edge its entry port sits on is outside the clearance
+                    # band by construction, so reading an untranslated claim
+                    # against the band would re-route for a position the frozen
+                    # pass had already chosen.
+                    or (
+                        allocation_coordinate != claim.allocation_coordinate
+                        and not ledger.lo - COORD_TOLERANCE_FINE
+                        <= allocation_coordinate
+                        <= ledger.hi + COORD_TOLERANCE_FINE
+                    )
                 ):
                     return True
 
