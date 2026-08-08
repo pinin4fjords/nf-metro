@@ -942,19 +942,14 @@ def test_normal_planning_builds_each_exit_group_once(
     assert len(calls) == len(set(calls))
 
 
-def test_right_exit_feeder_slots_preserve_the_planned_lane_order() -> None:
-    graph, offsets, observation = _observe(FIXTURES / "tb_right_exit_feeder_slots.mmd")
+def test_lane_order_inversion_uses_whole_group_legacy() -> None:
+    _graph, _offsets, observation = _observe(
+        FIXTURES / "tb_right_exit_feeder_slots.mmd"
+    )
     plan = _plan_for_source(observation, "src__exit_right_0")
 
-    assert plan.disposition is ExitTurnDisposition.PLANNED
-    assert plan.legacy_reason is None
-    assert tuple(lane.line_id for lane in plan.source_lanes) == (
-        "l1",
-        "l2",
-        "l4",
-        "l3",
-    )
-    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "lane-transition-order-inversion"
 
 
 @pytest.mark.parametrize(

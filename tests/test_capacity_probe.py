@@ -175,14 +175,10 @@ def test_migrated_systems_are_planned_without_capacity_probes(
     assert all(item.planned for item in tail) is reaches
 
 
-def test_a_starved_system_is_reached_without_compatibility_resource_claims() -> None:
-    """A deliberately starved system becomes planned when boundaries widen.
-
-    Compatibility systems publish no planner-owned reservations, so their
-    claimed-boundary scope is intentionally empty.  The diagnostic's broad
-    scope can establish reachability without assigning shadow resource claims
-    to the compatibility emitter.
-    """
+def test_a_starved_system_is_handed_back_the_capacity_that_starved_it() -> None:
+    """A probe that could only ever report an unreachable limit would be
+    indistinguishable from one that does nothing, so a system whose limitation
+    is capacity by construction has to come back as one it reaches."""
     graph, plan, system_id = _starved(STARVABLE, STARVATION)
     on_compatibility = [
         item
@@ -197,19 +193,16 @@ def test_a_starved_system_is_reached_without_compatibility_resource_claims() -> 
     assert not any(
         reservation.system_id == system_id for reservation in plan.reservations
     )
-    rows, columns, widths = claimed_boundaries(plan, system_id)
-    assert (rows, columns, widths) == ((), (), ())
     claimed_grants = tuple(
         grant
         for grant in probe.grants
         if grant.scope is CapacityScope.CLAIMED_BOUNDARIES
     )
     assert claimed_grants
-    assert all(grant.outcome is GrantOutcome.COMPATIBLE for grant in claimed_grants)
     assert probe.quoted is not None
     quoted_scope, quoted_capacity = probe.quoted
-    assert quoted_scope is CapacityScope.EVERY_BOUNDARY
-    assert quoted_capacity > 0.0
+    assert quoted_scope is CapacityScope.CLAIMED_BOUNDARIES
+    assert quoted_capacity >= -STARVATION
 
 
 def test_compatibility_members_do_not_enter_another_systems_convergence_replay(

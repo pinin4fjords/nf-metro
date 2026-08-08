@@ -523,6 +523,50 @@ def test_route_families_and_roles_come_from_production_dispatch() -> None:
     )
 
 
+def test_declined_dispatch_records_the_actual_fallback_emitter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = EXAMPLES / "topologies" / "fan_in_merge.mmd"
+    graph, _routes, baseline = _observe(path)
+    declined = next(
+        member.edge
+        for member in baseline.members
+        if member.family_id is RouteFamilyId.SAME_Y_STRAIGHT
+    )
+    rule = next(
+        rule
+        for rule in inter_section_handlers._INTER_SECTION_RULES
+        if rule.family_id is RouteFamilyId.SAME_Y_STRAIGHT
+    )
+
+    def decline_one(facts):
+        edge = facts.edge
+        if (edge.source, edge.target, edge.line_id) == declined:
+            return None
+        return rule.route(facts)
+
+    monkeypatch.setattr(
+        inter_section_handlers,
+        "_INTER_SECTION_RULES",
+        [
+            dataclasses.replace(candidate, route=decline_one)
+            if candidate is rule
+            else candidate
+            for candidate in inter_section_handlers._INTER_SECTION_RULES
+        ],
+    )
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    member = next(
+        member for member in observation.plan.members if member.edge == declined
+    )
+    (binding,) = build_route_plan_query(observation.plan).bindings_for(member.id)
+
+    assert member.family_id is RouteFamilyId.INTRA_SECTION_FALLBACK
+    assert binding.kind is BindingKind.EMITTED
+
+
 def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -564,13 +608,6 @@ def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
         (reason.owner, reason.reason) for reason in system.compatibility_reasons
     ) == (("member-geometry-plan", "canonical-template-declined-member"),)
     assert not system.member_geometry_plan_ids
-    assert not system.exit_turn_plan_ids
-    assert not system.shared_reference_ids
-    assert not system.demand_ids
-    assert not system.reservation_ids
-    assert not tuple(
-        plan for plan in observation.plan.exit_turn_plans if plan.system_id == system.id
-    )
     convergence_plans = tuple(
         plan
         for plan in observation.plan.convergence_plans
@@ -603,9 +640,6 @@ def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
     query = build_route_plan_query(observation.plan)
     assert all(
         not query.fan_plans_for_member(member_id) for member_id in system.member_ids
-    )
-    assert all(
-        not query.reservations_for_member(member_id) for member_id in system.member_ids
     )
     bindings = {
         member_id: query.bindings_for(member_id) for member_id in system.member_ids

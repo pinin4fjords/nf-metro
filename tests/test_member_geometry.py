@@ -362,17 +362,17 @@ def test_member_plans_persist_exact_connector_ownership() -> None:
 
 def test_trunk_slot_settles_before_adjacent_gap_channels_freeze() -> None:
     _graph, observation = _observe(
-        ROOT / "examples" / "topologies" / "disjoint_sameline_trunks.mmd"
+        ROOT / "examples" / "topologies" / "fan_in_merge.mmd"
     )
     plan = next(
         item
         for item in observation.plan.member_geometry_plans
-        if item.edge == ResolvedEdge("__junction_8", "secD__entry_left_6", "c")
+        if item.edge == ResolvedEdge("__junction_6", "sink__entry_left_5", "aux")
     )
     route = _route_for_plan(observation, plan)
 
     assert plan.owned_segment_ranks == (1, 3)
-    assert plan.points[2:4] == ((198.0, 200.0), (568.0, 200.0))
+    assert plan.points[2:4] == ((216.0, 200.0), (639.0, 200.0))
     assert tuple(route.points[2:4]) == plan.points[2:4]
     _assert_channels_equal_emission(observation, plan)
 

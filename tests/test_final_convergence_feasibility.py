@@ -357,12 +357,12 @@ def test_fan_in_coupled_convergence_flanks_move_as_one_allocation() -> None:
         if channel.gap == (0, 0) and channel.line_ids == frozenset({"main"})
     }
 
-    assert member_channel.start[0] == member_channel.end[0] == 210.0
-    assert convergence_columns == {222.0}
-    assert (
-        min(abs(column - member_channel.start[0]) for column in convergence_columns)
-        == 12.0
+    clearance = cotravelling_lane_clearance(
+        same_line=False, counter_running=False, curve_radius=CURVE_RADIUS
     )
+
+    assert member_channel.start[0] == member_channel.end[0] == 216.0
+    assert convergence_columns == {member_channel.start[0] + clearance}
     assert all(plan.owns_geometry for plan in observation.plan.convergence_plans)
 
 
@@ -438,8 +438,12 @@ def test_organellar_joint_allocation_freezes_member_before_emission() -> None:
         )
     }
 
-    assert member_channel.start[0] == member_channel.end[0] == 246.0
-    assert convergence_columns == {258.0}
+    clearance = cotravelling_lane_clearance(
+        same_line=False, counter_running=False, curve_radius=CURVE_RADIUS
+    )
+
+    assert member_channel.start[0] == member_channel.end[0] == 256.0
+    assert convergence_columns == {member_channel.start[0] + clearance}
     assert tuple(route.points) == member.points
     assert tuple(
         route.points[member_channel.segment_rank : member_channel.segment_rank + 2]

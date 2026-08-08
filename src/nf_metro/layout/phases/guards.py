@@ -117,7 +117,7 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     from nf_metro.layout.envelope_settlement import EnvelopeSettlement
-    from nf_metro.layout.route_plan import RoutePlan
+    from nf_metro.layout.route_plan import FanPlan, RoutePlan
     from nf_metro.layout.route_reservations import (
         CanvasRegion,
         DrawnCorridorContainment,
@@ -5198,6 +5198,38 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         )
 
 
+def _straight_frame_fault(
+    plan: FanPlan,
+    lane_offsets: tuple[float | None, ...],
+    expected_lane_offsets: tuple[float, ...],
+) -> str | None:
+    """Which straight-frame contract *plan* breaks, phrased for the reader.
+
+    Three separate faults break a straight frame and only one concerns the
+    offsets, so the fault names itself: reporting the offsets for a centreline
+    disagreement prints two tuples that are usually identical.
+    """
+    if (plan.appearance_centreline_branch_id is None) != plan.has_vacant_trunk:
+        return (
+            f"centreline branch {plan.appearance_centreline_branch_id!r} "
+            f"disagrees with vacant trunk {plan.has_vacant_trunk!r}"
+        )
+    if not plan.has_vacant_trunk and (
+        sum(offset == 0.0 for offset in lane_offsets) != 1
+        or any(offset is None or offset < 0.0 for offset in lane_offsets)
+    ):
+        return f"no single lane holds the centreline; lane offsets {lane_offsets!r}"
+    if any(
+        actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+        for actual, target in zip(lane_offsets, expected_lane_offsets, strict=True)
+    ):
+        return (
+            f"lane offsets {lane_offsets!r} do not match "
+            f"expected {expected_lane_offsets!r}"
+        )
+    return None
+
+
 def _guard_planned_fan_frame_realised(
     graph: MetroGraph,
     phase: str,
@@ -5325,31 +5357,17 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
-        straight_frame_invalid = (
-            (plan.appearance_centreline_branch_id is None) != plan.has_vacant_trunk
-            or (
-                not plan.has_vacant_trunk
-                and (
-                    sum(offset == 0.0 for offset in lane_offsets) != 1
-                    or any(offset is None or offset < 0.0 for offset in lane_offsets)
-                )
-            )
-            or any(
-                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
-                for actual, target in zip(
-                    lane_offsets, expected_lane_offsets, strict=True
-                )
-            )
+        straight_frame_fault = _straight_frame_fault(
+            plan, lane_offsets, expected_lane_offsets
         )
         if (
             plan.appearance_policy is FanAppearancePolicy.STRAIGHT
             and plan.layout_station_ids
-            and straight_frame_invalid
+            and straight_frame_fault is not None
         ):
             raise PhaseInvariantError(
                 f"{phase}: straight planned fan {plan.id!s} does not keep its "
-                f"appearance frame; lane offsets {lane_offsets!r}, "
-                f"expected {expected_lane_offsets!r}"
+                f"appearance frame: {straight_frame_fault}"
             )
 
         local_anchor = plan.local_frame_anchor
