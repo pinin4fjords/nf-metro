@@ -328,6 +328,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
         ),
         "convergence-plan": frozenset(
             {
+                "chained same-line convergences require one shared system settlement",
                 "convergence alignment conflicts with an upstream exit turn",
                 "convergence landing conflicts with an upstream exit turn",
                 "convergence landing has no approach",
@@ -336,7 +337,15 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
                 "direct convergence has no emitted terminal approach",
                 "feeder template declined its member",
                 "planned convergence approaches and trunks have no settlement room",
+                "planned convergence corridor conflicts with unowned route-system "
+                "member",
+                "planned convergence corridor conflicts with unowned route-system "
+                "members",
+                "planned convergence feeder approaches require one shared channel "
+                "decision",
                 "planned convergence member has no routing family",
+                "planned convergence trunks require one shared channel decision",
+                "planned fan arms require opposing opening channels",
                 "planned trunk has no drawable segment",
                 "primary trunk template declined its member",
                 "primary trunk template emitted no shared run",
