@@ -38,6 +38,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _route_inter_section,
 )
 from nf_metro.layout.routing.normalize import (
+    _bundle_divergent_distinct_traverses,
     _coincide_fanout_opening_descents,
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
@@ -1033,6 +1034,7 @@ def build_member_geometry_execution(
         _coincide_same_line_tracks(candidate_routes, ctx)
         _coincide_fanout_opening_descents(candidate_routes, ctx)
         _coincide_same_line_fanout_traverses(candidate_routes, ctx)
+        _bundle_divergent_distinct_traverses(candidate_routes, ctx)
         eligible_claims = _eligible_preliminary_gap_claims(
             preliminary_gap_claims,
             failures,

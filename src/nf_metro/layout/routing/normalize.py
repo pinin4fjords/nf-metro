@@ -1004,6 +1004,30 @@ def _reconcile_moved_gap_slot(ch: _VChannel, new_x: float, graph: MetroGraph) ->
     )
 
 
+def _reconcile_moved_trunk_slot(
+    rp: RoutedPath, k: int, new_y: float, graph: MetroGraph
+) -> None:
+    """Retarget a re-banded trunk's :class:`TrunkSlot` to the gap it lands in.
+
+    The trunk twin of :func:`_reconcile_moved_gap_slot`.  Nesting a traverse onto
+    a bundle-mate's corridor can carry it into a different inter-row gap than the
+    one its handler read off the built geometry.  The declaration is spent for
+    placement (:func:`_materialize_trunk_slots` runs earlier), but it outlives
+    the pass as the route's record of which corridor it occupies, and a
+    re-routed pass whose handler builds the trunk in the settled gap declares
+    that gap instead, so a stale slot reads as a changed routing decision.
+    Only the trunk the slot describes -- the route's first interior horizontal
+    run -- can retarget it.  Coordinates are untouched.
+    """
+    slot = rp.trunk_slot
+    trunk = next(iter(iter_horizontal_trunks(rp)), None)
+    if slot is None or trunk is None or trunk[0] != k:
+        return
+    row = inter_row_gap_upper_row(graph, new_y)
+    if row != slot.gap_upper_row:
+        rp.declare_trunk_slot(gap_upper_row=row)
+
+
 def _snap_group(
     group: _Coincidence,
     graph: MetroGraph,
@@ -1543,6 +1567,7 @@ def _bundle_divergent_distinct_traverses(
         # is where the line peels off alone, so it keeps the base radius.
         for m, ty, off in moves:
             _set_htrunk_y(m.route, m.idx, ty, off, 0.0)
+            _reconcile_moved_trunk_slot(m.route, m.idx, ty, ctx.graph)
 
 
 def _drop_covered_merge_entry_hops(

@@ -377,6 +377,33 @@ def test_trunk_slot_settles_before_adjacent_gap_channels_freeze() -> None:
     _assert_channels_equal_emission(observation, plan)
 
 
+def test_distinct_line_fan_traverses_bundle_before_member_freeze() -> None:
+    """A fan's traverses nest in one corridor, and each slot names that gap.
+
+    Freezing a descent hides the route from the passes keyed off an unowned
+    opening descent, so a traverse nested after the freeze could never reach its
+    bundle-mate's corridor.
+    """
+    _graph, observation = _observe(
+        ROOT / "examples" / "topologies" / "same_line_fan_distinct_descent.mmd"
+    )
+    plans = {
+        item.edge.target: item
+        for item in observation.plan.member_geometry_plans
+        if item.edge.source == "__junction_5"
+        and item.edge.target != "cont__entry_left_1"
+    }
+
+    green = plans["far__entry_top_2"]
+    reds = (plans["near__entry_left_3"], plans["mid__entry_left_4"])
+    assert green.points[2][1] == 192.0
+    for red in reds:
+        assert red.points[2][1] == green.points[2][1] + OFFSET_STEP
+        assert red.points[2:4] == ((430.0, 196.0), (44.0, 196.0))
+        assert red.trunk_slot == green.trunk_slot
+        _assert_channels_equal_emission(observation, red)
+
+
 def test_one_segment_can_own_distinct_gap_row_claims() -> None:
     channels = (
         RouteMemberGapChannel(1, (20.0, 10.0), (20.0, 90.0), 0, 0, Direction.D),
