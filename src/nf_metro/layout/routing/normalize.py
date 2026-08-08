@@ -29,6 +29,7 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     spans_share_corridor,
 )
+from nf_metro.layout.route_plan import RouteSystemDisposition
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -1258,10 +1259,13 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
             validate_planned_axes=ctx.validate_final_route_frames,
         )
     for group in _merge_feeder_groups(routes, ctx):
+        # Attribution stamps the disposition after the pre-freeze chain has
+        # run, so on that path every route carries None and nothing qualifies.
         compatibility_channels = [
             channel
             for channel in group.channels
-            if channel.route.route_system_disposition == "compatibility"
+            if channel.route.route_system_disposition
+            == RouteSystemDisposition.COMPATIBILITY.value
         ]
         if compatibility_channels:
             _snap_merge_feeder_group(

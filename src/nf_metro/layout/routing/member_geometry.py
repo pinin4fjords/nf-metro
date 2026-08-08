@@ -23,6 +23,7 @@ from nf_metro.layout.route_plan import (
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
     RouteSemanticScaffold,
+    RouteSystemDisposition,
     RouteSystemId,
 )
 from nf_metro.layout.routing.common import (
@@ -1071,7 +1072,10 @@ def validate_member_geometry_emission(
     """Require every emitted plan-owned channel to retain its exact geometry."""
     for route in routes:
         plan = execution.plan_for_edge(route.edge)
-        if plan is None or route.route_system_disposition != "planned":
+        if (
+            plan is None
+            or route.route_system_disposition != RouteSystemDisposition.PLANNED.value
+        ):
             continue
         if tuple(route.route_system_owned_segment_ranks) != plan.owned_segment_ranks:
             raise RuntimeError(f"member geometry plan {plan.id} lost channel ownership")
