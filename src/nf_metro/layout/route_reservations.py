@@ -54,7 +54,6 @@ from nf_metro.layout.route_plan import (
     ReservationDecisionRef,
     RoutePlan,
     RouteSystem,
-    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -1490,11 +1489,6 @@ def _observe_route_geometry(
     claims: list[_ObservedClaim] = []
     unfiled: list[_UnfiledRun] = []
     for member in plan.members:
-        if (
-            system_by_id[member.system_id].disposition
-            is not RouteSystemDisposition.PLANNED
-        ):
-            continue
         binding = binding_by_member[member.id]
         if binding.kind is not BindingKind.EMITTED:
             continue

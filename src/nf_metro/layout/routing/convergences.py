@@ -1577,12 +1577,19 @@ def _nearest_lane(
 _TRUNK_RUN_LISTED_AGAINST_TRAVEL = (False, True, True, False, False)
 
 
-def _trunk_run_travel_direction(axis: ConvergenceTrunkAxis, rank: int) -> Direction:
-    """The direction a member travels *axis*'s run at *rank*."""
+def _trunk_run_in_travel_order(
+    axis: ConvergenceTrunkAxis, rank: int
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """*axis*'s run at *rank*, oriented the way a member travels it."""
     segment = _trunk_segments(axis)[rank]
     if _TRUNK_RUN_LISTED_AGAINST_TRAVEL[rank]:
-        segment = (segment[1], segment[0])
-    return _direction(*segment)
+        return (segment[1], segment[0])
+    return segment
+
+
+def _trunk_run_travel_direction(axis: ConvergenceTrunkAxis, rank: int) -> Direction:
+    """The direction a member travels *axis*'s run at *rank*."""
+    return _direction(*_trunk_run_in_travel_order(axis, rank))
 
 
 def _settle_shared_trunk_channels(
@@ -2179,7 +2186,9 @@ def _plan_gap_channels(
     ] = []
     flank_columns: dict[int, tuple[float, frozenset[str], _Segment]] = {}
     for flank_rank in (1, 3):
-        (start_x, start_y), (end_x, end_y) = trunk[flank_rank]
+        (start_x, start_y), (end_x, end_y) = _trunk_run_in_travel_order(
+            axis, flank_rank
+        )
         if (
             abs(end_x - start_x) > COORD_TOLERANCE
             or abs(end_y - start_y) <= COORD_TOLERANCE
