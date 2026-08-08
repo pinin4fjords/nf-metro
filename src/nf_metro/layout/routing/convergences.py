@@ -182,7 +182,7 @@ class ConvergencePlanExecutionQuery:
         membership = self.membership_for_edge(edge)
         return membership.covering_edge if membership is not None else None
 
-    def prior_vertical_channels_for_edge(
+    def prior_channel_claims_for_edge(
         self, edge: Edge | ResolvedEdge
     ) -> tuple[PlannedConvergenceVerticalChannel, ...]:
         """Exact planned channels whose owners precede *edge* canonically."""

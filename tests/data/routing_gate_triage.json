@@ -723,6 +723,10 @@
     "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
     "status": "defensive"
   },
+  "normalize.py::if any(::#13": {
+    "note": "Never re-band a fan traverse across a section it does not belong to: the re-band would draw the traverse through an unrelated box. The corpus reached the crossing arm only through merge_trunk_over_low_section's pre-fix geometry, where a group carrying a member-geometry-owned channel was skipped and its traverses kept coordinates that crossed a foreign section. With the group gated on the coordinates a plan resolves outright, no fixture crosses one, so the guard keeps a real hazard with no corpus witness.",
+    "status": "needs-review"
+  },
   "normalize.py::if any(::#8": {
     "note": "Compatibility convergence may not move a planner-owned final channel or reseat a channel through a foreign section. Complete direct-port opposing tails are unplanned and placement reserves their target band; the true arm therefore defends broken ownership or obstruction state. test_planner_owned_opposing_group_is_left_atomic and test_obstructed_opposing_group_is_left_atomic exercise both rejection reasons.",
     "status": "defensive"

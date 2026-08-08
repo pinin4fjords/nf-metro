@@ -5273,7 +5273,7 @@ def _leadout_self_meets_sibling_descent(
                 return True
     if ctx.convergences is None:
         return False
-    for claim in ctx.convergences.prior_vertical_channels_for_edge(edge):
+    for claim in ctx.convergences.prior_channel_claims_for_edge(edge):
         if claim.line_id != edge.line_id or claim.owner_source == edge.source:
             continue
         if not (corner_x - COORD_TOLERANCE <= claim.x <= gap_right + COORD_TOLERANCE):

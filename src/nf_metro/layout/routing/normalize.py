@@ -625,6 +625,21 @@ def _planner_owns_channel(channel: _VChannel) -> bool:
     return planner_owns_segment(channel.route, channel.idx)
 
 
+def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
+    """Whether a plan resolves this channel's coordinate outright.
+
+    A fan emission and a planned exit turn each name the coordinate itself, so
+    no rank re-derivation can speak for it.  Convergence and member-geometry
+    ownership name it too, but a group already occupying adjacent tracks keeps
+    every coordinate, so those are answerable at that width.
+    """
+    route = channel.route
+    return route.fan_route_emitter is not None or (
+        route.exit_turn_axis_id is not None
+        and route.exit_turn_segment_rank == channel.idx
+    )
+
+
 def _fused_sibling_spans(
     routes: list[RoutedPath], chans: list[_VChannel]
 ) -> list[tuple[float, float]]:
@@ -2390,11 +2405,7 @@ def _bundle_divergent_distinct_descents(
 
     step = ctx.offset_step
     for chans in by_source.values():
-        if any(
-            _planner_owns_channel(channel)
-            and not convergence_owns_segment_boundary(channel.route, channel.idx)
-            for channel in chans
-        ):
+        if any(_channel_coordinate_is_frozen(channel) for channel in chans):
             continue
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
@@ -2434,7 +2445,7 @@ def _bundle_divergent_distinct_descents(
         tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
         if (
             any(
-                convergence_owns_segment_boundary(channel.route, channel.idx)
+                route_system_owns_segment_boundary(channel.route, channel.idx)
                 for channel in chans
             )
             and not tight

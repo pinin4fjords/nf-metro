@@ -62,7 +62,7 @@ def test_planned_convergence_claim_precedes_wrap_in_both_passes() -> None:
     planning_ctx = SimpleNamespace(built_routes=[], convergences=query)
     production_ctx = SimpleNamespace(built_routes=[], convergences=query)
 
-    assert query.prior_vertical_channels_for_edge(edge) == (prior_claim,)
+    assert query.prior_channel_claims_for_edge(edge) == (prior_claim,)
     assert _decision(planning_ctx, edge)
     assert _decision(production_ctx, edge) == _decision(planning_ctx, edge)
 
@@ -91,6 +91,6 @@ def test_compatibility_convergence_route_precedes_wrap_in_both_passes() -> None:
         built_routes=[compatibility_route], convergences=query
     )
 
-    assert query.prior_vertical_channels_for_edge(edge) == ()
+    assert query.prior_channel_claims_for_edge(edge) == ()
     assert _decision(planning_ctx, edge)
     assert _decision(production_ctx, edge) == _decision(planning_ctx, edge)
