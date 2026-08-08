@@ -328,7 +328,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
         ),
         "convergence-plan": frozenset(
             {
-                "chained same-line convergences require one shared system settlement",
                 "convergence alignment conflicts with an upstream exit turn",
                 "convergence landing conflicts with an upstream exit turn",
                 "convergence landing has no approach",
@@ -419,11 +418,6 @@ class ConvergenceConflictKind(Enum):
     NO_APPROACH_SETTLEMENT_ROOM = (
         "planned convergence approaches and trunks have no settlement room",
         ConflictRelief.CLEARANCE,
-        "plan-driven chained-convergence emission (#1658)",
-    )
-    CHAINED_SAME_LINE = (
-        "chained same-line convergences require one shared system settlement",
-        ConflictRelief.SHARED_CHANNEL,
         "plan-driven chained-convergence emission (#1658)",
     )
     UNOWNED_MEMBER_CORRIDOR = (

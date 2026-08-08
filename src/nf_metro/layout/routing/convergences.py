@@ -1234,6 +1234,41 @@ def _parallel_segments_conflict(
     return separation < clearance and overlap > COORD_TOLERANCE
 
 
+def _orthogonal_segments_cross(
+    first: tuple[tuple[float, float], tuple[float, float]],
+    second: tuple[tuple[float, float], tuple[float, float]],
+) -> bool:
+    """True when two axis-aligned runs meet strictly inside both.
+
+    Shared endpoints and T-junctions are the corners a bundle is made of, so
+    only an interior intersection counts as one run passing through the other.
+    """
+    for across, along in ((first, second), (second, first)):
+        if (
+            abs(across[0][0] - across[1][0]) > COORD_TOLERANCE
+            or abs(along[0][1] - along[1][1]) > COORD_TOLERANCE
+        ):
+            continue
+        low, high = sorted((across[0][1], across[1][1]))
+        start, end = sorted((along[0][0], along[1][0]))
+        if (
+            start + COORD_TOLERANCE < across[0][0] < end - COORD_TOLERANCE
+            and low + COORD_TOLERANCE < along[0][1] < high - COORD_TOLERANCE
+        ):
+            return True
+    return False
+
+
+def _turn_crosses_shared_run(
+    turn: tuple[tuple[float, float], tuple[float, float]],
+    plan: ConvergencePlan,
+) -> bool:
+    """True when one channel's turn passes through another's shared run."""
+    if plan.trunk_axis is None:
+        return False
+    return _orthogonal_segments_cross(turn, _trunk_segments(plan.trunk_axis)[0])
+
+
 def _route_segments(
     route: RoutedPath,
 ) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
@@ -3327,33 +3362,10 @@ def _system_conflict(
                     second.opening_turn_segment,
                     lines,
                 )
-            # Two trunks leaving one turn are lanes of one channel, so what
-            # separates them is the clearance those lanes need: an offset step
-            # where they nest, and a full turn radius where one is the other's
-            # return leg.  Beyond that they are two positions for one line, which
-            # is the chain the planner cannot express.
-            laned = max(
-                ctx.offset_step,
-                cotravelling_lane_clearance(
-                    same_line=True,
-                    counter_running=first_plan.trunk_axis.direction
-                    is not second_plan.trunk_axis.direction,
-                    curve_radius=ctx.curve_radius,
-                ),
-            )
-            if (
-                first_plan.line_ids == second_plan.line_ids
-                and abs(
-                    first_plan.trunk_axis.coordinate - second_plan.trunk_axis.coordinate
-                )
-                > laned + COORD_TOLERANCE
-            ):
-                return _conflict(
-                    ConvergenceConflictKind.CHAINED_SAME_LINE,
-                    _trunk_segments(first_plan.trunk_axis)[0],
-                    _trunk_segments(second_plan.trunk_axis)[0],
-                    lines,
-                )
+            # Arms sharing one opening column and opening the same way are one
+            # stroke branching to several destinations.  However far apart their
+            # trunks then run, the distance between the destinations is not a
+            # disagreement about where the stroke opens.
 
     opposing_approaches = _opposing_landing_approaches(plans, ctx.graph)
     if opposing_approaches is not None:
@@ -3414,7 +3426,25 @@ def _system_conflict(
                 and first_plan.entry_group_ids != second_plan.entry_group_ids
                 and primary_source[first_plan.id] == primary_source[second_plan.id]
                 and complete_pairwise_system
-                and shared_channel.separation > COORD_TOLERANCE
+                and (
+                    # One line's two turns off one source have to become one
+                    # stroke, so any daylight between them is the defect.
+                    shared_channel.separation > COORD_TOLERANCE
+                    if same_line
+                    # Distinct lines are lanes of one bundle, so the target is
+                    # their pitch rather than coincidence: they conflict when
+                    # they stand closer than that, or when one turns across the
+                    # other's shared run instead of nesting outside it.
+                    else shared_channel.separation
+                    < cotravelling_lane_clearance(
+                        same_line=False,
+                        counter_running=False,
+                        curve_radius=ctx.curve_radius,
+                    )
+                    - COORD_TOLERANCE
+                    or _turn_crosses_shared_run(first_segment, second_plan)
+                    or _turn_crosses_shared_run(second_segment, first_plan)
+                )
             ):
                 return shared_channel
 
