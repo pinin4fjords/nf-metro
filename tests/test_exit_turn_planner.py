@@ -256,14 +256,16 @@ def test_three_family_exit_bundle_has_one_complete_turn_plan() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    (
-        ROOT / "examples" / "guide" / "03_fan_out.mmd",
-        TOPOLOGIES / "wide_fan_out.mmd",
-    ),
-    ids=("guide-fan-out", "wide-fan-out"),
+    (TOPOLOGIES / "wide_fan_out.mmd",),
+    ids=("wide-fan-out",),
 )
 def test_planned_fan_axis_keeps_a_full_landing_curve(path: Path) -> None:
-    """A shared fan opening does not donate its target-side curve radius."""
+    """A shared fan opening does not donate its target-side curve radius.
+
+    Parametrised over the fixtures whose fan opening its own route system plans;
+    a system emitting through the established templates publishes no planned fan
+    axis for this to read.
+    """
     graph, offsets, observation = _observe(path)
     plan = next(
         item

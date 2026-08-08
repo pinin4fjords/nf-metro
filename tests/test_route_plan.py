@@ -628,9 +628,11 @@ def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
     )
     assert routes
     assert all(route.route_system_disposition == "compatibility" for route in routes)
+    # An established template consumes the exit-turn axis it emits on, so the
+    # route names that plan; what a compatibility system never gains is a plan
+    # owning its geometry.
     assert all(
         not route.route_plan_ids
-        and route.exit_turn_plan_id is None
         and route.fan_plan_id is None
         and route.convergence_plan_id is None
         and not route.route_system_owned_segment_ranks
