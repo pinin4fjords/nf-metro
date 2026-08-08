@@ -412,7 +412,13 @@ def _route_edges(  # noqa: C901
         assert system_execution is not None
         expected = system_execution.systems[next_system_rank]
         if system.system_id != expected.system_id:
-            raise RuntimeError("route systems are not in canonical emission order")
+            # Edge order and the semantic component order are derived
+            # independently; this is the only place they are tied together.
+            raise RuntimeError(
+                f"route system at emission rank {next_system_rank} is "
+                f"{system.system_id}, but canonical order names "
+                f"{expected.system_id}"
+            )
         for member in system.members:
             member_edge = ctx.edge_by_key[
                 (member.edge.source, member.edge.target, member.edge.line_id)
@@ -438,7 +444,10 @@ def _route_edges(  # noqa: C901
     if system_execution is not None and next_system_rank != len(
         system_execution.systems
     ):
-        raise RuntimeError("canonical route-system emission is incomplete")
+        raise RuntimeError(
+            f"canonical route-system emission covered {next_system_rank} of "
+            f"{len(system_execution.systems)} systems"
+        )
 
     from nf_metro.layout.routing.exit_turns import (
         assert_exit_turn_snapshot,

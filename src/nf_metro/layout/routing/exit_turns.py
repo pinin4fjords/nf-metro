@@ -35,7 +35,6 @@ from nf_metro.layout.route_plan import (
     RoutePlanDiagnostic,
     RoutePlanProvenance,
     RouteSemanticScaffold,
-    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -2619,19 +2618,7 @@ def validate_exit_turn_plans(
     edge_by_key = {
         (edge.source, edge.target, edge.line_id): edge for edge in graph.edges
     }
-    if isinstance(plan, RoutePlan):
-        planned_system_ids = {
-            system.id
-            for system in plan.systems
-            if system.disposition is RouteSystemDisposition.PLANNED
-        }
-        exit_turn_plans = tuple(
-            item
-            for item in plan.exit_turn_plans
-            if item.system_id in planned_system_ids
-        )
-    else:
-        exit_turn_plans = plan
+    exit_turn_plans = plan.exit_turn_plans if isinstance(plan, RoutePlan) else plan
     for exit_turn_plan in exit_turn_plans:
         if exit_turn_plan.disposition is not ExitTurnDisposition.PLANNED:
             continue

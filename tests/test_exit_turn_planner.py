@@ -448,7 +448,8 @@ def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
     system = next(
         item for item in observation.plan.systems if item.id == plan.system_id
     )
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert system.compatibility_reasons == ()
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
