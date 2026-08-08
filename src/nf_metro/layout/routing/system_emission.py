@@ -181,6 +181,27 @@ def classify_route_system_dispositions(
     )
 
 
+_INERT_OWNER_REASONS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "exit-turn-plan": frozenset({"single-member-group"}),
+        "fan-plan": frozenset(
+            {
+                "off-track-layout-owns-fan-geometry",
+                "rail-layout-owns-fan-geometry",
+                "same-line-open-fan-layout-owns-geometry",
+                "straight-diamond-layout-owns-geometry",
+            }
+        ),
+    }
+)
+"""Owner verdicts that constrain no geometry, so no system escalates on them.
+
+A single-member exit group has no lane order and no shared axis to plan, and a
+layout-owned fan states that the section allocator decides that frame.  Neither
+says the planner is unable to own the system's members, so neither is a mixed
+system."""
+
+
 def _classify_route_system_dispositions(
     scaffold: RouteSemanticScaffold,
     exit_by_system: Mapping[RouteSystemId, list[ExitTurnPlan]],
@@ -246,6 +267,7 @@ def _classify_route_system_dispositions(
                 _compatibility_reason(owner, reason)
                 for owner, owner_reasons in decisive
                 for reason in owner_reasons
+                if reason not in _INERT_OWNER_REASONS.get(owner, frozenset())
             )
         )
         decisions.append(

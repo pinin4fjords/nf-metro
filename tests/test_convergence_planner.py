@@ -121,41 +121,75 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
 
 
 @pytest.mark.parametrize(
-    "fixture",
+    ("fixture", "reason"),
     (
-        "exit_run_three_drop_columns.mmd",
-        "funcprofiler_upstream.mmd",
-        "merge_trunk_out_of_range_section.mmd",
+        (
+            "exit_run_three_drop_columns.mmd",
+            "planned convergence trunks require one shared channel decision",
+        ),
+        (
+            "funcprofiler_upstream.mmd",
+            "planned convergence corridor conflicts with unowned route-system members",
+        ),
+        (
+            "merge_trunk_out_of_range_section.mmd",
+            "planned convergence trunks require one shared channel decision",
+        ),
     ),
 )
-def test_shared_channel_route_systems_are_planned_as_a_whole(fixture: str) -> None:
+def test_conflicting_route_systems_use_whole_system_compatibility(
+    fixture: str, reason: str
+) -> None:
     _graph, _offsets, observed = _observe(TOPOLOGIES / fixture)
 
     assert observed.plan.convergence_plans
     assert {item.disposition for item in observed.plan.convergence_plans} == {
-        ConvergenceDisposition.PLANNED
+        ConvergenceDisposition.LEGACY
     }
     assert len({item.system_id for item in observed.plan.convergence_plans}) == 1
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {None}
+    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "reason"),
     (
-        TOPOLOGIES / "merge_bottom_row_bypass.mmd",
-        TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-        TOPOLOGIES / "merge_right_entry.mmd",
-        ROOT / "examples" / "genomeassembly.mmd",
-        ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
-        ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+        (
+            TOPOLOGIES / "merge_bottom_row_bypass.mmd",
+            "planned fan arms require opposing opening channels",
+        ),
+        (
+            TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
+            "planned fan arms require opposing opening channels",
+        ),
+        (
+            TOPOLOGIES / "merge_right_entry.mmd",
+            "planned convergence corridor conflicts with unowned route-system member",
+        ),
+        (
+            ROOT / "examples" / "genomeassembly.mmd",
+            "chained same-line convergences require one shared system settlement",
+        ),
+        (
+            ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
+            "chained same-line convergences require one shared system settlement",
+        ),
+        (
+            ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+            "planned convergence feeder approaches require one shared channel decision",
+        ),
     ),
 )
-def test_reviewed_shared_channels_are_complete_planned_systems(path: Path) -> None:
+def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
+    path: Path, reason: str
+) -> None:
     _graph, _offsets, observed = _observe(path)
 
     assert observed.plan.convergence_plans
-    assert all(item.owns_geometry for item in observed.plan.convergence_plans)
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {None}
+    assert all(
+        item.disposition is ConvergenceDisposition.LEGACY
+        for item in observed.plan.convergence_plans
+    )
+    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
 
 
 @pytest.mark.parametrize(
@@ -779,6 +813,26 @@ def test_direct_trunk_axis_rotates_and_reverses(
     assert trunk.direction.value == direction
 
 
+def test_one_planning_failure_rolls_back_the_whole_route_system(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject(*_args, **_kwargs):
+        raise UnsupportedConvergenceError("unsupported convergence shape")
+
+    monkeypatch.setattr(convergence_routing, "_build_planned_convergence", reject)
+    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
+    plans = observed.plan.convergence_plans
+
+    assert len(plans) > 1
+    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
+    assert all(plan.legacy_reason == "unsupported convergence shape" for plan in plans)
+    assert all(not plan.shared_reference_ids and not plan.demand_ids for plan in plans)
+    assert sum(
+        diagnostic.code == "convergence-plan-legacy"
+        for diagnostic in observed.plan.diagnostics
+    ) == len(plans)
+
+
 def test_unregistered_convergence_failure_cannot_open_compatibility(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -818,7 +872,7 @@ def test_incomplete_semantic_membership_is_a_planning_error(
         _observe(FROZEN / "seed_15.mmd")
 
 
-def test_incompatible_custom_exit_spacing_uses_one_compatibility_system() -> None:
+def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph, offset_step=10.0)

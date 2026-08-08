@@ -3224,6 +3224,22 @@ def _htrunk_seg(t: _HTrunk, y: float) -> HTrunkSeg:
     return HTrunkSeg(y, pts[k][0], pts[k + 1][0], pts[k - 1][1], pts[k + 2][1])
 
 
+def _exempt_trunk_separation(
+    trunk: _HTrunk, obstacle: _HTrunk, curve_radius: float
+) -> float:
+    """Clearance a movable trunk needs from the exempt run sharing its corridor.
+
+    Read from the corridor definition the reservation ledger also reads, so the
+    pass that draws the two runs and the ledger that sizes the boundary they
+    share never charge different amounts for the same pair.
+    """
+    return cotravelling_lane_clearance(
+        same_line=obstacle.route.line_id == trunk.route.line_id,
+        counter_running=obstacle.sign_x != trunk.sign_x,
+        curve_radius=curve_radius,
+    )
+
+
 def _dogleg_off_exempt_trunks(
     routes: list[RoutedPath], ctx: _RoutingCtx, skip: set[int] | None = None
 ) -> None:
@@ -3239,11 +3255,12 @@ def _dogleg_off_exempt_trunks(
       drawn track.  Shifted clear by up to one bundle clearance onto the
       crossing-free side with room, so the two flows read as a dogleg without
       the moved flow crossing the exempt run.
-    - DISTINCT line: a different-colour trunk drawn within a sub-bundle gap of
-      the exempt run reads as one stroke (the exempt line painted over it).
-      Nudged to a full ``OFFSET_STEP`` gap so both colours show as a tight
-      concentric bundle.  Distinct trunks already a bundle-gap or more apart
-      are a legitimate bundle and left untouched.
+    - DISTINCT line: a different-colour trunk drawn closer to the exempt run
+      than their shared corridor admits reads as one stroke (the exempt line
+      painted over it).  Nudged out to that corridor's own separation, so two
+      co-travelling colours show as a tight concentric bundle and two
+      counter-running ones as the two bundles they are.  Distinct trunks
+      already that far apart are a legitimate bundle and left untouched.
 
     Both regimes clamp inside the inter-row gap, leaving the next row's header
     protrusion clear so the trunk stays in the envelope.
@@ -3318,7 +3335,8 @@ def _dogleg_off_exempt_trunks(
                 o
                 for o in obstacles
                 if o.route.line_id != t.route.line_id
-                and abs(o.y - t.y) < step - COORD_TOLERANCE
+                and abs(o.y - t.y)
+                < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
                 and t.x_lo < o.x_hi - COORD_TOLERANCE
                 and o.x_lo < t.x_hi - COORD_TOLERANCE
             ),
@@ -3326,8 +3344,9 @@ def _dogleg_off_exempt_trunks(
         )
         if hit is None:
             continue
+        separation = _exempt_trunk_separation(t, hit, ctx.curve_radius)
         band = _inter_row_gap_band(ctx, t.y)
-        below, above = hit.y + step, hit.y - step
+        below, above = hit.y + separation, hit.y - separation
         if band is not None:
             top, bottom = band
             below_ok = below <= bottom - SECTION_HEADER_PROTRUSION

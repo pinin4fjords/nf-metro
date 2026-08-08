@@ -1,9 +1,10 @@
-"""Capacity evidence and migration controls for route-system planning."""
+"""A compatibility system's limit is probed against capacity, not read off geometry."""
 
 from __future__ import annotations
 
 import copy
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -18,6 +19,7 @@ from nf_metro.layout.capacity_probe import (
     CapacityScope,
     CapacityVerdict,
     GrantOutcome,
+    _replan,
     claimed_boundaries,
     probe_settlement_capacity,
     translate_boundaries,
@@ -38,7 +40,13 @@ compatibility systems, so an empty result is the assertion that the fixture has
 none, and the row fails loudly the moment one appears.
 """
 
-MIGRATION_CONTROL_CORPUS: tuple[tuple[Path, CapacityVerdict | None], ...] = (
+# Every fixture whose convergence planning has been probed, with the result:
+# a `CapacityVerdict` for a system on the compatibility path, or
+# `PLANNED_OUTRIGHT` where the fixture leaves none.  #1657 lets a system stay
+# compatible only where its limit is not an envelope allocation, so a system
+# listed here as anything other than BEYOND_ALLOCATION is one whose exit that
+# criterion does not license.
+COMPATIBILITY_CORPUS: tuple[tuple[Path, CapacityVerdict | None], ...] = (
     (ROOT / "examples" / "genomeassembly.mmd", PLANNED_OUTRIGHT),
     (
         ROOT / "examples" / "genomeassembly_staggered.mmd",
@@ -129,13 +137,20 @@ def _starved(path: Path, amount: float):
 
 @pytest.mark.parametrize(
     ("path", "expected"),
-    MIGRATION_CONTROL_CORPUS,
+    COMPATIBILITY_CORPUS,
     ids=lambda item: getattr(item, "name", item),
 )
-def test_migrated_systems_are_planned_without_capacity_probes(
+def test_every_compatibility_system_is_probed_against_boundary_capacity(
     path: Path, expected: CapacityVerdict | None
 ) -> None:
-    """Migrated systems publish no compatibility-capacity evidence."""
+    """#1657 lets a system stay compatible only where its limit is not an
+    envelope allocation, and the only way to establish that is to give the
+    planner the room and see what it decides.
+
+    The published sentence is what a reader acts on, so the grants behind it are
+    checked too: which capacities were planned at, and that the message quotes
+    the one the verdict rests on.
+    """
     graph, plan = _settled(path)
     if expected is PLANNED_OUTRIGHT:
         assert probe_settlement_capacity(graph, plan) == ()
@@ -201,6 +216,17 @@ def test_a_starved_system_is_handed_back_the_capacity_that_starved_it() -> None:
     assert quoted_scope is CapacityScope.CLAIMED_BOUNDARIES
     assert quoted_capacity >= -STARVATION
 
+    assert len(probe.grants) == 2 * len(CAPACITY_MULTIPLES)
+    assert probe.capacity > 0.0
+    assert probe.control_conflict is not None
+    assert probe.control_conflict.reason in probe.message
+    assert f"{quoted_capacity:.2f}px" in probe.message
+    assert all(
+        item.planned
+        for item in probe.measured_grants
+        if item.scope is quoted_scope and item.capacity >= quoted_capacity
+    )
+
 
 def test_compatibility_members_do_not_enter_another_systems_convergence_replay(
     monkeypatch: pytest.MonkeyPatch,
@@ -265,6 +291,32 @@ def test_the_probe_never_writes_to_the_map_it_measures() -> None:
     }
 
 
+def test_capacity_carries_a_shared_opening_turn_instead_of_opening_it() -> None:
+    """Two fan arms leaving one junction turn on a coordinate that junction sets,
+    and a boundary translation carries the junction with the sections it joins,
+    so the distance between the two turns is the same at every capacity.
+
+    Reading the separation rather than only the verdict is what tells a limit no
+    allocation reaches apart from one a grant merely stopped measuring: a
+    translation that stranded the junction would report the pair drifting apart
+    and the planner falling silent about them.
+    """
+    graph, plan = _settled(TOPOLOGIES / "merge_bottom_row_bypass.mmd")
+    probe = _sole(probe_settlement_capacity(graph, plan))
+    rows, columns, _widths = claimed_boundaries(plan, probe.system_id)
+    for multiple in CAPACITY_MULTIPLES:
+        amount = probe.capacity * multiple
+        granted = copy.deepcopy(graph)
+        translate_boundaries(granted, rows, columns, amount)
+        replanned, _offset_step = _replan(granted)
+        separations = {
+            round(item.conflict.separation, 6)
+            for item in replanned[probe.system_id]
+            if item.conflict is not None
+        }
+        assert separations == {0.0}, f"at {amount}px: {separations}"
+
+
 def test_the_probe_answers_the_same_way_twice() -> None:
     """Evidence that changes between two readings of one map is not evidence."""
     graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
@@ -283,7 +335,7 @@ def test_a_grant_the_replan_loses_the_system_on_is_not_a_negative_result() -> No
     stopped describing its system at every capacity would publish the conclusion
     the exit criteria are read off.
     """
-    graph, _plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
+    graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
 
     def lose_the_system(_graph):
         return {}, 4.0
@@ -293,6 +345,18 @@ def test_a_grant_the_replan_loses_the_system_on_is_not_a_negative_result() -> No
             graph, RouteSystemId("any"), (), (), 0.0
         )
     assert outcome is GrantOutcome.DIVERGED
+
+    probe = _sole(probe_settlement_capacity(graph, plan))
+    diverged = replace(
+        probe,
+        grants=tuple(
+            replace(item, outcome=GrantOutcome.DIVERGED) for item in probe.grants
+        ),
+    )
+    assert probe.verdict is CapacityVerdict.BEYOND_ALLOCATION
+    assert diverged.verdict is CapacityVerdict.GRANTS_DIVERGED
+    assert diverged.measured_grants == ()
+    assert "could not be probed" in diverged.message
 
 
 def test_a_diverged_grant_does_not_break_a_planned_tail() -> None:

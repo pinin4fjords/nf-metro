@@ -54,6 +54,7 @@ from nf_metro.layout.route_plan import (
     ReservationDecisionRef,
     RoutePlan,
     RouteSystem,
+    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -3415,16 +3416,24 @@ def build_reservation_query_indexes(
 
     exit_turn_reference_set = set(exit_turn_reference_ids)
     exit_turn_demand_set = set(exit_turn_demand_ids)
+    # Only a planned system's fans publish resources, so only those fans can
+    # account for a shared reference; the fan plans of a system the planner
+    # handed to compatibility own nothing the ledger has to link.
+    planned_fan_system_ids = {
+        system.id
+        for system in plan.systems
+        if system.disposition is RouteSystemDisposition.PLANNED
+    }
+    published_fan_plans = tuple(
+        item for item in plan.fan_plans if item.system_id in planned_fan_system_ids
+    )
     fan_reference_ids = tuple(
         item.centreline_reference_id
-        for item in plan.fan_plans
-        if item.system_id is not None and item.centreline_reference_id is not None
+        for item in published_fan_plans
+        if item.centreline_reference_id is not None
     )
     fan_demand_ids = tuple(
-        demand_id
-        for item in plan.fan_plans
-        if item.system_id is not None
-        for demand_id in item.demand_ids
+        demand_id for item in published_fan_plans for demand_id in item.demand_ids
     )
     convergence_reference_ids = tuple(
         reference_id

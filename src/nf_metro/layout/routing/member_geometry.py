@@ -48,6 +48,7 @@ from nf_metro.layout.routing.normalize import (
     _materialize_trunk_slots,
     _set_htrunk_y,
     _set_vchannel_x,
+    _stagger_convergent_distinct_lines,
     _VChannel,
 )
 from nf_metro.layout.routing.reserved_bands import ReservedBand
@@ -993,6 +994,11 @@ def build_member_geometry_execution(
         _coincide_fanout_opening_descents(co_resident, ctx)
         _coincide_same_line_fanout_traverses(co_resident, ctx)
         _bundle_divergent_distinct_traverses(candidate_routes, ctx)
+        # Feeders converging on one entry port from opposite sides only nest
+        # concentrically once their descent lanes are ordered by the port lane
+        # they land in; the freeze is final, so that order has to be settled
+        # here rather than by the same pass running after emission.
+        _stagger_convergent_distinct_lines(co_resident, ctx)
         eligible_claims = _eligible_preliminary_gap_claims(
             preliminary_gap_claims,
             failures,

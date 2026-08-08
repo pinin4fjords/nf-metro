@@ -256,16 +256,14 @@ def test_three_family_exit_bundle_has_one_complete_turn_plan() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    (TOPOLOGIES / "wide_fan_out.mmd",),
-    ids=("wide-fan-out",),
+    (
+        ROOT / "examples" / "guide" / "03_fan_out.mmd",
+        TOPOLOGIES / "wide_fan_out.mmd",
+    ),
+    ids=("guide-fan-out", "wide-fan-out"),
 )
 def test_planned_fan_axis_keeps_a_full_landing_curve(path: Path) -> None:
-    """A shared fan opening does not donate its target-side curve radius.
-
-    Parametrised over the fixtures whose fan opening its own route system plans;
-    a system emitting through the established templates publishes no planned fan
-    axis for this to read.
-    """
+    """A shared fan opening does not donate its target-side curve radius."""
     graph, offsets, observation = _observe(path)
     plan = next(
         item
@@ -1652,6 +1650,37 @@ def test_runtime_invariant_names_the_system_and_connectors() -> None:
         for item in observation.plan.exit_turn_plans
         if item.id == route.exit_turn_plan_id
     )
+    assert str(plan.system_id) in str(error.value)
+    assert all(
+        str(connector_id) in str(error.value) for connector_id in plan.connector_ids
+    )
+
+
+def test_declined_planned_emitter_names_the_system_and_connectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
+    expected_graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    expected_offsets = compute_station_offsets(expected_graph)
+    expected_observation = observe_route_edges(
+        expected_graph,
+        station_offsets=expected_offsets,
+    )
+    plan = _plan_for_source(expected_observation, "__junction_9")
+    real_route = inter_handlers._route_l_shape
+
+    def decline(edge, src, tgt, i, n, ctx):
+        if edge.source == plan.source_id and edge.line_id == "main":
+            return None
+        return real_route(edge, src, tgt, i, n, ctx)
+
+    monkeypatch.setattr(inter_handlers, "_route_l_shape", decline)
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+
+    with pytest.raises(ExitTurnInvariantError) as error:
+        route_edges(graph, station_offsets=offsets)
+
     assert str(plan.system_id) in str(error.value)
     assert all(
         str(connector_id) in str(error.value) for connector_id in plan.connector_ids

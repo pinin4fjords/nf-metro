@@ -26,6 +26,7 @@ from nf_metro.layout.envelope_settlement import (
     BoundaryClearanceDemand,
     EnvelopeSettlement,
     SettlementAxis,
+    SettlementReach,
     SettlementShortfall,
     attribute_compatibility_systems,
     quantised_allocation,
@@ -264,6 +265,11 @@ def _sole(items: tuple):
     return items[0]
 
 
+def _sole_compatibility_exit(path: Path):
+    graph, plan = _settled(path)
+    return _sole(attribute_compatibility_systems(graph, plan))
+
+
 def _capacity_deficits(plan) -> dict[str, float]:
     """Reservation id -> negative capacity slack, for gap-region corridors."""
     query = build_route_plan_query(plan)
@@ -454,7 +460,7 @@ def test_the_column_phase_settles_a_column_deficit(path: Path) -> None:
         if isinstance(item.region, ColumnGapRegion)
         and str(item.id) in _capacity_deficits(plan)
     }
-    assert column_deficits
+    assert column_deficits, "fixture must starve a column gap"
 
     settlement = settle_route_envelopes(graph, plan)
     assert settlement.shortfalls == ()
@@ -526,27 +532,36 @@ def test_a_group_band_render_is_gated_by_the_geometry_it_draws() -> None:
     assert _capacity_deficits(plan) == {}
 
 
-PLANNED_GAP_CORRIDOR_CORPUS = {
-    "row-deficit": TOPOLOGIES / "convergence_fold_diamond.mmd",
-    "two-row-deficits": TOPOLOGIES / "convergence_sink_fold.mmd",
-    "row-and-column": TOPOLOGIES / "bottom_exit_junction_collinear_top_entry.mmd",
-    "column-bundle": TOPOLOGIES / "asymmetric_tree.mmd",
+# One fixture per way an arrangement can pin a section's grid placement, which
+# is the only thing an author can pin: no directive fixes a canvas coordinate or
+# a maximum separation, so the ownership lemma below has to hold for all of them.
+PIN_CLASS_CORPUS = {
+    "explicit-grid": ROOT / "examples" / "rnaseq_sections.mmd",
+    "row-span": ROOT / "examples" / "differentialabundance.mmd",
+    "column-span": ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd",
+    "column-span-tb": ROOT / "tests" / "fixtures" / "tb_exit_terminal_on_carrier.mmd",
+    "inferred-span": ROOT / "tests" / "fixtures" / "da_pipeline.mmd",
     "fold-rows": TOPOLOGIES / "convergence_fold_diamond.mmd",
     "fold-targets": TOPOLOGIES / "fold_split_targets.mmd",
     **{f"flow-{name}": path for name, path in DIRECTION_CORPUS.items()},
 }
 
 LEMMA_CORPUS = {
-    **PLANNED_GAP_CORRIDOR_CORPUS,
+    **PIN_CLASS_CORPUS,
     **{f"deficit-{path.name}": path for path in DEFICIT_CORPUS},
     **{f"column-{path.name}": path for path in COLUMN_DEFICIT_CORPUS},
+    **{f"spanning-{path.name}": path for path in SPANNING_CORPUS},
+    # The one member of ``SETTLED_CORPUS`` that publishes a corridor: the other
+    # two share none, so the rule has nothing to say about them.
+    "settled-rnaseq_auto.mmd": ROOT / "examples" / "rnaseq_auto.mmd",
 }
 
 # Fixtures that run a column translation while row corridors exist, so the row
 # phase's result is exposed to the column phase.
 CROSS_AXIS_CORPUS = (
-    TOPOLOGIES / "bottom_exit_junction_collinear_top_entry.mmd",
-    TOPOLOGIES / "clear_channel_target_aware_push.mmd",
+    TOPOLOGIES / "complex_multipath.mmd",
+    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
+    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd",
 )
 
 
@@ -634,14 +649,6 @@ def test_each_translation_widens_the_corridor_it_records_by_its_amount(
     """
     graph, plan = _observe(path)
     settlement = settle_route_envelopes(graph, plan)
-    if not settlement.translations:
-        reservation = next(
-            item
-            for item in plan.reservations
-            if isinstance(item.region, RowGapRegion | ColumnGapRegion)
-        )
-        _narrow_reservation(graph, reservation)
-        settlement = settle_route_envelopes(graph, plan)
     assert settlement.translations, path
 
     replayed, replayed_plan = _observe(path)
@@ -848,9 +855,6 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
         item for item in plan.reservations if isinstance(item.region, ColumnGapRegion)
     )
     assert row_reservations and column_reservations, path
-
-    target_column = column_reservations[0]
-    _narrow_reservation(graph, target_column)
 
     _, row_coordinate = envelope_settlement._settle_axis(
         graph, plan, row_reservations, envelope_settlement.ROW_AXIS
@@ -1368,7 +1372,11 @@ def test_planned_convergence_reroutes_strictly_with_settled_column_bands(
     _rendered_plan(path)
 
 
-MIGRATED_SYSTEMS = (
+# Route systems the convergence planner puts on its compatibility disposition
+# for want of "a wider shared settlement".  Each one's corridors reach their
+# required width, which is the evidence that what limits them is a channel
+# decision rather than envelope allocation.
+SHARED_SETTLEMENT_CANDIDATES = (
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
     ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
@@ -1377,11 +1385,12 @@ MIGRATED_SYSTEMS = (
     TOPOLOGIES / "funcprofiler_upstream.mmd",
     TOPOLOGIES / "merge_right_entry.mmd",
     ROOT / "examples" / "genomeassembly.mmd",
-    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
 )
 
 
-@pytest.mark.parametrize("path", MIGRATED_SYSTEMS, ids=lambda item: item.name)
+@pytest.mark.parametrize(
+    "path", SHARED_SETTLEMENT_CANDIDATES, ids=lambda item: item.name
+)
 def test_compatibility_systems_are_not_short_of_corridor(path: Path) -> None:
     observed = _rendered_plan(path, permissive=True)
     assert _capacity_deficits(observed.route_plan) == {}
@@ -1462,10 +1471,23 @@ def test_settlement_does_not_chase_the_ledger_the_reroute_publishes(
     assert settle_route_envelopes(graph, plan).translations == ()
 
 
-PLANNED_SYSTEMS = (
-    *MIGRATED_SYSTEMS,
-    REGRESSIONS / "cross_column_perp_entry_overflow.mmd",
+COMPATIBILITY_SYSTEMS = (
+    TOPOLOGIES / "exit_run_three_drop_columns.mmd",
+    TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
+    ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
+    TOPOLOGIES / "merge_bottom_row_bypass.mmd",
+    TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
+    TOPOLOGIES / "funcprofiler_upstream.mmd",
+    TOPOLOGIES / "merge_right_entry.mmd",
+    ROOT / "examples" / "genomeassembly.mmd",
+    ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
 )
+
+# Fixtures probed for a compatibility exit whose route systems the planner owns
+# instead.  They are retained as controls rather than dropped: the assertion is
+# that nothing is published for them, which fails the moment one of them slips
+# back onto the compatibility path.
+PLANNED_SYSTEMS = (REGRESSIONS / "cross_column_perp_entry_overflow.mmd",)
 
 
 @pytest.mark.parametrize("path", PLANNED_SYSTEMS, ids=lambda item: item.name)
@@ -1507,6 +1529,47 @@ def _widest_slack_row_reservation(graph, plan):
     return target, boundary
 
 
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_every_compatibility_system_is_attributed_in_the_published_plan(
+    path: Path,
+) -> None:
+    """#1660 lets a system stay on compatibility only with evidence naming a
+    separate owner, so that evidence has to reach the plan a consumer reads."""
+    observed = _rendered_plan(path, permissive=True)
+    published = [
+        item
+        for item in observed.route_plan.diagnostics
+        if item.code == "convergence-settlement-exit"
+    ]
+    assert all(
+        item.blocking is False
+        for item in observed.route_plan.diagnostics
+        if item.code == "envelope-settlement-translation"
+    )
+    assert published
+    for item in published:
+        assert item.blocking is False
+        assert "#1658" in item.message
+
+
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_no_compatibility_system_is_held_by_something_settlement_can_reach(
+    path: Path,
+) -> None:
+    """#1660 may hand a system on only where its limit is out of its own reach.
+
+    A conflict whose two runs an offset this stage owns would pull apart is an
+    envelope allocation to make here, not a channel decision to attribute
+    elsewhere, so finding one within reach withdraws the exit rather than
+    publishing it.
+    """
+    graph, plan = _settled(path)
+    published = attribute_compatibility_systems(graph, plan)
+    assert published
+    for item in published:
+        assert item.reach is not SettlementReach.WITHIN_REACH
+
+
 def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> None:
     """A route drawn through a violated hard clearance is rejected, and the
     rejection names everything needed to act on it: who claimed the corridor,
@@ -1514,7 +1577,9 @@ def test_a_corridor_narrower_than_its_reservation_fails_the_strict_path() -> Non
     graph, plan, polylines = _observe_drawn(TOPOLOGIES / "convergence_fold_diamond.mmd")
     settlement = settle_route_envelopes(graph, plan)
     target, boundary = _widest_slack_row_reservation(graph, plan)
-    _narrow_reservation(graph, target)
+    realised = realise_reservation(graph, target)
+    assert realised is not None
+    _narrow(graph, SettlementAxis.ROW, boundary, realised.capacity_slack + 4.0)
 
     squeezed = realise_reservation(graph, target)
     assert squeezed is not None and squeezed.capacity_slack < 0
@@ -1538,7 +1603,7 @@ def test_a_canvas_corridor_narrower_than_it_claims_fails_the_strict_path() -> No
     Growing the demand past the margin stands in for an arrangement that starves
     it: the guard has to refuse the render rather than warn and draw it.
     """
-    path = TOPOLOGIES / "fan_in_merge.mmd"
+    path = TOPOLOGIES / "route_around_intervening.mmd"
     plan = _rendered_plan(path, permissive=True).route_plan
     target = next(
         item for item in plan.reservations if isinstance(item.region, CanvasRegion)
@@ -1600,7 +1665,7 @@ def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
     margin.  The margin is what a stroke and a direction chevron are clipped
     against, so it is the number the strict path refuses.
     """
-    path = TOPOLOGIES / "around_section_below.mmd"
+    path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -1636,12 +1701,11 @@ def test_a_short_canvas_margin_fails_the_strict_path_at_full_capacity() -> None:
 @pytest.mark.parametrize(
     ("path", "side"),
     (
-        (
-            TOPOLOGIES / "lr_perp_top_exit_perp_entry_diverging.mmd",
-            CanvasSide.TOP,
-        ),
-        (TOPOLOGIES / "fan_in_merge.mmd", CanvasSide.BOTTOM),
-        (TOPOLOGIES / "fanout_bundle_plus_spurs.mmd", CanvasSide.LEFT),
+        (TOPOLOGIES / "bt_to_lr.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "cross_col_top_entry.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "lr_perp_top_exit_side_entry.mmd", CanvasSide.TOP),
+        (TOPOLOGIES / "bypass_leftward_far_side_entry.mmd", CanvasSide.BOTTOM),
+        (TOPOLOGIES / "stacked_left_exit_drop.mmd", CanvasSide.LEFT),
         (
             TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
             CanvasSide.RIGHT,
@@ -1683,14 +1747,12 @@ def test_every_canvas_corridor_holds_its_content_side(
 @pytest.mark.parametrize(
     ("fixture", "expected_blocker"),
     (
-        (
-            "lr_perp_top_exit_perp_entry_diverging.mmd",
-            ("section-top:sec1", "section-top:sec2"),
-        ),
+        ("lr_perp_top_exit_side_entry.mmd", "section-top:mid"),
+        ("tb_bottom_exit_fork_diamond.mmd", "section-header:feed"),
     ),
 )
 def test_a_top_canvas_corridor_is_bounded_by_content_over_its_own_run(
-    fixture: str, expected_blocker: tuple[str, ...]
+    fixture: str, expected_blocker: str
 ) -> None:
     """A header only bounds the longitudinal interval occupied by its ink."""
     path = TOPOLOGIES / fixture
@@ -1708,12 +1770,12 @@ def test_a_top_canvas_corridor_is_bounded_by_content_over_its_own_run(
         for item in plan.realised_reservations
         if item.reservation_id == reservation.id
     )
-    assert realised.positive_blocker_ids == expected_blocker
+    assert realised.positive_blocker_ids == (expected_blocker,)
 
 
 def test_a_short_canvas_content_side_fails_the_strict_path() -> None:
     """A content blocker is as hard a boundary as the canvas edge."""
-    path = TOPOLOGIES / "lr_perp_top_exit_perp_entry_diverging.mmd"
+    path = TOPOLOGIES / "bt_to_lr.mmd"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -1777,7 +1839,7 @@ def test_a_canvas_edge_clearance_is_what_is_drawn_beside_the_edge() -> None:
 def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
     """Settlement's own postcondition is enforced, not just reported: a demand
     it was handed and did not meet stops the render rather than being drawn."""
-    graph, plan, polylines = _observe_drawn(TOPOLOGIES / "convergence_fold_diamond.mmd")
+    graph, plan, polylines = _observe_drawn(ROOT / "examples" / "rnaseq_sections.mmd")
     reservation = next(
         item
         for item in plan.reservations
@@ -1802,6 +1864,89 @@ def test_an_unmet_handed_demand_fails_the_strict_path() -> None:
             graph, plan, settlement, polylines, strict=False
         )
     assert any(shortfall.message in str(item.message) for item in caught_warnings)
+
+
+@pytest.mark.parametrize("path", COMPATIBILITY_SYSTEMS, ids=lambda item: item.name)
+def test_a_compatibility_exit_quotes_the_geometry_it_was_measured_on(
+    path: Path,
+) -> None:
+    """Every number in the exit has to be re-derivable from the settled map.
+
+    The published sentence is the evidence #1660 accepts, so each quantity in it
+    is checked against the geometry it claims to describe rather than against a
+    remembered wording.
+    """
+    graph, plan = _settled(path)
+    published = attribute_compatibility_systems(graph, plan)
+    assert published
+    for item in published:
+        assert item.conflict is not None
+        slacks = [
+            realised.capacity_slack
+            for reservation in plan.reservations
+            if reservation.system_id == item.system_id
+            and isinstance(reservation.region, RowGapRegion | ColumnGapRegion)
+            and (realised := realise_reservation(graph, reservation)) is not None
+        ]
+        assert item.corridor_count == len(slacks)
+        assert item.worst_capacity_slack == min(slacks)
+        assert f"{item.conflict.separation:.2f}px" in item.message
+        for site in item.conflict.sites:
+            for x, y in site:
+                assert f"({x:.1f},{y:.1f})" in item.message
+        assert item.owner == item.conflict.kind.owner
+        assert "#1658" in item.message
+
+
+def test_one_compatibility_reason_yields_different_evidence_on_different_maps() -> None:
+    """Two systems the planner rejected for the same reason are not the same
+    case, and an exit derived from geometry says so."""
+    fixed = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly.mmd")
+    grows = _sole_compatibility_exit(ROOT / "examples" / "genomeassembly_staggered.mmd")
+    assert fixed.conflict is not None and grows.conflict is not None
+    assert fixed.conflict.kind is grows.conflict.kind
+    assert fixed.reach is SettlementReach.SEPARATION_FIXED
+    assert grows.reach is SettlementReach.SEPARATION_ONLY_GROWS
+    assert fixed.conflict.separation != grows.conflict.separation
+    assert fixed.message != grows.message
+
+
+def test_a_compatibility_exit_stops_claiming_a_limit_settlement_can_reach() -> None:
+    """The exit is a claim about what row and column offsets cannot move, so
+    putting a boundary between the conflicting runs has to withdraw it."""
+    path = TOPOLOGIES / "merge_right_entry.mmd"
+    graph, plan = _settled(path)
+    before = _sole(attribute_compatibility_systems(graph, plan))
+    assert before.reach is SettlementReach.SEPARATION_FIXED
+    conflict = before.conflict
+    assert conflict is not None
+
+    lower, upper = sorted(site[0][1] for site in conflict.sites)
+    for section in graph.sections.values():
+        if section.grid_row >= before.bands[0]:
+            section.bbox_y = max(section.bbox_y, (lower + upper) / 2)
+
+    reach, bands = envelope_settlement._settlement_reach(graph, conflict)
+    assert reach is SettlementReach.WITHIN_REACH
+    assert bands[0] != bands[1]
+    after = replace(before, reach=reach, bands=bands)
+    assert "not attributed away from settlement" in after.message
+
+
+def test_a_compatibility_exit_republishes_the_slack_it_finds() -> None:
+    """The corridor half of the evidence is a live measurement: widening the
+    boundary the corridor stands in has to change the number it publishes.
+
+    Every corridor this system owns stands in a column gap, and the number is
+    the worst of them, so the widening has to reach all of them at once.
+    """
+    graph, plan = _settled(TOPOLOGIES / "merge_right_entry.mmd")
+    before = _sole(attribute_compatibility_systems(graph, plan))
+    for section in tuple(graph.sections.values()):
+        shift_section(graph, section, dx=90.0 * section.grid_col)
+    after = _sole(attribute_compatibility_systems(graph, plan))
+    assert after.worst_capacity_slack > before.worst_capacity_slack
+    assert f"{after.worst_capacity_slack:.2f}px to spare" in after.message
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
@@ -1844,22 +1989,6 @@ def _narrow(graph, axis: SettlementAxis, boundary: int, amount: float) -> None:
                     item.y -= amount
                 else:
                     item.x -= amount
-
-
-def _narrow_reservation(graph, reservation, *, excess: float = 4.0):
-    """Make one realised row or column reservation short by ``excess`` pixels."""
-    realised = realise_reservation(graph, reservation)
-    assert realised is not None
-    if isinstance(reservation.region, RowGapRegion):
-        axis = SettlementAxis.ROW
-        boundary = reservation.region.lower_row
-    elif isinstance(reservation.region, ColumnGapRegion):
-        axis = SettlementAxis.COLUMN
-        boundary = reservation.region.right_column
-    else:
-        raise TypeError(f"unsupported reservation region: {reservation.region!r}")
-    _narrow(graph, axis, boundary, realised.capacity_slack + excess)
-    return realised
 
 
 def _added_diagnostics(published, held):
@@ -1908,18 +2037,18 @@ def test_a_corridor_the_reroute_resizes_is_named_rather_than_invisible() -> None
 def test_the_settled_reroute_reports_the_widths_it_asks_for_afresh() -> None:
     """The same difference, on a map that produces it without being staged.
 
-    The planned merge reroutes inside the frozen corridor and publishes its
-    independently observed width as a diagnostic rather than changing the
-    ledger settlement consumed.
+    ``dogleg_exempt_distinct`` seats its two row corridors clear of one another
+    on the settled geometry, so neither is charged for the other any more and
+    both ask for less than settlement was sized for.
     """
-    path = TOPOLOGIES / "merge_around_below_leftmost.mmd"
+    path = TOPOLOGIES / "dogleg_exempt_distinct.mmd"
     route_plan = _rendered_plan(path).route_plan
     resized = [
         item
         for item in route_plan.diagnostics
         if item.code == "reroute-ledger-demand-rewidened"
     ]
-    assert len(resized) == 1
+    assert len(resized) == 2
     assert all(not item.blocking for item in resized)
     assert all("row gap 0/1" in item.message for item in resized)
 

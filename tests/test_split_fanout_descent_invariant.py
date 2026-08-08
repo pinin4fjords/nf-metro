@@ -12,8 +12,8 @@ Covers:
 * Happy-path: every gallery example and topology fixture (including
   ``divergent_fanout_split``, the reported defect) routes without a split
   same-line fan-out descent.
-* Meaningfulness: with the fan-out fuse pass disabled the checker fires on a
-  shipped regression fixture, so the invariant genuinely encodes the bug.
+* Meaningfulness: with the fan-out fuse pass disabled the checker fires on the
+  reported fixture, so the invariant genuinely encodes the bug.
 """
 
 from __future__ import annotations
@@ -76,9 +76,7 @@ def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> Non
         "_coincide_fanout_opening_descents",
         lambda routes, ctx: None,
     )
-    graph, routes, offsets = _route(
-        EXAMPLE_TOPOLOGIES / "packed_cell_right_exit_left_entry_wrap.mmd"
-    )
+    graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "divergent_fanout_split.mmd")
     violations = check_no_split_same_line_fanout_descents(graph, routes, offsets)
     assert violations, "expected a split fan-out descent with the fuse pass off"
 
@@ -170,7 +168,7 @@ def test_distinct_line_fan_traverses_nest_as_one_bundle() -> None:
     from nf_metro.layout.constants import OFFSET_STEP
     from nf_metro.layout.routing.normalize import _fanout_traverse_legs
 
-    path = EXAMPLE_TOPOLOGIES / "bottom_entry_same_row_boundary.mmd"
+    path = EXAMPLE_TOPOLOGIES / "same_line_fan_distinct_descent.mmd"
     _graph, routes, _offsets = _route(path)
 
     nested = False

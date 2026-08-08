@@ -644,24 +644,29 @@ def _shared_terminal_axis(
     )
     carrier = routes[rank]
     predecessor = carrier.points[-3] if len(carrier.points) >= 3 else None
-    if axis is DemandAxis.X:
-        source_flank_coordinate = (
-            predecessor[1]
-            if predecessor is not None
-            and abs(predecessor[0] - source_longitudinal) <= COORD_TOLERANCE
-            else coordinate
+    across, along = (1, 0) if axis is DemandAxis.X else (0, 1)
+    source_endpoint = carrier.points[0][along]
+    # A flank other members travel too is a column the fan-out coincidence pass
+    # settles for the whole line, out of geometry that is complete only once
+    # every route is placed.  Stating it from the carrier's trial approach pins
+    # the carrier to the trial column while its co-travellers settle on the
+    # pass's, and the line draws as two parallel tracks.  What the members do
+    # share outright is the run they converge on, so the axis states that alone.
+    flank = (
+        predecessor[across]
+        if predecessor is not None
+        and abs(predecessor[along] - source_longitudinal) <= COORD_TOLERANCE
+        and not _flank_is_shared(
+            _flank_run(axis, predecessor[across], source_longitudinal, source_endpoint),
+            tuple(route for index, route in enumerate(routes) if index != rank),
         )
-        source_endpoint_coordinate = carrier.points[0][0]
-        target_endpoint_coordinate = carrier.points[-1][0]
-    else:
-        source_flank_coordinate = (
-            predecessor[0]
-            if predecessor is not None
-            and abs(predecessor[1] - source_longitudinal) <= COORD_TOLERANCE
-            else coordinate
-        )
-        source_endpoint_coordinate = carrier.points[0][1]
-        target_endpoint_coordinate = carrier.points[-1][1]
+        else None
+    )
+    source_flank_coordinate = coordinate if flank is None else flank
+    source_endpoint_coordinate = (
+        source_longitudinal if flank is None else source_endpoint
+    )
+    target_endpoint_coordinate = carrier.points[-1][along]
     return (
         ConvergenceTrunkAxis(
             axis,
@@ -675,6 +680,30 @@ def _shared_terminal_axis(
             target_endpoint_coordinate,
         ),
         rank,
+    )
+
+
+def _flank_run(
+    axis: DemandAxis,
+    flank_coordinate: float,
+    longitudinal: float,
+    endpoint: float,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """The run from *endpoint* along *flank_coordinate* to the trunk's own run."""
+    if axis is DemandAxis.X:
+        return ((longitudinal, flank_coordinate), (endpoint, flank_coordinate))
+    return ((flank_coordinate, longitudinal), (flank_coordinate, endpoint))
+
+
+def _flank_is_shared(
+    run: tuple[tuple[float, float], tuple[float, float]],
+    others: tuple[RoutedPath, ...],
+) -> bool:
+    """Whether any of *others* travels *run* as well as the carrier does."""
+    return any(
+        _segments_overlap(segment, run)
+        for route in others
+        for segment in zip(route.points, route.points[1:])
     )
 
 
