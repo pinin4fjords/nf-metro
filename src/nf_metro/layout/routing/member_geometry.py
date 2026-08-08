@@ -1007,8 +1007,14 @@ def build_member_geometry_execution(
             },
         )
         _allocate_member_gap_channels(tuple(candidates), eligible_claims, ctx)
+        # The freeze is the last word on an owned channel's coordinate: the
+        # emission chain's own clearance hold reads the frozen ranks as
+        # immovable.  So the corridor clearance has to be closed here, on every
+        # pass, and over the same whole gap population the passes above ranked --
+        # a bundle carrying an immutable convergence stroke is pinned by it, and
+        # holding the candidates alone would slide them off that stroke.
+        _hold_runs_in_corridor_clearance(co_resident, ctx)
         if reservation_ids_by_member is not None:
-            _hold_runs_in_corridor_clearance(candidate_routes, ctx)
             _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
         plans = tuple(
             _freeze_plan(scaffold, candidate, ctx, reservation_ids)

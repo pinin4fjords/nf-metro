@@ -3300,7 +3300,7 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or convergence_owns_segment_boundary(t.route, t.idx):
+        if id(t.route) in skip or route_system_owns_segment_boundary(t.route, t.idx):
             continue
         hit = next(
             (
