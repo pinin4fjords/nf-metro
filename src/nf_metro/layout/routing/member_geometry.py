@@ -76,7 +76,6 @@ class PreliminaryGapChannelClaim:
     line_ids: frozenset[str]
     source_junction_ids: frozenset[str] = frozenset()
     connector_ids: frozenset[str] = frozenset()
-    exit_axis_fixed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,7 +598,13 @@ def _allocate_bundle_around_claims(
     obstacles: Sequence[PreliminaryGapChannelClaim],
     ctx: _RoutingCtx,
 ) -> None:
-    """Translate a same-direction corridor without changing its lane order."""
+    """Hold one frozen member bundle clear of prior gap-channel claims.
+
+    No per-edge handler can see a sibling member's frozen channel, so the
+    clearance a bundle owes its neighbours is only knowable here: the whole
+    bundle translates as one body, which keeps its members' lane order and
+    keeps any carrier it already shares with a claim intact.
+    """
     from nf_metro.layout.routing.normalize import _set_vchannel_x
 
     relevant_by_key = {
@@ -615,14 +620,6 @@ def _allocate_bundle_around_claims(
         )
         for item in items
     }
-    ambiguous = tuple(
-        (item, claim)
-        for item in items
-        for claim in relevant_by_key[item.key]
-        if item.candidate.route.line_id in claim.line_ids
-        and _claim_source_compatible(item, claim)
-        and abs(item.channel.x - claim.coordinate) > COORD_TOLERANCE
-    )
     crowded = tuple(
         (item, claim, required)
         for item in items
@@ -630,12 +627,11 @@ def _allocate_bundle_around_claims(
         if (required := _claim_clearance(item, claim, ctx)) > 0.0
         and abs(item.channel.x - claim.coordinate) < required - COORD_TOLERANCE_FINE
     )
-    if not ambiguous and not crowded:
+    if not crowded:
         return
 
     bounds_by_key = {item.key: _channel_bounds(item, ctx) for item in items}
     deltas = {0.0}
-    deltas.update(claim.coordinate - item.channel.x for item, claim in ambiguous)
     deltas.update(
         claim.coordinate + sign * required - item.channel.x
         for item, claim, required in crowded
@@ -694,68 +690,6 @@ def _allocate_bundle_around_claims(
         ),
         None,
     )
-    current_claims = tuple(
-        claim
-        for item in items
-        for claim in relevant_by_key[item.key]
-        if claim.system_id == item.candidate.system_id
-    )
-    has_coupled_opposing_claims = any(
-        abs(first.coordinate - second.coordinate) <= COORD_TOLERANCE
-        and first.gap == second.gap
-        and first.line_ids == second.line_ids
-        and first.down is not second.down
-        and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
-        for rank, first in enumerate(current_claims)
-        for second in current_claims[rank + 1 :]
-    )
-    if delta is None and (
-        has_coupled_opposing_claims
-        or any(claim.exit_axis_fixed for claim in current_claims)
-    ):
-        # Claims from this route system remain movable until final convergence
-        # settlement. Seat the frozen member as far from them as its own runway
-        # permits, while keeping every prior system's claim fully clear. The
-        # final feasibility gate then resolves (or rejects) the remaining half
-        # of this joint allocation.
-        def provisional_score(candidate_delta: float) -> float | None:
-            margins: list[float] = []
-            for candidate_item in items:
-                coordinate = candidate_item.channel.x + candidate_delta
-                candidate_bounds = bounds_by_key[candidate_item.key]
-                if not _candidate_clears_runway(
-                    candidate_item,
-                    candidate_bounds,
-                    coordinate,
-                    ctx,
-                ):
-                    return None
-                for claim in relevant_by_key[candidate_item.key]:
-                    if candidate_item.candidate.route.line_id in claim.line_ids and (
-                        _claim_source_compatible(candidate_item, claim)
-                    ):
-                        if abs(coordinate - claim.coordinate) > COORD_TOLERANCE:
-                            return None
-                        continue
-                    required = _claim_clearance(candidate_item, claim, ctx)
-                    if required <= 0.0:
-                        continue
-                    margin = abs(coordinate - claim.coordinate) - required
-                    if claim.system_id != candidate_item.candidate.system_id and (
-                        margin < -COORD_TOLERANCE
-                    ):
-                        return None
-                    if claim.system_id == candidate_item.candidate.system_id:
-                        margins.append(margin)
-            return min(margins, default=0.0)
-
-        scored = tuple(
-            (score, candidate)
-            for candidate in deltas
-            if (score := provisional_score(candidate)) is not None
-        )
-        if scored:
-            delta = max(scored, key=lambda item: (item[0], -abs(item[1]), -item[1]))[1]
     if delta is None or abs(delta) <= COORD_TOLERANCE_FINE:
         return
     for item in items:

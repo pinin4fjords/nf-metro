@@ -3027,70 +3027,6 @@ def _settle_opposing_gap_flanks(
     return tuple(by_id[plan.id] for plan in plans)
 
 
-def _settle_same_line_gap_flanks(
-    plans: tuple[ConvergencePlan, ...],
-    graph: MetroGraph,
-    fixed_channels: tuple[_PlanGapChannel, ...],
-    curve_radius: float,
-) -> tuple[ConvergencePlan, ...]:
-    """Fuse overlapping same-line flanks onto one planned channel.
-
-    Stored traversal direction is irrelevant to semantic coincidence: two
-    segments of one line can traverse their shared stroke in opposite graph
-    directions and can retain one axis when that axis is a shared physical
-    stroke. A target flank crossing an upstream landing is a separate run, so a
-    fusion that creates such a collision is rejected.
-    """
-    lookup = gap_lookup_geometry(graph)
-    settled = list(plans)
-    resident = list(fixed_channels)
-    for plan_rank, plan in enumerate(settled):
-        channels = _plan_gap_channels(plan, graph, lookup)
-        for flank_rank in (1, 3):
-            seated = tuple(
-                channel for channel in channels if channel.flank_rank == flank_rank
-            )
-            if not seated:
-                continue
-            obstacles = (
-                *resident,
-                *(channel for channel in channels if channel.flank_rank != flank_rank),
-            )
-            coordinates = {
-                obstacle.coordinate
-                for obstacle in obstacles
-                for channel in seated
-                if obstacle.line_ids & channel.line_ids
-                if _channels_share_source_carrier(channel, obstacle)
-                if channel.gap == obstacle.gap
-                and spans_share_corridor(
-                    channel.y_lo, channel.y_hi, obstacle.y_lo, obstacle.y_hi
-                )
-            }
-            if len(coordinates) != 1:
-                continue
-            coordinate = next(iter(coordinates))
-            if all(
-                abs(channel.coordinate - coordinate) <= COORD_TOLERANCE
-                for channel in seated
-            ):
-                continue
-            moved = _move_trunk_flank(settled[plan_rank], flank_rank, coordinate)
-            candidate = tuple(
-                moved if rank == plan_rank else item
-                for rank, item in enumerate(settled)
-            )
-            if (
-                _landing_trunk_flank_conflict(candidate, graph, curve_radius)
-                is not None
-            ):
-                continue
-            settled[plan_rank] = moved
-            channels = _plan_gap_channels(settled[plan_rank], graph, lookup)
-        resident.extend(channels)
-    return tuple(settled)
-
-
 def _channels_share_source_carrier(
     first: _PlanGapChannel,
     second: _PlanGapChannel,
@@ -3640,9 +3576,6 @@ def _settle_convergence_geometry(
             else frozenset()
         ),
     )
-    settled = _settle_same_line_gap_flanks(
-        settled, graph, fixed_channels, ctx.curve_radius
-    )
     settled = _reconcile_continuation_ownership(settled)
     return _reconcile_landing_handedness(settled, graph)
 
@@ -3721,11 +3654,9 @@ def preliminary_member_gap_claims(
     execution: ConvergencePlanExecution,
     graph: MetroGraph,
     planned_system_ids: frozenset[RouteSystemId],
-    exit_turn_plans: tuple[ExitTurnPlan, ...] = (),
 ) -> tuple[PreliminaryGapChannelClaim, ...]:
     """Expose exact convergence legs to the mutable member allocator."""
     lookup = gap_lookup_geometry(graph)
-    fixed_channels = _fixed_exit_axis_channels(exit_turn_plans)
     return tuple(
         PreliminaryGapChannelClaim(
             plan.system_id,
@@ -3737,11 +3668,6 @@ def preliminary_member_gap_claims(
             channel.line_ids,
             channel.source_junction_ids,
             channel.connector_ids,
-            any(
-                member_id in channel.claimant_member_ids
-                and abs(channel.coordinate - coordinate) <= COORD_TOLERANCE
-                for member_id, coordinate in fixed_channels
-            ),
         )
         for plan in execution.plans
         if plan.system_id in planned_system_ids and plan.owns_geometry

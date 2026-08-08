@@ -508,7 +508,6 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         "_settle_shared_trunk_channels",
         "_settle_shared_opening_pivots",
         "_settle_landing_trunk_flanks",
-        "_settle_same_line_gap_flanks",
     ):
         monkeypatch.setattr(convergences, name, lambda plans, *args, **kwargs: plans)
     monkeypatch.setattr(

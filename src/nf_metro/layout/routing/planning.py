@@ -161,7 +161,6 @@ def prepare_route_system_planning(
             convergences,
             graph,
             preliminary_planned_ids,
-            exit_turns.plans if reservation_ids_by_member is not None else (),
         ),
         reservation_ids_by_member=reservation_ids_by_member,
     )

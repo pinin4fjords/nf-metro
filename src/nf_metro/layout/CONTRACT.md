@@ -1410,7 +1410,12 @@ in pipeline order.
   stroke resident in the gap, and the freeze makes that rank permanent, so a rank
   read from the candidates alone would be a different rank that no later pass can
   correct. `_bundle_divergent_distinct_traverses` runs here for the same reason,
-  in the position it holds in the emission chain.
+  in the position it holds in the emission chain. Same-line coincidence and
+  bundle clearance are separate owners over those claims:
+  `_align_same_line_channels` seats a member on the claim of the carrier it
+  extends, keyed by route system and gap, while
+  `_allocate_bundle_around_claims` translates a whole bundle clear of the claims
+  it does not share, so neither can undo the other.
 - **Precondition**: The semantic scaffold, exit-turn and fan decisions,
   station offsets, layout coordinates, and any realised reservation bands for
   this routing pass are settled. No production member has been emitted.

@@ -223,10 +223,6 @@
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
   },
-  "convergences.py::if all(::#3": {
-    "note": "LOUD: _settle_same_line_gap_flanks' fuse path is now inert. At 897747b0 two fixtures (examples/genomic_pipeline.mmd, genomeassembly_organellar) took the fuse arm and reached the downstream conflict check; at HEAD instrumentation over all 348 fixtures records 428 candidate-count-!=1, 80 already-fused and zero fuses, and the whole 3078-3089 block is unreached (both arms of the L3083 gate are empty). Neither fixture lost its planned system, so this is an unexplained behaviour change in 908637eb..04209e3d, not a corpus thinning. Needs a bisect, not a verdict.",
-    "status": "needs-review"
-  },
   "convergences.py::if any(::#10": {
     "note": "Pre-existing gap, re-keyed from #9 by the gates the packing code inserted earlier in the file (same arm, same [18,0] split as at 897747b0). Third re-check of an already-forced fact: consume_convergence_route has just called _connect_route_endpoint(route, landing.join_point) and raises the same convergence_failure upstream, so taking this arm means an engine bug and a hard abort -- no shippable topology reaches it.",
     "status": "defensive"
@@ -249,6 +245,14 @@
   },
   "convergences.py::if coordinate is not None:::#3": {
     "note": "Pre-existing gap, re-keyed from #2 by the newly inserted packing gates (unchanged [0,2] split). _nearest_lane's fall-through when no flank candidate clears the runway: it runs 9 times, always against a single obstacle, and in 5 of those one of the two candidates is already rejected by the curve-radius runway test, so a shorter flank runway rejects both. Reachable; wants a fixture.",
+    "status": "needs-review"
+  },
+  "convergences.py::if first.claimant_member_ids & second.claimant_member_ids:::#1": {
+    "note": "_channels_share_source_carrier's shared-claimant shortcut. Its sole caller is _validate_final_convergence_feasibility, which pairs a convergence plan channel against a frozen member channel; the intersection is non-empty only when the plan's channel names the very member it is compared with, which no corpus fixture produces. Reachable in principle, wants a fixture.",
+    "status": "needs-review"
+  },
+  "convergences.py::if first.member_geometry_owned == second.member_geometry_owned:::#1": {
+    "note": "_channels_share_source_carrier's equal-ownership rejection. Its sole caller always pairs a convergence-owned channel with a member-owned one, so the two flags always differ and the rejection arm is unreachable from that caller. Reachable only if a second caller compares two channels of one owner.",
     "status": "needs-review"
   },
   "convergences.py::if not carries_coupled_primary and any(::#1": {
@@ -591,24 +595,28 @@
     "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
     "status": "defensive"
   },
-  "member_geometry.py::for candidate_item in items:::#1": {
-    "note": "provisional_score never returns a margin now (4 fixtures at 897747b0, none at HEAD): every candidate delta is rejected by the runway or same-line-coordinate test first. Part of the same inert _allocate_bundle_around_claims path -- see the `for item in items:::#3` entry for the benign upstream-packing mechanism. Reachable.",
-    "status": "needs-review"
-  },
-  "member_geometry.py::for claim in relevant_by_key[candidate_item.key]:::#1": {
-    "note": "The inner claim loop of provisional_score never exhausts, because every candidate returns None from inside it. Same inert path as `for item in items:::#3`. Reachable.",
-    "status": "needs-review"
-  },
   "member_geometry.py::for item in items:::#3": {
-    "note": "_allocate_bundle_around_claims' feasibility search never succeeds any more: feasible() returned True on 5 fixtures at 897747b0 and on none at HEAD, so delta stays None and the pass moves nothing (its _set_vchannel_x loop is unreached). Mechanism understood and benign: the bundle-pitch packing added in 908637eb/ff5758c7 prevents the crowding this pass used to repair -- for examples/genomeassembly.mmd the two clearance conflicts it fixed at 897747b0 (delta -4.0 and +6.0) are no longer detected, and only an unsatisfiable same-line claim 529px away remains, which was already unresolved at 897747b0. Reachable, wants a fixture; the frozen render corpus means none was authored.",
+    "note": "_allocate_bundle_around_claims' feasibility search succeeds on no fixture in this corpus, but it is not inert: instrumenting every one of the 368 committed .mmd files records 34 crowded detections and 12 successful translations, all on tests/fixtures/hash_seed_determinism/seed_41.mmd (delta -6.0 and -2.0) and seed_77.mmd (delta +4.0), which this corpus does not carry. Both of those fixtures abort under a curve invariant either way, so no rendered map depends on the move. Reachable, wants a fixture in this corpus.",
     "status": "needs-review"
   },
   "member_geometry.py::for item in items:::#4": {
-    "note": "Both arms are now unreached -- the _set_vchannel_x translation loop of _allocate_bundle_around_claims is dead on the whole corpus (6 fixtures reached it at 897747b0). Same inert path as `for item in items:::#3`. Reachable.",
+    "note": "The _set_vchannel_x translation loop of _allocate_bundle_around_claims. Un-exercised here but reached 12 times over the full 368-fixture set, on seed_41.mmd and seed_77.mmd only -- see `for item in items:::#3`. Reachable.",
     "status": "needs-review"
   },
   "member_geometry.py::if abs(channel.x - target) <= COORD_TOLERANCE:::#1": {
-    "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped -- consistent with the bundle-pitch packing added in 908637eb/ff5758c7 seating it correctly upstream. Reachable; the frozen render corpus means no fixture was authored.",
+    "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped. Bisecting the range shows 0f58d60c -- ranking member channels over a gap's whole population -- is what makes the claim and the channel coincide on arrival, not the bundle-pitch packing. Reachable; the frozen render corpus means no fixture was authored.",
+    "status": "needs-review"
+  },
+  "member_geometry.py::if abs(coordinate - claim.coordinate) > COORD_TOLERANCE:::#1": {
+    "note": "The rejection inside feasible()'s same-line-carrier clause. Unreached for the same reason as its enclosing gate `if item.candidate.route.line_id in claim.line_ids and (:::#1`. Reachable.",
+    "status": "needs-review"
+  },
+  "member_geometry.py::if band is not None:::#1": {
+    "note": "_channel_bounds' reserved-band arm. The bundles that reach the feasibility search carry no realised reservation band for the channel's segment, so bounds are always taken from the gap alone. Reachable, wants a fixture whose crowded member channel also sits in a reserved band.",
+    "status": "needs-review"
+  },
+  "member_geometry.py::if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:::#1": {
+    "note": "_candidate_clears_runway's band rejection, unreachable while `if band is not None:::#1` never populates a band on this path. Reachable.",
     "status": "needs-review"
   },
   "member_geometry.py::if claim in channel_claims:::#1": {
@@ -620,16 +628,16 @@
     "status": "defensive"
   },
   "member_geometry.py::if delta is None or abs(delta) <= COORD_TOLERANCE_FINE:::#1": {
-    "note": "The move arm is unreached: all 11 fixtures that reach the search return without translating (6 translated at 897747b0). Same inert path as `for item in items:::#3`. Reachable.",
+    "note": "The move arm is unreached here: every fixture in this corpus that reaches the search returns without translating. It is reached on the full 368-fixture set (seed_41.mmd, seed_77.mmd) -- see `for item in items:::#3`. Reachable.",
+    "status": "needs-review"
+  },
+  "member_geometry.py::if item.candidate.route.line_id in claim.line_ids and (::#1": {
+    "note": "feasible()'s same-line-carrier clause, which forbids a candidate delta that would split a carrier the bundle already shares with a claim. No fixture reaches the feasibility search with a same-line source-compatible claim in range: _align_same_line_channels seats such a member on its claim before the bundle allocation runs. Reachable, wants a fixture.",
     "status": "needs-review"
   },
   "member_geometry.py::if key in ctx.skip_edges:::#1": {
     "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
     "status": "candidate-dead"
-  },
-  "member_geometry.py::if scored:::#1": {
-    "note": "The provisional seat is never chosen: scored is empty on all 3 fixtures that reach it (4 fixtures chose a seat at 897747b0). Same inert path as `for item in items:::#3`. Reachable.",
-    "status": "needs-review"
   },
   "normalize.py::and crossed[0] < span[1]::#1": {
     "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
