@@ -222,6 +222,30 @@ def route_planned_lane_transition(
     return route
 
 
+def _owns_no_shared_resource(plan: ExitTurnPlan) -> bool:
+    """Whether *plan* can be published without publishing a shared resource.
+
+    A plan that claims no reference, demand, or turn axis is inert geometry-wise,
+    so the compatibility census can carry it even when its system emits through
+    the established templates and publishes no settlement resources of its own.
+    """
+    return (
+        plan.reference_id is None
+        and not plan.demand_ids
+        and not plan.foreign_reference_ids
+        and not plan.axes
+    )
+
+
+_PASS_LEVEL_DIAGNOSTIC_CODES = frozenset({"exit-turn-disposition-adopted"})
+"""Diagnostics describing the planning pass rather than a published plan.
+
+Narrowing the published record to one set of systems must not discard these:
+they are the only observable evidence that a frozen verdict was replayed, and a
+replay whose evidence is dropped cannot be told apart from one that never ran.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ExitTurnExecution:
     """Immutable planning output shared by ordinary and observed routing."""
@@ -236,11 +260,16 @@ class ExitTurnExecution:
     def restrict_to_systems(
         self, system_ids: frozenset[RouteSystemId]
     ) -> ExitTurnExecution:
-        plans = tuple(plan for plan in self.plans if plan.system_id in system_ids)
+        plans = tuple(
+            plan
+            for plan in self.plans
+            if plan.system_id in system_ids or _owns_no_shared_resource(plan)
+        )
+        owned = tuple(plan for plan in plans if plan.system_id in system_ids)
         reference_ids = {
-            plan.reference_id for plan in plans if plan.reference_id is not None
+            plan.reference_id for plan in owned if plan.reference_id is not None
         }
-        demand_ids = {demand_id for plan in plans for demand_id in plan.demand_ids}
+        demand_ids = {demand_id for plan in owned for demand_id in plan.demand_ids}
         diagnostic_member_ids = {
             plan.member_ids[0]
             for plan in plans
@@ -255,6 +284,7 @@ class ExitTurnExecution:
                 item
                 for item in self.diagnostics
                 if item.member_id in diagnostic_member_ids
+                or item.code in _PASS_LEVEL_DIAGNOSTIC_CODES
             ),
             self.query.restrict_to_systems(system_ids),
         )
