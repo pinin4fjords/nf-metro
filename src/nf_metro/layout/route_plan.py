@@ -315,10 +315,13 @@ _NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
 )
 _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "The requirement derived for this exit group states a turn the group cannot "
-    "take: a run opposed to its own transition, or a member whose connectors "
-    "point at more than one destination. The planner has no rule for choosing "
-    "between the readings, so it claims none of them.",
-    _ISSUE.format(1710),
+    "take: a run opposed to its own transition, a member whose connectors point "
+    "at more than one destination, or a seam whose descent collapses to zero "
+    "depth so the only derivable statement is a straight the member does not "
+    "draw. No planner rule can choose between contradictory readings without "
+    "inventing one, and the established templates already draw each degenerate "
+    "shape correctly, so they are the defined behaviour for these readings and "
+    "support is permanent."
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "Two owners claim the same anchor, axis, lane or station frame, and the "
