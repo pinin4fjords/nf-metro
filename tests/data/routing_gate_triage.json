@@ -235,23 +235,27 @@
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
   },
-  "convergences.py::for obstacle in obstacles:::#1": {
-    "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident.",
+  "convergences.py::for seat, obstacle in obstacles:::#1": {
+    "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident and by test_a_resident_gives_way_to_a_lane_clear_of_the_flanks_around_it.",
     "status": "needs-review"
   },
-  "convergences.py::if (::#12": {
+  "convergences.py::if (::#10": {
+    "note": "Pre-existing gap, re-keyed from #8 by the gates the restored conflict conditions inserted earlier in the file (same never-executed line, same [0,0] split). Dead sub-block of _settle_opposing_gap_flanks' landing-opening move: its enclosing `if not obstacles:` never takes the has-obstacles arm, so no non-flank plan gap channel is ever crowded by a resident one and nothing below line 3072 runs. What would settle it is a fixture whose settled convergence gap channel crowds a resident member channel of a different line in the same column gap.",
+    "status": "candidate-dead"
+  },
+  "convergences.py::if (::#13": {
     "note": "_system_conflict's SHARED_TRUNK_CHANNEL condition for two non-central trunk runs that travel the same way off one source: same-line runs that leave daylight between them, distinct-line runs closer than one cotravelling lane step, or a turn crossing the other's shared run. Measured with _settle_shared_trunk_channels neutralised, this arm still fires on no corpus fixture, so settlement is not what keeps it silent: construction already seats same-line flanks off one source at separation 0 and distinct-line flanks at exactly one OFFSET_STEP, which are the two targets the condition measures against. Reachable only where the trial approaches two carriers take give one source two different flank columns.",
     "status": "needs-review"
   },
-  "convergences.py::if (::#14": {
+  "convergences.py::if (::#15": {
     "note": "Pre-existing gap, re-keyed from #11 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). validate_convergence_plans' re-check that a landing's join point sits on its plan's own trunk axis and on the trunk route's polyline. The join point is derived from the trunk axis when the plan is built and consume_convergence_route connects the emitted endpoint to it, so taking the raise arm means the planner contradicted its own axis: an engine bug and a hard abort, not a shippable topology.",
     "status": "defensive"
   },
-  "convergences.py::if (::#15": {
+  "convergences.py::if (::#16": {
     "note": "Pre-existing gap, re-keyed from #12 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). The raise for a covered continuation absent from the carrier member that is recorded as covering it. _reconcile_continuation_ownership only names a carrier whose route already spans the continuation's endpoints, so the raise arm reports an engine bug and aborts the render; no valid topology reaches it.",
     "status": "defensive"
   },
-  "convergences.py::if (::#16": {
+  "convergences.py::if (::#17": {
     "note": "Pre-existing gap, re-keyed from #13 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,0] split). Never executed rather than half-taken: its enclosing `if continuation.covered_by_member_id is not None:` never takes the None arm on any of the 18 fixtures that validate a planned convergence, so an uncovered outgoing continuation does not exist in this corpus. What would settle it is a topology whose continuation no endpoint owner's route spans, which _reconcile_continuation_ownership would then leave uncovered.",
     "status": "candidate-dead"
   },
@@ -259,9 +263,9 @@
     "note": "_opposing_landing_approaches' SHARED_APPROACH_CHANNEL condition: two feeders of one line whose approach runs stand on one coordinate travelling against each other. The loop reaches this pair test on 17 fixtures, so the shape of the scan is exercised. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap, at separation 0 with 150px of overlap, so that pass alone is what keeps it silent; the two opening passes account for none of it. Reachable. Reaching it is now a feasibility refusal rather than a change of emitter -- see #1712.",
     "status": "needs-review"
   },
-  "convergences.py::if (::#9": {
-    "note": "Pre-existing gap, re-keyed from #8 by the gates the restored conflict conditions inserted earlier in the file (same never-executed line, same [0,0] split). Dead sub-block of _settle_opposing_gap_flanks' landing-opening move: its enclosing `if not obstacles:` never takes the has-obstacles arm, so no non-flank plan gap channel is ever crowded by a resident one and nothing below line 3072 runs. What would settle it is a fixture whose settled convergence gap channel crowds a resident member channel of a different line in the same column gap.",
-    "status": "candidate-dead"
+  "convergences.py::if (::#6": {
+    "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and laning moves that run rather than removing it, so the read that names the landing as a resident always finds a segment. The gate guards the Optional that read returns.",
+    "status": "defensive"
   },
   "convergences.py::if _vert_horiz_cross(::#1": {
     "note": "The `return True` of _orthogonal_segments_cross: one run passing strictly through the interior of the other rather than meeting it at a shared endpoint or a T-junction, as decided by common._vert_horiz_cross. Reached by one fixture (examples/topologies/exit_run_three_drop_columns.mmd) through _turn_crosses_shared_run, whose flank/central-run pairs all meet at a corner. Reachable -- an interior crossing is the defect the predicate exists to name -- and it feeds `convergences.py::if (::#12`, so one topology closes both.",
@@ -367,16 +371,16 @@
     "note": "SHARED_TRUNK_CHANNEL for a same-line pair whose outward and return legs crowd one channel and which _settle_shared_trunk_channels could seat no lane for: both runs boxed in by the obstacles either side of them, since the arriving flank now gives way to a resident and the resident gives way back. Read in the travel frame the laning pass decides in, so it no longer fires on a rank-1/rank-3 pair that pass deliberately fused. Neutralising that pass makes it fire 5 times on merge_around_below_leftmost, all central-run pairs at separation 0 and 6px. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
     "status": "needs-review"
   },
-  "convergences.py::if seated_segment is not None:::#1": {
-    "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and re-seating moves that run rather than removing it, so the segment is drawable again when the landing is appended to `resident`. The arm guards the Optional the second read returns.",
-    "status": "defensive"
-  },
   "convergences.py::landing.approach_axis is DemandAxis.X::#1": {
     "note": "_reseat_landing_cross moves a stated opening turn only on an X approach, because the opening turn names a column and _landing_cross_segment reads a perpendicular approach's crossing row off the runway whatever opening turn the landing carries. The false arm is the perpendicular class the widened _settle_opposing_landing_channels scope newly admits; corpus-wide every counter-running same-line pair that conflicts approaches on X. Reachable.",
     "status": "needs-review"
   },
   "convergences.py::landing.member_id == plan.primary_trunk_member_id::#1": {
     "note": "The first conjunct of the widened flank-carry condition. Its false arm is the ordinary feeder landing, which every fixture re-seating a landing takes; the coverage tool reports the operand separately from the conjunction above it.",
+    "status": "defensive"
+  },
+  "convergences.py::obstacle_segment is None::#1": {
+    "note": "A resident is read back from `settled` on every comparison, and laning moves its cross run rather than removing it, so the segment is drawable whenever it is read. The operand guards the Optional that read returns.",
     "status": "defensive"
   },
   "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
