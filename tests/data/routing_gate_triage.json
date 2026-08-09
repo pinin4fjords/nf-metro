@@ -219,9 +219,37 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
+  "convergences.py::and low + COORD_TOLERANCE < along[0][1] < high - COORD_TOLERANCE::#1": {
+    "note": "The `return True` of _orthogonal_segments_cross: one run passing strictly through the interior of the other rather than meeting it at a shared endpoint or a T-junction. Reached by one fixture (examples/topologies/exit_run_three_drop_columns.mmd) through _turn_crosses_shared_run, whose flank/central-run pairs all meet at a corner. Reachable -- an interior crossing is the defect the predicate exists to name -- and it feeds `convergences.py::if (::#12`, so one topology closes both.",
+    "status": "needs-review"
+  },
   "convergences.py::for candidate_coordinate in direct_candidates:::#1": {
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
+  },
+  "convergences.py::if (::#12": {
+    "note": "_system_conflict's SHARED_TRUNK_CHANNEL condition for two non-central trunk runs that travel the same way off one source: same-line runs that leave daylight between them, distinct-line runs closer than one cotravelling lane step, or a turn crossing the other's shared run. A new gate whose ordinal collided with a pre-existing baseline key, so the ratchet acknowledged it without a verdict. The pairing reaches this test on 7 fixtures and every pair is reconciled, because _settle_shared_trunk_channels lanes them first. Reachable; a fixture is a topology the planner declares it cannot own.",
+    "status": "needs-review"
+  },
+  "convergences.py::if (::#14": {
+    "note": "Pre-existing gap, re-keyed from #11 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). validate_convergence_plans' re-check that a landing's join point sits on its plan's own trunk axis and on the trunk route's polyline. The join point is derived from the trunk axis when the plan is built and consume_convergence_route connects the emitted endpoint to it, so taking the raise arm means the planner contradicted its own axis: an engine bug and a hard abort, not a shippable topology.",
+    "status": "defensive"
+  },
+  "convergences.py::if (::#15": {
+    "note": "Pre-existing gap, re-keyed from #12 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). The raise for a covered continuation absent from the carrier member that is recorded as covering it. _reconcile_continuation_ownership only names a carrier whose route already spans the continuation's endpoints, so the raise arm reports an engine bug and aborts the render; no valid topology reaches it.",
+    "status": "defensive"
+  },
+  "convergences.py::if (::#16": {
+    "note": "Pre-existing gap, re-keyed from #13 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,0] split). Never executed rather than half-taken: its enclosing `if continuation.covered_by_member_id is not None:` never takes the None arm on any of the 18 fixtures that validate a planned convergence, so an uncovered outgoing continuation does not exist in this corpus. What would settle it is a topology whose continuation no endpoint owner's route spans, which _reconcile_continuation_ownership would then leave uncovered.",
+    "status": "candidate-dead"
+  },
+  "convergences.py::if (::#4": {
+    "note": "_opposing_landing_approaches' SHARED_APPROACH_CHANNEL condition: two feeders of one line whose approach runs stand on one coordinate travelling against each other. The loop reaches this pair test on 17 fixtures, so the shape of the scan is exercised; only the conflicting pair is absent, because _settle_opposing_landing_channels resolves the opposing pairs the corpus does produce before the check runs. Reachable -- the conflict is still constructed and still escalates its system to the compatibility disposition -- but a fixture for it is a topology the planner declares it cannot own, which is the population #1658 exists to eliminate. Wants a fixture only once a residual opposing pair is found that settlement genuinely cannot lane.",
+    "status": "needs-review"
+  },
+  "convergences.py::if (::#9": {
+    "note": "Pre-existing gap, re-keyed from #8 by the gates the restored conflict conditions inserted earlier in the file (same never-executed line, same [0,0] split). Dead sub-block of _settle_opposing_gap_flanks' landing-opening move: its enclosing `if not obstacles:` never takes the has-obstacles arm, so no non-flank plan gap channel is ever crowded by a resident one and nothing below line 3072 runs. What would settle it is a fixture whose settled convergence gap channel crowds a resident member channel of a different line in the same column gap.",
+    "status": "candidate-dead"
   },
   "convergences.py::if any(::#10": {
     "note": "Pre-existing gap, re-keyed from #9 by the gates the packing code inserted earlier in the file (same arm, same [18,0] split as at 897747b0). Third re-check of an already-forced fact: consume_convergence_route has just called _connect_route_endpoint(route, landing.join_point) and raises the same convergence_failure upstream, so taking this arm means an engine bug and a hard abort -- no shippable topology reaches it.",
@@ -255,6 +283,14 @@
     "note": "_channels_share_source_carrier's equal-ownership rejection. Its sole caller always pairs a convergence-owned channel with a member-owned one, so the two flags always differ and the rejection arm is unreachable from that caller. Reachable only if a second caller compares two channels of one owner.",
     "status": "needs-review"
   },
+  "convergences.py::if first_delta * second_delta < 0:::#1": {
+    "note": "OPPOSING_OPENING_CHANNEL: two arms of one line that turn on one shared column and then open to opposite sides of their source. Six fixtures reach the test with a genuine shared-opening pair, and in every one the two trunks open the same way, which the code below reads as one stroke branching to several destinations. Reachable -- _settle_shared_opening_pivots and _settle_shared_source_openings fuse the opposing pairs the corpus produces, and the conflict is what remains when they cannot -- but a fixture for it renders through the compatibility fallback.",
+    "status": "needs-review"
+  },
+  "convergences.py::if first_plan.trunk_axis.axis is DemandAxis.X:::#1": {
+    "note": "The Y-axis half of the opening-arm delta measurement. Six fixtures reach it and all take the X half, for the one root cause shared with this module's other DemandAxis.X scope guards: no corpus topology produces a vertical convergence trunk. Not a guard -- both halves are correct code for their axis -- so it is reachable exactly when a vertical trunk axis is. What would settle it is a TB convergence whose _direct_axis_points / _shared_terminal_axis yields DemandAxis.Y.",
+    "status": "needs-review"
+  },
   "convergences.py::if not carries_coupled_primary and any(::#1": {
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
@@ -263,25 +299,41 @@
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
   },
+  "convergences.py::if opposing_approaches is not None:::#1": {
+    "note": "The escalation arm for the SHARED_APPROACH_CHANNEL conflict _opposing_landing_approaches reports. Un-exercised for exactly the reason that helper's own pair test is (`convergences.py::if (::#4`): the helper is called on 18 fixtures and returns None on every one. Reachable; closing it and closing #4 are the same fixture.",
+    "status": "needs-review"
+  },
   "convergences.py::if plan.edge in owned_edges:::#1": {
     "note": "_member_corridor_runs skips a frozen member plan whose edge a convergence already owns, but the two sets are disjoint by construction: build_member_geometry_execution never freezes a plan for an edge in _convergence_member_edges (member_geometry.py:1010), and resolved_member_edges is derived from the same scaffold predicate. 3830 frozen member plans across 348 fixtures, zero hits.",
+    "status": "defensive"
+  },
+  "convergences.py::if plan.trunk_axis is None:::#1": {
+    "note": "_turn_crosses_shared_run's no-trunk-axis skip, a gate the restored conflict conditions added whose ordinal collided with a pre-existing baseline key, so the ratchet acknowledged it without a verdict. Its sole caller is _system_conflict's trunk-pair scan, whose `trunks` tuple is built only from plans with a trunk axis, so the plan handed over always has one.",
+    "status": "defensive"
+  },
+  "convergences.py::if plan.trunk_axis is None:::#2": {
+    "note": "Pre-existing gap, re-keyed from #1 by the restored _turn_crosses_shared_run guard that now takes that ordinal (unchanged [0,11] split). _lane_trunk_flanks' skip for a plan with no trunk axis. Every plan reaching it is PLANNED -- the two _settle_convergence_geometry call sites filter on owns_geometry and the third caller passes freshly built planned plans -- and validate_convergence_plans asserts trunk_axis is not None for exactly those, so a plan that took this skip would abort on that assertion rather than render. _build_planned_convergence can construct such a plan, so the guard is defensive in practice rather than unconstructible.",
     "status": "defensive"
   },
   "convergences.py::if run is None:::#1": {
     "note": "_pack_cotravelling_corridor_runs skips a plan with no X-axis trunk run. _trunk_corridor_run returns None only when trunk_axis is absent or is DemandAxis.Y; every plan reaching here is owns_geometry, and owns_geometry => trunk_axis is not None is asserted at four call sites. One root cause with the module's other DemandAxis.X scope guards: no corpus topology produces a vertical convergence trunk (346 calls, all X).",
     "status": "defensive"
   },
+  "convergences.py::if same_line and first_direction is not second_direction:::#1": {
+    "note": "SHARED_TRUNK_CHANNEL for the same-line counter-running pairs _settle_shared_trunk_channels declined to lane: a flank with no endpoint to measure a lane against, one whose every candidate lane is boxed in, and a rank-1/rank-3 pair whose listed directions oppose while their travel directions agree. Seven fixtures reach the test and every crowded pair is either distinct-line or co-travelling. Reachable; a fixture is a topology whose flanks the laning pass cannot separate, which renders through the compatibility fallback.",
+    "status": "needs-review"
+  },
   "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
     "note": "Mirror of the leading-flank reject: an interior horizontal whose trailing flank is not vertical. Same H-D-H evidence and the same reason it is not covered by the common.py precedent. Wants a fixture.",
+    "status": "needs-review"
+  },
+  "convergences.py::or abs(along[0][1] - along[1][1]) > COORD_TOLERANCE::#1": {
+    "note": "_orthogonal_segments_cross' reject for a pair whose `across` run is vertical but whose `along` run is not horizontal, i.e. two vertical runs. Its sole caller _turn_crosses_shared_run always pairs a trunk flank with that trunk's central run, and for a DemandAxis.X trunk the central run is horizontal, so this operand can only decide on a vertical trunk axis. Same root cause as this module's other DemandAxis.Y gaps; one fixture (examples/topologies/exit_run_three_drop_columns.mmd) reaches the helper at all.",
     "status": "needs-review"
   },
   "convergences.py::or abs(before[0] - start[0]) > COORD_TOLERANCE::#1": {
     "note": "Rejects an interior horizontal whose leading flank is not vertical. Reachable: _member_corridor_runs walks raw plan.points with no normalize filter, and the corpus already freezes an H-D-H member polyline (examples/topologies/rail_boundary_bundle_fan.mmd), so one extra leg makes a horizontal run diagonal-flanked. Not the same contract as the look-alike defensive pair in common.py::iter_horizontal_trunks, which is fed only normalize-filtered bypass U-shapes. Wants a fixture.",
     "status": "needs-review"
-  },
-  "convergences.py::or abs(start[0] - end[0]) <= COORD_TOLERANCE::#1": {
-    "note": "Degenerate (zero-length) interior leg of a frozen member polyline. Coincidence guard: 0 of 6060 member-plan legs across 348 fixtures are zero-length. Defensive in practice rather than by contract -- _freeze_plan stores route.points raw, and the same-line fusion passes that can duplicate a waypoint run before the freeze.",
-    "status": "defensive"
   },
   "convergences.py::or channel.coordinate < usable_left - COORD_TOLERANCE::#1": {
     "note": "Left-hand out-of-band reject for a moved gap channel. Its mirror operand (> usable_right) is exercised in the same loop right now and both were exercised at 897747b0, so the arm is plainly reachable; it lost its last covering fixture in 908637eb..04209e3d. Left un-exercised deliberately (frozen render corpus).",
@@ -595,14 +647,6 @@
     "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
     "status": "defensive"
   },
-  "member_geometry.py::for item in items:::#3": {
-    "note": "_allocate_bundle_around_claims' feasibility search succeeds on no fixture in this corpus, but it is not inert: instrumenting every one of the 368 committed .mmd files records 34 crowded detections and 12 successful translations, all on tests/fixtures/hash_seed_determinism/seed_41.mmd (delta -6.0 and -2.0) and seed_77.mmd (delta +4.0), which this corpus does not carry. Both of those fixtures abort under a curve invariant either way, so no rendered map depends on the move. Reachable, wants a fixture in this corpus.",
-    "status": "needs-review"
-  },
-  "member_geometry.py::for item in items:::#4": {
-    "note": "The _set_vchannel_x translation loop of _allocate_bundle_around_claims. Un-exercised here but reached 12 times over the full 368-fixture set, on seed_41.mmd and seed_77.mmd only -- see `for item in items:::#3`. Reachable.",
-    "status": "needs-review"
-  },
   "member_geometry.py::if abs(channel.x - target) <= COORD_TOLERANCE:::#1": {
     "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped. Bisecting the range shows 0f58d60c -- ranking member channels over a gap's whole population -- is what makes the claim and the channel coincide on arrival, not the bundle-pitch packing. Reachable; the frozen render corpus means no fixture was authored.",
     "status": "needs-review"
@@ -619,17 +663,9 @@
     "note": "_candidate_clears_runway's band rejection, unreachable while `if band is not None:::#1` never populates a band on this path. Reachable.",
     "status": "needs-review"
   },
-  "member_geometry.py::if claim in channel_claims:::#1": {
-    "note": "Duplicate gap-slot claim dedup in _freeze_plan. Its only covering fixture, examples/topologies/bottom_row_climb_clear_corridor.mmd, is one of the 14 that moved from a PLANNED to a COMPATIBILITY route system in the straight-diamond commits (0cb9a0a1/04209e3d), so it no longer freezes a member plan at all. Reachable; lost by disposition change, not by becoming impossible.",
-    "status": "needs-review"
-  },
   "member_geometry.py::if context is not None:::#1": {
     "note": "_convergence_context_route returns None only when ctx.edge_by_key has no entry for the key, and edge_by_key is built from every graph.edge while the key comes from scaffold.edge_order, which is derived from the same edges. Same never-taken lookup as the sibling `if edge is None` guard on the non-convergence path (0 of 141 fixtures).",
     "status": "defensive"
-  },
-  "member_geometry.py::if delta is None or abs(delta) <= COORD_TOLERANCE_FINE:::#1": {
-    "note": "The move arm is unreached here: every fixture in this corpus that reaches the search returns without translating. It is reached on the full 368-fixture set (seed_41.mmd, seed_77.mmd) -- see `for item in items:::#3`. Reachable.",
-    "status": "needs-review"
   },
   "member_geometry.py::if item.candidate.route.line_id in claim.line_ids and (::#1": {
     "note": "feasible()'s same-line-carrier clause, which forbids a candidate delta that would split a carrier the bundle already shares with a claim. No fixture reaches the feasibility search with a same-line source-compatible claim in range: _align_same_line_channels seats such a member on its claim before the bundle allocation runs. Reachable, wants a fixture.",
@@ -638,6 +674,10 @@
   "member_geometry.py::if key in ctx.skip_edges:::#1": {
     "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
     "status": "candidate-dead"
+  },
+  "member_geometry.py::or route.route_system_disposition != RouteSystemDisposition.PLANNED.value::#1": {
+    "note": "validate_member_geometry_emission' skip for a route that holds a frozen member geometry plan while its route system did not end up planned. build_member_geometry_execution drops every candidate of a system that fails, so a plan-holding route can only be non-planned when the system is escalated after the freeze -- which happens exactly when a convergence conflict escalates it to the compatibility disposition. No corpus system carries such a conflict, so the operand never decides. Reachable through the same fixture that would close any of this module's conflict arms.",
+    "status": "needs-review"
   },
   "normalize.py::and crossed[0] < span[1]::#1": {
     "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
