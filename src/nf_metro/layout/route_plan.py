@@ -427,7 +427,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-subshape:merge-entry-straight",
                     "unsupported-subshape:nonvertical-tb-exit",
                     "unsupported-subshape:opposed-horizontal-straight",
-                    "unsupported-subshape:unaligned-perpendicular-entry",
                     "unsupported-subshape:vertical-source-horizontal-straight",
                 ),
                 _reasons(

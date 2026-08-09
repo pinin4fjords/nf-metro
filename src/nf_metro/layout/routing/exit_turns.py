@@ -69,6 +69,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _merge_branch_lead_x,
     _merge_entry_route_kind,
     _MergeEntryRoute,
+    _perp_entry_l_geometry,
     _perp_exit_geometry,
     _tb_bottom_exit_around_stack_geometry,
     _tb_bottom_exit_geometry,
@@ -656,13 +657,31 @@ def _source_turn_requirement(
                 ctx.curve_radius,
                 axis,
             )
+        _bundle_index, bundle_size = ctx.bundle_info.get(
+            (edge.source, edge.target, edge.line_id), (0, 1)
+        )
+        entry_geometry = _perp_entry_l_geometry(
+            edge, src, tgt, bundle_size, ctx, expected_side, planned=True
+        )
+        assert entry_geometry is not None
+        if entry_geometry.turn_direction is None:
+            return _SourceTurnRequirement(
+                entry_geometry.run_direction,
+                None,
+                None,
+                None,
+                None,
+            )
+        assert (
+            entry_geometry.launch_coordinate is not None
+            and entry_geometry.axis_coordinate is not None
+        )
         return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:unaligned-perpendicular-entry",
+            entry_geometry.run_direction,
+            entry_geometry.turn_direction,
+            entry_geometry.launch_coordinate,
+            abs(entry_geometry.axis_coordinate - entry_geometry.launch_coordinate),
+            entry_geometry.axis_coordinate,
         )
     if family_id is RouteFamilyId.MERGE_BRANCH:
         facts = _build_inter_facts(edge, src, tgt, ctx)
@@ -2631,9 +2650,15 @@ def snapshot_exit_turn_segments(
             rank = route.exit_turn_segment_rank
             if rank is None:
                 continue
-            landing_point_settled_later = (
-                route.exit_turn_family_id == RouteFamilyId.MERGE_BRANCH.value
-            )
+            # The turn leg of these families ends in a channel the settlement
+            # passes seat, so how far along the axis it runs is not the
+            # planner's to hold; the axis it stands on is, and
+            # :func:`validate_exit_turn_plans` holds that to the end.
+            landing_point_settled_later = route.exit_turn_family_id in {
+                RouteFamilyId.MERGE_BRANCH.value,
+                RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
+                RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
+            }
             radii = None
             if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
                 radii = ((rank - 1, route.curve_radii[rank - 1]),)

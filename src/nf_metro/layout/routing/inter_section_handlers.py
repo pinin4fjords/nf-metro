@@ -115,7 +115,11 @@ from nf_metro.layout.routing.perp import (
     _perp_entry_crossing_x,
     _perp_riser_lateral,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBands, held_in_reserved_band
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBands,
+    corridor_clearance_band,
+    held_in_reserved_band,
+)
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -3728,62 +3732,13 @@ def _perp_entry_junction_straight_drop(
 
 def _perp_entry_finish_route(
     edge: Edge,
-    src: Station,
-    tgt: Station,
-    lx0: float,
-    mid_y: float,
-    channel_y: float,
-    wrap_x: float | None,
-    final_x: float,
-    members: list[tuple[Edge, str, float, float]],
-    fan_single: tuple[int, int] | None,
+    geometry: _PerpEntryLGeometry,
     ctx: _RoutingCtx,
 ) -> RoutedPath:
-    """Assemble the centreline and build the route for a perpendicular
-    (TOP or BOTTOM) entry, shared by :func:`_route_top_entry_l_shape` and
-    :func:`_route_bottom_entry_l_shape`.
-
-    Tries, in order: wrapping past the box when the feeder approaches from
-    the entry's far side (``wrap_x``), a direct traverse-then-turn when a
-    junction fan branch can clear every other section, a collapsed drop when
-    the lead-in already reaches the landing column, else the full staircase
-    through the inter-row channel at ``mid_y``.
-    """
-    sx, sy = src.x, src.y
-    ty = tgt.y
-    if wrap_x is not None:
-        centerline = [
-            (sx, sy),
-            (wrap_x, sy),
-            (wrap_x, channel_y),
-            (final_x, channel_y),
-            (final_x, ty),
-        ]
-        transition_leg = 3
-    elif _top_entry_side_fan_traverse_is_clear(edge, src, tgt, final_x, ctx):
-        centerline = [(sx, sy), (final_x, sy), (final_x, ty)]
-        transition_leg = 1
-    # The lead-in already reaches the landing column, so the channel leg
-    # between them is too short to turn through: run the lead-in to that column
-    # and turn down once.  Turning down beside the column and jogging across at
-    # the port would step the line sideways right on the boundary, which the
-    # intra-section departure leaves at the landing column.  A source standing
-    # in that column has no lead-in to run either, and only the drop is left.
-    elif abs(lx0 - final_x) <= ctx.curve_radius:
-        lead_in = [] if abs(final_x - sx) <= COORD_TOLERANCE else [(final_x, sy)]
-        centerline = [(sx, sy), *lead_in, (final_x, ty)]
-        transition_leg = len(lead_in)
-    else:
-        centerline = [
-            (sx, sy),
-            (lx0, sy),
-            (lx0, mid_y),
-            (final_x, mid_y),
-            (final_x, ty),
-        ]
-        transition_leg = 3
-
-    if fan_single is not None:
+    """Fan a perpendicular-entry centreline into the route for *edge*'s line."""
+    centerline = list(geometry.points)
+    members = list(geometry.members)
+    if geometry.fan_source_offsets is not None:
         # Anchor the source-region legs on the branch's own station offset -- the
         # lane it rides down the shared junction trunk -- so the lead-in leaves
         # the junction collinear with that trunk (no peel-off stub), and anchor
@@ -3791,26 +3746,21 @@ def _perp_entry_finish_route(
         # branch nests with its off-edge siblings.  Symmetric fan_offsets would
         # re-centre the branch on the fan's mean, parting it from its trunk lane
         # by half a step at the junction.
-        e0, lid0, s0, t0 = members[0]
-        fan_src_offsets = sorted(
-            _get_offset(ctx, edge.source, lid)
-            for lid in ctx.graph.station_lines(edge.source)
-        )
-        member = (e0, lid0, s0, t0)
+        member = members[0]
         return route_tapered_anchored(
             member,
             centerline,
-            transition_leg=transition_leg,
+            transition_leg=geometry.transition_leg,
             base_radius=ctx.curve_radius,
-            src_bundle_offsets=fan_src_offsets,
-            tgt_bundle_offsets=[t0],
+            src_bundle_offsets=list(geometry.fan_source_offsets),
+            tgt_bundle_offsets=[member[3]],
             normalize_exempt=True,
         )
 
     routes = build_tapered_bundle(
         members,
         centerline,
-        transition_leg,
+        geometry.transition_leg,
         base_radius=ctx.curve_radius,
         normalize_exempt=True,
     )
@@ -3913,32 +3863,166 @@ def _perp_entry_bundle_members(
     return final_x, members
 
 
-def _route_top_entry_l_shape(
+@dataclass(frozen=True, slots=True)
+class _PerpEntryLGeometry:
+    points: tuple[tuple[float, float], ...]
+    members: tuple[tuple[Edge, str, float, float], ...]
+    transition_leg: int
+    fan_source_offsets: tuple[float, ...] | None
+    run_direction: Direction | None
+    turn_direction: Direction | None
+    launch_coordinate: float | None
+    axis_coordinate: float | None
+
+
+def _perp_entry_l_record(
+    points: tuple[tuple[float, float], ...],
+    members: tuple[tuple[Edge, str, float, float], ...],
+    transition_leg: int,
+    line_id: str,
+    fan_source_offsets: tuple[float, ...] | None,
+) -> _PerpEntryLGeometry:
+    """Complete a perpendicular-entry record from its centreline.
+
+    The route leads out horizontally and turns onto the landing column at
+    ``axis_coordinate``.  A centreline that reaches that column with no lead-in
+    states no turn: the emitted member is one straight vertical, and its run is
+    the drop itself.
+
+    The turn leg is vertical, so it takes its X shift from the offset the
+    bundle builder fans it by -- the source offset while the taper lies ahead
+    of it, the target offset once it is the transition leg itself.
+    """
+    if len(points) < 3:
+        return _PerpEntryLGeometry(
+            points,
+            members,
+            transition_leg,
+            fan_source_offsets,
+            vertical_direction(points[-1][1] - points[0][1]),
+            None,
+            None,
+            None,
+        )
+    source_offset, target_offset = next(
+        (source, target)
+        for _member_edge, member_line, source, target in members
+        if member_line == line_id
+    )
+    member_offset = source_offset if transition_leg > 1 else target_offset
+    turn_direction = vertical_direction(points[2][1] - points[1][1])
+    return _PerpEntryLGeometry(
+        points,
+        members,
+        transition_leg,
+        fan_source_offsets,
+        horizontal_direction(points[1][0] - points[0][0]),
+        turn_direction,
+        points[0][0],
+        points[1][0] + right_normal_axis_sign(turn_direction) * member_offset,
+    )
+
+
+def _perp_entry_seated_corridor(
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+    coordinate: float,
+    lane_offsets: tuple[float, ...],
+    *,
+    axis: int,
+    run_start: float,
+    run_end: float,
+) -> float:
+    """*coordinate* moved the least distance that seats every lane in its clearance.
+
+    A planned turn axis is frozen against the settlement that holds a drawn run
+    inside the clearance its corridor owes, so the centreline has to state that
+    seat itself.  The clearance is owed per lane and the bundle fans about the
+    centreline, so the seat is the least shift lying inside every lane's own
+    band.  Returns *coordinate* where a lane names no corridor, or where no one
+    shift satisfies them all: the corridor is then narrower than its lanes ask
+    of it, which is the closing guard's to report rather than this to pick a
+    side of.
+    """
+    section_ids = tuple(
+        station.section_id
+        for station in (src, tgt)
+        if station.section_id in ctx.graph.sections
+    )
+    if not section_ids:
+        return coordinate
+    lower: float | None = None
+    upper: float | None = None
+    for offset in lane_offsets:
+        band = corridor_clearance_band(
+            ctx.graph,
+            axis=axis,
+            section_ids=section_ids,
+            coordinate=coordinate + offset,
+            run_start=run_start,
+            run_end=run_end,
+        )
+        if band is None:
+            return coordinate
+        lane_lower = band.lo - coordinate - offset
+        lane_upper = band.hi - coordinate - offset
+        lower = lane_lower if lower is None else max(lower, lane_lower)
+        upper = lane_upper if upper is None else min(upper, lane_upper)
+    if lower is None or upper is None or lower > upper + COORD_TOLERANCE_FINE:
+        return coordinate
+    return coordinate + (lower if lower > 0 else min(upper, 0.0))
+
+
+def _perp_entry_channel_y(ctx: _RoutingCtx, tgt_sec: Section, side: PortSide) -> float:
+    """Y of the routing channel outside the box edge a perpendicular entry sits on."""
+    if side is PortSide.TOP:
+        return _top_entry_above_channel_y(ctx, tgt_sec)
+    return _bottom_entry_below_channel_y(ctx, tgt_sec)
+
+
+def _perp_entry_l_geometry(
     edge: Edge,
     src: Station,
     tgt: Station,
     n: int,
     ctx: _RoutingCtx,
+    side: PortSide,
     channel_y: float | None = None,
-) -> RoutedPath:
-    """Staircase route into a TOP entry port, fanned along one centreline.
+    *,
+    planned: bool = False,
+) -> _PerpEntryLGeometry | None:
+    """Resolve the centreline shared by perpendicular-entry planning and emission.
 
-    A short horizontal lead-in lets the transition from any preceding
-    horizontal edge (e.g. exit -> junction) curve smoothly into a vertical
-    drop, then a trunk run in the inter-row gap above the target section drops
-    cleanly into the port::
+    A short horizontal lead-in lets the transition from any preceding horizontal
+    edge (e.g. exit -> junction) curve smoothly into a vertical drop, then a
+    trunk run in the inter-row gap outside the target section turns cleanly into
+    the port::
 
         (sx,sy) -> (lx, sy) -> (lx, hy) -> (tx, hy) -> (tx, ty)
 
-    This is the bundle's reference centreline; every co-travelling line is fanned
+    That is the bundle's reference centreline; every co-travelling line is fanned
     as a per-leg offset of it (rigid for an LR/RL drop, tapering into a TB/BT
     trunk), mirroring how LEFT entry ports receive a vertical run in the
     inter-column gap.
 
+    The shape is chosen from, in order: wrapping past the box when the feeder
+    approaches from the entry's far side, a direct traverse-then-turn when a
+    junction fan branch can clear every other section, a collapsed drop when the
+    lead-in already reaches the landing column, else the full staircase.
+
     *channel_y* pins ``hy``; without it the channel is derived from the gap the
     source's own row names, which a source standing off the section grid does
-    not have.
+    not have.  Returns ``None`` for a junction standing in the port's own
+    column, whose straight drop (:func:`_perp_entry_junction_straight_drop`)
+    carries no fan to lay a centreline for.
+
+    *planned* says an exit-turn plan owns the source turn, which is what
+    decides whether the corridors are settled after the fact or stated here.
     """
+    if abs(tgt.x - src.x) <= COORD_TOLERANCE and src.id in ctx.graph.junctions:
+        return None
+    is_top = side is PortSide.TOP
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
     dx = tx - sx
@@ -3959,15 +4043,10 @@ def _route_top_entry_l_shape(
         )
 
     # For a same-row cross-column producer the generic fallback in
-    # inter_row_channel_y places the channel at ty + clearance (inside the
-    # section bbox).  The route must approach the TOP entry from ABOVE the
-    # boundary.  header_corridor_y gives the safe channel that clears the
-    # row-above band (and, for the topmost row, stays out of the canvas title
-    # band); when that band over-reserves -- a section merely exists somewhere
-    # in the row above, so the full inter-row clearance applies even though
-    # nothing sits over the target's own column -- pull the channel down to
-    # just clear the target's own header badge, so the up-leg doesn't overshoot
-    # far past the port before turning back down.
+    # inter_row_channel_y places the channel inside the section bbox, on the
+    # wrong side of the boundary for a port that must be approached from
+    # outside it; :func:`_perp_entry_channel_y` gives the safe channel beyond
+    # the target's own edge.
     src_sec = resolve_section(ctx.graph, src)
     tgt_sec = resolve_section(ctx.graph, tgt)
     if (
@@ -3975,13 +4054,13 @@ def _route_top_entry_l_shape(
         and src_sec is not None
         and tgt_sec is not None
         and src_sec.grid_row == tgt_sec.grid_row
-        and mid_y > ty
+        and ((mid_y > ty) if is_top else (mid_y < ty))
     ):
-        mid_y = _top_entry_above_channel_y(ctx, tgt_sec)
+        mid_y = _perp_entry_channel_y(ctx, tgt_sec, side)
 
     # A multi-line bundle fans the channel toward the source box (the line
-    # nearest it sits a bundle-width above the centre); keep the centre low
-    # enough that even that line clears the source section's bottom edge.
+    # nearest it sits a bundle-width off the centre); keep the centre far enough
+    # away that even that line clears the source section's facing edge.
     if (
         channel_y is None
         and n > 1
@@ -3989,10 +4068,14 @@ def _route_top_entry_l_shape(
         and tgt_sec is not None
         and src_sec.grid_row != tgt_sec.grid_row
     ):
-        src_bottom = src_sec.bbox_y + src_sec.bbox_h
         max_off = (n - 1) * ctx.offset_step
+        clear_of_source = (
+            src_sec.bbox_y + src_sec.bbox_h + INTER_ROW_EDGE_CLEARANCE + max_off
+            if is_top
+            else src_sec.bbox_y - INTER_ROW_EDGE_CLEARANCE - max_off
+        )
         mid_y = held_in_reserved_band(
-            max(mid_y, src_bottom + INTER_ROW_EDGE_CLEARANCE + max_off),
+            max(mid_y, clear_of_source) if is_top else min(mid_y, clear_of_source),
             reserved_row_band_between(
                 ctx.reserved_bands.rows, src_sec.grid_row, tgt_sec.grid_row
             ),
@@ -4006,9 +4089,9 @@ def _route_top_entry_l_shape(
     # right-down-left-down shape), so following dx would turn the line back
     # across the source box.  Falls back to dx for sources with no horizontal
     # exit side, and to the upstream-feeder direction for near-vertical
-    # junction sources.  A junction fed straight from directly above carries no
-    # horizontal travel, so its drop stays in the column with no lead-in: a jog
-    # there would reverse lateral direction at the entry boundary.
+    # junction sources.  A junction fed straight from directly in line carries
+    # no horizontal travel, so its drop stays in the column with no lead-in: a
+    # jog there would reverse lateral direction at the entry boundary.
     exit_side = _source_exit_side(ctx.graph, src)
     straight_drop = False
     if exit_side is not None:
@@ -4026,10 +4109,6 @@ def _route_top_entry_l_shape(
                     else:
                         lead = Direction.R if js.x < src.x else Direction.L
                     break
-
-    straight_drop_route = _perp_entry_junction_straight_drop(edge, src, tgt, ctx)
-    if straight_drop_route is not None:
-        return straight_drop_route
 
     # The lead-in run covers the widest lane's arc, not just the base radius:
     # every lane of the bundle turns down through this corner, and a run sized to
@@ -4075,10 +4154,12 @@ def _route_top_entry_l_shape(
     # source-side first corner coincides with the bypass/wrap siblings' rather
     # than seating an independent lead-in column that the normalize stack then
     # has to reconcile.  Scoped to a single-line fan edge (the branch peels its
-    # own line to its own target); a multi-line top-entry keeps the co-travelling
-    # bundle build below (its fan is the edge's own lines, not the junction's).
+    # own line to its own target); a multi-line perpendicular entry keeps the
+    # co-travelling bundle build (its fan is the edge's own lines, not the
+    # junction's).
     fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
     fan_single = fan if fan is not None and len(line_ids) == 1 else None
+    fan_source_offsets: tuple[float, ...] | None = None
     if fan_single is not None:
         _pos_i, pos_n = fan_single
         corridor = ctx.fan_corridors.get(edge.source)
@@ -4090,6 +4171,12 @@ def _route_top_entry_l_shape(
             lx0 = sx + lead.sign * _fan_corner_run(ctx, pos_n)
             if lead is Direction.R:
                 lx0 = _v1_corner_x(ctx, src, sx, lx0)
+        fan_source_offsets = tuple(
+            sorted(
+                _get_offset(ctx, edge.source, lid)
+                for lid in ctx.graph.station_lines(edge.source)
+            )
+        )
 
     final_x, members = _perp_entry_bundle_members(
         edge,
@@ -4100,21 +4187,129 @@ def _route_top_entry_l_shape(
         edge_by_line,
         src_geom=src_geom,
         ctx=ctx,
-        side=PortSide.TOP,
+        side=side,
     )
 
-    # A feeder rising from a row below the target cannot drop straight into a
-    # TOP port without ploughing up through the box; carry past one side, rise
-    # to the channel above, and come back over the top into the port.
-    above_y = _top_entry_above_channel_y(ctx, tgt_sec) if tgt_sec is not None else ty
-    wrap_x = (
-        _top_entry_below_wrap_riser_x(src, tgt, final_x, above_y, ctx)
-        if not straight_drop
-        else None
+    # A feeder standing on the far side of the target from its port cannot turn
+    # straight in without ploughing through the box; carry past one side, cross
+    # to the channel beyond the port's own edge, and come back in over it.
+    boundary_y = (
+        _perp_entry_channel_y(ctx, tgt_sec, side) if tgt_sec is not None else ty
     )
-    return _perp_entry_finish_route(
-        edge, src, tgt, lx0, mid_y, above_y, wrap_x, final_x, members, fan_single, ctx
+    if straight_drop:
+        wrap_x = None
+    elif is_top:
+        wrap_x = _top_entry_below_wrap_riser_x(src, tgt, final_x, boundary_y, ctx)
+    else:
+        wrap_x = _bottom_entry_above_wrap_riser_x(src, tgt, final_x, boundary_y, ctx)
+
+    points: tuple[tuple[float, float], ...]
+    if wrap_x is not None:
+        points = (
+            (sx, sy),
+            (wrap_x, sy),
+            (wrap_x, boundary_y),
+            (final_x, boundary_y),
+            (final_x, ty),
+        )
+        transition_leg = 3
+    elif _top_entry_side_fan_traverse_is_clear(edge, src, tgt, final_x, ctx):
+        points = ((sx, sy), (final_x, sy), (final_x, ty))
+        transition_leg = 1
+    # The lead-in already reaches the landing column, so the channel leg
+    # between them is too short to turn through: run the lead-in to that column
+    # and turn down once.  Turning down beside the column and jogging across at
+    # the port would step the line sideways right on the boundary, which the
+    # intra-section departure leaves at the landing column.  A source standing
+    # in that column has no lead-in to run either, and only the drop is left.
+    elif abs(lx0 - final_x) <= ctx.curve_radius:
+        lead_in = () if abs(final_x - sx) <= COORD_TOLERANCE else ((final_x, sy),)
+        points = ((sx, sy), *lead_in, (final_x, ty))
+        transition_leg = len(lead_in)
+    else:
+        if planned:
+            # A planned turn axis, and the channel leg hanging off it, are
+            # frozen against the settlement that holds a drawn run inside its
+            # corridor's clearance, so the centreline states that seat itself.
+            lane_offsets = tuple(src_geom(lid) for lid in line_ids)
+            riser_sign = right_normal_axis_sign(vertical_direction(mid_y - sy))
+            lx0 = _perp_entry_seated_corridor(
+                ctx,
+                src,
+                tgt,
+                lx0,
+                tuple(riser_sign * offset for offset in lane_offsets),
+                axis=0,
+                run_start=sy,
+                run_end=mid_y,
+            )
+            channel_sign = right_normal_axis_sign(horizontal_direction(final_x - lx0))
+            mid_y = _perp_entry_seated_corridor(
+                ctx,
+                src,
+                tgt,
+                mid_y,
+                tuple(channel_sign * offset for offset in lane_offsets),
+                axis=1,
+                run_start=lx0,
+                run_end=final_x,
+            )
+        points = (
+            (sx, sy),
+            (lx0, sy),
+            (lx0, mid_y),
+            (final_x, mid_y),
+            (final_x, ty),
+        )
+        transition_leg = 3
+    return _perp_entry_l_record(
+        points, tuple(members), transition_leg, edge.line_id, fan_source_offsets
     )
+
+
+def _perp_entry_turn_is_planned(
+    edge: Edge, family_id: RouteFamilyId, ctx: _RoutingCtx
+) -> bool:
+    """Whether an exit-turn plan owns *edge*'s turn as *family_id*."""
+    if ctx.exit_turns is None:
+        return False
+    membership = ctx.exit_turns.membership_for_edge(edge)
+    return (
+        membership is not None
+        and membership.axis is not None
+        and membership.assignment is not None
+        and membership.assignment.planned_family_id is family_id
+    )
+
+
+def _route_top_entry_l_shape(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    n: int,
+    ctx: _RoutingCtx,
+    channel_y: float | None = None,
+) -> RoutedPath:
+    """Staircase route into a TOP entry port, fanned along one centreline.
+
+    The shape is :func:`_perp_entry_l_geometry`; a junction standing in the
+    port's own column travels that column instead, with no fan.
+    """
+    geometry = _perp_entry_l_geometry(
+        edge,
+        src,
+        tgt,
+        n,
+        ctx,
+        PortSide.TOP,
+        channel_y,
+        planned=_perp_entry_turn_is_planned(edge, RouteFamilyId.TOP_ENTRY_L_SHAPE, ctx),
+    )
+    if geometry is None:
+        straight_drop_route = _perp_entry_junction_straight_drop(edge, src, tgt, ctx)
+        assert straight_drop_route is not None
+        return straight_drop_route
+    return _perp_entry_finish_route(edge, geometry, ctx)
 
 
 def _bottom_entry_below_channel_y(ctx: _RoutingCtx, tgt_sec: Section) -> float:
@@ -4195,193 +4390,27 @@ def _route_bottom_entry_l_shape(
 ) -> RoutedPath:
     """Staircase route into a BOTTOM entry port, fanned along one centreline.
 
-    Mirror of :func:`_route_top_entry_l_shape` for the opposite entry side. A
-    short horizontal lead-in lets the transition from any preceding horizontal
-    edge (e.g. exit -> junction) curve smoothly into a vertical drop, then a
-    trunk run in the inter-row gap below the target section rises cleanly
-    into the port::
-
-        (sx,sy) -> (lx, sy) -> (lx, hy) -> (tx, hy) -> (tx, ty)
-
-    This is the bundle's reference centreline; every co-travelling line is fanned
-    as a per-leg offset of it (rigid for an LR/RL drop, tapering into a TB/BT
-    trunk), mirroring how LEFT entry ports receive a vertical run in the
-    inter-column gap.
-
-    *channel_y* pins ``hy``; without it the channel is derived from the gap the
-    source's own row names, which a source standing off the section grid does
-    not have.
+    Mirror of :func:`_route_top_entry_l_shape` for the opposite entry side: the
+    trunk run in the inter-row gap sits below the target section and rises into
+    the port.
     """
-    sx, sy = src.x, src.y
-    tx, ty = tgt.x, tgt.y
-    dx = tx - sx
-    dy = ty - sy
-
-    # Y for the horizontal trunk channel in the inter-row gap.
-    mid_y = channel_y
-    if mid_y is None:
-        mid_y = inter_row_channel_y(
-            ctx.graph,
-            src,
-            tgt,
-            sy,
-            ty,
-            dy,
-            ctx.curve_radius,
-            reserved=ctx.reserved_bands.rows,
-        )
-
-    # For a same-row cross-column producer the generic fallback in
-    # inter_row_channel_y places the channel above the boundary (inside the
-    # section bbox).  The route must approach the BOTTOM entry from BELOW the
-    # boundary, so pull the channel down to the section's own clearance band.
-    src_sec = resolve_section(ctx.graph, src)
-    tgt_sec = resolve_section(ctx.graph, tgt)
-    if (
-        channel_y is None
-        and src_sec is not None
-        and tgt_sec is not None
-        and src_sec.grid_row == tgt_sec.grid_row
-        and mid_y < ty
-    ):
-        mid_y = _bottom_entry_below_channel_y(ctx, tgt_sec)
-
-    # A multi-line bundle fans the channel toward the source box (the line
-    # nearest it sits a bundle-width below the centre); keep the centre high
-    # enough that even that line clears the source section's top edge.
-    if (
-        channel_y is None
-        and n > 1
-        and src_sec is not None
-        and tgt_sec is not None
-        and src_sec.grid_row != tgt_sec.grid_row
-    ):
-        src_top = src_sec.bbox_y
-        max_off = (n - 1) * ctx.offset_step
-        mid_y = held_in_reserved_band(
-            min(mid_y, src_top - INTER_ROW_EDGE_CLEARANCE - max_off),
-            reserved_row_band_between(
-                ctx.reserved_bands.rows, src_sec.grid_row, tgt_sec.grid_row
-            ),
-        )
-
-    # Horizontal lead-in: a short run so the corner from horizontal to
-    # vertical gets a proper curve.  The line leaves the source on the side
-    # it physically exits from (a right/left exit port, or a junction fed by
-    # one): a right exit whose target trunk sits to its LEFT must clear the
-    # source section on the right and double back over the inter-row gap (a
-    # right-down-left-down shape), so following dx would turn the line back
-    # across the source box.  Falls back to dx for sources with no horizontal
-    # exit side, and to the upstream-feeder direction for near-vertical
-    # junction sources.  A junction fed straight from directly below carries no
-    # horizontal travel, so its drop stays in the column with no lead-in: a jog
-    # there would reverse lateral direction at the entry boundary.
-    exit_side = _source_exit_side(ctx.graph, src)
-    straight_drop = False
-    if exit_side is not None:
-        lead = exit_side
-    elif abs(dx) > ctx.curve_radius:
-        lead = horizontal_direction(dx)
-    else:
-        lead = Direction.R
-        if src.id in ctx.graph.junctions:
-            for je in ctx.graph.edges_to(src.id):
-                js = ctx.graph.station_for_edge_source(je)
-                if js.is_port:
-                    if abs(js.x - src.x) <= COORD_TOLERANCE:
-                        straight_drop = True
-                    else:
-                        lead = Direction.R if js.x < src.x else Direction.L
-                    break
-
-    straight_drop_route = _perp_entry_junction_straight_drop(edge, src, tgt, ctx)
-    if straight_drop_route is not None:
-        return straight_drop_route
-
-    # The lead-in run covers the widest lane's arc, not just the base radius:
-    # every lane of the bundle turns down through this corner, and a run sized to
-    # the base radius clamps all of them to it.
-    lead_run = outer_lane_radius(n, ctx.curve_radius, ctx.offset_step)
-    lx0 = sx if straight_drop else sx + lead.sign * lead_run
-
-    # A same-row horizontal exit whose minimal lead-in would seat the vertical
-    # trunk hard against the source box's exit edge runs the riser up that edge.
-    # Seat the riser midway in the clear inter-column corridor instead.
-    if exit_side is not None and not straight_drop:
-        corridor_x = _corridor_riser_x(ctx, src_sec, tgt_sec)
-        if corridor_x is not None:
-            lx0 = corridor_x
-
-    # Anchor the centreline on the bundle's reference line (source offset 0) and
-    # fan every co-travelling line as a per-leg offset of it, so each corner
-    # radius is derived from the turn geometry rather than hand-signed.  The
-    # source-side legs carry the source fan offset and the final drop the target
-    # offset (transition_leg below), so the bundle tapers when they differ.
-    _member_edges, line_ids, edge_by_line = gather_member_edges(ctx.graph, edge)
-
-    def src_offset(line_id: str) -> float:
-        return _get_offset(ctx, edge.source, line_id)
-
-    # Reference line: the source-offset-0 line the centreline anchors on.
-    ref_lid = min(line_ids, key=src_offset)
-
-    # The bundle builder fans each source-region leg by the right-hand normal of
-    # its travel direction, so a LEFT exit -- whose lead-in departs leftward --
-    # seats the fan on the opposite side of the port from the section's own +Y
-    # lane draw.  That parts the inter-section departure from the intra trunk by
-    # twice the offset right at the boundary.  Signing the source offset by the
-    # exit lead lands the departure on the section's lane whichever side the line
-    # leaves from; a RIGHT exit (and a junction source, whose off-box point has
-    # no intra trunk to meet) keep the raw offset.
-    src_sign = lead.sign if exit_side is not None and src.is_port else 1.0
-
-    def src_geom(line_id: str) -> float:
-        return src_sign * src_offset(line_id)
-
-    # A branch of a junction fan consumes the fan's shared per-line rank so its
-    # source-side first corner coincides with the bypass/wrap siblings' rather
-    # than seating an independent lead-in column that the normalize stack then
-    # has to reconcile.  Scoped to a single-line fan edge (the branch peels its
-    # own line to its own target); a multi-line bottom-entry keeps the co-travelling
-    # bundle build below (its fan is the edge's own lines, not the junction's).
-    fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
-    fan_single = fan if fan is not None and len(line_ids) == 1 else None
-    if fan_single is not None:
-        _pos_i, pos_n = fan_single
-        corridor = ctx.fan_corridors.get(edge.source)
-        if channel_y is None and corridor is not None and corridor.band_y is not None:
-            # Drop into the fan's shared traverse band, so this branch and its
-            # wrap siblings turn at one Y rather than a few px apart.
-            mid_y = corridor.band_y
-        if not straight_drop:
-            lx0 = sx + lead.sign * _fan_corner_run(ctx, pos_n)
-            if lead is Direction.R:
-                lx0 = _v1_corner_x(ctx, src, sx, lx0)
-
-    final_x, members = _perp_entry_bundle_members(
+    geometry = _perp_entry_l_geometry(
         edge,
-        tgt_sec,
-        tx,
-        ref_lid,
-        line_ids,
-        edge_by_line,
-        src_geom=src_geom,
-        ctx=ctx,
-        side=PortSide.BOTTOM,
+        src,
+        tgt,
+        n,
+        ctx,
+        PortSide.BOTTOM,
+        channel_y,
+        planned=_perp_entry_turn_is_planned(
+            edge, RouteFamilyId.BOTTOM_ENTRY_L_SHAPE, ctx
+        ),
     )
-
-    # A feeder descending from a row above the target cannot rise straight into a
-    # BOTTOM port without ploughing down through the box; carry past one side, drop
-    # to the channel below, and come back under the bottom into the port.
-    below_y = _bottom_entry_below_channel_y(ctx, tgt_sec) if tgt_sec is not None else ty
-    wrap_x = (
-        _bottom_entry_above_wrap_riser_x(src, tgt, final_x, below_y, ctx)
-        if not straight_drop
-        else None
-    )
-    return _perp_entry_finish_route(
-        edge, src, tgt, lx0, mid_y, below_y, wrap_x, final_x, members, fan_single, ctx
-    )
+    if geometry is None:
+        straight_drop_route = _perp_entry_junction_straight_drop(edge, src, tgt, ctx)
+        assert straight_drop_route is not None
+        return straight_drop_route
+    return _perp_entry_finish_route(edge, geometry, ctx)
 
 
 def _route_left_exit_left_entry_drop(
