@@ -724,6 +724,44 @@ def _facts_for_node_path(
     return tuple(result)
 
 
+def _leg_ordered_line_ids(
+    facts: Sequence[AuthoredEdgeFact],
+    line_priority: Mapping[str, int],
+) -> tuple[str, ...]:
+    """A branch's lines, priority-sorted within each leg, legs left in order.
+
+    ``facts`` is one branch's flattened, per-leg-concatenated fact sequence
+    (see :func:`_facts_for_node_path`): a leg boundary is a change in the
+    authored ``(source, target)`` edge. Two lines sharing a leg are
+    simultaneous and sort by declaration priority for a stable stack order;
+    two lines from different legs are never simultaneous (a leg transition
+    retags the branch, it does not add a sibling), so sorting across legs by
+    priority would place a later leg's line between an earlier leg's
+    co-present lines whenever declaration order disagrees with leg order,
+    reserving a slot at every earlier-leg station for a line that is never
+    there.
+    """
+    result: list[str] = []
+    current_key: tuple[str, str] | None = None
+    leg: list[str] = []
+
+    def flush() -> None:
+        result.extend(sorted(leg, key=lambda item: line_priority.get(item, 0)))
+
+    for fact in facts:
+        key = (fact.key.source, fact.key.target)
+        if key != current_key:
+            if leg:
+                flush()
+            leg = []
+            current_key = key
+        if fact.key.line_id not in leg:
+            leg.append(fact.key.line_id)
+    if leg:
+        flush()
+    return cast(tuple[str, ...], _ordered_unique(result))
+
+
 def _extra_output_facts(
     path: tuple[str, ...],
     adjacency: Mapping[str, tuple[str, ...]],
@@ -1841,6 +1879,13 @@ def _build_candidate(
     has_line_divergence = bool(set.union(*branch_line_sets) - all_shared_lines)
     has_layout_lanes = any(branch.lane_station_ids for branch in branch_plans)
     line_priority = {line_id: rank for rank, line_id in enumerate(graph.lines)}
+    leg_ordered_lines_by_rank = {
+        branch.rank: _leg_ordered_line_ids(
+            (*continuation_facts[branch.rank], *extra_facts[branch.rank]),
+            line_priority,
+        )
+        for branch in branch_plans
+    }
     offset_line_order = (
         cast(
             tuple[str, ...],
@@ -1854,9 +1899,7 @@ def _build_candidate(
                         else item.opening_rank
                     ),
                 )
-                for line_id in sorted(
-                    branch.line_ids, key=lambda item: line_priority.get(item, 0)
-                )
+                for line_id in leg_ordered_lines_by_rank[branch.rank]
             ),
         )
         if has_line_divergence
