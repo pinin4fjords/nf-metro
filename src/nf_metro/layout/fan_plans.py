@@ -405,7 +405,7 @@ class FanPlanQuery:
                     branches_by_id[emission.branch_id],
                     emission,
                 )
-            for station_id in claimed_station_ids(plan):
+            for station_id in sorted(claimed_station_ids(plan)):
                 if station_id in by_station:
                     raise ValueError("two planned fans own one station")
                 by_station[station_id] = plan
