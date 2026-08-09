@@ -701,16 +701,25 @@ def _facts_for_node_path(
     path: tuple[str, ...],
     bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
     line_ids: frozenset[str] | None = None,
-) -> tuple[AuthoredEdgeFact, ...] | None:
+) -> tuple[AuthoredEdgeFact, ...]:
+    """The authored edges a branch travels along *path*, leg by leg.
+
+    A branch keeps the lines it left the fork on for as long as they continue.
+    Where a leg carries none of them, the leg retags the branch: it takes the
+    lines that leg actually carries and follows those from there, so each leg
+    states its own line identity instead of the branch losing everything past
+    the change.
+    """
+    carried = line_ids
     result: list[AuthoredEdgeFact] = []
     for source, target in zip(path, path[1:]):
+        leg = bundles[(source, target)]
         matching = tuple(
-            fact
-            for fact in bundles[(source, target)]
-            if line_ids is None or fact.key.line_id in line_ids
+            fact for fact in leg if carried is None or fact.key.line_id in carried
         )
         if not matching:
-            return None
+            matching = leg
+            carried = frozenset(fact.key.line_id for fact in leg)
         result.extend(matching)
     return tuple(result)
 
@@ -1508,12 +1517,7 @@ def _recognise_fan(
         )
         for path, lead_facts in zip(node_paths, lead_fact_groups, strict=True)
     )
-    if any(facts is None for facts in selected_continuations):
-        reason = reason or "unsupported-branch-line-transition"
-    continuation_facts = tuple(
-        facts if facts is not None else _facts_for_node_path(path, bundles) or ()
-        for path, facts in zip(node_paths, selected_continuations, strict=True)
-    )
+    continuation_facts = selected_continuations
     extra_facts = tuple(
         _extra_output_facts(path[1:], adjacency, bundles)
         if authored_join is not None

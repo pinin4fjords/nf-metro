@@ -498,7 +498,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
                     "empty-resolved-member-path",
-                    "unsupported-branch-line-transition",
                     "unsupported-fan-direction",
                 ),
             ),
