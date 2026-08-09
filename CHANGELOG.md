@@ -155,6 +155,11 @@ at [docs/embed.md](docs/embed.md).
 - AxisFrame primitive: axis-generic row/inter-section vocabulary, reducing
   direction-specific `if direction == TB` branches.
 - Routing gate coverage matrix and ratchet (CI-enforced).
+- Route-system emission: inter-section routes are dispatched once per canonical
+  semantic system and emitted from complete exit-turn, fan, convergence and
+  reservation decisions, with emitted geometry validated against the plan that
+  owns it. Every convergence states its own geometry, so none falls back to
+  compatibility emission.
 
 ### Notable fixes since 0.7.2
 
