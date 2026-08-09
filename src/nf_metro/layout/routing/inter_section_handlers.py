@@ -5845,6 +5845,36 @@ def _left_entry_gap_above_is_clear(f: _InterFacts) -> bool:
     return not _h_segment_crosses_other_section(graph, vx, src.x, gy, exclude)
 
 
+def _left_entry_gap_above_geometry(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    i: int,
+    n: int,
+    tgt_row: int,
+) -> _LeftEntryWrapGeometry:
+    """Resolve the seam shared by gap-above planning and emission.
+
+    See :func:`_route_left_entry_via_gap_above` for the shape this describes.
+    """
+    gap_top, gap_bottom = _gap_above_target_y(ctx.graph, tgt_row)
+    channel_y = _center_inter_row_channel(
+        gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(tgt_row)
+    )
+    _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, Direction.D)
+    return _left_entry_wrap_record(
+        ctx,
+        edge,
+        src,
+        pos_n=pos_n,
+        delta=delta,
+        corner_x=corner_x,
+        channel_y=channel_y,
+        descent_x=_left_entry_descent_x(ctx, tgt.x, pos_n),
+    )
+
+
 def _route_left_entry_via_gap_above(
     edge: Edge,
     src: Station,
@@ -5876,26 +5906,31 @@ def _route_left_entry_via_gap_above(
     the band below the source).  The horizontal never crosses a section interior
     (guaranteed by :func:`_left_entry_gap_above_is_clear` at the call site).
     """
-    gap_top, gap_bottom = _gap_above_target_y(ctx.graph, tgt_row)
-    channel_y_base = _center_inter_row_channel(
-        gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(tgt_row)
-    )
-    _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, Direction.D)
-    vx = _left_entry_descent_x(ctx, tgt.x, pos_n)
+    geometry = _left_entry_gap_above_geometry(ctx, edge, src, tgt, i, n, tgt_row)
     route = _route_entry_wrap(
         edge,
         src,
         tgt,
         ctx,
-        pos_n=pos_n,
-        delta=delta,
-        corner_x=corner_x,
-        channel_y=channel_y_base,
-        descent_x=vx,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
         entry_side=PortSide.LEFT,
     )
-    _declare_channel(route, ctx, vx, vertical_direction(tgt.y - channel_y_base))
-    _declare_channel(route, ctx, corner_x, vertical_direction(channel_y_base - src.y))
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(tgt.y - geometry.channel_y),
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.corner_x,
+        vertical_direction(geometry.channel_y - src.y),
+    )
     return route
 
 

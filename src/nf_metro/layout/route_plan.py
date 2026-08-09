@@ -422,7 +422,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-subshape:left-entry-around_below",
                     "unsupported-subshape:left-entry-band_hop",
                     "unsupported-subshape:left-entry-corridor",
-                    "unsupported-subshape:left-entry-gap_above",
                     "unsupported-subshape:left-entry-left_exit_drop",
                     "unsupported-subshape:left-exit-right-entry-step",
                     "unsupported-subshape:nonhorizontal-left-entry-wrap",
