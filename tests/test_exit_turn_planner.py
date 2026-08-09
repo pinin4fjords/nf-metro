@@ -1402,8 +1402,8 @@ def test_compatibility_claim_matches_the_emitted_channel_span(fold: int) -> None
         facts = inter_handlers._build_inter_facts(
             edge, source_station, target_station, ctx
         )
-        geometry = inter_handlers._tb_bottom_exit_around_stack_geometry(facts)
-        route = inter_handlers._route_tb_bottom_exit_around_stack(facts)
+        geometry = inter_handlers._around_stack_geometry(facts)
+        route = inter_handlers._route_around_stack(facts)
         assert route is not None
         channel_start, channel_end = route.points[2:4]
         assert channel_start[0] == pytest.approx(geometry.channel_x)
