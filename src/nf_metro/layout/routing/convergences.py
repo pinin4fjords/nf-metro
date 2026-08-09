@@ -1555,6 +1555,27 @@ def _reseat_landing_opening(
     )
 
 
+def _reseat_landing_cross(
+    landing: ConvergenceLanding,
+    coordinate: float,
+    curve_radius: float,
+) -> ConvergenceLanding | None:
+    """Seat the run *landing* crosses its channel on onto *coordinate*.
+
+    A landing that states an opening turn is moved by moving that turn.  Every
+    other landing's cross run is the far end of its approach runway, so seating
+    it is stating how long that runway is, which is the same coordinate read the
+    other way round.  ``None`` where the seat costs the corner its radius.
+    """
+    if landing.opening_turn_segment is not None:
+        return _reseat_landing_opening(landing, coordinate, curve_radius)
+    along = 0 if landing.approach_axis is DemandAxis.X else 1
+    runway = landing.approach_direction.sign * (landing.join_point[along] - coordinate)
+    if runway < curve_radius - COORD_TOLERANCE:
+        return None
+    return replace(landing, minimum_runway=runway)
+
+
 def _move_landing_opening(
     plan: ConvergencePlan,
     member_ids: frozenset[EmissionMemberId],
@@ -2020,7 +2041,13 @@ def _settle_opposing_landing_channels(
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     curve_radius: float,
 ) -> tuple[ConvergencePlan, ...]:
-    """Lane counter-running opening descents before either route is emitted."""
+    """Lane counter-running landing approaches before either route is emitted.
+
+    Every run a landing crosses its channel on is laned, on whichever axis
+    carries it.  Reading only the landings that state an opening turn would
+    leave a whole class of approach -- a perpendicular one, whose runway states
+    the crossing row instead -- with no owner for the channel two of them share.
+    """
     fixed_members = {
         assignment.member_id
         for exit_plan in exit_turn_plans
@@ -2035,9 +2062,7 @@ def _settle_opposing_landing_channels(
             (plan_rank, landing_rank, landing)
             for plan_rank, plan in enumerate(plans)
             for landing_rank, landing in enumerate(plan.landings)
-            if landing.opening_turn_coordinate is not None
-            and landing.approach_axis is DemandAxis.X
-            and landing.corner_handedness is not None
+            if _landing_cross_segment(landing, graph) is not None
         ),
         key=lambda item: (item[2].member_id not in fixed_members, item[0], item[1]),
     )
@@ -2060,16 +2085,22 @@ def _settle_opposing_landing_channels(
                     landing_segment, obstacle_segment, clearance
                 ):
                     continue
-                assert obstacle.opening_turn_coordinate is not None
+                along = 0 if landing.approach_axis is DemandAxis.X else 1
                 candidate = (
-                    obstacle.opening_turn_coordinate
+                    obstacle_segment[0][along]
                     + landing.approach_direction.sign * clearance
                 )
-                reseated = _reseat_landing_opening(landing, candidate, curve_radius)
+                reseated = _reseat_landing_cross(landing, candidate, curve_radius)
                 if reseated is None:
                     continue
                 plan = settled[plan_rank]
-                if landing.member_id == plan.primary_trunk_member_id:
+                # The trunk's own flank turns onto the lane the landing just
+                # took, so it follows only where it is measured on that axis.
+                if (
+                    landing.member_id == plan.primary_trunk_member_id
+                    and plan.trunk_axis is not None
+                    and plan.trunk_axis.axis is landing.approach_axis
+                ):
                     original_continuations = plan.outgoing_continuations
                     plan = _move_trunk_flank(plan, 1, candidate)
                     plan = replace(
@@ -2380,6 +2411,41 @@ def _flank_settled_column(
     return None if reach < curve_radius else coordinate
 
 
+def _landing_gives_way_to_flank(
+    landing: ConvergenceLanding,
+    *,
+    forked: bool,
+    flank_coordinate: float,
+    endpoint: float,
+    clearance: float,
+    curve_radius: float,
+) -> ConvergenceLanding | None:
+    """Re-seat *landing* against a flank that cannot step clear of it.
+
+    A flank descending from the fork the landing leaves draws one stroke with
+    it, so the landing joins the flank's column.  Any other pair is two bundles
+    and the landing steps one clearance off, preferring the side away from the
+    flank's endpoint so the flank keeps the runway it could not otherwise find.
+    ``None`` where no seat leaves the landing's own corner its radius.
+    """
+    if forked:
+        return _reseat_landing_cross(landing, flank_coordinate, curve_radius)
+    toward_endpoint = 1.0 if endpoint > flank_coordinate else -1.0
+    return next(
+        (
+            reseated
+            for side in (-toward_endpoint, toward_endpoint)
+            if (
+                reseated := _reseat_landing_cross(
+                    landing, flank_coordinate + side * clearance, curve_radius
+                )
+            )
+            is not None
+        ),
+        None,
+    )
+
+
 def _settle_landing_trunk_flanks(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
 ) -> tuple[ConvergencePlan, ...]:
@@ -2442,15 +2508,15 @@ def _settle_landing_trunk_flanks(
                         curve_radius=curve_radius,
                     )
                     if coordinate is None:
-                        forked = _forked_flank(landing, trunk_plan, flank_rank)
-                        if (
-                            not forked
-                            or landing.member_id == landing_plan.primary_trunk_member_id
-                            or landing.opening_turn_coordinate is None
-                        ):
+                        if landing.member_id == landing_plan.primary_trunk_member_id:
                             continue
-                        reseated = _reseat_landing_opening(
-                            landing, flank_coordinate, curve_radius
+                        reseated = _landing_gives_way_to_flank(
+                            landing,
+                            forked=_forked_flank(landing, trunk_plan, flank_rank),
+                            flank_coordinate=flank_coordinate,
+                            endpoint=endpoint,
+                            clearance=clearance,
+                            curve_radius=curve_radius,
                         )
                         if reseated is None:
                             continue
