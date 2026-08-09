@@ -10,6 +10,7 @@ from types import MappingProxyType
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
+    OFFSET_STEP,
 )
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
@@ -1399,6 +1400,29 @@ def _classify_assignment_seeds(
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
 
 
+def _pinned_ladders_clear_each_other(
+    columns_by_group: Mapping[EndpointGroupId, frozenset[float]],
+) -> bool:
+    """Whether separately pinned ladders of one heading can share a corridor.
+
+    Two ladders draw two strokes down one corridor, so the columns they pin
+    have to hold the corridor's own step apart.  Pins closer than that describe
+    one contradictory ladder rather than two, and the corridor's settlement
+    moves one of them off the column its ladder fixed.
+    """
+    columns = tuple(
+        (group_id, column)
+        for group_id, group_columns in columns_by_group.items()
+        for column in group_columns
+    )
+    return all(
+        first_group == second_group
+        or abs(first - second) >= OFFSET_STEP - COORD_TOLERANCE
+        for first_group, first in columns
+        for second_group, second in columns
+    )
+
+
 def _turn_cohort_key_by_member(
     seeds: Iterable[_AssignmentSeed],
 ) -> dict[EmissionMemberId, _TurnCohortKey]:
@@ -1408,21 +1432,32 @@ def _turn_cohort_key_by_member(
         for seed in seeds
         if seed.run_direction is not None and seed.turn_direction is not None
     )
-    pinning_groups: dict[tuple[Direction, Direction], set[EndpointGroupId]] = (
-        defaultdict(set)
-    )
+    pinned_columns: dict[
+        tuple[Direction, Direction], dict[EndpointGroupId, set[float]]
+    ] = defaultdict(lambda: defaultdict(set))
     for seed in turning:
         assert seed.run_direction is not None and seed.turn_direction is not None
         if seed.fixed_axis is not None:
-            pinning_groups[seed.run_direction, seed.turn_direction].add(
+            pinned_columns[seed.run_direction, seed.turn_direction][
                 seed.entry_group_id
-            )
+            ].add(seed.fixed_axis)
+    laddered_headings = frozenset(
+        heading
+        for heading, columns_by_group in pinned_columns.items()
+        if len(columns_by_group) > 1
+        and _pinned_ladders_clear_each_other(
+            {
+                group_id: frozenset(columns)
+                for group_id, columns in columns_by_group.items()
+            }
+        )
+    )
     keys: dict[EmissionMemberId, _TurnCohortKey] = {}
     for seed in turning:
         assert seed.run_direction is not None and seed.turn_direction is not None
         contested = (
             seed.fixed_axis is not None
-            and len(pinning_groups[seed.run_direction, seed.turn_direction]) > 1
+            and (seed.run_direction, seed.turn_direction) in laddered_headings
         )
         keys[seed.member_id] = (
             seed.run_direction,
