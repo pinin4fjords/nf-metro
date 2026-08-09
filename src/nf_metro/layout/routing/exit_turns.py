@@ -68,6 +68,9 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _around_section_below_geometry,
     _around_stack_geometry,
     _build_inter_facts,
+    _bypass_geometry,
+    _bypass_route_kind,
+    _BypassRoute,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
     _left_entry_band_hop_source_seam,
@@ -123,6 +126,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.LEFT_ENTRY_WRAP,
         RouteFamilyId.TB_PERP_EXIT_OVER,
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
+        RouteFamilyId.BYPASS_FAMILY,
     }
 )
 
@@ -618,6 +622,41 @@ def _left_entry_wrap_turn_requirement(
     )
 
 
+def _right_entry_cross_row_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a RIGHT entry fed from the left opens with, at its wrap column."""
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    if facts.is_left_exit:
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:left-exit-right-entry-step",
+        )
+    turn = vertical_direction(tgt.y - src.y)
+    _fan, _size, _delta, axis = _wrap_fan_geometry(
+        ctx,
+        edge,
+        src,
+        facts.i,
+        facts.n,
+        turn,
+    )
+    return _SourceTurnRequirement(
+        horizontal_direction(axis - src.x),
+        turn,
+        src.x,
+        abs(axis - src.x),
+        axis,
+    )
+
+
 def _source_turn_requirement(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -861,32 +900,19 @@ def _source_turn_requirement(
             edge, source_run_direction, ctx, src, tgt
         )
     if family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP:
-        facts = _build_inter_facts(edge, src, tgt, ctx)
-        if facts.is_left_exit:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:left-exit-right-entry-step",
-            )
-        turn = vertical_direction(tgt.y - src.y)
-        _fan, _size, _delta, axis = _wrap_fan_geometry(
-            ctx,
-            edge,
-            src,
-            facts.i,
-            facts.n,
-            turn,
-        )
-        return _SourceTurnRequirement(
-            horizontal_direction(axis - src.x),
-            turn,
-            src.x,
-            abs(axis - src.x),
-            axis,
-        )
+        return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.BYPASS_FAMILY:
+        return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
+
+
+def _standard_l_shape_turn_requirement(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> _SourceTurnRequirement:
+    """The turn a plain L-shape opens with, at the column its bundle turns on."""
     turn_delta = tgt.y - src.y
     if abs(turn_delta) <= COORD_TOLERANCE:
         return _SourceTurnRequirement(
@@ -917,6 +943,85 @@ def _source_turn_requirement(
         src.x,
         abs(emitted_axis - src.x),
         None,
+    )
+
+
+def _bypass_turn_requirement(
+    edge: Edge,
+    source_run_direction: Direction,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a multi-column hop opens with, by the shape its leaf draws.
+
+    The hop is a family of shapes rather than one: the leaves that already have
+    a planned family of their own state their turn through that family's record,
+    and the U-shaped bypass states its own.  The two arrangements whose leaf is
+    settled by whether a candidate route can be built at all are declined --
+    which shape they draw is not knowable before emission -- as is a descent the
+    member does not travel alone.
+    """
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    kind = _bypass_route_kind(facts)
+    if kind is _BypassRoute.LEFT_ENTRY_FAMILY:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
+    if kind is _BypassRoute.RIGHT_ENTRY_CROSS_ROW:
+        return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if kind is _BypassRoute.L_SHAPE:
+        return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
+    if kind is not _BypassRoute.U_BYPASS:
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            f"unsupported-subshape:bypass-{kind.value}",
+        )
+    assert facts.src_col is not None and facts.tgt_col is not None
+    geometry = _bypass_geometry(
+        edge,
+        src,
+        tgt,
+        facts.i,
+        facts.src_col,
+        facts.tgt_col,
+        ctx,
+        facts.src_row,
+    )
+    if geometry.g1_n > 1:
+        # The descent shares its channel with the rest of the gap bundle, whose
+        # own seating pass places the whole stack: the column belongs to that
+        # bundle, and which of the two owners takes precedence is not stated.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "gap-bundle-owns-the-descent-column",
+        )
+    if geometry.run_direction is None or geometry.turn_direction is None:
+        # The hop still turns at the far gap, so a source seam with no lead-in
+        # or no descent is not a straight run into the entry either: no
+        # arrangement of the family's turn sequence stands on it.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:bypass-degenerate-source-seam",
+        )
+    return _SourceTurnRequirement(
+        geometry.run_direction,
+        geometry.turn_direction,
+        geometry.launch_coordinate,
+        abs(geometry.axis_coordinate - geometry.launch_coordinate),
+        geometry.axis_coordinate,
     )
 
 
@@ -2862,6 +2967,7 @@ def snapshot_exit_turn_segments(
                 RouteFamilyId.LEFT_ENTRY_WRAP.value,
                 RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
+                RouteFamilyId.BYPASS_FAMILY.value,
             }
             radii = None
             if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):

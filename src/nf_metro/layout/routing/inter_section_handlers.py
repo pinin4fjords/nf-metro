@@ -537,8 +537,25 @@ def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
     return _route_merge_branch(f.edge, f.src, f.ctx, f.src_col)
 
 
-def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
-    """Multi-column hop past intervening sections (``needs_bypass``).
+class _BypassRoute(Enum):
+    """Which shape :func:`_route_bypass_family` builds for a multi-column hop."""
+
+    L_SHAPE = "l_shape"
+    CELLMATE_GAP_DROP = "cellmate_gap_drop"
+    LEFT_ENTRY_FAMILY = "left_entry_family"
+    RIGHT_ENTRY_CROSS_ROW = "right_entry_cross_row"
+    LEFT_EXIT_AROUND_BELOW = "left_exit_around_below"
+    PACKED_CELL_SAME_ROW = "packed_cell_same_row"
+    U_BYPASS = "u_bypass"
+
+
+def _bypass_section_exclusions(f: _InterFacts) -> set[str]:
+    """The two endpoint sections a bypass's own legs are allowed to touch."""
+    return {sid for sid in (f.src.section_id, f.tgt.section_id) if sid is not None}
+
+
+def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
+    """Classify a multi-column hop past intervening sections (``needs_bypass``).
 
     A LEFT entry one row directly below drops straight in when the entry-Y
     horizontal is clear (no canvas-bottom loop); a RIGHT entry fed from the left
@@ -546,60 +563,82 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
     the around-below loop); a far-side LEFT entry fed from a LEFT exit to its
     right wraps around below into the port's outward side; everything else takes
     the U-shaped bypass.
+
+    ``CELLMATE_GAP_DROP`` and ``PACKED_CELL_SAME_ROW`` name the two arrangements
+    whose leaf is chosen by whether a candidate route can be built at all, so
+    which shape they draw is settled at emission rather than here.
     """
-    edge, src, tgt, ctx, graph = f.edge, f.src, f.tgt, f.ctx, f.graph
-    assert f.src_col is not None and f.tgt_col is not None
     if (
         f.entry_side is PortSide.LEFT
         and f.src_row is not None
         and f.tgt_row is not None
         and f.tgt_row == f.src_row + 1
     ):
-        exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+        exclude = _bypass_section_exclusions(f)
         if f.cellmate_blocks_source_row and not f.left_entry_from_right:
             # The gap-centred L-shape channel lands past the blocking cell-mate,
             # so test the plain L-shape against its actual vertical channel (both
             # legs) rather than the raw endpoint-to-endpoint span -- a same-column
             # packed-to-packed drop balances its channel in the gap between the
             # two cell-mates and stays clear.
-            mid_x = _l_shape_mid_x(edge, src, tgt, f.n, ctx)
+            mid_x = _l_shape_mid_x(f.edge, f.src, f.tgt, f.n, f.ctx)
             if not _h_segment_crosses_other_section(
-                graph, f.sx, mid_x, f.sy, exclude
+                f.graph, f.sx, mid_x, f.sy, exclude
             ) and not _h_segment_crosses_other_section(
-                graph, mid_x, f.tx, f.ty, exclude
+                f.graph, mid_x, f.tx, f.ty, exclude
             ):
-                return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
-            clean = _route_cellmate_gap_drop(f, exclude)
-            if clean is not None:
-                return clean
-        elif not f.left_entry_from_right and not _h_segment_crosses_other_section(
-            graph, f.sx, f.tx, f.ty, exclude
+                return _BypassRoute.L_SHAPE
+            return _BypassRoute.CELLMATE_GAP_DROP
+        if not f.left_entry_from_right and not _h_segment_crosses_other_section(
+            f.graph, f.sx, f.tx, f.ty, exclude
         ):
-            return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
+            return _BypassRoute.L_SHAPE
         if f.left_entry_from_right:
             # Entry-Y blocked: return through the clear inter-row gap as a
             # concentric serpentine wrap.  The below-row U dive cannot fan a
             # bundle leaving a shared exit port (collinear lead-out) and
             # collapses its lines onto one channel.
-            return _route_left_entry_family(f)
+            return _BypassRoute.LEFT_ENTRY_FAMILY
     if f.right_entry_from_left:
-        return _route_right_entry_cross_row(f)
+        return _BypassRoute.RIGHT_ENTRY_CROSS_ROW
     if f.left_entry_from_right and f.is_left_exit:
-        return _route_left_exit_around_below_left_entry(edge, src, tgt, ctx)
+        return _BypassRoute.LEFT_EXIT_AROUND_BELOW
     if (
         f.entry_side is PortSide.LEFT
         and f.cellmate_blocks_source_row
         and f.src_row == f.tgt_row
         and not _source_is_boxed_fanout_junction(f)
     ):
+        return _BypassRoute.PACKED_CELL_SAME_ROW
+    if f.left_entry_from_right:
+        return _BypassRoute.LEFT_ENTRY_FAMILY
+    return _BypassRoute.U_BYPASS
+
+
+def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
+    """Build the shape :func:`_bypass_route_kind` selects for this hop."""
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    assert f.src_col is not None and f.tgt_col is not None
+    kind = _bypass_route_kind(f)
+    if kind is _BypassRoute.L_SHAPE:
+        return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
+    if kind is _BypassRoute.CELLMATE_GAP_DROP:
+        clean = _route_cellmate_gap_drop(f, _bypass_section_exclusions(f))
+        if clean is not None:
+            return clean
+    elif kind is _BypassRoute.LEFT_ENTRY_FAMILY:
+        return _route_left_entry_family(f)
+    elif kind is _BypassRoute.RIGHT_ENTRY_CROSS_ROW:
+        return _route_right_entry_cross_row(f)
+    elif kind is _BypassRoute.LEFT_EXIT_AROUND_BELOW:
+        return _route_left_exit_around_below_left_entry(edge, src, tgt, ctx)
+    elif kind is _BypassRoute.PACKED_CELL_SAME_ROW:
         shared_handoff = _route_packed_cell_same_line_handoff(f)
         if shared_handoff is not None:
             return shared_handoff
         geometry = _left_entry_over_top_geometry(f)
         if geometry is not None:
             return _route_left_entry_over_top(f, geometry)
-        return _route_left_entry_family(f)
-    if f.left_entry_from_right:
         return _route_left_entry_family(f)
     return _route_bypass(edge, src, tgt, f.i, f.src_col, f.tgt_col, ctx, f.src_row)
 
@@ -2529,7 +2568,30 @@ def _bottom_row_climb_corridor_clear(
     return not _has_intervening_sections(graph, src_col, tgt_col, src_row)
 
 
-def _route_bypass(
+@dataclass(frozen=True, slots=True)
+class _BypassGeometry:
+    """The U-shaped bypass centreline plus the source seam it opens on."""
+
+    centreline: tuple[tuple[float, float], ...]
+    sigma1: float
+    sigma2: float
+    src_bundle_offsets: tuple[float, ...]
+    tgt_bundle_offsets: tuple[float, ...]
+    gap1_x: float
+    gap2_x: float
+    gap1_vertical: Direction
+    gap2_vertical: Direction
+    g1_j: int
+    g1_n: int
+    g2_j: int
+    g2_n: int
+    run_direction: Direction | None
+    turn_direction: Direction | None
+    launch_coordinate: float
+    axis_coordinate: float
+
+
+def _bypass_geometry(
     edge: Edge,
     src: Station,
     tgt: Station,
@@ -2542,8 +2604,8 @@ def _route_bypass(
     effective_ty: float | None = None,
     force_cross_row: bool = False,
     trunk_v_up_pull_away: bool = False,
-) -> RoutedPath:
-    """U-shaped bypass route around intervening sections.
+) -> _BypassGeometry:
+    """Resolve the U-shaped bypass centreline around intervening sections.
 
     When *effective_tx* / *effective_ty* are provided, they override
     the target coordinates for gap2 placement (used by merge trunks to
@@ -2938,17 +3000,85 @@ def _route_bypass(
     # Gap-slot ranks follow channel travel, while the target rise's right-hand
     # normal points against that ordering.
     tgt_anchor = channel_fan(sigma2, g2_j, g2_n, -n3x)
+    # The member's own lead-in and descent, not the centreline's: the emitted
+    # leg leaves the source at its station lateral and drops in the channel
+    # ``gap1_x`` names, which is where its opening corner stands.
+    emitted_source_y = sy + src_off
+    return _BypassGeometry(
+        tuple(centerline),
+        sigma1,
+        sigma2,
+        tuple(src_anchor),
+        tuple(tgt_anchor),
+        gap1_x,
+        gap2_x,
+        gap1_vertical,
+        gap2_vertical,
+        g1_j,
+        g1_n,
+        g2_j,
+        g2_n,
+        segment_direction((sx, emitted_source_y), (gap1_x, emitted_source_y)),
+        segment_direction((gap1_x, emitted_source_y), (gap1_x, by)),
+        sx,
+        gap1_x,
+    )
+
+
+def _route_bypass(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    i: int,
+    src_col: int,
+    tgt_col: int,
+    ctx: _RoutingCtx,
+    src_row: int | None = None,
+    effective_tx: float | None = None,
+    effective_ty: float | None = None,
+    force_cross_row: bool = False,
+    trunk_v_up_pull_away: bool = False,
+) -> RoutedPath:
+    """Build the U-shaped bypass its resolved geometry describes."""
+    geometry = _bypass_geometry(
+        edge,
+        src,
+        tgt,
+        i,
+        src_col,
+        tgt_col,
+        ctx,
+        src_row,
+        effective_tx,
+        effective_ty,
+        force_cross_row,
+        trunk_v_up_pull_away,
+    )
     route = route_tapered_anchored(
-        (edge, edge.line_id, sigma1, sigma2),
-        centerline,
+        (edge, edge.line_id, geometry.sigma1, geometry.sigma2),
+        list(geometry.centreline),
         transition_leg=3,
         base_radius=ctx.curve_radius,
-        src_bundle_offsets=src_anchor,
-        tgt_bundle_offsets=tgt_anchor,
+        src_bundle_offsets=list(geometry.src_bundle_offsets),
+        tgt_bundle_offsets=list(geometry.tgt_bundle_offsets),
         normalize_exempt=False,
     )
-    _declare_channel(route, ctx, gap1_x, gap1_vertical, g1_j, g1_n)
-    _declare_channel(route, ctx, gap2_x, gap2_vertical, g2_j, g2_n)
+    _declare_channel(
+        route,
+        ctx,
+        geometry.gap1_x,
+        geometry.gap1_vertical,
+        geometry.g1_j,
+        geometry.g1_n,
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.gap2_x,
+        geometry.gap2_vertical,
+        geometry.g2_j,
+        geometry.g2_n,
+    )
     return route
 
 
