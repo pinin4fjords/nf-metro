@@ -2290,3 +2290,123 @@ def test_legacy_fan_disposition_is_visible_in_route_plan_diagnostics() -> None:
     assert len(diagnostics) == 1
     assert diagnostics[0].blocking is False
     assert "local-layout-has-foreign-owner" in diagnostics[0].message
+
+
+_UPSTREAM_BUNDLE = (
+    ("feed", "enter", "alpha"),
+    ("feed", "enter", "beta"),
+    ("feed", "enter", "gamma"),
+    ("enter", "leave", "local"),
+)
+_RETAGGED_FORK = (
+    ("leave", "straight", "gamma"),
+    ("leave", "lower", "alpha"),
+    ("leave", "lower", "beta"),
+)
+_RETAGGED_FORK_REDECLARED = (
+    ("leave", "lower", "alpha"),
+    ("leave", "lower", "beta"),
+    ("leave", "straight", "gamma"),
+)
+# Both adversary bundles below name the fork's lines in an order that differs
+# from the answer their test asserts, so inheriting one would be visible.
+_DISCONNECTED_BUNDLE = (
+    ("island_in", "island_out", "gamma"),
+    ("island_in", "island_out", "beta"),
+    ("island_in", "island_out", "alpha"),
+)
+_DOWNSTREAM_BUNDLE = (
+    ("straight", "sink", "gamma"),
+    ("lower", "sink", "alpha"),
+    ("lower", "sink", "beta"),
+    ("sink", "tail", "beta"),
+    ("sink", "tail", "alpha"),
+    ("sink", "tail", "gamma"),
+)
+
+
+def _fork_offset_line_order(
+    declaration: tuple[tuple[str, str, str], ...],
+) -> tuple[str, ...]:
+    facts = [
+        _fact(source, target, line_id, rank)
+        for rank, (source, target, line_id) in enumerate(declaration)
+    ]
+    execution = build_fan_plan_execution(
+        _graph(),
+        _Topology.direct(facts),
+        x_spacing=30.0,
+        y_spacing=10.0,
+        minimum_runway=24.0,
+    )
+    plan = next(item for item in execution.plans if item.authored_source_id == "leave")
+    return plan.offset_line_order
+
+
+def test_branch_order_is_inherited_from_the_upstream_bundle() -> None:
+    assert _fork_offset_line_order(_UPSTREAM_BUNDLE + _RETAGGED_FORK) == (
+        "alpha",
+        "beta",
+        "gamma",
+    )
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        _UPSTREAM_BUNDLE + _RETAGGED_FORK + _DISCONNECTED_BUNDLE,
+        _DISCONNECTED_BUNDLE + _UPSTREAM_BUNDLE + _RETAGGED_FORK,
+        _UPSTREAM_BUNDLE + _RETAGGED_FORK_REDECLARED + _DISCONNECTED_BUNDLE,
+        _DISCONNECTED_BUNDLE + _UPSTREAM_BUNDLE + _RETAGGED_FORK_REDECLARED,
+    ),
+)
+def test_inherited_branch_order_survives_declaration_permutation(
+    declaration: tuple[tuple[str, str, str], ...],
+) -> None:
+    assert _fork_offset_line_order(declaration) == ("alpha", "beta", "gamma")
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        _RETAGGED_FORK + _DOWNSTREAM_BUNDLE,
+        _DOWNSTREAM_BUNDLE + _RETAGGED_FORK,
+    ),
+)
+def test_a_bundle_the_fork_does_not_descend_from_states_no_branch_order(
+    declaration: tuple[tuple[str, str, str], ...],
+) -> None:
+    assert _fork_offset_line_order(declaration) == ("gamma", "alpha", "beta")
+
+
+def _foreign_corridor_graph(*, foreign_feed_first: bool) -> MetroGraph:
+    graph = MetroGraph()
+    for section_id, members in (("clean", ("c1", "c2")), ("mixed", ("m1", "m2"))):
+        graph.add_section(Section(id=section_id, name=section_id, direction="LR"))
+        for member in members:
+            graph.register_station(
+                Station(id=member, label=member, section_id=section_id)
+            )
+    graph.add_junction("__junction_1")
+    feeds = [Edge("m2", "__junction_1", "beta"), Edge("c2", "__junction_1", "alpha")]
+    if not foreign_feed_first:
+        feeds.reverse()
+    for edge in (
+        Edge("c1", "c2", "alpha"),
+        Edge("m1", "m2", "beta"),
+        Edge("m1", "m2", "outsider"),
+        *feeds,
+    ):
+        graph.add_edge(edge)
+    return graph
+
+
+@pytest.mark.parametrize("foreign_feed_first", (True, False))
+def test_junction_rides_a_foreign_corridor_when_any_feeder_carries_one(
+    foreign_feed_first: bool,
+) -> None:
+    graph = _foreign_corridor_graph(foreign_feed_first=foreign_feed_first)
+
+    assert fan_plans._rides_foreign_line_corridor(
+        graph, "__junction_1", frozenset({"alpha", "beta"})
+    )

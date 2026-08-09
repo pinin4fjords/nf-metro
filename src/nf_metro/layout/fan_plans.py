@@ -851,6 +851,7 @@ def _inherited_branch_order(
     branch_plans: Sequence[FanBranchPlan],
     leg_ordered_lines_by_rank: Mapping[int, tuple[str, ...]],
     bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
+    incoming: Mapping[str, tuple[str, ...]],
 ) -> dict[int, int] | None:
     """Rank branches by a retagged ancestor bundle's own authored order.
 
@@ -865,23 +866,31 @@ def _inherited_branch_order(
     matching it here is what keeps this fork's reserved slots contiguous
     with theirs instead of opening a gap. Returns ``None`` when no such
     distant edge exists.
+
+    Only a bundle this fork descends from can have fixed those slots, so a
+    candidate qualifies only when its target reaches *source_id* through the
+    authored graph -- which also excludes the fan's own entry edge, whose
+    target is *source_id* itself. Among qualifying bundles the nearest wins
+    -- fewest hops from its target down to *source_id*, then earliest
+    authored edge -- so the answer is a property of the graph rather than of
+    declaration or iteration order.
     """
     divergent = frozenset(
         line_id for lines in leg_ordered_lines_by_rank.values() for line_id in lines
     )
     if len(divergent) < 2:
         return None
-    ancestor = next(
-        (
-            facts
-            for (_source, target), facts in bundles.items()
-            if target != source_id
-            and divergent.issubset({fact.key.line_id for fact in facts})
-        ),
-        None,
-    )
-    if ancestor is None:
+    hops_to_source = _distances(incoming, source_id)
+    candidates = [
+        (hops_to_source[target], min(fact.rank for fact in facts), facts)
+        for (_source, target), facts in bundles.items()
+        if target != source_id
+        and target in hops_to_source
+        and divergent.issubset({fact.key.line_id for fact in facts})
+    ]
+    if not candidates:
         return None
+    ancestor = min(candidates, key=lambda candidate: candidate[:2])[2]
     order = {
         line_id: rank
         for rank, line_id in enumerate(
@@ -1113,33 +1122,30 @@ def _rides_foreign_line_corridor(
     section's own line-priority ordering already reserves that line's slot,
     so the fan's compact 0-based numbering at the boundary would recentre
     the bundle away from the position its section fixes upstream. A junction
-    has no section of its own, so it takes the classification of whichever
-    fan-line predecessor feeds it -- the corridor it is drawn as a
-    continuation of.
+    has no section of its own, so it is classified by every section feeding
+    it a fan line: the corridor it relays is drawn as a continuation of all
+    of them, and one such section carrying a foreign line is enough to have
+    fixed the bundle's slots before the junction sees them.
     """
     if station_id not in graph.ports and station_id not in graph.junction_ids:
         return False
-    section_id = graph.section_for_station(station_id)
-    if section_id is None:
-        section_id = next(
-            (
-                predecessor_section
-                for edge in graph.edges_to(station_id)
-                if edge.line_id in fan_lines
-                and (predecessor_section := graph.section_for_station(edge.source))
-                is not None
-            ),
-            None,
+
+    def carries_foreign_line(section_id: str | None) -> bool:
+        section = graph.sections.get(section_id or "")
+        return section is not None and any(
+            line_id not in fan_lines
+            for member_id in section.station_ids
+            for line_id in graph.station_lines(member_id)
         )
-    section = graph.sections.get(section_id or "")
-    if section is None:
-        return False
-    section_lines = {
-        line_id
-        for member_id in section.station_ids
-        for line_id in graph.station_lines(member_id)
-    }
-    return bool(section_lines - fan_lines)
+
+    own_section_id = graph.section_for_station(station_id)
+    if own_section_id is not None:
+        return carries_foreign_line(own_section_id)
+    return any(
+        carries_foreign_line(graph.section_for_station(edge.source))
+        for edge in graph.edges_to(station_id)
+        if edge.line_id in fan_lines
+    )
 
 
 def _offset_carriers(
@@ -2185,7 +2191,11 @@ def _build_candidate(
         for branch in branch_plans
     }
     inherited_branch_order = _inherited_branch_order(
-        source_id, branch_plans, leg_ordered_lines_by_rank, bundles
+        source_id,
+        branch_plans,
+        leg_ordered_lines_by_rank,
+        bundles,
+        incoming,
     )
     offset_line_order = (
         cast(
