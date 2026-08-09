@@ -5315,18 +5315,25 @@ def _route_around_section_below(
     # Fallbacks if a column can't be resolved (degenerate cases).
     bc_src_col = src_col if src_col is not None else 0
     bc_tgt_col = ep_col if ep_col is not None else bc_src_col
-    by = (
-        channel_y
-        if channel_y is not None
-        else bypass_bottom_y(
-            ctx.graph,
-            bc_src_col,
-            bc_tgt_col,
-            BYPASS_CLEARANCE,
-            src_row=src_row,
-            cross_row=True,
+    if channel_y is not None:
+        by = channel_y
+    else:
+        # The bypass bottom is the clearance the lane nearest the boxes above it
+        # owes them, and the bundle stacks from its centreline toward that edge,
+        # so the whole ladder seats one half-width deeper.  A run settled after
+        # the fact is pushed here anyway; stating it keeps the drawn corridor
+        # inside the clearance its reservation raised.
+        by = (
+            bypass_bottom_y(
+                ctx.graph,
+                bc_src_col,
+                bc_tgt_col,
+                BYPASS_CLEARANCE,
+                src_row=src_row,
+                cross_row=True,
+            )
+            + bundle_width(pos_n, ctx.offset_step) / 2
         )
-    )
 
     # Vertical V_up channel sits just left of the target section's bbox.
     ep_section = (
