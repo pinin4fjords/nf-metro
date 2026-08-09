@@ -4190,9 +4190,15 @@ def _corridor_run_band(
     That covers the first routing pass, which publishes the ledger and so has
     none to read, and unclaimed geometry on the re-route.
     """
+    # A plan-owned leg's own coordinate is fixed, and so is the length of the
+    # leg feeding into it (the planned turn's ``minimum_runway``), which is
+    # why the leg *before* an owned one is frozen too.  The leg *after* an
+    # owned one runs on the perpendicular axis and shares only an endpoint
+    # with it, so moving that leg's own coordinate changes the owned leg's
+    # length, never the fixed coordinate itself, and needs no such freeze.
     touches_planned_geometry = any(
         planner_owns_segment(route, rank)
-        for rank in (idx - 1, idx, idx + 1)
+        for rank in (idx, idx + 1)
         if 0 <= rank < len(route.points) - 1
     )
     if not section_ids or touches_planned_geometry:
