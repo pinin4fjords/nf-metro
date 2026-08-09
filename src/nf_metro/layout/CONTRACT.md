@@ -1975,7 +1975,7 @@ They are design evidence, not part of this specification.
   construction. `SHARED_TRUNK_CHANNEL`'s second arm used the turn radius as the
   separation two lanes of one bundle owed each other and demanded exact
   coincidence from distinct lines; it asks each pair for the clearance its own
-  kind requires, with a same-line pair still owing coincidence.
+  kind requires, and a same-line pair owes coincidence.
   The one condition that states a real case is `NO_APPROACH_SETTLEMENT_ROOM`,
   produced by `_landing_trunk_flank_conflict`
   (`layout/routing/convergences.py`): a landing whose approach and trunk flank

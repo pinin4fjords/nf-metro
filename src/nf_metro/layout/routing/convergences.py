@@ -64,6 +64,7 @@ from nf_metro.layout.routing.common import (
     HTrunkSeg,
     OffsetRegime,
     RoutedPath,
+    _vert_horiz_cross,
     apply_route_offsets,
     column_gap_edges,
     gap_lo_for_x,
@@ -1248,11 +1249,13 @@ def _orthogonal_segments_cross(
             or abs(along[0][1] - along[1][1]) > COORD_TOLERANCE
         ):
             continue
-        low, high = sorted((across[0][1], across[1][1]))
-        start, end = sorted((along[0][0], along[1][0]))
-        if (
-            start + COORD_TOLERANCE < across[0][0] < end - COORD_TOLERANCE
-            and low + COORD_TOLERANCE < along[0][1] < high - COORD_TOLERANCE
+        if _vert_horiz_cross(
+            across[0][0],
+            across[0][1],
+            across[1][1],
+            along[0][1],
+            along[0][0],
+            along[1][0],
         ):
             return True
     return False
@@ -1266,12 +1269,6 @@ def _turn_crosses_shared_run(
     if plan.trunk_axis is None:
         return False
     return _orthogonal_segments_cross(turn, _trunk_segments(plan.trunk_axis)[0])
-
-
-def _route_segments(
-    route: RoutedPath,
-) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
-    return tuple(zip(route.points, route.points[1:]))
 
 
 def _landing_cross_segment(
