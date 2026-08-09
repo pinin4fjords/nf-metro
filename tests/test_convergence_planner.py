@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -120,76 +121,39 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("fixture", "reason"),
-    (
-        (
-            "exit_run_three_drop_columns.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
-        (
-            "funcprofiler_upstream.mmd",
-            "planned convergence corridor conflicts with unowned route-system members",
-        ),
-        (
-            "merge_trunk_out_of_range_section.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
-    ),
+ROUTABLE_CORPUS = tuple(
+    path
+    for base in (ROOT / "examples", ROOT / "tests" / "fixtures")
+    for path in sorted(base.rglob("*.mmd"))
+    if "nextflow" not in path.parts and "invalid" not in path.parts
 )
-def test_conflicting_route_systems_use_whole_system_compatibility(
-    fixture: str, reason: str
-) -> None:
-    _graph, _offsets, observed = _observe(TOPOLOGIES / fixture)
-
-    assert observed.plan.convergence_plans
-    assert {item.disposition for item in observed.plan.convergence_plans} == {
-        ConvergenceDisposition.LEGACY
-    }
-    assert len({item.system_id for item in observed.plan.convergence_plans}) == 1
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
 
 
-@pytest.mark.parametrize(
-    ("path", "reason"),
-    (
-        (
-            TOPOLOGIES / "merge_bottom_row_bypass.mmd",
-            "planned fan arms require opposing opening channels",
-        ),
-        (
-            TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-            "planned fan arms require opposing opening channels",
-        ),
-        (
-            TOPOLOGIES / "merge_right_entry.mmd",
-            "planned convergence corridor conflicts with unowned route-system member",
-        ),
-        (
-            ROOT / "examples" / "genomeassembly.mmd",
-            "chained same-line convergences require one shared system settlement",
-        ),
-        (
-            ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
-            "chained same-line convergences require one shared system settlement",
-        ),
-        (
-            ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
-            "planned convergence feeder approaches require one shared channel decision",
-        ),
-    ),
-)
-def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
-    path: Path, reason: str
-) -> None:
-    _graph, _offsets, observed = _observe(path)
+def test_every_corpus_convergence_is_planned_not_left_to_compatibility() -> None:
+    """No map in the corpus reaches emission with a convergence the planner
+    declined.
 
-    assert observed.plan.convergence_plans
-    assert all(
-        item.disposition is ConvergenceDisposition.LEGACY
-        for item in observed.plan.convergence_plans
-    )
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
+    A ``legacy_reason`` names a decision the planner could not make, which sends
+    the whole route system to the compatibility emitter instead of to geometry
+    the plan states.  Asserting the absence over the whole corpus rather than
+    over a list of known fixtures is what makes a newly declined system a test
+    failure rather than an unlisted case.
+    """
+    declined: list[tuple[str, str]] = []
+    for path in ROUTABLE_CORPUS:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                _graph, _offsets, observed = _observe(path)
+            except Exception:  # noqa: BLE001 - a fixture that cannot route at all
+                continue  # is held to its own error by the tests that own it
+        declined.extend(
+            (path.name, str(item.legacy_reason))
+            for item in observed.plan.convergence_plans
+            if item.legacy_reason is not None
+            or item.disposition is ConvergenceDisposition.LEGACY
+        )
+    assert declined == []
 
 
 @pytest.mark.parametrize(

@@ -374,52 +374,34 @@ class ConvergenceTrunkReason(str, Enum):
     SHARED_TERMINAL_APPROACH = "shared-terminal-approach"
 
 
-class ConflictRelief(str, Enum):
-    """What would resolve a convergence conflict, in terms of distance."""
-
-    SHARED_CHANNEL = "shared-channel"
-    """The two runs need to become one channel, side, or owner.  A larger
-    distance between them is the wrong direction."""
-
-    CLEARANCE = "clearance"
-    """The two runs need to stand further apart than the planner could put
-    them."""
-
-
 class ConvergenceConflictKind(Enum):
     """The class of decision one convergence system could not make.
 
-    Each member carries the reason the planner records, the direction relief
-    would have to come from, and the decision the system is short of, so all
-    three follow from the check that fired.  Deriving the reason from the kind
-    rather than classifying a reason string keeps the wording a presentation
-    detail of one structural fact.
+    Each member carries the reason the planner records and the decision the
+    system is short of, so both follow from the check that fired.  Deriving the
+    reason from the kind rather than classifying a reason string keeps the
+    wording a presentation detail of one structural fact.
     """
 
     SHARED_TRUNK_CHANNEL = (
         "planned convergence trunks require one shared channel decision",
-        ConflictRelief.SHARED_CHANNEL,
         "plan-driven shared-channel emission (#1658)",
     )
     SHARED_APPROACH_CHANNEL = (
         "planned convergence feeder approaches require one shared channel decision",
-        ConflictRelief.SHARED_CHANNEL,
         "plan-driven shared-channel emission (#1658)",
     )
     OPPOSING_OPENING_CHANNEL = (
         "planned fan arms require opposing opening channels",
-        ConflictRelief.SHARED_CHANNEL,
         "plan-driven opposing-opening emission (#1658)",
     )
     NO_APPROACH_SETTLEMENT_ROOM = (
         "planned convergence approaches and trunks have no settlement room",
-        ConflictRelief.CLEARANCE,
         "plan-driven chained-convergence emission (#1658)",
     )
 
-    def __init__(self, reason: str, relief: ConflictRelief, owner: str) -> None:
+    def __init__(self, reason: str, owner: str) -> None:
         self.reason = reason
-        self.relief = relief
         self.owner = owner
 
 

@@ -118,11 +118,24 @@ and retained a 1325x1781 canvas. The planned trunks were at x = 554, 558, and
 562 and landed at y = 1617.4.
 
 At the time of the settlement merge, 12 live compatibility systems occupied 12
-fixtures and nine distinct system-id strings. `COMPATIBILITY_CORPUS` contained
-14 rows because two planned fixtures were retained as controls. That snapshot
-ran 168 grants and observed zero divergent grants.
-`tests/test_capacity_probe.py` checks each listed row's verdict and each probe's
-grant structure; it does not assert these aggregate snapshot totals.
+fixtures and nine distinct system-id strings. A capacity probe ran 168 grants
+across them and observed zero divergent grants.
+
+A later measurement over all 368 corpus fixtures counted 27 convergence plans on
+the compatibility path across 12 fixtures, reached through six
+`ConvergenceConflictKind` conditions. Three of those conditions were shown unable
+to state a case: `CHAINED_SAME_LINE` compared plans that
+`parser/route_topology.py` cannot produce as a pair, and
+`UNOWNED_MEMBER_CORRIDOR` / `UNOWNED_MEMBER_GROUP` named a category that
+`build_route_system_emission_execution(require_member_geometry=True)` leaves
+empty. A fourth, `SHARED_TRUNK_CHANNEL`'s second arm, was measuring the turn
+radius as the separation two lanes of one bundle owed each other and was
+corrected to ask each pair for the clearance its own kind requires. The count is
+now zero by proof rather than by absence of detection, and the renders across
+that corpus are byte-identical to the ones the six-condition tree drew.
+`test_every_corpus_convergence_is_planned_not_left_to_compatibility` in
+`tests/test_convergence_planner.py` is the live guard; it asserts the absence
+rather than any of the totals above.
 
 The longitudinal-blocker experiment covered 14 out-of-band claims. Thirteen
 had every blocker on the violated side overlap or abut the drawn leg. The
@@ -139,8 +152,8 @@ states the formula rather than this snapshot value;
 `test_a_boundary_is_charged_for_the_unfiled_leg_drawn_in_it` checks the peer
 width, minimum-width sum, and available-capacity inequality.
 
-The capacity probe also established why dependent coordinates must be
-re-derived after a grant. Leaving junctions behind made five systems appear to
+That probe also established why dependent coordinates must be re-derived after a
+grant. Leaving junctions behind made five systems appear to
 reach allocation: `merge_bottom_row_bypass` and
 `merge_feeder_shared_channel_gap` from 19.5px,
 `ambiguous_exit_continuation` from 256px, `merge_right_entry` from 576px, and

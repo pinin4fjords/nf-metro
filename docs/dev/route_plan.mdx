@@ -513,30 +513,35 @@ No deficit is left behind for those reasons, so none is exempt:
 row- or column-gap deficit, because a route drawn through a clearance it does
 not have is wrong however the claim arose.
 
-Settlement also attributes ownership it cannot take. A convergence system left
-on the compatibility path whose corridors all reach their required width gets a
-`CompatibilityOwnership` record carrying its system id, the reason it is still
-on compatibility, its corridor count, its tightest slack, and the owner of the
-decision it is actually short of.
+Settlement allocates against a plan in which every convergence states its own
+geometry. No convergence plan the corpus produces carries a `legacy_reason`, and
+`test_every_corpus_convergence_is_planned_not_left_to_compatibility` in
+`tests/test_convergence_planner.py` holds that over every routable fixture. So
+settlement publishes only its own moves: one non-blocking
+`envelope-settlement-translation` diagnostic per widened boundary, naming the
+demand that sized it and the sections it carried.
 
-That record on its own is weaker evidence than it reads, because
-`SettlementReach` can only return `WITHIN_REACH` for a conflict whose relief is
-not `SHARED_CHANNEL`, and most compatibility systems carry that relief. The
-evidence that settles the question is `layout/capacity_probe.py`, which asks the
-counterfactual directly: it grants a boundary generous capacity on a deep copy
-of the settled geometry, re-plans, and reports whether the disposition changes.
-`COMPATIBILITY_CORPUS` in `tests/test_capacity_probe.py` owns the live population
-and each expected verdict. Planned controls remain in that table so a system
-slipping back onto compatibility fails the test. Historical population and
-grant totals are recorded in the
+Reaching that took retiring three conflict conditions that could not state a
+case. `CHAINED_SAME_LINE` fired when two same-line trunks sat further apart than
+one channel's lanes, but `parser/route_topology.py` builds one convergence group
+per `(entry_group_id, line_id)`, so two distinct plans never share both keys: the
+pairs it compared were one stroke branching to several destinations, separated by
+the row pitch between the sections served. `UNOWNED_MEMBER_CORRIDOR` and
+`UNOWNED_MEMBER_GROUP` called an edge unowned when no convergence plan listed it,
+which `build_route_system_emission_execution(require_member_geometry=True)` rules
+out by requiring every member of a planned system to hold exactly one geometry
+decision. The surviving condition is `NO_APPROACH_SETTLEMENT_ROOM`, from
+`_landing_trunk_flank_conflict`: a landing whose approach and trunk flank leave
+no room between them, published with the axis, both run coordinates, and the
+distance measured. Historical population and grant totals from the measurement
+programme are recorded in the
 [envelope settlement design record](/nf-metro/dev/layout_settlement_design_record/).
 
-`merge_around_below_leftmost` demonstrates the shared-channel decision below.
-Its route system converges twice, and each convergence reads its trunk
-coordinate off a trial route taken with no knowledge of its sibling, so both
-propose the same lane of one inter-row channel and the planner declines the
-system with `SHARED_TRUNK_CHANNEL`, whose reason names what was missing: one
-shared channel decision.
+`merge_around_below_leftmost` motivates the shared-channel decision below. Its
+route system converges twice, and each convergence reads its trunk coordinate off
+a trial route taken with no knowledge of its sibling, so both propose the same
+lane of one inter-row channel; `SHARED_TRUNK_CHANNEL` names what would otherwise
+be missing, which is one shared channel decision.
 
 `_settle_shared_trunk_channels` makes it. The route system, not either plan,
 assigns each trunk a lane by `cotravelling_lane_clearance`: a full turn radius

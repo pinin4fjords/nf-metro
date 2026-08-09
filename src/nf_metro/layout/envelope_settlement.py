@@ -66,11 +66,9 @@ measures *to* starts at or beyond it, which are the two halves of
 
 The axis vocabulary the sweep is written against -- ``ROW_AXIS``, ``COLUMN_AXIS``,
 ``SettlementAxisGeometry``, ``translation_ownership`` and ``apply_translation`` --
-is part of this module's surface rather than internal to it.  A counterfactual
-asking what a wider boundary would let a later stage decide is evidence only if
-the geometry it hands over is geometry settlement could hand over, which means
-moving the same sections by the same write.  Naming the translation once, here, is
-what keeps a second definition of it from drifting away from this one.
+states the row and column steps as one parameterised write.  Anything that needs
+to know what a translation moves reads it from here, so a second definition
+cannot drift away from the one the sweep applies.
 
 Every failure this module raises is an engine self-check rather than an authoring
 diagnostic: each condition is one the reasoning above establishes, so a violation
@@ -85,19 +83,15 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
-from enum import Enum
 
 from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
 from nf_metro.layout.geometry import shift_section
 from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
-    ConflictRelief,
-    ConvergenceConflict,
     DemandAxis,
     EmissionMemberId,
     RoutePlan,
     RoutePlanDiagnostic,
-    RouteSystemId,
 )
 from nf_metro.layout.route_reservations import (
     SECTION_BOTTOM_BLOCKER,
@@ -122,18 +116,15 @@ __all__ = [
     "ROW_AXIS",
     "BoundaryClearanceDemand",
     "ClearanceMeasurement",
-    "CompatibilityOwnership",
     "EnvelopeSettlement",
     "SettlementAxis",
     "SettlementAxisGeometry",
-    "SettlementReach",
     "SettlementShortfall",
     "SettlementTranslation",
     "TranslationOwnership",
     "apply_translation",
     "attach_reroute_ledger_delta",
     "attach_settlement_diagnostics",
-    "attribute_compatibility_systems",
     "settle_route_envelopes",
     "translation_ownership",
 ]
@@ -189,94 +180,6 @@ class SettlementTranslation:
             f"held from below by {blockers}; it moved "
             f"{len(self.section_ids)} section(s){held} and settled "
             f"{len(self.reservation_ids)} claim(s)"
-        )
-
-
-class SettlementReach(Enum):
-    """Whether settlement's own translations can reach a compatibility limit."""
-
-    SEPARATION_FIXED = "separation-fixed"
-    """Both conflicting runs sit in one translated band, so every offset this
-    stage owns moves them together and the distance between them never
-    changes."""
-
-    SEPARATION_ONLY_GROWS = "separation-only-grows"
-    """The runs sit in different bands, so an offset does move them apart --
-    which is the wrong direction for a conflict that needs one shared channel,
-    and settlement is forbidden from moving them together."""
-
-    WITHIN_REACH = "within-reach"
-    """An offset this stage owns changes the separation in the direction the
-    conflict needs.  The limit is not attributed away from settlement."""
-
-
-@dataclass(frozen=True, slots=True)
-class CompatibilityOwnership:
-    """A route system on the compatibility path, measured against settlement.
-
-    #1660 may only leave a system on compatibility with evidence that what
-    limits it is not envelope allocation.  The evidence is two measurements on
-    the settled geometry: every corridor the system reserved reaching its
-    required width, and the conflict that still holds it standing where no
-    global row or column offset can move it.
-    """
-
-    system_id: RouteSystemId
-    conflict: ConvergenceConflict | None
-    reach: SettlementReach | None
-    bands: tuple[int, int] | None
-    corridor_count: int
-    worst_capacity_slack: float
-
-    @property
-    def owner(self) -> str:
-        if self.conflict is None:
-            return _UNATTRIBUTED_OWNER
-        return self.conflict.kind.owner
-
-    @property
-    def message(self) -> str:
-        if self.worst_capacity_slack < -COORD_TOLERANCE:
-            fit = (
-                f"its tightest of {self.corridor_count} reserved corridor(s) is "
-                f"still {-self.worst_capacity_slack:.2f}px short, which "
-                f"settlement has attributed separately"
-            )
-        else:
-            fit = (
-                f"its {self.corridor_count} reserved corridor(s) all fit, the "
-                f"tightest with {self.worst_capacity_slack:.2f}px to spare"
-            )
-        if self.conflict is None or self.bands is None:
-            return (
-                f"route system {self.system_id} stays on compatibility: {fit}, but "
-                f"its planner recorded no measured conflict, so what limits it is "
-                f"unattributed"
-            )
-        axis = _settlement_axis(self.conflict).axis.value
-        first, second = self.bands
-        if self.reach is SettlementReach.SEPARATION_FIXED:
-            proof = (
-                f"both runs sit in {axis} band {first}, which every offset this "
-                f"stage owns moves together, so that {self.conflict.separation:.2f}px "
-                f"is not an envelope allocation"
-            )
-        elif self.reach is SettlementReach.SEPARATION_ONLY_GROWS:
-            proof = (
-                f"the runs sit in {axis} bands {first} and {second}, and settlement "
-                f"never shrinks a separation, so widening moves them further from "
-                f"the one shared channel this conflict needs"
-            )
-        else:
-            proof = (
-                f"the runs sit in {axis} bands {first} and {second}, so an offset "
-                f"this stage owns does change the {self.conflict.separation:.2f}px "
-                f"between them; the limit is not attributed away from settlement"
-            )
-        return (
-            f"route system {self.system_id} stays on compatibility: {fit}; what "
-            f"holds it is {self.conflict.measurement}, and {proof}.  "
-            f"{self.owner} owns the decision it needs."
         )
 
 
@@ -589,146 +492,21 @@ def _settle_axis(
     )
 
 
-# A compatibility system whose planner recorded no measurement has nothing to
-# attribute it by, so it is named as unattributed rather than assigned an owner
-# the evidence does not support.
-_UNATTRIBUTED_OWNER = "unattributed"
-
-
-def _settlement_axis(conflict: ConvergenceConflict) -> SettlementAxisGeometry:
-    """The one axis whose translations can change *conflict*'s separation.
-
-    A row translation writes y and a column translation writes x, so a distance
-    measured along one of those axes is out of the other's reach entirely.
-    """
-    return ROW_AXIS if conflict.axis is DemandAxis.Y else COLUMN_AXIS
-
-
-def _translated_bands(
-    graph: MetroGraph, axis: SettlementAxisGeometry
-) -> dict[int, float]:
-    """The first coordinate each boundary's translation would carry with it.
-
-    Widening boundary ``b`` translates every section from index ``b`` onward, so
-    the topmost (or leftmost) of those boxes is where its effect starts.  Taken
-    as a running minimum from the last boundary backwards, those starts are
-    non-decreasing in ``b``, which makes the boundaries that move a given
-    coordinate a prefix, and their count the band that coordinate sits in.
-    """
-    origin_by_index: dict[int, float] = {}
-    for section in graph.sections.values():
-        index = axis.start_index(section)
-        origin = axis.origin(section)
-        origin_by_index[index] = min(origin_by_index.get(index, origin), origin)
-    bands: dict[int, float] = {}
-    onward = math.inf
-    for boundary in sorted(origin_by_index, reverse=True):
-        onward = min(onward, origin_by_index[boundary])
-        bands[boundary] = onward
-    return bands
-
-
-def _band_of(bands: dict[int, float], coordinate: float) -> int:
-    moved = [
-        boundary
-        for boundary, start in bands.items()
-        if coordinate >= start - COORD_TOLERANCE
-    ]
-    return max(moved, default=min(bands, default=0) - 1)
-
-
-def _settlement_reach(
-    graph: MetroGraph, conflict: ConvergenceConflict
-) -> tuple[SettlementReach, tuple[int, int]]:
-    """Whether any offset this stage owns changes a measured conflict.
-
-    A separation along y moves only when whole rows move, and one along x only
-    when whole columns do, so exactly one axis is capable of touching it.  Two
-    runs the same axis translation carries together keep the distance between
-    them whatever settlement does; runs it carries apart only ever get further
-    apart, because no step may shrink a separation.
-    """
-    axis = _settlement_axis(conflict)
-    index = conflict.axis.point_index
-    bands = _translated_bands(graph, axis)
-    first, second = (_band_of(bands, site[0][index]) for site in conflict.sites)
-    if first == second:
-        return SettlementReach.SEPARATION_FIXED, (first, second)
-    if conflict.kind.relief is ConflictRelief.SHARED_CHANNEL:
-        return SettlementReach.SEPARATION_ONLY_GROWS, (first, second)
-    return SettlementReach.WITHIN_REACH, (first, second)
-
-
-def attribute_compatibility_systems(
-    graph: MetroGraph, plan: RoutePlan
-) -> tuple[CompatibilityOwnership, ...]:
-    """Measure every compatibility system in *plan* against what settlement moves.
-
-    Both measurements come from the geometry the map actually draws: the
-    conflict coordinates are read from the published frames, and each corridor
-    slack is measured against the live graph with the projection its published
-    realisation records.
-    """
-    compatibility = tuple(
-        item for item in plan.convergence_plans if item.legacy_reason is not None
-    )
-    if not compatibility:
-        return ()
-    held_translations = {
-        item.reservation_id: item.coordinate_translations
-        for item in plan.realised_reservations
-    }
-    slack_by_system: dict[RouteSystemId, list[float]] = {}
-    for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
-            continue
-        realised = realise_reservation(
-            graph,
-            reservation,
-            coordinate_translations=held_translations.get(reservation.id, ()),
-        )
-        if realised is not None:
-            slack_by_system.setdefault(reservation.system_id, []).append(
-                realised.capacity_slack
-            )
-
-    found: dict[RouteSystemId, CompatibilityOwnership] = {}
-    for convergence in compatibility:
-        system_id = convergence.system_id
-        slacks = slack_by_system.get(system_id)
-        if not slacks:
-            continue
-        conflict = convergence.conflict
-        reach, bands = (
-            (None, None) if conflict is None else _settlement_reach(graph, conflict)
-        )
-        found[system_id] = CompatibilityOwnership(
-            system_id, conflict, reach, bands, len(slacks), min(slacks)
-        )
-    return tuple(found[key] for key in sorted(found))
-
-
 def attach_settlement_diagnostics(
-    graph: MetroGraph, plan: RoutePlan, settlement: EnvelopeSettlement
+    plan: RoutePlan, settlement: EnvelopeSettlement
 ) -> RoutePlan:
-    """Publish what settlement moved and what it attributed, into *plan*.
+    """Publish what settlement moved, into *plan*.
 
-    A record nobody can read is not evidence.  Emitting these as non-blocking
-    plan diagnostics gives every translated row and column a named owner in the
-    published plan, and lets the emission stage that owns a compatibility
-    system's remaining decision find that attribution without re-deriving the
-    measurement.
+    A record nobody can read is not evidence.  Emitting each translation as a
+    non-blocking plan diagnostic gives every widened row and column boundary a
+    named cause in the published plan, so a reader can tell which demand moved
+    the map without re-deriving the sweep.
     """
     added = tuple(
         RoutePlanDiagnostic(
             None, "envelope-settlement-translation", item.message, blocking=False
         )
         for item in settlement.translations
-    ) + tuple(
-        RoutePlanDiagnostic(
-            None, "convergence-settlement-exit", item.message, blocking=False
-        )
-        for item in attribute_compatibility_systems(graph, plan)
     )
     if not added:
         return plan

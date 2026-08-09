@@ -1494,7 +1494,7 @@ def _settle_render_geometry(
     # from, would spend clearance the corridor has already been promised.
     if carried_ports:
         hold_port_anchored_edges(graph, carried_from, carried_ports)
-    route_plan = attach_settlement_diagnostics(graph, route_plan, settlement)
+    route_plan = attach_settlement_diagnostics(route_plan, settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     assert_reservations_are_settled(
         graph,

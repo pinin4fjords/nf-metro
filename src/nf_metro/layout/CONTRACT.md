@@ -181,6 +181,19 @@ docstring in `engine.py` is the authoritative list.
 Guard bodies live in `phases/guards.py` and are imported into `engine.py`;
 the bisection runner is `_run_pass_c_guards`.
 
+The routes a bisection checkpoint inspects come from
+`route_edges_for_placement_guards` (`routing/core.py`), which routes with
+`validate_final_route_frames=False`; the final checkpoint uses `route_edges`,
+with frames armed. The difference is a precondition, not a weaker invariant.
+Fan and convergence endpoint frames are not final until Stage 6.16, so a
+frame assertion at an earlier checkpoint evaluates a check whose inputs the
+pipeline has not finished writing. Forcing frames on at every checkpoint
+raises 32 violations across 3 fixtures at mid-Pass-C placements, every one of
+which clears by the final placement, and the final route validates clean with
+frames armed on every fixture. That count is a function of how many systems
+make ownership claims, so a tree that plans more systems shows more mid-pass
+disagreement without its geometry being worse; it is not a quality metric.
+
 ## Anchor invariant
 
 The **anchors** of a section are its port stations: synthetic points on the
@@ -1717,18 +1730,14 @@ They are design evidence, not part of this specification.
   the boundary. A boundary that every relevant section spans
   across has no side to measure, so it is never selected as a corridor's region
   in the first place -- the measurement bounds a boundary by the sections lying
-  wholly on each side of it, and raises otherwise. Every convergence system left
-  on the compatibility path carries a `CompatibilityOwnership` record measured by
-  `attribute_compatibility_systems` on the plan the map draws: the tightest
-  capacity slack across the corridors that system reserved, the
-  `ConvergenceConflict` its planner recorded (kind, axis, both run coordinates,
-  and the distance between them), and the `SettlementReach` verdict deciding
-  whether any offset this stage owns changes that distance. Two runs one
-  translated band carries together keep their distance whatever settlement
-  does; runs in different bands only ever get further apart, which is the wrong
-  direction for a conflict whose relief is one shared channel. The owner comes
-  from `ConvergenceConflictKind`, so it follows from the check that fired rather
-  than from re-reading its wording.
+  wholly on each side of it, and raises otherwise. Settlement therefore allocates
+  against a plan in which every convergence states its own geometry: no
+  convergence plan the corpus produces carries a `legacy_reason`, and
+  `test_every_corpus_convergence_is_planned_not_left_to_compatibility` holds that
+  over every routable fixture. This stage has no compatibility population to
+  attribute, so it publishes only its own translations, one
+  `envelope-settlement-translation` diagnostic per widened boundary naming the
+  demand that sized it.
 - **Origin-independence**: The width a boundary is widened by is a function of
   its deficit and nothing else, so one arrangement described at two canvas
   origins allocates identically. This is the quantisation lemma's other half,
@@ -1947,30 +1956,32 @@ They are design evidence, not part of this specification.
   (`_bundled_sibling_owns_opening_column`): `_divergent_source_groups` draws its
   reference from the bundled members, and a lone feeder's own handler column is
   not the plan's to freeze.
-  `capacity_probe.probe_settlement_capacity` tests the allocation boundary by
-  copying the settled graph, widening the system's claimed boundaries,
-  re-deriving dependent coordinates, and re-running convergence planning on the
-  copy. `COMPATIBILITY_CORPUS` in `tests/test_capacity_probe.py` retains the
-  historically measured population as planned controls, so the test fails if a
-  compatibility system reappears.
-  The probe is not on the render path: it plans the map fourteen more times
-  per compatibility system, so it is diagnostic machinery that
-  `tests/test_capacity_probe.py` runs and no render pays for. Its positive answer
-  remains reachable by construction:
-  `test_a_starved_system_is_handed_back_the_capacity_that_starved_it` shows by
-  taking 10px out of `fan_in_merge`'s reserved boundaries until the planner drops
-  it onto compatibility and watching the probe return 10.75px.
-  A grant therefore has **three** outcomes and not two (`GrantOutcome`): the
-  re-plan owns the whole system, leaves the whole of it on compatibility, or comes
-  back describing neither -- the system absent, or split across both dispositions.
-  That third case is `DIVERGED` and is excluded from the verdict, because "the
-  planner wants more room here" and "the planner is not talking about this system"
-  are different findings and only the first bears on allocation; reading a
-  diverged grant as compatible is the same conflation as the stale-junction case
-  above, one step further in. A system every grant diverges on is
-  `GRANTS_DIVERGED`, not `BEYOND_ALLOCATION`.
-  `test_capacity_probe.py` rejects a capacity verdict that rests on any diverged
-  grant.
+  **The convergence family states its own geometry.** Every convergence plan the
+  corpus produces is `PLANNED` and carries no `legacy_reason`, so no route system
+  reaches emission through the compatibility path on a convergence's account.
+  That is a property of the checks rather than of the fixtures: a condition can
+  only send a system to compatibility if it can state a case at all, and three
+  could not.
+  `CHAINED_SAME_LINE` compared two same-line trunks and asked them to sit within
+  one channel's lanes, but `parser/route_topology.py` builds one convergence group
+  per `(entry_group_id, line_id)`, so two distinct plans never share both keys;
+  the pairs it reached were one stroke branching to several destinations, and the
+  separation it measured was the row pitch between the sections served.
+  `UNOWNED_MEMBER_CORRIDOR` and `UNOWNED_MEMBER_GROUP` read an edge as unowned
+  when no convergence plan listed it, but
+  `build_route_system_emission_execution(require_member_geometry=True)` requires
+  every member of a planned system to hold exactly one geometry decision, so such
+  an edge is owned by a member-geometry plan and the category is empty by
+  construction. `SHARED_TRUNK_CHANNEL`'s second arm used the turn radius as the
+  separation two lanes of one bundle owed each other and demanded exact
+  coincidence from distinct lines; it asks each pair for the clearance its own
+  kind requires, with a same-line pair still owing coincidence.
+  The one condition that states a real case is `NO_APPROACH_SETTLEMENT_ROOM`,
+  produced by `_landing_trunk_flank_conflict`
+  (`layout/routing/convergences.py`): a landing whose approach and trunk flank
+  leave no room between them names a clearance, and its `ConvergenceConflict`
+  publishes the axis, both run coordinates, and the distance measured between
+  them.
   Where that decision belongs to the convergence planner it is made rather than
   declined, and this stage's part in it is to charge for the result and nothing
   more. `_settle_shared_trunk_channels` lanes the runs of one route system's
