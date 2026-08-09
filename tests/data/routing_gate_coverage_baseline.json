@@ -418,6 +418,7 @@
   "inter_section_handlers.py::if mid_y is None:::#2",
   "inter_section_handlers.py::if min(drop_xs) < _section_right_edge(graph, tgt) - COORD_TOLERANCE:::#1",
   "inter_section_handlers.py::if min(hi, claim.y_hi) - max(lo, claim.y_lo) > COORD_TOLERANCE:::#1",
+  "inter_section_handlers.py::if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:::#1",
   "inter_section_handlers.py::if not (corner_x - COORD_TOLERANCE <= claim.x <= gap_right + COORD_TOLERANCE):::#1",
   "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1",
   "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#2",

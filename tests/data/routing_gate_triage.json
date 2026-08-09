@@ -471,6 +471,10 @@
     "note": "The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart.",
     "status": "defensive"
   },
+  "inter_section_handlers.py::if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:::#1": {
+    "note": "The built-route arm of _leadout_self_meets_sibling_descent: a same-line descent from another source already occupying this wrap's lead-out gap. Reachable only through a convergence plan demoted by whole-system compatibility, which restrict_convergence_execution strips of its trunk axis and landings, so it publishes no channel claim while its route is still built -- the one case the claim scan below cannot see. No corpus fixture carries a compatibility route system whose convergence plans are demoted that way. tests/test_prior_convergence_claims.py::test_compatibility_convergence_route_precedes_wrap_in_both_passes exercises it against a constructed context, which the coverage sweep does not observe because it routes fixtures. What would close it is a topology whose route system is compatible for an exit-turn or fan reason and whose wrap lead-out gap overlaps one of that system's descents.",
+    "status": "needs-review"
+  },
   "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
     "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
     "status": "defensive"
