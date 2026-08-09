@@ -375,7 +375,32 @@ def fan_appearance_lane_sign(
         return 1.0
     if feeder_spans and all(low > section_high for low, _high in feeder_spans):
         return -1.0
+    if _feeder_reconverges_its_own_section(graph, section.id, source_station_id):
+        return -1.0
     return 1.0
+
+
+def _feeder_reconverges_its_own_section(
+    graph: MetroGraph, section_id: str, source_station_id: str
+) -> bool:
+    """True when a fan's feeder closes its own section's branches back together.
+
+    Such a feeder hands over on the track those branches closed around, so the
+    seam sits inside the row's band of tracks rather than at the origin the
+    band counts from.  A fan opening there reaches either way, and reaching
+    toward the origin is what keeps its section's content starting on the same
+    track as its row-mates'.
+    """
+    source = graph.stations.get(source_station_id)
+    if source is None or source.section_id in (None, section_id):
+        return False
+    section_mates = {
+        edge.source
+        for edge in graph.edges_to(source_station_id)
+        if (station := graph.stations.get(edge.source)) is not None
+        and station.section_id == source.section_id
+    }
+    return len(section_mates) >= 2
 
 
 def _fan_branch_solo_station_ids(
