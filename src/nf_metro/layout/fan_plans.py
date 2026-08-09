@@ -2458,6 +2458,36 @@ def _fan_boundary_station_ids(plan: FanPlan) -> frozenset[str]:
     )
 
 
+def _boundary_spreads_on_axis(
+    graph: MetroGraph,
+    station_id: str,
+    *,
+    perpendicular_sides: Sequence[PortSide],
+    axis_name: str,
+) -> bool:
+    """Whether a boundary station separates its lines along *axis_name*.
+
+    A station holds its lane offset on the axis its own section spreads lines
+    across.  A boundary standing in a section that spreads them the other way
+    -- a hand-off inside a vertical-flow section feeding a horizontal fan --
+    spends the offset on the fan's flow axis, so the fan's lane coordinate
+    there is the station's own.  A port the bundle enters or leaves
+    perpendicular turns at the boundary and likewise carries no lane offset
+    across it.
+    """
+    port = graph.ports.get(station_id)
+    if port is not None:
+        return port.side not in perpendicular_sides
+    section = graph.sections.get(graph.section_for_station(station_id) or "")
+    if section is None:
+        return True
+    return (
+        lanes_run_along_x(section.direction)
+        if axis_name == "x"
+        else lanes_run_along_y(section.direction)
+    )
+
+
 def _validate_fan_runtime_frame(
     graph: MetroGraph,
     plan: FanPlan,
@@ -2500,14 +2530,19 @@ def _validate_fan_runtime_frame(
                 raise FanRouteInvariantError(
                     f"{context} has no realised boundary station {station_id!r}"
                 )
-            port = graph.ports.get(station_id)
+            spreads_on_frame_axis = _boundary_spreads_on_axis(
+                graph,
+                station_id,
+                perpendicular_sides=perpendicular_sides,
+                axis_name=plan.frame.secondary.name,
+            )
             for (endpoint_id, line_id), incident in endpoints.items():
                 if endpoint_id != station_id:
                     continue
                 offset = (
-                    0.0
-                    if port is not None and port.side in perpendicular_sides
-                    else station_offsets.get((station_id, line_id), 0.0)
+                    station_offsets.get((station_id, line_id), 0.0)
+                    if spreads_on_frame_axis
+                    else 0.0
                 )
                 expected = (
                     plan.frame.secondary.get(station)
