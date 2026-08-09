@@ -92,7 +92,9 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _right_entry_wrap_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
+    bypass_line_draws_a_chained_trunk,
     classify_inter_section_family,
+    seated_bypass_descent,
 )
 from nf_metro.layout.routing.normalize import (
     _h_segment_crosses_other_section,
@@ -1049,6 +1051,14 @@ def _standard_l_shape_turn_requirement(
     )
 
 
+def _seam_also_feeds_a_merge(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether this edge's source also carries a branch into a merge junction."""
+    return any(
+        member.source == edge.source and member.target in ctx.merge.junctions
+        for member in ctx.graph.edges
+    )
+
+
 def _bypass_turn_requirement(
     edge: Edge,
     source_run_direction: Direction,
@@ -1095,17 +1105,42 @@ def _bypass_turn_requirement(
         ctx,
         facts.src_row,
     )
-    if geometry.g1_n > 1:
-        # The descent shares its channel with the rest of the gap bundle, whose
-        # own seating pass places the whole stack: the column belongs to that
-        # bundle, and which of the two owners takes precedence is not stated.
+    if _seam_also_feeds_a_merge(edge, ctx):
+        # A merge branch turns off the same corner the descent opens on, and the
+        # two families size that corner from different bundles: a plan naming
+        # the descent's column names a radius the merge branch owns too.
         return _SourceTurnRequirement(
             None,
             None,
             None,
             None,
             None,
-            "gap-bundle-owns-the-descent-column",
+            "merge-branch-shares-the-descent-corner",
+        )
+    seated = seated_bypass_descent(edge, geometry, ctx)
+    if seated is None:
+        # The descent shares its channel with runs the reservation seats as one
+        # group, and this member is not stated in that group: where the group
+        # lands does not follow from the member's own claim.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "seating-group-owns-the-descent-column",
+        )
+    if bypass_line_draws_a_chained_trunk(edge, ctx):
+        # This line's two chained trunks are ranked in separate channel groups,
+        # and which of them keeps the packed track is settled after a plan would
+        # freeze this descent: the trunk axis has an owner of its own.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "trunk-band-owns-the-chained-same-line-trunk",
         )
     if geometry.run_direction is None or geometry.turn_direction is None:
         # The hop still turns at the far gap, so a source seam with no lead-in
@@ -1119,12 +1154,13 @@ def _bypass_turn_requirement(
             None,
             "unsupported-subshape:bypass-degenerate-source-seam",
         )
+    axis_coordinate = seated[0]
     return _SourceTurnRequirement(
         geometry.run_direction,
         geometry.turn_direction,
         geometry.launch_coordinate,
-        abs(geometry.axis_coordinate - geometry.launch_coordinate),
-        geometry.axis_coordinate,
+        abs(axis_coordinate - geometry.launch_coordinate),
+        axis_coordinate,
     )
 
 

@@ -26,11 +26,11 @@ rows or columns as a whole.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
-from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.constants import COORD_TOLERANCE, COORD_TOLERANCE_FINE
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
@@ -72,6 +72,28 @@ class ReservedBand:
         stagger goes through :meth:`hold` instead.
         """
         return (self.lo + self.hi) / 2 + offset
+
+
+def band_seating_shift(items: Iterable[tuple[float, ReservedBand]]) -> float:
+    """The one displacement that seats every claimed run of a group in its band.
+
+    A group of co-travelling runs translates as one, so the shift is the
+    smallest that brings the whole set inside its bands; where no such shift
+    exists the group stays where it is.  Applying it twice is applying it once,
+    since a set already inside its bands asks for no travel.
+
+    Stated once because the pass that applies it and the plan that names the
+    seated coordinate have to read the same number: a plan naming the
+    coordinate before the shift describes a column the seating then vacates.
+    """
+    pairs = tuple(items)
+    if not pairs:
+        return 0.0
+    lower = max(band.lo - coordinate for coordinate, band in pairs)
+    upper = min(band.hi - coordinate for coordinate, band in pairs)
+    if lower > upper + COORD_TOLERANCE_FINE:
+        return 0.0
+    return min(max(0.0, lower), upper)
 
 
 def held_in_reserved_band(coordinate: float, band: ReservedBand | None) -> float:

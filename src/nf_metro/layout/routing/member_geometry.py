@@ -52,7 +52,7 @@ from nf_metro.layout.routing.normalize import (
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBand
+from nf_metro.layout.routing.reserved_bands import ReservedBand, band_seating_shift
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge, semantic_route_id
 
@@ -825,11 +825,9 @@ def _seat_claimed_segments_before_freeze(
                 )
 
     for (*_identity, axis), items in grouped.items():
-        lower = max(band.lo - coordinate for _route, _rank, coordinate, band in items)
-        upper = min(band.hi - coordinate for _route, _rank, coordinate, band in items)
-        if lower > upper + COORD_TOLERANCE_FINE:
-            continue
-        shift = min(max(0.0, lower), upper)
+        shift = band_seating_shift(
+            (coordinate, band) for _route, _rank, coordinate, band in items
+        )
         if abs(shift) <= COORD_TOLERANCE_FINE:
             continue
         for route, rank, coordinate, _band in items:

@@ -16,7 +16,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
-from nf_metro.layout.route_plan import FanRouteEmitter
+from nf_metro.layout.route_plan import ExitTurnDisposition, FanRouteEmitter
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -111,7 +111,9 @@ from nf_metro.layout.routing.normalize import (
     _clear_channel_x_in_band,
     _gap_channel_base,
     _h_segment_crosses_other_section,
+    _restack_channel,
     _v_segment_crosses_other_section,
+    _VChannel,
 )
 from nf_metro.layout.routing.perp import (
     _perp_approach_fan_x,
@@ -119,7 +121,9 @@ from nf_metro.layout.routing.perp import (
     _perp_riser_lateral,
 )
 from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
     ReservedBands,
+    band_seating_shift,
     corridor_clearance_band,
     held_in_reserved_band,
     seat_bundle_in_claimed_bands,
@@ -3105,6 +3109,157 @@ def _bypass_geometry(
     )
 
 
+# The U-bypass leaves its source on the lead-in and turns down on the segment
+# after it, which is the rank the reservation ledger and the opening-turn read.
+BYPASS_DESCENT_RANK = 1
+
+
+def _u_bypass_facts(edge: Edge, ctx: _RoutingCtx) -> _InterFacts | None:
+    """This edge's inter-section facts when it draws the U-shaped bypass."""
+    src, tgt = ctx.graph.edge_endpoints(edge)
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    if (
+        not facts.needs_bypass
+        or facts.src_col is None
+        or facts.tgt_col is None
+        or _bypass_route_kind(facts) is not _BypassRoute.U_BYPASS
+    ):
+        return None
+    return facts
+
+
+def _bypass_descent_claims(
+    edge: Edge, ctx: _RoutingCtx
+) -> list[tuple[float, ReservedBand | None]] | None:
+    """Every co-travelling descent the reservation seats with this one.
+
+    The seating pass translates a claimed group as a whole, so the group -- not
+    the member -- names the column any one of its members lands on.  A member
+    with no claim contributes no bound, which is how the first routing pass
+    reads: it is the pass that publishes the ledger, so it has none to consult.
+
+    ``None`` where a co-traveller does not resolve to a U-bypass descent at all:
+    the group is then not this bundle, and no member's column follows from the
+    bundle's own claims.
+    """
+    claims: list[tuple[float, ReservedBand | None]] = []
+    for member in ctx.graph.edges:
+        if (member.source, member.target) != (edge.source, edge.target):
+            continue
+        facts = _u_bypass_facts(member, ctx)
+        if facts is None:
+            return None
+        assert facts.src_col is not None and facts.tgt_col is not None
+        column = _bypass_geometry(
+            member,
+            facts.src,
+            facts.tgt,
+            facts.i,
+            facts.src_col,
+            facts.tgt_col,
+            ctx,
+            facts.src_row,
+        ).gap1_x
+        claims.append(
+            (
+                column,
+                ctx.reserved_bands.for_segment(
+                    member.source, member.target, member.line_id, BYPASS_DESCENT_RANK
+                ),
+            )
+        )
+    return claims or None
+
+
+def seated_bypass_descent(
+    edge: Edge, geometry: _BypassGeometry, ctx: _RoutingCtx
+) -> tuple[float, int, int] | None:
+    """This descent's seated column with its rank and width in the bundle.
+
+    The handler places the descent from the grid edges it has to hand, and the
+    member-geometry freeze then translates the whole claimed bundle into its
+    reserved band.  Reading the same displacement here is what lets the emitted
+    turn and the plan that names it stand on one column; ``None`` where the
+    bundle's own claims do not name it.
+    """
+    claims = _bypass_descent_claims(edge, ctx)
+    if claims is None:
+        return None
+    columns = sorted({column for column, _band in claims})
+    shift = band_seating_shift(
+        (column, band) for column, band in claims if band is not None
+    )
+    return geometry.gap1_x + shift, columns.index(geometry.gap1_x), len(columns)
+
+
+def bypass_line_draws_a_chained_trunk(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether this line reaches its own source section on a second U-bypass.
+
+    Two U-bypasses chained through one section leave that line with two trunks
+    that share a below-row channel but no X extent.  :func:`_group_channel_trunks`
+    gathers a channel by transitive X-overlap, so the two land in separate
+    groups, and :func:`_pack_band_tracks` then offers the track one of them
+    occupies to a sibling of the other group.  A freeze makes that packed rank
+    permanent and the two strokes fuse onto one track, so the descent's plan
+    cannot stand while the trunk band still has that to settle.  Read from the
+    graph rather than from trunk Ys so both routing passes answer alike.
+    """
+    section = ctx.graph.stations[edge.source].section_id
+    return any(
+        member.line_id == edge.line_id
+        and (member.source, member.target) != (edge.source, edge.target)
+        and ctx.graph.stations[member.target].section_id == section
+        and _u_bypass_facts(member, ctx) is not None
+        for member in ctx.graph.edges
+    )
+
+
+def _seat_bypass_descent(
+    route: RoutedPath, edge: Edge, geometry: _BypassGeometry, ctx: _RoutingCtx
+) -> None:
+    """Stack the built descent at its rank in the gap-1 bundle.
+
+    The bundle's own rank is what makes the two corners flanking the descent
+    concentric with their siblings', and the reserved band is where the freeze
+    will seat it: a planned member has no later pass to discover either, since
+    the plan owns the segment from the moment it is bound.  A member with no
+    plan keeps the gap-edge derivation, which
+    :func:`~nf_metro.layout.routing.normalize._materialize_gap_slots` then
+    settles over the gap's whole population -- a wider view than one bundle's
+    claims, so it is the better answer wherever it is still available.
+    """
+    if ctx.exit_turns is None:
+        return
+    membership = ctx.exit_turns.membership_for_edge(edge)
+    if (
+        membership is None
+        or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+    ):
+        return
+    seated = seated_bypass_descent(edge, geometry, ctx)
+    if seated is None:
+        return
+    column, rank, width = seated
+    start, end = route.points[BYPASS_DESCENT_RANK : BYPASS_DESCENT_RANK + 2]
+    if abs(start[0] - end[0]) > COORD_TOLERANCE:
+        return
+    _restack_channel(
+        _VChannel(
+            route,
+            BYPASS_DESCENT_RANK,
+            start[0],
+            min(start[1], end[1]),
+            max(start[1], end[1]),
+            end[1] > start[1],
+        ),
+        column,
+        rank,
+        width,
+        ctx.offset_step,
+        ctx.curve_radius,
+    )
+
+
 def _route_bypass(
     edge: Edge,
     src: Station,
@@ -3151,6 +3306,8 @@ def _route_bypass(
         geometry.g1_j,
         geometry.g1_n,
     )
+    if route is not None:
+        _seat_bypass_descent(route, edge, geometry, ctx)
     _declare_channel(
         route,
         ctx,
