@@ -1325,6 +1325,12 @@ def _plan_turn_axes(
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
+    # One lane is one stroke, so the columns its arms turn on across every
+    # ladder of a heading have to agree: two arms of one lane on neighbouring
+    # columns draw the line twice, side by side, instead of once.
+    lane_coordinates: dict[tuple[Direction, Direction, int], set[float]] = defaultdict(
+        set
+    )
     for (run_direction, turn_direction, pinning_group_id), cohort in cohorts.items():
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
         cohort_rank = {rank: index for index, rank in enumerate(ranks)}
@@ -1384,6 +1390,13 @@ def _plan_turn_axes(
                 else "insufficient-fixed-runway"
             )
             return _AxisPlan((), MappingProxyType({}), minimum_runway, reason)
+        for rank in ranks:
+            known = lane_coordinates[run_direction, turn_direction, rank]
+            if any(abs(item - coordinates[rank]) > COORD_TOLERANCE for item in known):
+                return _AxisPlan(
+                    (), MappingProxyType({}), minimum_runway, "lane-pinned-to-two-axes"
+                )
+            known.add(coordinates[rank])
         for rank in ranks:
             lane_line = ordered_lanes[rank][0]
             rank_seeds = tuple(seed for seed in cohort if seed.lane_rank == rank)

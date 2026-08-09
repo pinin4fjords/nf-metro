@@ -434,6 +434,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
                     "ambiguous-continuation",
                     "invalid-source-turn-requirement",
+                    "lane-pinned-to-two-axes",
                     "lane-transition-order-inversion",
                     "multiple-destinations",
                     "opposed-source-run",
