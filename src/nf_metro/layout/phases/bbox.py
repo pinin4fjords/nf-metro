@@ -1084,6 +1084,7 @@ def _reserve_row_gap_for_top_padding(
     graph: MetroGraph,
     section_y_padding: float,
     section_y_gap: float,
+    section_ids: set[str] | None = None,
 ) -> None:
     """Push a stacked row down when the row above blocks its top padding.
 
@@ -1103,6 +1104,11 @@ def _reserve_row_gap_for_top_padding(
     against the box top.  The full-band target and its row-above ceiling both come
     from :func:`_section_fit_top` (``fit_top - hug`` is the shortfall the ceiling
     imposed), so the ceiling formula lives in one place.
+
+    ``section_ids`` narrows which sections may raise a deficit, so a caller
+    downstream of a scoped late placement widens a row only for the content
+    that placement owns.  The shift stays whole-row either way: the widened gap
+    belongs to the row boundary, not to one box.
     """
     from nf_metro.layout.routing import compute_station_offsets
 
@@ -1115,6 +1121,8 @@ def _reserve_row_gap_for_top_padding(
         deficit = 0.0
         for sec in graph.sections.values():
             if sec.grid_row != r or sec.bbox_h <= 0:
+                continue
+            if section_ids is not None and sec.id not in section_ids:
                 continue
             port_ids = set(sec.entry_ports) | set(sec.exit_ports)
             marker_ys = [

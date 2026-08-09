@@ -2084,6 +2084,16 @@ def _finalize_layout(
             planned_fan_sections,
             section_y_padding,
         )
+        # The band a planned fan lifted content into may be one the row above
+        # already reaches, and the grow below cannot breach that ceiling.
+        # Widening the row boundary first gives it the room to reach the full
+        # band, exactly as the corpus-wide fit does at Stage 6.15a.
+        _reserve_row_gap_for_top_padding(
+            graph,
+            section_y_padding,
+            section_y_gap,
+            planned_fan_sections,
+        )
         grow_section_bands_to_content(
             graph,
             planned_fan_sections,
@@ -2091,6 +2101,9 @@ def _finalize_layout(
             section_y_gap,
         )
         push_lower_rows_after_bbox_grow(graph, section_y_gap)
+        # This placement is the last mover of content, so the settled extents
+        # the fidelity check reads are the ones measured here.
+        _snapshot_struct_heights_below_top(graph, section_y_padding)
     _snap(graph, "6.18a")
 
     if validate:
