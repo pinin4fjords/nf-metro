@@ -1412,6 +1412,20 @@ def _plan_lane_ownership(
     )
 
 
+def _fan_stated_offsets(
+    graph: MetroGraph, station_id: str, offset_step: float
+) -> dict[str, float]:
+    """Per-line offsets a planned fan states for *station_id*."""
+    return {
+        assignment.line_id: assignment.slot * offset_step
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for carrier in plan.offset_carriers
+        if carrier.station_id == station_id
+        for assignment in carrier.assignments
+    }
+
+
 def _build_group_plan(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -1521,6 +1535,19 @@ def _build_group_plan(
         * ctx.offset_step
         for rank, (line_id, _input_offset) in enumerate(ordered_lanes)
     }
+    stated_offsets = _fan_stated_offsets(graph, source_id, ctx.offset_step)
+    if all(
+        line_id in stated_offsets
+        and abs(stated_offsets[line_id] - input_offset) <= COORD_TOLERANCE
+        for line_id, input_offset in ordered_lanes
+    ):
+        # A fan reserves one slot per line identity it carries anywhere in the
+        # system, so a branch that retags its line across a leg leaves a slot
+        # here that no line occupies.  Ranking the lanes contiguously would
+        # close that gap and pull the siblings off the frame the fan stated.
+        planned_offsets = {
+            line_id: stated_offsets[line_id] for line_id, _input in ordered_lanes
+        }
     ownership = _LaneOwnership(MappingProxyType({}), (), None)
     if reason is None:
         ownership = _plan_lane_ownership(
