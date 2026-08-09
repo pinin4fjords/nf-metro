@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 import pytest
 
+import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.normalize as normalize
 import nf_metro.layout.routing.planning as planning
 import nf_metro.layout.routing.system_emission as system_emission
@@ -359,6 +360,31 @@ def test_lightweight_dispositions_match_final_execution_in_canonical_order() -> 
         (item.system_id, item.disposition, item.compatibility_reasons)
         for item in execution.systems
     )
+
+
+def test_the_wrap_leadout_pass_moves_only_compatibility_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = routing_core._clear_compatibility_entry_wrap_leadouts
+    moved_dispositions: list[str | None] = []
+
+    def record(routes, ctx):
+        before = {id(route): list(route.points) for route in routes}
+        original(routes, ctx)
+        moved_dispositions.extend(
+            route.route_system_disposition
+            for route in routes
+            if before[id(route)] != list(route.points)
+        )
+
+    monkeypatch.setattr(
+        routing_core, "_clear_compatibility_entry_wrap_leadouts", record
+    )
+
+    _observe(ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd")
+
+    assert moved_dispositions
+    assert set(moved_dispositions) == {RouteSystemDisposition.COMPATIBILITY.value}
 
 
 def test_routing_constructs_only_the_final_emission_execution(

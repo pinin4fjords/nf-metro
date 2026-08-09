@@ -1436,9 +1436,20 @@ def _coincide_same_line_fanout_traverses(
 def _clear_compatibility_entry_wrap_leadouts(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
-    """Seat wrap openings beyond same-line descents regardless of emit order."""
+    """Seat wrap openings beyond same-line descents regardless of emit order.
+
+    Compatibility-only: a planned system's wrap opening is a coordinate its
+    member-geometry or convergence plan states, so the emission disposition is
+    what admits a route here.  Reading ownership off the segment instead would
+    admit a planned member whose opening happens to carry neither an owned
+    segment rank nor a reservation.
+    """
     for route in routes:
-        if len(route.points) != 6 or not route.is_inter_section:
+        if (
+            len(route.points) != 6
+            or not route.is_inter_section
+            or not ctx.is_compatibility_edge(route.edge)
+        ):
             continue
         p0, p1, p2, p3 = route.points[:4]
         if (
