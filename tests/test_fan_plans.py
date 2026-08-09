@@ -51,6 +51,7 @@ from nf_metro.layout.route_plan import (
     KeepOutClass,
     SharedReferenceKind,
     build_route_plan_query,
+    fan_lane_seat_keys,
 )
 from nf_metro.layout.routing import (
     compute_station_offsets,
@@ -2689,3 +2690,77 @@ def test_an_undeclared_fan_gap_leg_is_named_by_the_gap_channel_check() -> None:
 
     replay.gap_slots = list(climb.gap_slots)
     assert check_gap_channels_materialized(graph, [replay]) == []
+
+
+def test_symmetric_fan_whose_trunk_reaches_a_terminus_seats_it_on_the_centreline() -> (
+    None
+):
+    """A leg carrying the whole bundle to its last stop keeps the trunk's row."""
+    path = ROOT / "examples" / "topologies" / "fanout_hub_two_line_trunk.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = next(item for item in graph.fan_plans if item.fork_station_id == "hub")
+    terminus = next(
+        branch for branch in plan.branches if branch.lane_station_ids == ("out_main",)
+    )
+
+    assert graph.diamond_style == "symmetric"
+    assert plan.disposition is FanPlanDisposition.PLANNED
+    assert plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+    assert plan.appearance_centreline_branch_id == terminus.id
+    assert terminus.lane_offset == 0.0
+    assert graph.stations["out_main"].y == pytest.approx(graph.stations["hub"].y)
+
+
+def test_branches_leaving_the_fork_together_share_one_lane_seat() -> None:
+    """One station on two branches' runs takes one row, stated once."""
+    path = ROOT / "examples" / "topologies" / "multirow_source_stacked_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = next(item for item in graph.fan_plans if item.fork_station_id == "star")
+    peeled = tuple(branch for branch in plan.branches if branch.lane_offset != 0.0)
+
+    assert plan.disposition is FanPlanDisposition.PLANNED
+    assert len(peeled) == 5
+    assert {branch.root_station_id for branch in peeled} == {"__bypass_cram_star_1"}
+    assert {branch.lane_offset for branch in peeled} == {plan.appearance_lane_pitch}
+    assert [branch.lane_station_ids for branch in peeled].count(
+        ("__bypass_cram_star_1",)
+    ) == 1
+    assert (
+        sum(
+            "__bypass_cram_star_1" in branch.lane_station_ids
+            for branch in plan.branches
+        )
+        == 1
+    )
+
+
+def test_peel_only_boundary_port_is_left_to_the_lane_it_carries() -> None:
+    """The exit port a fan only peels through does not join its centreline."""
+    path = ROOT / "examples" / "topologies" / "multirow_source_stacked_fan.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    plan = next(item for item in graph.fan_plans if item.fork_station_id == "star")
+
+    assert "align_sec__exit_right_0" not in plan.centreline_port_ids
+    assert graph.stations["align_sec__exit_right_0"].y == pytest.approx(
+        graph.stations["__bypass_cram_star_1"].y
+    )
+    assert graph.stations["align_sec__exit_right_0"].y != pytest.approx(
+        graph.stations["star"].y
+    )
+
+
+def test_lane_seat_keys_number_seats_in_landing_order() -> None:
+    """Shared seats collapse and the nearer landing keeps the nearer lane."""
+    branches = (
+        SimpleNamespace(root_station_id="trunk", landing_rank=2),
+        SimpleNamespace(root_station_id="peel", landing_rank=1),
+        SimpleNamespace(root_station_id="peel", landing_rank=0),
+    )
+
+    assert fan_lane_seat_keys(branches) == (2, 0, 0)
+    assert fan_lane_offsets(("a", "b", "c"), 10.0, "a", (2, 0, 0)) == (0.0, 10.0, 10.0)
+    assert fan_lane_offsets(("a", "b", "c"), 10.0, "a") == (0.0, 10.0, 20.0)
+    with pytest.raises(ValueError, match="shares a lane seat"):
+        fan_lane_offsets(("a", "b"), 10.0, "a", (0, 0))
+    with pytest.raises(ValueError, match="do not cover every branch"):
+        fan_lane_offsets(("a", "b"), 10.0, "a", (0,))

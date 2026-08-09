@@ -51,6 +51,7 @@ from nf_metro.layout.route_plan import (
     SharedReferenceId,
     build_route_semantic_scaffold,
     fan_has_vacant_trunk,
+    fan_lane_seat_keys,
 )
 from nf_metro.parser.commitments import FlowDirection, is_flow_direction
 from nf_metro.parser.model import LineSpread, MetroGraph, PortSide
@@ -1444,24 +1445,43 @@ def _centreline_port_ids(
 ) -> tuple[str, ...]:
     """Freeze boundary ports that continue one fan's local centreline.
 
-    A port only continues the centreline when it lands the fan's un-offset
-    (``lane_offset`` 0 or unset) branch: that is the branch riding the trunk
-    straight across the boundary. A port landing only laterally-offset
-    branches carries lines the fan has already pulled off the centreline to
-    keep them visually separated near the crossing; forcing it onto the raw
-    centreline overrides whatever row its own section settles those branches
-    on downstream (#1711).
+    A port only continues the centreline when the fan's un-offset
+    (``lane_offset`` 0 or unset) branch runs through it: that is the branch
+    riding the trunk straight across the boundary. A port carrying only
+    laterally-offset branches carries lines the fan has already pulled off the
+    centreline to keep them visually separated near the crossing; forcing it
+    onto the raw centreline overrides whatever row its own section settles
+    those branches on downstream (#1711), and where the trunk ends inside the
+    fan it drags the whole peeled bundle back up to a row nothing runs along.
+
+    Where one branch does hold the centreline, read over every boundary port a
+    branch passes rather than only the ports it lands on: the port a fan's own
+    section hands off through is on the peeled branches' run just as much as
+    their landing is.  A fan with no branch on the centreline states nothing
+    about which port the trunk continues through, so there it is only the
+    landings that speak.
     """
-    offset_only_landing_ports = {
-        pid
+    holds_the_centreline = any(branch.lane_offset in (None, 0.0) for branch in branches)
+    branch_port_ids = {
+        branch.id: frozenset(
+            port_id
+            for side in _port_ids(graph, branch.resolved_paths)
+            for port_id in side
+        )
+        if holds_the_centreline
+        else frozenset(branch.landing_port_ids)
         for branch in branches
-        for pid in branch.landing_port_ids
+    }
+    offset_only_port_ids = {
+        port_id
+        for branch in branches
         if branch.lane_offset not in (None, 0.0)
+        for port_id in branch_port_ids[branch.id]
     } - {
-        pid
+        port_id
         for branch in branches
-        for pid in branch.landing_port_ids
         if branch.lane_offset in (None, 0.0)
+        for port_id in branch_port_ids[branch.id]
     }
     layout_section = graph.sections.get(layout_section_id or "")
     if direction is None or layout_section is None:
@@ -1470,7 +1490,7 @@ def _centreline_port_ids(
     layout_column, layout_row = _grid_position(graph, layout_section.id)
     result: list[str] = []
     for port_id in port_ids:
-        if port_id in offset_only_landing_ports:
+        if port_id in offset_only_port_ids:
             continue
         port = graph.ports.get(port_id)
         section = graph.sections.get(port.section_id) if port is not None else None
@@ -1658,6 +1678,43 @@ def _lane_station_ids(
     return tuple(station_ids)
 
 
+def _lanes_with_one_seat_holder(
+    branches: Sequence[FanBranchPlan],
+) -> tuple[FanBranchPlan, ...]:
+    """Give every lane seat a single holder.
+
+    A branch's lane is the row it holds, and every station along it takes that
+    row.  Where more than one branch runs through the same station -- a bypass
+    helper both their lines go around, say -- the row is stated once per branch
+    and whichever branch is materialised last wins silently.  Branches that
+    leave the fork through the same station share one seat, so they agree on
+    the row and the first of them states it for all; branches that only meet
+    further along hold different seats and neither may state it, and the fan
+    orders its lines there as a carrier instead.
+    """
+    holders: dict[str, FanBranchPlanId] = {}
+    contested: set[str] = set()
+    roots: dict[str, str] = {}
+    for branch in branches:
+        for station_id in branch.lane_station_ids:
+            if station_id not in holders:
+                holders[station_id] = branch.id
+                roots[station_id] = branch.root_station_id
+            elif roots[station_id] != branch.root_station_id:
+                contested.add(station_id)
+    return tuple(
+        replace(
+            branch,
+            lane_station_ids=tuple(
+                station_id
+                for station_id in branch.lane_station_ids
+                if station_id not in contested and holders[station_id] == branch.id
+            ),
+        )
+        for branch in branches
+    )
+
+
 def _trunk_ends_at_the_fork(
     graph: MetroGraph,
     branches: Sequence[FanBranchPlan],
@@ -1689,6 +1746,70 @@ def _trunk_ends_at_the_fork(
         and len({frozenset(branch.line_ids) for branch in branches}) == 1
         and len(branches[0].line_ids) >= 2
     )
+
+
+def _trunk_reaches_its_terminus(
+    branches: Sequence[FanBranchPlan],
+    direction: FlowDirection | None,
+) -> bool:
+    """Whether one leg of an open fan carries the whole bundle to its last stop.
+
+    A symmetric fan mirrors its legs about a seat no leg occupies, which is
+    right while every leg peels part of the bundle away.  Where one leg instead
+    carries the bundle entire to a station that ends it inside the fan's own
+    section, that leg is the trunk reaching its terminus: it stands on the row
+    the trunk arrived on, and a mirrored frame lifts it off that row and bends
+    the trunk around a seat nothing sits in.  Such a fan has a centre seat, and
+    the legs that peel lines off take the slots beside it.
+
+    Read on the row band a horizontal fan opens into, for the same reason
+    :func:`_trunk_ends_at_the_fork` is.
+    """
+    if direction is None or not lanes_run_along_y(direction) or len(branches) < 3:
+        return False
+    bundle = {line_id for branch in branches for line_id in branch.line_ids}
+    return (
+        sum(
+            branch.is_trunk_continuation
+            and branch.terminal
+            and bool(branch.lane_station_ids)
+            and not branch.landing_port_ids
+            and set(branch.line_ids) == bundle
+            for branch in branches
+        )
+        == 1
+        and sum(branch.is_trunk_continuation for branch in branches) == 1
+        and all(
+            set(branch.line_ids) != bundle
+            for branch in branches
+            if not branch.is_trunk_continuation
+        )
+    )
+
+
+def _open_fan_appearance_policy(
+    graph: MetroGraph,
+    authored_policy: FanAppearancePolicy,
+    branches: Sequence[FanBranchPlan],
+    local_terminal_ids: Sequence[FanBranchPlanId],
+    structural_trunk_rank: int | None,
+    direction: FlowDirection | None,
+) -> FanAppearancePolicy:
+    """Settle which frame an open fan's legs are arranged in.
+
+    The authored policy states a preference over diamonds, which an open fan
+    only follows where its own shape leaves the choice open: whether a leg
+    holds the trunk's row decides it, and both answers are structural.
+    """
+    if _trunk_ends_at_the_fork(
+        graph, branches, local_terminal_ids, structural_trunk_rank, direction
+    ):
+        return FanAppearancePolicy.SYMMETRIC
+    if authored_policy is FanAppearancePolicy.SYMMETRIC and _trunk_reaches_its_terminus(
+        branches, direction
+    ):
+        return FanAppearancePolicy.STRAIGHT
+    return authored_policy
 
 
 def _uncontested_local_terminal_branch_ids(
@@ -2076,6 +2197,8 @@ def _build_candidate(
         all_member_facts.extend((*facts, *outputs))
         all_raw_paths.extend((*raw_continuation, *raw_outputs))
 
+    branch_plans = list(_lanes_with_one_seat_holder(branch_plans))
+
     def landing_key(branch: FanBranchPlan) -> tuple[int, int, int]:
         positions = [
             (row, column)
@@ -2146,10 +2269,15 @@ def _build_candidate(
             )
             for branch in branch_plans
         ]
-    if authored_join is None and _trunk_ends_at_the_fork(
-        graph, branch_plans, local_terminal_ids, structural_trunk_rank, direction
-    ):
-        appearance_policy = FanAppearancePolicy.SYMMETRIC
+    if authored_join is None:
+        appearance_policy = _open_fan_appearance_policy(
+            graph,
+            appearance_policy,
+            branch_plans,
+            local_terminal_ids,
+            structural_trunk_rank,
+            direction,
+        )
     has_vacant_trunk = fan_has_vacant_trunk(
         appearance_policy,
         authored_join,
@@ -2171,6 +2299,7 @@ def _build_candidate(
         tuple(branch.id for branch in branch_plans),
         lane_pitch,
         appearance_centreline_branch_id,
+        fan_lane_seat_keys(branch_plans),
     )
     branch_plans = [
         replace(

@@ -5242,7 +5242,7 @@ def _guard_planned_fan_frame_realised(
         fan_lane_sign,
         vertical_fan_label_lane_pitch,
     )
-    from nf_metro.layout.route_plan import FanAppearancePolicy
+    from nf_metro.layout.route_plan import FanAppearancePolicy, fan_lane_seat_keys
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
     invalid_policy = next(
@@ -5346,6 +5346,7 @@ def _guard_planned_fan_frame_realised(
             tuple(branch.id for branch in plan.branches),
             plan.appearance_lane_pitch,
             plan.appearance_centreline_branch_id,
+            fan_lane_seat_keys(plan.branches),
         )
         if plan.appearance_policy is FanAppearancePolicy.SYMMETRIC:
             if any(

@@ -14,7 +14,7 @@ import dataclasses
 import json
 import math
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -1407,6 +1407,25 @@ def fan_has_vacant_trunk(
     )
 
 
+def fan_lane_seat_keys(branches: Sequence[FanBranchPlan]) -> tuple[int, ...]:
+    """Rank the seat each branch takes in its fan's lane band.
+
+    Branches that leave the fork through the same station run together for as
+    long as they are inside the fan's section, so they stand on one seat: a
+    shared station has one row, and numbering the branches separately would ask
+    it to take two.  The seats are ordered by where the branches land, so the
+    branch whose landing sits nearest the trunk keeps the nearest lane and the
+    band stacks in the order the sections do.
+    """
+    nearest: dict[str, int] = {}
+    for branch in branches:
+        held = nearest.get(branch.root_station_id)
+        nearest[branch.root_station_id] = (
+            branch.landing_rank if held is None else min(held, branch.landing_rank)
+        )
+    return tuple(nearest[branch.root_station_id] for branch in branches)
+
+
 @dataclass(frozen=True, slots=True)
 class FanPlan:
     """Complete immutable decision for one authored fan or diamond.
@@ -1685,6 +1704,7 @@ class FanPlan:
                 tuple(branch.id for branch in self.branches),
                 self.appearance_lane_pitch,
                 self.appearance_centreline_branch_id,
+                fan_lane_seat_keys(self.branches),
             )
             if any(
                 actual is None or abs(actual - expected) > 1e-9

@@ -23,12 +23,17 @@ def fan_lane_offsets(
     branch_ids: Sequence[_BranchId],
     lane_pitch: float,
     centreline_branch_id: _BranchId | None,
+    seat_keys: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
     """Return symmetric or straight offsets in canonical branch order.
 
     A missing centreline branch selects a symmetric frame. A straight frame
     keeps the named branch at zero and seats every other branch at successive
     positive pitches.
+
+    ``seat_keys`` names, per branch, the seat it takes: branches sharing a key
+    share one lane, and the seats are numbered in sorted key order.  Left
+    unstated, each branch takes its own seat in branch order.
     """
     if len(branch_ids) < 2:
         raise ValueError("a fan requires at least two branches")
@@ -38,16 +43,28 @@ def fan_lane_offsets(
         raise ValueError("fan lane pitch must be finite and positive")
     if centreline_branch_id not in branch_ids:
         raise ValueError("fan appearance centreline names an unknown branch")
-    offsets = {centreline_branch_id: 0.0}
-    offsets.update(
-        (branch_id, slot * lane_pitch)
-        for slot, branch_id in enumerate(
-            (
-                branch_id
-                for branch_id in branch_ids
-                if branch_id != centreline_branch_id
+    if seat_keys is None:
+        seat_keys = tuple(range(len(branch_ids)))
+    elif len(seat_keys) != len(branch_ids):
+        raise ValueError("fan lane seat keys do not cover every branch")
+    centre_index = tuple(branch_ids).index(centreline_branch_id)
+    centre_key = seat_keys[centre_index]
+    if any(
+        key == centre_key
+        for index, key in enumerate(seat_keys)
+        if index != centre_index
+    ):
+        raise ValueError("fan centreline branch shares a lane seat")
+    slots = {
+        key: slot
+        for slot, key in enumerate(
+            sorted(
+                {key for index, key in enumerate(seat_keys) if index != centre_index}
             ),
             start=1,
         )
+    }
+    return tuple(
+        0.0 if index == centre_index else slots[key] * lane_pitch
+        for index, key in enumerate(seat_keys)
     )
-    return tuple(offsets[branch_id] for branch_id in branch_ids)
