@@ -105,9 +105,9 @@ def segment_direction(
     dx = end[0] - start[0]
     dy = end[1] - start[1]
     if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
-        return horizontal_direction(dx)
+        return Direction.R if dx > 0 else Direction.L
     if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
-        return vertical_direction(dy)
+        return Direction.D if dy > 0 else Direction.U
     return None
 
 

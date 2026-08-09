@@ -520,7 +520,7 @@ def _source_lane_order(
         and section_id not in ctx.tb_sections
     )
 
-    def vertical_lateral(line_id: str) -> float:
+    def riser_lateral(line_id: str) -> float:
         if perpendicular_exit:
             assert exit_port is not None
             return _perp_riser_lateral(
@@ -543,7 +543,7 @@ def _source_lane_order(
         lateral_coordinate = (
             ctx.graph.stations[source_id].y + offset
             if run_direction in {Direction.R, Direction.L}
-            else ctx.graph.stations[source_id].x + vertical_lateral(line_id)
+            else ctx.graph.stations[source_id].x + riser_lateral(line_id)
         )
         values.append((line_id, offset, lateral_coordinate))
     if len({coordinate for _line, _offset, coordinate in values}) != len(values):

@@ -2190,8 +2190,9 @@ def _bottom_exit_junction_geometry(
     vx = src.x + sum(exit_offs) / len(exit_offs)
     hy = tgt.y + tgt_center
     lane_offset = next(s for _e, lid, s, _t in members if lid == edge.line_id)
-    turn_direction = horizontal_direction(tgt.x - vx)
-    run_direction = vertical_direction(hy - src.y)
+    turn_direction = segment_direction((vx, hy), (tgt.x, hy))
+    run_direction = segment_direction((vx, src.y), (vx, hy))
+    assert turn_direction is not None and run_direction is not None
     return _BottomExitJunctionGeometry(
         vx,
         hy,
@@ -4767,7 +4768,9 @@ def _perp_entry_l_geometry(
                 run_start=sy,
                 run_end=mid_y,
             )
-            channel_sign = right_normal_axis_sign(horizontal_direction(final_x - lx0))
+            channel_direction = segment_direction((lx0, mid_y), (final_x, mid_y))
+            assert channel_direction is not None
+            channel_sign = right_normal_axis_sign(channel_direction)
             mid_y = _perp_entry_seated_corridor(
                 ctx,
                 src,
