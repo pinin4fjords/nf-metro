@@ -1164,13 +1164,14 @@ def test_chained_fans_take_one_seat_each_of_a_shared_port_pair() -> None:
     assert downstream.disposition is FanPlanDisposition.PLANNED
 
 
-def test_two_fans_landing_on_one_port_both_state_it() -> None:
-    """A port two fans land a branch on is stated twice, so neither may keep it.
+def test_a_landing_two_forks_reach_is_the_port_allocator_s_seat() -> None:
+    """A port two forks land a branch on is the allocator's seat, not a fan's.
 
-    Each fan seats the port it lands on at the end of its own branch lane, so a
-    port reached by both is a coordinate the two would state differently.  There
-    is no reader to nominate and both fans decline, leaving the port to the
-    layout that placed it.
+    ``_align_entry_ports`` gives every entry port its coordinate from the
+    section frame and the runs arriving at it, and each fan would seat the port
+    it lands on at the end of its own branch lane.  Letting either state it puts
+    its section's content outside the box the allocator sized, so the allocator
+    keeps the landing and both fans decline to it.
     """
     path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -1178,52 +1179,126 @@ def test_two_fans_landing_on_one_port_both_state_it() -> None:
     by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
     left, right = by_fork["__junction_13"], by_fork["__junction_14"]
 
-    landed = "target__entry_left_11"
-    assert landed in stated_station_ids(left)
-    assert landed in stated_station_ids(right)
-    assert landed not in left.ceded_station_ids
-    assert landed not in right.ceded_station_ids
-    assert left.legacy_reason == "overlapping-fan-ownership"
-    assert right.legacy_reason == "overlapping-fan-ownership"
+    assert left.legacy_reason == "shared-landing-port-allocator-owns-the-seat"
+    assert right.legacy_reason == "shared-landing-port-allocator-owns-the-seat"
 
 
-def test_a_seat_read_from_a_declined_fan_goes_back_to_its_reader() -> None:
-    """A fan cannot read a seat from a fan that ends up declining it.
+def test_a_packed_cell_corridor_declares_every_gap_leg_it_builds() -> None:
+    """Two of a corridor's columns can share one gap, and the third still holds one.
 
-    Two fans forking at one junction both reach the exit port feeding it, and
-    the earlier of them would keep the seat.  It loses its own contest over the
-    ports its branches land on, and a declined fan states nothing: the reader
-    takes the port back, and having it back puts both fans in contention.
+    The handler names each column it placed by X and intended direction; where
+    two of those resolve onto one leg, the leg the third built is left holding a
+    gap nothing declared, which the gap allocator cannot then seat around.
+    """
+    path = (
+        ROOT / "examples" / "topologies" / "packed_cell_right_exit_left_entry_wrap.mmd"
+    )
+    graph = prepare_graph(path.read_text())
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+
+    assert check_gap_channels_materialized(graph, list(observation.routes)) == []
+
+
+def test_line_split_readings_of_one_fork_leave_it_to_the_diamond_layout() -> None:
+    """Two line groups forking at one junction are one fan the layout seats.
+
+    Each reading carries its own line to the same landings, so neither is the
+    whole fan and folding one away would drop that line's branches.  The
+    diamond layout seats the stations either side of the trunk, so it keeps the
+    fork and both readings decline to it.
     """
     path = ROOT / "examples" / "topologies" / "paired_input_fan_branch_tree.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
-    reader, declined = by_source["convert_b"], by_source["convert_a"]
+    left, right = by_source["convert_a"], by_source["convert_b"]
 
-    shared = "input_sec__exit_right_0"
-    assert declined.legacy_reason == "overlapping-fan-ownership"
-    assert reader.ceded_station_ids == ()
-    assert shared in claimed_station_ids(reader)
-    assert reader.legacy_reason == "overlapping-fan-ownership"
+    assert left.fork_station_id == right.fork_station_id
+    assert {branch.line_ids for branch in left.branches} != {
+        branch.line_ids for branch in right.branches
+    }
+    assert left.legacy_reason == "line-split-fork-layout-owns-geometry"
+    assert right.legacy_reason == "line-split-fork-layout-owns-geometry"
 
 
-def test_a_fan_declines_when_its_anchor_disagrees_with_the_lane_it_reads() -> None:
-    """A centreline stated in two places is no centreline at all.
+def test_same_line_readings_of_one_fork_fold_into_the_earliest() -> None:
+    """Feeders merging before a fork raise one fan read once per feeder.
+
+    The readings land the same branches on the same lines, so they differ only
+    in the lead each feeder takes into the fork.  One of them is the fan and
+    the rest fold away, leaving their leads to route as ordinary runs.
+    """
+    path = ROOT / "examples" / "variantprioritization.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    at_fork = [
+        plan for plan in graph.fan_plans if plan.fork_station_id == "__junction_6"
+    ]
+
+    assert len(at_fork) == 1
+    assert at_fork[0].authored_source_id == "get_vep"
+
+
+def test_chained_fans_leave_the_trunk_between_them_to_local_layout() -> None:
+    """Two forks on one trunk both read its stations off the row layout placed.
+
+    Neither fan states a seat the other does not, and a fan claiming the shared
+    trunk drags the aligned row with it, so the local layout keeps it and both
+    fans decline to that owner rather than to an unstated precedence.
+    """
+    path = ROOT / "examples" / "topologies" / "rowmate_tb_side_entry_top_align.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
+    upstream, downstream = by_fork["umi_tools_extract"], by_fork["bbsplit"]
+
+    assert upstream.legacy_reason == "chained-trunk-layout-owns-geometry"
+    assert downstream.legacy_reason == "chained-trunk-layout-owns-geometry"
+    trunk = graph.stations["fastqc_trimmed"]
+    assert graph.stations["bbsplit"].y == pytest.approx(trunk.y)
+    assert graph.stations[upstream.fork_station_id].y == pytest.approx(trunk.y)
+
+
+def test_a_symmetric_diamond_keeps_the_anchor_its_lane_order_disagrees_with() -> None:
+    """A centreline stated in two places is the diamond layout's to settle.
 
     The fan anchors its centreline on the exit port its trunk branch runs to,
-    and the lane order seats that branch a pitch off the centreline: the two
-    readings of where the centreline lies disagree, so the fan states no frame
-    and the layout that seats the peel-offs either side of the trunk keeps them.
+    and the lane order seats that branch a pitch off the centreline.  Under the
+    symmetric diamond the branches sit in slots balanced about the trunk, so
+    taking the branch's lane as the centreline would pull them off those slots:
+    the diamond layout keeps the frame.
     """
     path = ROOT / "examples" / "topologies" / "paired_input_fan_branch_tree.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.fork_station_id == "pairs_in")
 
-    assert plan.legacy_reason == "centreline-anchor-off-its-branch-lane"
+    assert plan.legacy_reason == "symmetric-diamond-layout-owns-the-anchor"
     trunk_y = graph.stations["stage_a1"].y
     assert graph.stations["convert_a"].y < trunk_y < graph.stations["convert_b"].y
+
+
+def test_a_branch_stops_where_its_lines_end_and_another_run_carries_on() -> None:
+    """A leg fed from elsewhere continues that feed's run, not this branch.
+
+    The fan reaches CPSR on the reference line; the germline run leaving CPSR
+    reaches it from the filter upstream instead, so the branch ends at the
+    station rather than retagging onto a run another fan brings in.
+    """
+    path = ROOT / "examples" / "variantprioritization.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(
+        item for item in graph.fan_plans if item.fork_station_id == "__junction_6"
+    )
+
+    assert {branch.line_ids for branch in plan.branches} == {("reference",)}
+    assert not any(
+        edge.source == "cpsr" and edge.target == "report_cpsr"
+        for edge in plan.resolved_member_edges
+    )
 
 
 def test_a_fan_hands_a_seam_edge_to_the_neighbour_that_draws_it() -> None:

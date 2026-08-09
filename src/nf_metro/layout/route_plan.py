@@ -506,7 +506,11 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
             "fan-plan": _registry(
                 _reasons(
                     _LAYOUT_OWNS_THE_FAN_FRAME,
+                    "chained-trunk-layout-owns-geometry",
+                    "line-split-fork-layout-owns-geometry",
                     "local-layout-has-foreign-owner",
+                    "shared-landing-port-allocator-owns-the-seat",
+                    "symmetric-diamond-layout-owns-the-anchor",
                     "off-track-layout-owns-fan-geometry",
                     "rail-layout-owns-fan-geometry",
                     "same-line-open-fan-layout-owns-geometry",

@@ -96,6 +96,23 @@ class FanTopologyQuery(Protocol):
     ) -> ResolvedConvergenceView | None: ...
 
 
+def _landing_port_ids(plan: FanPlan) -> set[str]:
+    """The section ports *plan*'s branches land on."""
+    return {port_id for branch in plan.branches for port_id in branch.landing_port_ids}
+
+
+def _laned_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* seats on a branch lane or a line-order carrier."""
+    return {
+        *(
+            station_id
+            for branch in plan.branches
+            for station_id in (*branch.lane_station_ids, *branch.landing_port_ids)
+        ),
+        *(carrier.station_id for carrier in plan.offset_carriers),
+    }
+
+
 def stated_station_ids(plan: FanPlan) -> set[str]:
     """The stations *plan* puts a coordinate on itself.
 
@@ -105,15 +122,7 @@ def stated_station_ids(plan: FanPlan) -> set[str]:
     any other station along it.  Two fans stating one of these state it
     independently, so only one of them may.
     """
-    return {
-        *plan.centreline_station_ids,
-        *(
-            station_id
-            for branch in plan.branches
-            for station_id in (*branch.lane_station_ids, *branch.landing_port_ids)
-        ),
-        *(carrier.station_id for carrier in plan.offset_carriers),
-    }
+    return {*plan.centreline_station_ids, *_laned_station_ids(plan)}
 
 
 def claimed_station_ids(plan: FanPlan) -> set[str]:
@@ -837,6 +846,39 @@ def _facts_for_node_path(
             carried = frozenset(fact.key.line_id for fact in leg)
         result.extend(matching)
     return tuple(result)
+
+
+def _line_extent(
+    path: tuple[str, ...],
+    bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
+    incoming: Mapping[str, tuple[str, ...]],
+    line_ids: frozenset[str],
+) -> tuple[str, ...]:
+    """Trim *path* where the branch's lines end and another run carries on.
+
+    A leg carrying none of the lines the branch arrived on retags the branch,
+    which is how one run that changes line stays one branch (see
+    :func:`_facts_for_node_path`).  Where the lines that leg carries also reach
+    the station from another source, the leg is that source's run continuing,
+    not this branch retagged, so the branch ends at the station and the run it
+    would have swallowed stays with whoever brings those lines in.
+    """
+    carried = line_ids
+    for index, (source, target) in enumerate(zip(path, path[1:])):
+        leg = bundles[(source, target)]
+        leg_lines = frozenset(fact.key.line_id for fact in leg)
+        if leg_lines & carried:
+            continue
+        arrived_from = path[index - 1] if index else None
+        if any(
+            fact.key.line_id in leg_lines
+            for other in incoming.get(source, ())
+            if other != arrived_from
+            for fact in bundles[(other, source)]
+        ):
+            return path[: max(index + 1, 2)]
+        carried = leg_lines
+    return path
 
 
 def _leg_ordered_line_ids(
@@ -1569,32 +1611,47 @@ def _centreline_port_ids(
 def _centreline_anchor_reason(
     anchor: FanCentrelineAnchor | None,
     branches: tuple[FanBranchPlan, ...],
+    appearance_policy: FanAppearancePolicy,
 ) -> str | None:
     """Why the fan cannot state a centreline from *anchor*, if it cannot.
 
     The anchor reads the centreline off one station's settled coordinate.  Where
     that station rides a single branch, that branch's lane says where the
     centreline lies too, so an anchor offset that disagrees with the lane is one
-    frame stated twice in two places.
+    frame stated twice in two places.  Under the symmetric diamond the second
+    reading is not the fan's to take: the diamond seats its branches in slots
+    balanced about the trunk, so moving the centreline onto the riding branch's
+    lane pulls those stations off the slots layout settled.
     """
     if anchor is None:
         return "missing-centreline-anchor"
-    riding = [
-        branch
-        for branch in branches
-        if any(
-            anchor.station_id in (edge.source, edge.target)
-            for path in branch.resolved_paths
-            for edge in path
-        )
-    ]
+    riding = _branches_riding(anchor.station_id, branches)
     if (
         len(riding) == 1
         and riding[0].lane_offset is not None
         and riding[0].lane_offset != anchor.lane_offset
     ):
-        return "centreline-anchor-off-its-branch-lane"
+        return (
+            "symmetric-diamond-layout-owns-the-anchor"
+            if appearance_policy is FanAppearancePolicy.SYMMETRIC
+            else "centreline-anchor-off-its-branch-lane"
+        )
     return None
+
+
+def _branches_riding(
+    station_id: str, branches: Sequence[FanBranchPlan]
+) -> list[FanBranchPlan]:
+    """The branches whose resolved runs pass through *station_id*."""
+    return [
+        branch
+        for branch in branches
+        if any(
+            station_id in (edge.source, edge.target)
+            for path in branch.resolved_paths
+            for edge in path
+        )
+    ]
 
 
 def _centreline_anchor(
@@ -2050,6 +2107,15 @@ def _recognise_fan(
         )
     if ambiguous:
         reason = reason or "ambiguous-branch-to-join"
+    node_paths = [
+        _line_extent(
+            path,
+            bundles,
+            ctx.incoming,
+            frozenset(fact.key.line_id for fact in lead_facts),
+        )
+        for path, lead_facts in zip(node_paths, lead_fact_groups, strict=True)
+    ]
     extended_branch_ranks = tuple(
         rank for rank, path in enumerate(node_paths) if len(path) > 2
     )
@@ -2730,7 +2796,7 @@ def _build_candidate(
     )
     if reason is None and needs_centreline_anchor:
         reason = _centreline_anchor_reason(
-            candidate_centreline_anchor, tuple(branch_plans)
+            candidate_centreline_anchor, tuple(branch_plans), appearance_policy
         )
     planned = reason is None
     if not planned:
@@ -2833,8 +2899,12 @@ def _cede_read_claims(
     else settled, so which of them holds the seat decides no geometry and needs
     only to be one choice rather than the right one: the earliest fork keeps it,
     by the authored rank of the fork and then the plan id so the choice is total
-    and independent of iteration order.  Two fans that both state one station do
-    state it differently and are left to contend.
+    and independent of iteration order.  A station every stater holds only on
+    its centreline is the trunk two forks hang off, and a trunk carries one run
+    however many fans fork from it, so those staters say the same thing about it
+    and the same earliest-first order picks which of them says it.  Two fans
+    that state one station any other way do state it differently and are left to
+    contend.
     """
     precedence = {
         plan.id: (ranks.get(plan.fork_station_id, len(ranks)), str(plan.id))
@@ -2929,21 +2999,118 @@ def _kept_cessions(
     }
 
 
-def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> set[FanPlanId]:
-    """Return the plans that reach an edge or a station another plan also holds."""
-    conflicts: set[FanPlanId] = set()
+def _contention_reason(
+    left: FanPlan, right: FanPlan, shared_edges: bool, shared: set[str]
+) -> str | None:
+    """Which owner holds the part *left* and *right* both reach.
+
+    Two readings of one fork that split the lines between them are the two line
+    groups of one symmetric or straight fan, whose stations the diamond layout
+    seats: giving either reading the fork moves those stations off the seats
+    that layout settled, so it holds the whole fork.  A pair of chained fans
+    sharing only centreline stations is two forks on the trunk the row aligner
+    placed between them, and a fan claiming that trunk drags the aligned row
+    with it, so the local layout holds it.  A pair landing branches on one port
+    from two forks reaches a seat ``_align_entry_ports`` (``phases/ports.py``,
+    line 183) gives from the section frame and the runs arriving, which the fan
+    reads back rather than writes (``inter_section_handlers.py:2457``): letting
+    either fan state that seat puts its section's own content outside the box
+    the allocator sized for it, so the allocator holds the landing.  A pair
+    sharing no route and no seat
+    either states -- one fan's boundary against another's -- would have settled
+    by cession, and contends only because the fan it ceded to is contending:
+    ``None`` leaves it to take its reason from that fan.  Anything else is two
+    fans reaching the same geometry with no owner named for the shared part.
+    """
+    if left.fork_station_id == right.fork_station_id:
+        return "line-split-fork-layout-owns-geometry"
+    both_stated = shared & stated_station_ids(left) & stated_station_ids(right)
+    if both_stated:
+        if all(
+            station_id in plan.centreline_station_ids
+            and station_id not in _laned_station_ids(plan)
+            for station_id in both_stated
+            for plan in (left, right)
+        ):
+            return "chained-trunk-layout-owns-geometry"
+        if both_stated <= _landing_port_ids(left) & _landing_port_ids(right):
+            return "shared-landing-port-allocator-owns-the-seat"
+        return "overlapping-fan-ownership"
+    return "overlapping-fan-ownership" if shared_edges else None
+
+
+def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> dict[FanPlanId, str]:
+    """Name, per plan, why it reaches an edge or station another plan holds."""
+    reasons: dict[FanPlanId, str] = {}
+    cascades: defaultdict[FanPlanId, list[FanPlanId]] = defaultdict(list)
     for index, left in enumerate(contenders):
         left_authored = set(left.authored_edge_ids)
         left_resolved = claimed_member_edges(left)
         left_stations = claimed_station_ids(left)
         for right in contenders[index + 1 :]:
-            if (
+            shared = left_stations.intersection(claimed_station_ids(right))
+            shared_edges = bool(
                 left_authored.intersection(right.authored_edge_ids)
                 or left_resolved.intersection(claimed_member_edges(right))
-                or left_stations.intersection(claimed_station_ids(right))
-            ):
-                conflicts.update((left.id, right.id))
-    return conflicts
+            )
+            if not (shared_edges or shared):
+                continue
+            reason = _contention_reason(left, right, shared_edges, shared)
+            for plan, other in ((left, right), (right, left)):
+                if reason is None:
+                    cascades[plan.id].append(other.id)
+                elif reasons.get(plan.id) != "overlapping-fan-ownership":
+                    reasons[plan.id] = reason
+    for plan_id, partners in sorted(cascades.items(), key=lambda item: str(item[0])):
+        if plan_id in reasons:
+            continue
+        reasons[plan_id] = next(
+            (
+                reasons[partner]
+                for partner in sorted(partners, key=str)
+                if partner in reasons
+            ),
+            "overlapping-fan-ownership",
+        )
+    return reasons
+
+
+def _folded_fork_readings(
+    plans: tuple[FanPlan, ...], ranks: Mapping[str, int]
+) -> set[FanPlanId]:
+    """The candidates at a fork another candidate already reads the fan from.
+
+    A fork has one set of branches leaving it however many runs arrive at it,
+    and ``FanPlanQuery.build`` admits one planned fan per fork accordingly.
+    Candidates are built per authored source, so feeders that merge before the
+    fork each raise one: where those readings land the same branches on the same
+    lines they are one fan read twice, differing only in the lead each feeder
+    takes into it.  The earliest by the authored rank of the fork and then the
+    plan id is the fan; the rest are folded away and their leads route as
+    ordinary runs.  Readings that split the lines between them each carry a
+    branch set the others do not, so folding would drop a line's fan.
+    """
+    by_fork: defaultdict[str, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        by_fork[plan.fork_station_id].append(plan)
+    folded: set[FanPlanId] = set()
+    for fork_id, readings in by_fork.items():
+        if len(readings) < 2:
+            continue
+        shapes = {
+            tuple(
+                (branch.landing_port_ids, branch.line_ids) for branch in plan.branches
+            )
+            for plan in readings
+        }
+        if len(shapes) > 1:
+            continue
+        keeper = min(
+            readings,
+            key=lambda plan: (ranks.get(fork_id, len(ranks)), str(plan.id)),
+        )
+        folded.update(plan.id for plan in readings if plan.id != keeper.id)
+    return folded
 
 
 def _reject_overlaps(
@@ -2965,6 +3132,9 @@ def _reject_overlaps(
             if outer.id != inner.id
         ):
             subsumed.add(inner.id)
+    subsumed |= _folded_fork_readings(
+        tuple(plan for plan in plans if plan.id not in subsumed), ranks
+    )
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
     candidates = tuple(plan for plan in plans if plan.legacy_reason is None)
     read_from = _cede_read_claims(candidates, ranks)
@@ -2978,15 +3148,15 @@ def _reject_overlaps(
             _seat_cessions(plan, read_from, edge_read_from) for plan in candidates
         )
         conflicts = _claim_conflicts(contenders)
-        kept_stations = _kept_cessions(read_from, conflicts)
-        kept_edges = _kept_cessions(edge_read_from, conflicts)
+        kept_stations = _kept_cessions(read_from, conflicts.keys())
+        kept_edges = _kept_cessions(edge_read_from, conflicts.keys())
         if kept_stations == read_from and kept_edges == edge_read_from:
             break
         read_from, edge_read_from = kept_stations, kept_edges
     seated = {plan.id: plan for plan in contenders}
     return tuple(
-        _legacy(seated.get(plan.id, plan), "overlapping-fan-ownership")
-        if plan.id in conflicts
+        _legacy(seated.get(plan.id, plan), reason)
+        if (reason := conflicts.get(plan.id)) is not None
         else seated.get(plan.id, plan)
         for plan in plans
     )

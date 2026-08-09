@@ -95,7 +95,6 @@
     "topologies/off_track_input_above_consumer.mmd",
     "topologies/packed_cell_cellmate_bypass_cross_row.mmd",
     "topologies/packed_cell_left_entry_under_neighbour.mmd",
-    "topologies/packed_cell_right_exit_left_entry_wrap.mmd",
     "topologies/peeloff_straight_drop_near_wall.mmd",
     "topologies/reconverge_reversed_fold.mmd",
     "topologies/render_labelwrap_row_gap.mmd",

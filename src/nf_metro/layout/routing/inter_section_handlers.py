@@ -1410,6 +1410,9 @@ def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
     _declare_channel(route, ctx, centerline[1][0], Direction.D)
     _declare_channel(route, ctx, centerline[3][0], Direction.D)
     _declare_channel(route, ctx, centerline[5][0], Direction.U)
+    # Two of the corridor's columns can fall in one gap, which leaves the third
+    # leg holding a gap no targeted declaration named.
+    _declare_placed_channels(route, ctx)
     return route
 
 
@@ -3595,6 +3598,10 @@ def _route_bypass(
         geometry.g2_j,
         geometry.g2_n,
     )
+    # The two gap columns can resolve onto one leg when the U's mid jog runs the
+    # same way as a gap channel, which leaves the other leg holding a gap it
+    # never declared.
+    _declare_placed_channels(route, ctx, geometry.g2_j, geometry.g2_n)
     return route
 
 
@@ -3680,11 +3687,15 @@ def _declare_placed_channels(
     handler does, so :func:`_materialize_gap_slots` can seat the gap's movable
     bundles clear of it.  A leg outside every gap declares nothing, and a gap
     already declared for this direction is not declared twice, since one slot
-    stands for the whole column.
+    stands for the whole column -- including a slot a targeted
+    :func:`_declare_channel` already put there, so the two can be combined to
+    name the legs a handler points at and sweep up whatever else it built.
     """
     if route is None:
         return
-    declared: set[tuple[int, int | None, Direction]] = set()
+    declared: set[tuple[int, int | None, Direction]] = {
+        (slot.gap_lo_col, slot.row, slot.direction) for slot in route.gap_slots
+    }
     for _k, x, y_lo, y_hi, down in iter_vertical_segments(route):
         match = gap_lo_for_x(ctx.graph, x, y_lo, y_hi)
         if match is None:
