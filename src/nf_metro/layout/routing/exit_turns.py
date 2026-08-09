@@ -2939,6 +2939,35 @@ def _handover_line_ids(
     return tuple(dict.fromkeys(name for name in names if name != line_id))
 
 
+def _seat_handover_stations(
+    graph: MetroGraph, offsets: dict[tuple[str, str], float], offset_step: float
+) -> None:
+    """Seat a hand-over station's two names on the lane a fan feeds it.
+
+    Where a planned fan states the lane its branch arrives on, the lane claim
+    levels the run into the hand-over station onto that lane, and the
+    departure hands over on the same piece of track.  Both names must
+    therefore be seated there before any group is planned: a plan reading the
+    unseated station states a departure that leaves from outside the lane the
+    settled offsets give the marker.
+    """
+    for station_id in graph.stations:
+        incoming = tuple(graph.edges_to(station_id))
+        outgoing = tuple(graph.edges_from(station_id))
+        if len(incoming) != 1 or len(outgoing) != 1:
+            continue
+        arriving, departing = incoming[0].line_id, outgoing[0].line_id
+        seat = _fan_stated_offsets(graph, incoming[0].source, offset_step).get(arriving)
+        if (
+            arriving == departing
+            or seat is None
+            or abs(offsets.get((station_id, arriving), seat) - seat) <= COORD_TOLERANCE
+        ):
+            continue
+        offsets[(station_id, arriving)] = seat
+        offsets[(station_id, departing)] = seat
+
+
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     fan_execution = graph.fan_plan_execution
@@ -2954,6 +2983,8 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     if scaffold is None:
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
+    if ctx.station_offsets is not None:
+        _seat_handover_stations(graph, ctx.station_offsets, ctx.offset_step)
     frame_ownership = (
         capture_linear_entry_frame_ownership(graph, ctx.station_offsets)
         if ctx.station_offsets is not None
