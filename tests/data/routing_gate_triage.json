@@ -407,16 +407,8 @@
   "note": "Bounds check for resolve_curve_radius_at. Production callers use indices from range(n_corners) or recorded corner buckets, so an invalid index requires a caller-contract violation and is covered as an error case by the corner unit tests.",
   "status": "defensive"
  },
- "exit_turns.py::for partner in _handover_line_ids(graph, station_id, lane.line_id):::#1": {
-  "note": "Claim-following backstop for a hand-over partner at a planned lane's station. _seat_handover_stations runs before any group is planned and seats both names wherever a planned fan states the arriving lane, so by the time this loop runs the corpus has no partner left to seat and the body stays un-exercised. It exists for API-driven graphs whose hand-over predecessor has no fan-stated lane: those reach only this backstop.",
-  "status": "defensive"
- },
  "exit_turns.py::if scaffold is None:::#2": {
   "note": "The second None check protects the manual or incomplete graph fallback after rebuilding a missing retained scaffold. Parsed render-path graphs publish one canonical scaffold during fan planning, so the fixture corpus never reaches a rebuild that can return None. Direct planner tests retain the fallback for graph construction without topology.",
-  "status": "defensive"
- },
- "exit_turns.py::or abs(offsets.get((station_id, arriving), seat) - seat) <= COORD_TOLERANCE::#1": {
-  "note": "Idempotence arm of the up-front hand-over seat: skip the write when the station already sits on the fan-stated lane. The corpus's one reachable hand-over-with-stated-fan station arrives off its seat (that is the defect the pass exists to fix), and after one pass the seat matches by construction, so the already-seated skip is never taken in a single corpus layout.",
   "status": "defensive"
  },
  "inter_section.py::for prev, curr in zip(self.corners, self.corners[1:]):::#1": {

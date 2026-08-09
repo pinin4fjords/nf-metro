@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from itertools import pairwise
@@ -853,8 +853,7 @@ def _leg_ordered_line_ids(
     retags the branch, it does not add a sibling), so sorting across legs by
     priority would place a later leg's line between an earlier leg's
     co-present lines whenever declaration order disagrees with leg order,
-    reserving a slot at every earlier-leg station for a line that is never
-    there.
+    splitting a bundle that travels together.
     """
     result: list[str] = []
     current_key: tuple[str, str] | None = None
@@ -894,9 +893,8 @@ def _inherited_branch_order(
     lines to a different identity and back -- has no entry edge of its own
     naming them, yet every carrier between that distant bundle and here
     already reads its comma-list order (see :func:`_leg_ordered_line_ids`);
-    matching it here is what keeps this fork's reserved slots contiguous
-    with theirs instead of opening a gap. Returns ``None`` when no such
-    distant edge exists.
+    matching it here is what keeps this fork's lanes stacked the same way
+    round as theirs. Returns ``None`` when no such distant edge exists.
 
     Only a bundle this fork descends from can have fixed those slots, so a
     candidate qualifies only when its target reaches *source_id* through the
@@ -1074,6 +1072,50 @@ def _carriers_within_the_fan(
     return () if leaves else tuple(carriers)
 
 
+def _retags_its_line(graph: MetroGraph, station_id: str) -> bool:
+    """Whether one arrival hands the track over to a departure of another name.
+
+    Both names belong to *station_id*, so the fan seats both: they are
+    distinct lines and take the two adjacent lanes its frame gives them,
+    which is what makes the marker span the arriving and departing runs
+    instead of either run stepping across it.
+    """
+    incoming = tuple(graph.edges_to(station_id))
+    outgoing = tuple(graph.edges_from(station_id))
+    return (
+        len(incoming) == 1
+        and len(outgoing) == 1
+        and incoming[0].line_id != outgoing[0].line_id
+    )
+
+
+def _contiguous_assignments(
+    offset_line_order: Sequence[str],
+    present: Container[str],
+    offset_sign: int,
+) -> tuple[FanOffsetAssignment, ...]:
+    """Seat the fan lines a station carries on one consecutive run of lanes.
+
+    A carrier occupies as many lanes as it has lines, never more: a line the
+    fan carries only elsewhere -- the far side of a leg transition that
+    retags it, above all -- runs down no lane here, so it opens none between
+    two lines that do, and the bundle stays a solid stack.
+
+    The run starts at the first frame lane this carrier reaches rather than
+    at lane zero, which is what separates the two sides of a retag by
+    exactly one lane. Both sides then draw straight, and the hand-over
+    station spans the two adjacent lanes its arriving and departing names
+    hold -- distinct lines, distinct offsets.
+    """
+    lanes = [
+        rank for rank, line_id in enumerate(offset_line_order) if line_id in present
+    ]
+    return tuple(
+        FanOffsetAssignment(offset_line_order[rank], (lanes[0] + index) * offset_sign)
+        for index, rank in enumerate(lanes)
+    )
+
+
 def _entry_offset_carriers(
     graph: MetroGraph,
     entry_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...],
@@ -1129,10 +1171,8 @@ def _entry_offset_carriers(
     return tuple(
         FanOffsetCarrier(
             station_id=station_id,
-            assignments=tuple(
-                FanOffsetAssignment(line_id, rank * offset_sign)
-                for rank, line_id in enumerate(offset_line_order)
-                if line_id in carried_lines
+            assignments=_contiguous_assignments(
+                offset_line_order, carried_lines, offset_sign
             ),
         )
         for station_id, carried_lines in carriers.items()
@@ -1142,23 +1182,27 @@ def _entry_offset_carriers(
 def _rides_foreign_line_corridor(
     graph: MetroGraph, station_id: str, fan_lines: frozenset[str]
 ) -> bool:
-    """Whether *station_id* is boundary infrastructure whose corridor carries a
-    non-fan line.
+    """Whether *station_id* only relays a corridor that carries a non-fan line.
 
-    Scoped to ports and junctions only: a fork or join station is the point a
-    fan actively dispatches its own lines from, so it states their order
-    regardless of what else its section carries. A port or junction, by
-    contrast, only relays a corridor another station already lays out; where
-    that corridor's section also carries a line outside the fan, the
+    Scoped to ports, junctions and hand-over stations: a fork or join station
+    is the point a fan actively dispatches its own lines from, so it states
+    their order regardless of what else its section carries. A port, a
+    junction or a station that merely renames the one track running through
+    it, by contrast, only relays a corridor another station already lays out;
+    where that corridor's section also carries a line outside the fan, the
     section's own line-priority ordering already reserves that line's slot,
-    so the fan's compact 0-based numbering at the boundary would recentre
-    the bundle away from the position its section fixes upstream. A junction
-    has no section of its own, so it is classified by every section feeding
-    it a fan line: the corridor it relays is drawn as a continuation of all
-    of them, and one such section carrying a foreign line is enough to have
-    fixed the bundle's slots before the junction sees them.
+    so the fan's own numbering at the boundary would recentre the bundle away
+    from the position its section fixes upstream. A junction has no section
+    of its own, so it is classified by every section feeding it a fan line:
+    the corridor it relays is drawn as a continuation of all of them, and one
+    such section carrying a foreign line is enough to have fixed the bundle's
+    slots before the junction sees them.
     """
-    if station_id not in graph.ports and station_id not in graph.junction_ids:
+    if (
+        station_id not in graph.ports
+        and station_id not in graph.junction_ids
+        and not _retags_its_line(graph, station_id)
+    ):
         return False
 
     def carries_foreign_line(section_id: str | None) -> bool:
@@ -1224,7 +1268,7 @@ def _offset_carriers(
                 branch_incidence[edge.source][branch.rank].add(edge.line_id)
                 branch_incidence[edge.target][branch.rank].add(edge.line_id)
     for station_id, by_branch in branch_incidence.items():
-        if len(by_branch) < 2:
+        if len(by_branch) < 2 and not _retags_its_line(graph, station_id):
             continue
         add_station(
             station_id,
@@ -1234,11 +1278,7 @@ def _offset_carriers(
     return tuple(
         FanOffsetCarrier(
             station_id=station_id,
-            assignments=tuple(
-                FanOffsetAssignment(line_id, rank * offset_sign)
-                for rank, line_id in enumerate(offset_line_order)
-                if line_id in lines
-            ),
+            assignments=_contiguous_assignments(offset_line_order, lines, offset_sign),
         )
         for station_id, lines in carrier_lines.items()
         if not _rides_foreign_line_corridor(graph, station_id, fan_lines)

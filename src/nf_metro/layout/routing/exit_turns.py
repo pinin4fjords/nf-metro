@@ -3101,59 +3101,6 @@ def _apply_cross_plan_fallbacks(
     return plans, references, demands
 
 
-def _handover_line_ids(
-    graph: MetroGraph, station_id: str, line_id: str
-) -> tuple[str, ...]:
-    """The other names one single-track station carries *line_id* under.
-
-    A station with one arrival and one departure is a single piece of track,
-    so where those two edges are authored on different lines the station is
-    where one line hands over to the next.  Both names then belong to the one
-    lane the track occupies; seating them apart would step the run across the
-    marker and spread the marker over a lane nothing travels.
-    """
-    incoming = tuple(graph.edges_to(station_id))
-    outgoing = tuple(graph.edges_from(station_id))
-    if len(incoming) != 1 or len(outgoing) != 1:
-        return ()
-    names = (incoming[0].line_id, outgoing[0].line_id)
-    if line_id not in names:
-        return ()
-    return tuple(dict.fromkeys(name for name in names if name != line_id))
-
-
-def _seat_handover_stations(
-    graph: MetroGraph, offsets: dict[tuple[str, str], float], offset_step: float
-) -> None:
-    """Seat a hand-over station's two names on the lane a fan feeds it.
-
-    Where a planned fan states the lane its branch arrives on, the lane claim
-    levels the run into the hand-over station onto that lane, and the
-    departure hands over on the same piece of track.  Both names must
-    therefore be seated there before any group is planned: a plan reading the
-    unseated station states a departure that leaves from outside the lane the
-    settled offsets give the marker.
-    """
-    for station_id in graph.stations:
-        incoming = tuple(graph.edges_to(station_id))
-        outgoing = tuple(graph.edges_from(station_id))
-        if len(incoming) != 1 or len(outgoing) != 1:
-            continue
-        arriving, departing = incoming[0].line_id, outgoing[0].line_id
-        seat = _fan_stated_offsets(graph, incoming[0].source, offset_step).get(arriving)
-        if (
-            arriving == departing
-            or seat is None
-            or all(
-                abs(offsets.get((station_id, name), seat) - seat) <= COORD_TOLERANCE
-                for name in (arriving, departing)
-            )
-        ):
-            continue
-        offsets[(station_id, arriving)] = seat
-        offsets[(station_id, departing)] = seat
-
-
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     fan_execution = graph.fan_plan_execution
@@ -3169,8 +3116,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     if scaffold is None:
         query = ExitTurnPlanQuery((), MappingProxyType({}), MappingProxyType({}))
         return ExitTurnExecution(None, (), (), (), (), query)
-    if ctx.station_offsets is not None:
-        _seat_handover_stations(graph, ctx.station_offsets, ctx.offset_step)
     frame_ownership = (
         capture_linear_entry_frame_ownership(graph, ctx.station_offsets)
         if ctx.station_offsets is not None
@@ -3233,8 +3178,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
             for lane in plan.source_lanes:
                 for station_id in lane.station_ids:
                     trial_offsets[(station_id, lane.line_id)] = lane.planned_offset
-                    for partner in _handover_line_ids(graph, station_id, lane.line_id):
-                        trial_offsets[(station_id, partner)] = lane.planned_offset
         validate_linear_entry_frame_ownership(trial_offsets, frame_ownership)
         ctx.station_offsets.clear()
         ctx.station_offsets.update(trial_offsets)
