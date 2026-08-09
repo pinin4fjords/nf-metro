@@ -98,15 +98,17 @@ def stated_station_ids(plan: FanPlan) -> set[str]:
     """The stations *plan* puts a coordinate on itself.
 
     These are the seats the fan derives: the stations on its centreline, the
-    stations its branches lane, and the carriers it orders lines at.  Two fans
-    stating one of these state it independently, so only one of them may.
+    stations its branches lane, the carriers it orders lines at, and the ports
+    its branches land on, which a branch seats on its own lane the way it seats
+    any other station along it.  Two fans stating one of these state it
+    independently, so only one of them may.
     """
     return {
         *plan.centreline_station_ids,
         *(
             station_id
             for branch in plan.branches
-            for station_id in branch.lane_station_ids
+            for station_id in (*branch.lane_station_ids, *branch.landing_port_ids)
         ),
         *(carrier.station_id for carrier in plan.offset_carriers),
     }
@@ -2502,20 +2504,19 @@ def _build_candidate(
 
 def _cede_read_claims(
     plans: tuple[FanPlan, ...], ranks: Mapping[str, int]
-) -> tuple[FanPlan, ...]:
-    """Give every contested station one stating fan and let the rest read it.
+) -> dict[FanPlanId, dict[str, FanPlanId]]:
+    """Name, per plan, the station seats it reads and the fan it reads them from.
 
     A boundary station is checked against its own settled coordinate, so a fan
-    bounded by one states nothing that a fan which lanes, centres or carries it
-    has not already stated: that fan keeps the seat outright.  Where no fan
-    states the station, an order between the two exists only when one fan's fork
-    lies on the other's membership, which makes them stages of one chain rather
-    than rivals; then the topologically earlier fork keeps the seat, by the
-    authored rank of the fork and then the plan id so the choice is total and
-    deterministic.  Every holder that yields cedes the station, which is how it
-    reads a seat instead of restating it.  Two fans that both state one station,
-    and two unchained fans that merely bound one, have no such order and are
-    left to contend.
+    bounded by one states nothing that a fan which lanes, centres, carries or
+    lands on it has not already stated: that fan keeps the seat outright.  Where
+    no fan states the station, an order between the two exists only when one
+    fan's fork lies on the other's membership, which makes them stages of one
+    chain rather than rivals; then the topologically earlier fork keeps the
+    seat, by the authored rank of the fork and then the plan id so the choice is
+    total and deterministic.  Two fans that both state one station, and two
+    unchained fans that merely bound one, have no such order and are left to
+    contend.
     """
     precedence = {
         plan.id: (ranks.get(plan.fork_station_id, len(ranks)), str(plan.id))
@@ -2527,7 +2528,7 @@ def _cede_read_claims(
     for plan in plans:
         for station_id in claimed_station_ids(plan):
             holders[station_id].append(plan)
-    ceded: defaultdict[FanPlanId, set[str]] = defaultdict(set)
+    read_from: defaultdict[FanPlanId, dict[str, FanPlanId]] = defaultdict(dict)
     for station_id, contesting in holders.items():
         if len(contesting) < 2:
             continue
@@ -2547,16 +2548,37 @@ def _cede_read_claims(
                 or owner.fork_station_id in membership[plan.id]
             ):
                 continue
-            ceded[plan.id].add(station_id)
-    return tuple(
-        replace(
-            plan,
-            ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *ceded[plan.id]})),
-        )
-        if plan.id in ceded
-        else plan
-        for plan in plans
+            read_from[plan.id][station_id] = owner.id
+    return dict(read_from)
+
+
+def _seat_cessions(
+    plan: FanPlan, read_from: Mapping[FanPlanId, Mapping[str, FanPlanId]]
+) -> FanPlan:
+    """Record on *plan* the seats it reads rather than states."""
+    ceded = read_from.get(plan.id)
+    if not ceded:
+        return plan
+    return replace(
+        plan, ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *ceded}))
     )
+
+
+def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> set[FanPlanId]:
+    """Return the plans that reach an edge or a station another plan also holds."""
+    conflicts: set[FanPlanId] = set()
+    for index, left in enumerate(contenders):
+        left_authored = set(left.authored_edge_ids)
+        left_resolved = set(left.resolved_member_edges)
+        left_stations = claimed_station_ids(left)
+        for right in contenders[index + 1 :]:
+            if (
+                left_authored.intersection(right.authored_edge_ids)
+                or left_resolved.intersection(right.resolved_member_edges)
+                or left_stations.intersection(claimed_station_ids(right))
+            ):
+                conflicts.update((left.id, right.id))
+    return conflicts
 
 
 def _reject_overlaps(
@@ -2579,25 +2601,38 @@ def _reject_overlaps(
         ):
             subsumed.add(inner.id)
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
-    contenders = _cede_read_claims(
-        tuple(plan for plan in plans if plan.legacy_reason is None), ranks
-    )
-    ceded_by_id = {plan.id: plan for plan in contenders}
-    plans = tuple(ceded_by_id.get(plan.id, plan) for plan in plans)
-    conflicts: set[FanPlanId] = set()
-    for index, left in enumerate(contenders):
-        left_authored = set(left.authored_edge_ids)
-        left_resolved = set(left.resolved_member_edges)
-        left_stations = claimed_station_ids(left)
-        for right in contenders[index + 1 :]:
-            if (
-                left_authored.intersection(right.authored_edge_ids)
-                or left_resolved.intersection(right.resolved_member_edges)
-                or left_stations.intersection(claimed_station_ids(right))
-            ):
-                conflicts.update((left.id, right.id))
+    candidates = tuple(plan for plan in plans if plan.legacy_reason is None)
+    read_from = _cede_read_claims(candidates, ranks)
+    # A seat can only be read from a fan that goes on to state it, so a cession
+    # to a plan that itself ends up declined is void and its reader takes the
+    # station back.  Taking one back only ever adds contention, so the declined
+    # set grows with each round and the loop settles.
+    while True:
+        contenders = tuple(_seat_cessions(plan, read_from) for plan in candidates)
+        conflicts = _claim_conflicts(contenders)
+        void = {
+            plan_id: {
+                station_id
+                for station_id, owner_id in ceded.items()
+                if owner_id in conflicts
+            }
+            for plan_id, ceded in read_from.items()
+        }
+        if not any(void.values()):
+            break
+        read_from = {
+            plan_id: {
+                station_id: owner_id
+                for station_id, owner_id in ceded.items()
+                if station_id not in void[plan_id]
+            }
+            for plan_id, ceded in read_from.items()
+        }
+    seated = {plan.id: plan for plan in contenders}
     return tuple(
-        _legacy(plan, "overlapping-fan-ownership") if plan.id in conflicts else plan
+        _legacy(seated.get(plan.id, plan), "overlapping-fan-ownership")
+        if plan.id in conflicts
+        else seated.get(plan.id, plan)
         for plan in plans
     )
 

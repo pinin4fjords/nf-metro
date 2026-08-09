@@ -25,6 +25,7 @@ from nf_metro.layout.fan_plans import (
     claimed_station_ids,
     fan_appearance_lane_sign,
     install_fan_plan_execution,
+    stated_station_ids,
     validate_fan_route_emissions,
 )
 from nf_metro.layout.geometry import AxisFrame
@@ -1128,13 +1129,14 @@ def test_a_fan_that_states_no_geometry_does_not_veto_the_one_that_does() -> None
     assert not claimed_station_ids(by_source["shared"]) & {"a", "b"}
 
 
-def test_chained_fans_give_a_shared_boundary_to_the_earlier_fork() -> None:
-    """A fan that only bounds a station reads the seat the earlier fork keeps.
+def test_chained_fans_take_one_seat_each_of_a_shared_port_pair() -> None:
+    """Two chained fans reaching one pair of section ports keep one seat each.
 
-    Two chained fans reach the same pair of section ports and neither lanes,
-    centres or carries them, so the ports are read on both sides.  The
-    downstream fan cedes them to the fork the trunk reaches first, which leaves
-    one claimant per station and lets both fans hold their frames.
+    The downstream fan lands a branch on the entry port, so it seats that port
+    on the branch's lane and the upstream fan reads it.  Neither fan lands on,
+    lanes or carries the exit port, so nothing states it and the fork the trunk
+    reaches first keeps it.  Each port ends with one claimant, which lets both
+    fans hold their frames, and a station a fan reads stays on its membership.
     """
     path = ROOT / "examples" / "topologies" / "merge_trunk_over_low_section.mmd"
     graph = parse_metro_mermaid(path.read_text())
@@ -1144,13 +1146,57 @@ def test_chained_fans_give_a_shared_boundary_to_the_earlier_fork() -> None:
     downstream = by_source["i2"]
 
     shared = {"ingest__exit_right_0", "tall__entry_left_3"}
-    assert downstream.ceded_station_ids == tuple(sorted(shared))
-    assert upstream.ceded_station_ids == ()
-    assert shared.issubset(claimed_station_ids(upstream))
-    assert not shared & claimed_station_ids(downstream)
+    assert upstream.ceded_station_ids == ("tall__entry_left_3",)
+    assert downstream.ceded_station_ids == ("ingest__exit_right_0",)
+    assert claimed_station_ids(upstream) & shared == {"ingest__exit_right_0"}
+    assert claimed_station_ids(downstream) & shared == {"tall__entry_left_3"}
     assert shared.issubset(set(downstream.owned_station_ids))
     assert upstream.disposition is FanPlanDisposition.PLANNED
     assert downstream.disposition is FanPlanDisposition.PLANNED
+
+
+def test_two_fans_landing_on_one_port_both_state_it() -> None:
+    """A port two fans land a branch on is stated twice, so neither may keep it.
+
+    Each fan seats the port it lands on at the end of its own branch lane, so a
+    port reached by both is a coordinate the two would state differently.  There
+    is no reader to nominate and both fans decline, leaving the port to the
+    layout that placed it.
+    """
+    path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
+    left, right = by_fork["__junction_13"], by_fork["__junction_14"]
+
+    landed = "target__entry_left_11"
+    assert landed in stated_station_ids(left)
+    assert landed in stated_station_ids(right)
+    assert landed not in left.ceded_station_ids
+    assert landed not in right.ceded_station_ids
+    assert left.legacy_reason == "overlapping-fan-ownership"
+    assert right.legacy_reason == "overlapping-fan-ownership"
+
+
+def test_a_seat_read_from_a_declined_fan_goes_back_to_its_reader() -> None:
+    """A fan cannot read a seat from a fan that ends up declining it.
+
+    One fan reads two boundary stations from a neighbour that loses its own
+    contest elsewhere.  A declined fan states nothing, so there is no seat to
+    read: the reader takes both stations back, and having them back puts it in
+    contention with that same neighbour.
+    """
+    path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
+    reader, declined = by_source["t"], by_source["a"]
+
+    shared = {"src__exit_right_0", "top_sec__entry_left_1"}
+    assert declined.legacy_reason == "overlapping-fan-ownership"
+    assert reader.ceded_station_ids == ()
+    assert shared.issubset(claimed_station_ids(reader))
+    assert reader.legacy_reason == "overlapping-fan-ownership"
 
 
 def test_install_publishes_matching_immutable_query() -> None:
