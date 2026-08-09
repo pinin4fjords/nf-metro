@@ -5257,45 +5257,19 @@ def _descent_rightward_clearable_pierce(
     )
 
 
-def _route_around_section_below(
+def _around_section_below_geometry(
+    ctx: _RoutingCtx,
     edge: Edge,
     src: Station,
-    tgt: Station,
     entry_port: Station,
     i: int,
     n: int,
-    ctx: _RoutingCtx,
     channel_y: float | None = None,
-) -> RoutedPath | None:
-    """Route to a LEFT entry port by going AROUND BELOW the target section.
+) -> _LeftEntryWrapGeometry:
+    """Resolve the seam shared by around-below planning and emission.
 
-    Used when a standard L-shape or :func:`_route_left_entry_wrap` would
-    have its horizontal segment cross an intervening section's bbox.
-    Routes via 4 corners in a clockwise R-D-L-U-R loop that descends
-    past the target row's bottom, runs leftward under everything, rises
-    in the inter-section gap to the entry Y, and enters the LEFT port
-    from below::
-
-        (lx, sy) -> (cx, sy)          ; H lead-in right
-        (cx, sy) -> (cx, by)          ; V down past target row's bottom
-        (cx, by) -> (vx, by)          ; H left past target's left edge
-        (vx, by) -> (vx, ey)          ; V up to entry Y
-        (vx, ey) -> (ex, ey)          ; H right into LEFT entry port
-
-    All four corners are clockwise (R->D, D->L, L->U, U->R), so the
-    outer line of the bundle stays on the OUTSIDE of every turn and
-    gets the larger radius throughout.
-
-    *tgt* is the L-shape's nominal target (the edge target, often a
-    merge junction).  *entry_port* is the actual endpoint of the route
-    (the LEFT entry port station resolved from the merge junction or
-    equal to *tgt* when the edge targets a port directly).
-
-    *channel_y* overrides the leftward traverse Y.  A merge trunk reaching a
-    leftmost target passes its ``bypass_bottom_y`` channel (the inter-row gap
-    its converging branches drop onto) so the trunk runs left at that shared Y
-    and descends on the target's far side, rather than diving to the canvas
-    bottom where the branches could not meet it.
+    See :func:`_route_around_section_below` for the shape this describes and
+    for what *channel_y* overrides.
     """
     sy = src.y
     ex, ey = entry_port.x, entry_port.y
@@ -5321,8 +5295,8 @@ def _route_around_section_below(
         # The bypass bottom is the clearance the lane nearest the boxes above it
         # owes them, and the bundle stacks from its centreline toward that edge,
         # so the whole ladder seats one half-width deeper.  A run settled after
-        # the fact is pushed here anyway; stating it keeps the drawn corridor
-        # inside the clearance its reservation raised.
+        # the fact would be pushed here anyway; a planned turn leg is frozen
+        # against that settlement and so has to state it.
         by = (
             bypass_bottom_y(
                 ctx.graph,
@@ -5387,22 +5361,86 @@ def _route_around_section_below(
         # centreline the other way so the trunk's own track lands on that level.
         by -= _entry_wrap_run_displacement(delta, corner_x, vx)
 
-    # R-D-L-U-R loop: down past the target row's bottom (by), left of the target
-    # column (vx), up to the entry Y, and into the LEFT port from below.
-    route = _route_entry_wrap(
+    return _left_entry_wrap_record(
+        ctx,
         edge,
         src,
-        entry_port,
-        ctx,
         pos_n=pos_n,
         delta=delta,
         corner_x=corner_x,
         channel_y=by,
         descent_x=vx,
+    )
+
+
+def _route_around_section_below(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    entry_port: Station,
+    i: int,
+    n: int,
+    ctx: _RoutingCtx,
+    channel_y: float | None = None,
+) -> RoutedPath | None:
+    """Route to a LEFT entry port by going AROUND BELOW the target section.
+
+    Used when a standard L-shape or :func:`_route_left_entry_wrap` would
+    have its horizontal segment cross an intervening section's bbox.
+    Routes via 4 corners in a clockwise R-D-L-U-R loop that descends
+    past the target row's bottom, runs leftward under everything, rises
+    in the inter-section gap to the entry Y, and enters the LEFT port
+    from below::
+
+        (lx, sy) -> (cx, sy)          ; H lead-in right
+        (cx, sy) -> (cx, by)          ; V down past target row's bottom
+        (cx, by) -> (vx, by)          ; H left past target's left edge
+        (vx, by) -> (vx, ey)          ; V up to entry Y
+        (vx, ey) -> (ex, ey)          ; H right into LEFT entry port
+
+    All four corners are clockwise (R->D, D->L, L->U, U->R), so the
+    outer line of the bundle stays on the OUTSIDE of every turn and
+    gets the larger radius throughout.
+
+    *tgt* is the L-shape's nominal target (the edge target, often a
+    merge junction).  *entry_port* is the actual endpoint of the route
+    (the LEFT entry port station resolved from the merge junction or
+    equal to *tgt* when the edge targets a port directly).
+
+    *channel_y* overrides the leftward traverse Y.  A merge trunk reaching a
+    leftmost target passes its ``bypass_bottom_y`` channel (the inter-row gap
+    its converging branches drop onto) so the trunk runs left at that shared Y
+    and descends on the target's far side, rather than diving to the canvas
+    bottom where the branches could not meet it.
+    """
+    del tgt
+    geometry = _around_section_below_geometry(
+        ctx, edge, src, entry_port, i, n, channel_y
+    )
+    route = _route_entry_wrap(
+        edge,
+        src,
+        entry_port,
+        ctx,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
         entry_side=PortSide.LEFT,
     )
-    _declare_channel(route, ctx, vx, vertical_direction(ey - by))
-    _declare_channel(route, ctx, corner_x, vertical_direction(by - sy))
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(entry_port.y - geometry.channel_y),
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.corner_x,
+        vertical_direction(geometry.channel_y - src.y),
+    )
     return route
 
 

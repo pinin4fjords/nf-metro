@@ -63,6 +63,7 @@ from nf_metro.layout.routing.common import (
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
+    _around_section_below_geometry,
     _build_inter_facts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
@@ -747,6 +748,10 @@ def _source_turn_requirement(
             assert facts.tgt_row is not None
             wrap_geometry = _left_entry_gap_above_geometry(
                 ctx, edge, src, tgt, facts.i, facts.n, facts.tgt_row
+            )
+        elif wrap_kind is _LeftEntryRoute.AROUND_BELOW:
+            wrap_geometry = _around_section_below_geometry(
+                ctx, edge, src, tgt, facts.i, facts.n
             )
         else:
             return _SourceTurnRequirement(

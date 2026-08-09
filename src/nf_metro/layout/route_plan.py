@@ -419,7 +419,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _NO_PLANNED_TURN_FOR_SUBSHAPE,
                     "unsupported-subshape:degenerate-horizontal-straight",
-                    "unsupported-subshape:left-entry-around_below",
                     "unsupported-subshape:left-entry-band_hop",
                     "unsupported-subshape:left-entry-corridor",
                     "unsupported-subshape:left-entry-left_exit_drop",
