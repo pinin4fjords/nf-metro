@@ -145,7 +145,38 @@ def _entry_trunk_has_foreign_head(
     )
 
 
+def _branch_riding_past_a_sibling(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+) -> FanBranchPlanId | None:
+    """The branch that only rides past stations a sibling branch stops at.
+
+    A hidden bypass helper names the station its line goes around, so a branch
+    laning nothing but helpers stops nowhere in the fan.  Where the stations
+    those helpers go around are a sibling's lane, the two branches are already
+    ordered: the rider keeps the track and the sibling steps off it.
+    """
+    lane_owner = {
+        station_id: branch.id
+        for branch in branches
+        for station_id in branch.lane_station_ids
+    }
+    riders = tuple(
+        branch
+        for branch in branches
+        if branch.lane_station_ids
+        and all(
+            (station := graph.stations.get(station_id)) is not None
+            and station.bypasses_station_id is not None
+            and lane_owner.get(station.bypasses_station_id) not in (None, branch.id)
+            for station_id in branch.lane_station_ids
+        )
+    )
+    return riders[0].id if len(riders) == 1 else None
+
+
 def _appearance_centreline_branch_id(
+    graph: MetroGraph,
     branches: Sequence[FanBranchPlan],
     appearance_policy: FanAppearancePolicy,
     structural_trunk_rank: int | None,
@@ -160,6 +191,9 @@ def _appearance_centreline_branch_id(
     )
     if len(trunk_branches) == 1:
         return trunk_branches[0].id
+    rider_id = _branch_riding_past_a_sibling(graph, branches)
+    if rider_id is not None:
+        return rider_id
     if structural_trunk_rank is not None:
         structural_trunk = next(
             (branch for branch in branches if branch.rank == structural_trunk_rank),
@@ -1832,6 +1866,7 @@ def _build_candidate(
         None
         if has_vacant_trunk
         else _appearance_centreline_branch_id(
+            graph,
             branch_plans,
             appearance_policy,
             structural_trunk_rank,
