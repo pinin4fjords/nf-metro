@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import warnings
+from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import replace
 from enum import Enum
@@ -17,7 +18,12 @@ import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.api import prepare_graph, render_string, resolve_theme
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    OFFSET_STEP,
+)
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.route_plan import (
@@ -48,14 +54,17 @@ from nf_metro.layout.routing.common import (
     apply_route_offsets,
 )
 from nf_metro.layout.routing.context import _build_routing_context
-from nf_metro.layout.routing.corners import resolve_curve_radii
+from nf_metro.layout.routing.corners import _corner_travel_units, resolve_curve_radii
 from nf_metro.layout.routing.exit_turns import (
     ExitTurnInvariantError,
     assert_exit_turn_snapshot,
     snapshot_exit_turn_segments,
     validate_exit_turn_plans,
 )
-from nf_metro.layout.routing.invariants import check_planned_fan_landing_radius
+from nf_metro.layout.routing.invariants import (
+    _resolved_corner_radii,
+    check_planned_fan_landing_radius,
+)
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import LineSpread, PortSide
@@ -997,15 +1006,22 @@ def test_lane_arms_inside_one_corner_are_not_one_stroke() -> None:
     assert not exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1079.0, CURVE_RADIUS)
 
 
-def test_lane_arms_two_owners_pin_a_corner_apart_use_whole_group_legacy() -> None:
-    """Two families pinning one lane's arms within a corner hold the column."""
+def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:
+    """Owners pinning columns inside one corner hold the whole group back.
+
+    Several families pin this source's turn columns within a single corner's
+    runway, each to a column of its own.  Columns that close together belong to
+    one bundle turning one corner, which nests from a single origin, so the
+    plan may not hand each owner a centre of its own; with no origin the pins
+    agree on, it declines wholesale and the emitter draws the nested corner.
+    """
     _graph, _offsets, _original_offsets, execution = _build_execution(
         FIXTURES / "target_entry_runway_bypass.mmd"
     )
     plan = next(item for item in execution.plans if item.source_id == "__junction_13")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "lane-arms-pinned-to-overlapping-corners"
+    assert plan.legacy_reason == "fixed-axis-conflict"
 
 
 def test_several_turnless_members_each_state_their_own_landing() -> None:
@@ -2731,7 +2747,7 @@ def test_a_half_seated_handover_station_is_reseated_on_both_names() -> None:
         if arriving == departing:
             continue
         seat = exit_turns._fan_stated_offsets(
-            graph, incoming[0].source, exit_turns.OFFSET_STEP
+            graph, incoming[0].source, OFFSET_STEP
         ).get(arriving)
         if seat is not None:
             handovers.append((station_id, arriving, departing, seat))
@@ -2739,10 +2755,78 @@ def test_a_half_seated_handover_station_is_reseated_on_both_names() -> None:
     for station_id, arriving, departing, seat in handovers:
         offsets = {
             (station_id, arriving): seat,
-            (station_id, departing): seat + 2 * exit_turns.OFFSET_STEP,
+            (station_id, departing): seat + 2 * OFFSET_STEP,
         }
-        exit_turns._seat_handover_stations(graph, offsets, exit_turns.OFFSET_STEP)
+        exit_turns._seat_handover_stations(graph, offsets, OFFSET_STEP)
         assert offsets[(station_id, arriving)] == seat
         assert offsets[(station_id, departing)] == seat, (
             f"{station_id}: departing name '{departing}' left off the hand-over lane"
+        )
+
+
+SHARED_EXIT_CORNER = (
+    TOPOLOGIES / "dogleg_twoline_fanout.mmd",
+    TOPOLOGIES / "fanout_intersection_shared_channel.mmd",
+)
+
+
+def _first_corner_centre(
+    route, offsets: Mapping[tuple[str, str], float]
+) -> tuple[float, float]:
+    """The arc centre of the first turn *route* makes, in canvas coordinates."""
+    points = apply_route_offsets(route, offsets)
+    radii = _resolved_corner_radii(route, points)
+    for index in range(1, len(points) - 1):
+        turn_in, turn_out = _corner_travel_units(
+            points[index - 1], points[index], points[index + 1]
+        )
+        if turn_in == turn_out:
+            continue
+        radius = radii[index - 1]
+        return (
+            points[index][0] + radius * (turn_out[0] - turn_in[0]),
+            points[index][1] + radius * (turn_out[1] - turn_in[1]),
+        )
+    raise AssertionError("route makes no turn")
+
+
+@pytest.mark.parametrize("path", SHARED_EXIT_CORNER, ids=lambda p: p.stem)
+def test_two_lines_leaving_one_source_nest_through_their_shared_turn(
+    path: Path,
+) -> None:
+    """Lines sharing a source's exit run nest round the corner they both turn.
+
+    Each fixture sends two lines out of one section on one run to destinations
+    of their own.  Their turn columns may not be handed out per destination:
+    the pair is still one bundle where it turns, so the two arcs take one
+    centre and stand one offset step apart, and the lines separate only at the
+    divergence further along.  Arcs about centres of their own open the pair
+    out through the bend, which reads as the bundle coming apart mid-turn.
+
+    ``check_concentric_bundle_corners`` cannot speak for this shape: it pairs
+    routes sharing both endpoints, and these two share only their source.
+    """
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    by_source: dict[str, list] = defaultdict(list)
+    for route in routes:
+        if route.edge.source in graph.stations and len(route.points) >= 3:
+            by_source[route.edge.source].append(route)
+    shared = [
+        group
+        for group in by_source.values()
+        if len(group) == 2 and group[0].edge.target != group[1].edge.target
+    ]
+    assert shared, f"{path.name} no longer forks two lines off one source"
+
+    for group in shared:
+        first, second = group
+        centres = [_first_corner_centre(route, offsets) for route in group]
+        assert centres[0] == pytest.approx(centres[1], abs=COORD_TOLERANCE), (
+            f"{path.name}: {first.edge.line_id} and {second.edge.line_id} leave "
+            f"{first.edge.source} on arcs about {centres[0]} and {centres[1]}, "
+            "so the bundle opens out through its shared turn"
         )

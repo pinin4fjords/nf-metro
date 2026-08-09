@@ -10,7 +10,6 @@ from types import MappingProxyType
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
-    OFFSET_STEP,
 )
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
@@ -1831,18 +1830,25 @@ def _classify_assignment_seeds(
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
 
 
-def _pinned_ladders_clear_each_other(pins: Iterable[_LadderPin]) -> bool:
-    """Whether separately pinned ladders of one heading can share a corridor.
+def _pinned_ladders_clear_each_other(
+    pins: Iterable[_LadderPin], curve_radius: float
+) -> bool:
+    """Whether separately pinned ladders of one heading draw two corners.
 
-    Two ladders draw two strokes down one corridor, so the columns they pin
-    have to hold the corridor's own step apart.  Pins closer than that describe
-    one contradictory ladder rather than two, and the corridor's settlement
-    moves one of them off the column its ladder fixed.
+    Each corner takes a radius of the shared run before its turn column, so
+    ladders pinned less than a radius apart open corners that overlap on the
+    run: those arms leave one bundle at one corner, and a corner one bundle
+    turns is nested from a single origin at the plan's own spacing.  Splitting
+    such a heading per destination lets each pin size its arc from a centre of
+    its own, which draws the bundle opening out through the bend.  The pins are
+    honoured as two ladders only once their corners stand clear of each other,
+    where each really is a stroke of its own; otherwise the heading keeps its
+    single shared ladder and the fixed-origin agreement check speaks for it.
     """
     pinned = tuple(pins)
     return all(
         first.group_id == second.group_id
-        or abs(first.column - second.column) >= OFFSET_STEP - COORD_TOLERANCE
+        or abs(first.column - second.column) >= curve_radius - COORD_TOLERANCE
         for first in pinned
         for second in pinned
     )
@@ -1890,6 +1896,7 @@ def _lane_arms_read_as_one_stroke(
 
 def _turn_cohort_key_by_member(
     seeds: Iterable[_AssignmentSeed],
+    curve_radius: float,
 ) -> dict[EmissionMemberId, _TurnCohortKey]:
     """Place every turning seed on the ladder that will carry its turn axis."""
     turning = tuple(
@@ -1908,7 +1915,7 @@ def _turn_cohort_key_by_member(
         (run_direction, turn_direction)
         for (run_direction, turn_direction), pins in pinned.items()
         if len({pin.group_id for pin in pins}) > 1
-        and _pinned_ladders_clear_each_other(pins)
+        and _pinned_ladders_clear_each_other(pins, curve_radius)
         and _pinned_ladders_keep_bundle_order(pins, turn_direction)
     )
     keys: dict[EmissionMemberId, _TurnCohortKey] = {}
@@ -1963,7 +1970,7 @@ def _plan_turn_axes(
             (), MappingProxyType({}), minimum_runway, "invalid-source-turn-requirement"
         )
 
-    cohort_key = _turn_cohort_key_by_member(turning_seeds)
+    cohort_key = _turn_cohort_key_by_member(turning_seeds, ctx.curve_radius)
     cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
     for seed in turning_seeds:
         cohorts[cohort_key[seed.member_id]].append(seed)
@@ -2439,7 +2446,7 @@ def _build_group_plan(
         turning_claimants = tuple(
             seed.member_id for seed in seeds if seed.turn_direction is not None
         )
-        cohort_key = _turn_cohort_key_by_member(seeds)
+        cohort_key = _turn_cohort_key_by_member(seeds, ctx.curve_radius)
         cohort_sizes: dict[_TurnCohortKey, set[int]] = defaultdict(set)
         for seed in seeds:
             if seed.member_id in cohort_key:
