@@ -124,6 +124,17 @@ _PERPENDICULAR_EXIT_FAMILIES = frozenset(
 
 _EdgeKey = tuple[str, str, str]
 
+_TurnCohortKey = tuple[Direction, Direction, EndpointGroupId | None]
+"""Source heading plus, where destinations contest it, the one that pins it.
+
+One ladder holds a heading's arms laterally apart from a single origin, and a
+structurally fixed axis anywhere on it pins that origin for every arm. Two
+destinations pinning the same heading to columns of their own choosing state
+an origin apiece, which no single arithmetic ladder can carry, so each takes
+its own. Everything else keeps the shared ladder: splitting a heading nothing
+contests would strip its arms of the only separation they have.
+"""
+
 
 class ExitTurnInvariantError(RuntimeError):
     """A planned source turn was not emitted exactly as committed."""
@@ -1336,16 +1347,32 @@ def _plan_turn_axes(
             (), MappingProxyType({}), minimum_runway, "invalid-source-turn-requirement"
         )
 
-    cohorts: dict[tuple[Direction, Direction], list[_AssignmentSeed]] = defaultdict(
-        list
+    pinning_groups: dict[tuple[Direction, Direction], set[EndpointGroupId]] = (
+        defaultdict(set)
     )
     for seed in turning_seeds:
         assert seed.run_direction is not None and seed.turn_direction is not None
-        cohorts[seed.run_direction, seed.turn_direction].append(seed)
+        if seed.fixed_axis is not None:
+            pinning_groups[seed.run_direction, seed.turn_direction].add(
+                seed.entry_group_id
+            )
+
+    cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
+    for seed in turning_seeds:
+        assert seed.run_direction is not None and seed.turn_direction is not None
+        contested = (
+            seed.fixed_axis is not None
+            and len(pinning_groups[seed.run_direction, seed.turn_direction]) > 1
+        )
+        cohorts[
+            seed.run_direction,
+            seed.turn_direction,
+            seed.entry_group_id if contested else None,
+        ].append(seed)
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
-    for (run_direction, turn_direction), cohort in cohorts.items():
+    for (run_direction, turn_direction, pinning_group_id), cohort in cohorts.items():
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
         cohort_rank = {rank: index for index, rank in enumerate(ranks)}
         progression = lateral_order_sign(turn_direction)
@@ -1447,6 +1474,7 @@ def _plan_turn_axes(
                         lane_line,
                         run_direction.value,
                         turn_direction.value,
+                        pinning_group_id,
                     )
                 ),
                 lane_line,
