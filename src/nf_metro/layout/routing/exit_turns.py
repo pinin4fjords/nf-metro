@@ -2961,7 +2961,10 @@ def _seat_handover_stations(
         if (
             arriving == departing
             or seat is None
-            or abs(offsets.get((station_id, arriving), seat) - seat) <= COORD_TOLERANCE
+            or all(
+                abs(offsets.get((station_id, name), seat) - seat) <= COORD_TOLERANCE
+                for name in (arriving, departing)
+            )
         ):
             continue
         offsets[(station_id, arriving)] = seat

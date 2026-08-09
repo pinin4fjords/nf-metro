@@ -2626,3 +2626,38 @@ def _corpus_disposition_overrides() -> dict[str, int]:
 
 def test_settlement_rarely_overrides_a_fresh_exit_turn_disposition() -> None:
     assert _corpus_disposition_overrides() == EXPECTED_ADOPTED_DISPOSITION_OVERRIDES
+
+
+def test_a_half_seated_handover_station_is_reseated_on_both_names() -> None:
+    """A hand-over station whose arriving name already sits on the fan's lane
+    still owes its departing name that seat: skipping on the arriving name
+    alone leaves the departure one step off the marker's lane."""
+    path = ROOT / "examples" / "topologies" / "fanout_line_reused_nonadjacent_leg.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    handovers = []
+    for station_id in graph.stations:
+        incoming = tuple(graph.edges_to(station_id))
+        outgoing = tuple(graph.edges_from(station_id))
+        if len(incoming) != 1 or len(outgoing) != 1:
+            continue
+        arriving, departing = incoming[0].line_id, outgoing[0].line_id
+        if arriving == departing:
+            continue
+        seat = exit_turns._fan_stated_offsets(
+            graph, incoming[0].source, exit_turns.OFFSET_STEP
+        ).get(arriving)
+        if seat is not None:
+            handovers.append((station_id, arriving, departing, seat))
+    assert handovers, "fixture no longer carries a fan-stated hand-over station"
+    for station_id, arriving, departing, seat in handovers:
+        offsets = {
+            (station_id, arriving): seat,
+            (station_id, departing): seat + 2 * exit_turns.OFFSET_STEP,
+        }
+        exit_turns._seat_handover_stations(graph, offsets, exit_turns.OFFSET_STEP)
+        assert offsets[(station_id, arriving)] == seat
+        assert offsets[(station_id, departing)] == seat, (
+            f"{station_id}: departing name '{departing}' left off the hand-over lane"
+        )
