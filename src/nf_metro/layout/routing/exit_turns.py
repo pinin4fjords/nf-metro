@@ -690,6 +690,15 @@ def _source_turn_requirement(
                 if exit_port_id is not None
                 else src.x
             )
+            if exit_port_id is not None and abs(axis - feeder_x) <= COORD_TOLERANCE:
+                # ``_perp_entry_junction_straight_drop`` prepends a lead-out
+                # only for a feeder standing off the turn column, so a feeder
+                # on the column is drawn as a bare vertical with no run to turn
+                # off.  That feeder column is the exit port's; a caller naming
+                # no port is asking only where the axis stands.
+                return _SourceTurnRequirement(
+                    vertical_direction(tgt.y - src.y), None, None, None, None
+                )
             run = horizontal_direction(axis - feeder_x)
             # The drop peels off the trunk one corner radius before the turn
             # column, or at the feeder itself when that is the nearer of the
@@ -1310,6 +1319,39 @@ def _classify_assignment_seeds(
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
 
 
+def _turn_cohort_key_by_member(
+    seeds: Iterable[_AssignmentSeed],
+) -> dict[EmissionMemberId, _TurnCohortKey]:
+    """Place every turning seed on the ladder that will carry its turn axis."""
+    turning = tuple(
+        seed
+        for seed in seeds
+        if seed.run_direction is not None and seed.turn_direction is not None
+    )
+    pinning_groups: dict[tuple[Direction, Direction], set[EndpointGroupId]] = (
+        defaultdict(set)
+    )
+    for seed in turning:
+        assert seed.run_direction is not None and seed.turn_direction is not None
+        if seed.fixed_axis is not None:
+            pinning_groups[seed.run_direction, seed.turn_direction].add(
+                seed.entry_group_id
+            )
+    keys: dict[EmissionMemberId, _TurnCohortKey] = {}
+    for seed in turning:
+        assert seed.run_direction is not None and seed.turn_direction is not None
+        contested = (
+            seed.fixed_axis is not None
+            and len(pinning_groups[seed.run_direction, seed.turn_direction]) > 1
+        )
+        keys[seed.member_id] = (
+            seed.run_direction,
+            seed.turn_direction,
+            seed.entry_group_id if contested else None,
+        )
+    return keys
+
+
 def _plan_turn_axes(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -1347,28 +1389,10 @@ def _plan_turn_axes(
             (), MappingProxyType({}), minimum_runway, "invalid-source-turn-requirement"
         )
 
-    pinning_groups: dict[tuple[Direction, Direction], set[EndpointGroupId]] = (
-        defaultdict(set)
-    )
-    for seed in turning_seeds:
-        assert seed.run_direction is not None and seed.turn_direction is not None
-        if seed.fixed_axis is not None:
-            pinning_groups[seed.run_direction, seed.turn_direction].add(
-                seed.entry_group_id
-            )
-
+    cohort_key = _turn_cohort_key_by_member(turning_seeds)
     cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
     for seed in turning_seeds:
-        assert seed.run_direction is not None and seed.turn_direction is not None
-        contested = (
-            seed.fixed_axis is not None
-            and len(pinning_groups[seed.run_direction, seed.turn_direction]) > 1
-        )
-        cohorts[
-            seed.run_direction,
-            seed.turn_direction,
-            seed.entry_group_id if contested else None,
-        ].append(seed)
+        cohorts[cohort_key[seed.member_id]].append(seed)
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
@@ -1485,6 +1509,7 @@ def _plan_turn_axes(
                 fixed_anchor_id,
                 fixed_anchor_coordinate,
                 fixed_anchor_offset,
+                pinning_group_id,
             )
             built_axes.append(axis)
             for seed in rank_seeds:
@@ -1797,12 +1822,11 @@ def _build_group_plan(
         turning_claimants = tuple(
             seed.member_id for seed in seeds if seed.turn_direction is not None
         )
-        cohort_sizes = defaultdict(set)
+        cohort_key = _turn_cohort_key_by_member(seeds)
+        cohort_sizes: dict[_TurnCohortKey, set[int]] = defaultdict(set)
         for seed in seeds:
-            if seed.turn_direction is not None and seed.run_direction is not None:
-                cohort_sizes[seed.run_direction, seed.turn_direction].add(
-                    seed.lane_rank
-                )
+            if seed.member_id in cohort_key:
+                cohort_sizes[cohort_key[seed.member_id]].add(seed.lane_rank)
         ordered_turn_span = max(
             ((len(ranks) - 1) * ctx.offset_step for ranks in cohort_sizes.values()),
             default=0.0,
