@@ -67,6 +67,9 @@ from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _around_section_below_geometry,
     _around_stack_geometry,
+    _bottom_exit_junction_exit_port,
+    _bottom_exit_junction_geometry,
+    _bottom_exit_junction_is_right_landings,
     _build_inter_facts,
     _bypass_geometry,
     _bypass_route_kind,
@@ -89,7 +92,10 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _wrap_fan_geometry,
     classify_inter_section_family,
 )
-from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
+from nf_metro.layout.routing.normalize import (
+    _h_segment_crosses_other_section,
+    _reseat_concentric_flanking,
+)
 from nf_metro.layout.routing.offsets import (
     LinearEntryFrameOwnership,
     capture_linear_entry_frame_ownership,
@@ -127,6 +133,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TB_PERP_EXIT_OVER,
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         RouteFamilyId.BYPASS_FAMILY,
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION,
     }
 )
 
@@ -581,6 +588,59 @@ def _perp_exit_turn_requirement(
     )
 
 
+def _bottom_exit_junction_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a bottom-exit-junction group opens with, by the leaf that draws it.
+
+    The junction's emitter draws one of three shapes for a given member: a fan
+    plan's own right-landings route, an inter-section-crossing detour through
+    the header gap, or the plain vertical-drop-then-turn L. Only the plain
+    shape has a stated turn sequence; the other two decline so the
+    established first-match dispatcher draws them.
+    """
+    if _bottom_exit_junction_is_right_landings(edge, ctx):
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:bottom-exit-junction-right-landings",
+        )
+    exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
+
+    def exit_x_offset(line_id: str) -> float:
+        return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+
+    members, _source_center, tgt_center = gather_tapered_bundle(ctx, edge)
+    geometry = _bottom_exit_junction_geometry(
+        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+    )
+    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+    if _h_segment_crosses_other_section(
+        ctx.graph, geometry.vx, tgt.x, geometry.hy, exclude
+    ):
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:bottom-exit-junction-via-gap",
+        )
+    return _SourceTurnRequirement(
+        geometry.run_direction,
+        geometry.turn_direction,
+        geometry.launch_coordinate,
+        abs(geometry.axis_coordinate - geometry.launch_coordinate),
+        geometry.axis_coordinate,
+    )
+
+
 def _left_entry_wrap_turn_requirement(
     edge: Edge,
     source_run_direction: Direction,
@@ -912,6 +972,8 @@ def _source_turn_requirement(
         return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
     if family_id is RouteFamilyId.BYPASS_FAMILY:
         return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
+        return _bottom_exit_junction_turn_requirement(edge, ctx, src, tgt)
     return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
 
 
@@ -1723,6 +1785,7 @@ def _plan_turn_axes(
                     RouteFamilyId.MERGE_BRANCH,
                     RouteFamilyId.TOP_ENTRY_L_SHAPE,
                     RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
+                    RouteFamilyId.BOTTOM_EXIT_JUNCTION,
                 }
                 fixed_anchor_id = (
                     fixed_seed.edge.target
@@ -2548,6 +2611,32 @@ def _planned_axis_cross_range(
                     )
                 )
                 values.extend((stack_geometry.cross_lo, stack_geometry.cross_hi))
+                continue
+            if assignment.planned_family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
+                graph_edge = _graph_edge(ctx.edge_by_key, edge)
+                exit_pid, exit_sec = _bottom_exit_junction_exit_port(
+                    tentative_ctx, edge.source
+                )
+
+                def bej_exit_x_offset(
+                    line_id: str, _pid: str = exit_pid, _sec: str = exit_sec
+                ) -> float:
+                    return _tb_x_offset(tentative_ctx, _pid, line_id, _sec)
+
+                bej_members, _bej_source_center, bej_tgt_center = gather_tapered_bundle(
+                    tentative_ctx, graph_edge
+                )
+                bej_geometry = _bottom_exit_junction_geometry(
+                    graph_edge,
+                    source,
+                    target,
+                    tentative_ctx,
+                    bej_exit_x_offset,
+                    bej_members,
+                    bej_tgt_center,
+                )
+                vertical_leg_x = bej_geometry.vx - bej_geometry.lane_offset
+                values.extend((vertical_leg_x, target.x))
                 continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
                 raise ExitTurnInvariantError(

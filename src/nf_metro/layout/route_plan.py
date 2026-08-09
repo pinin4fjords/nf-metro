@@ -413,7 +413,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
             "exit-turn-plan": _registry(
                 _reasons(
                     _NO_PLANNED_TURN_FOR_FAMILY,
-                    "unsupported-family:bottom-exit-junction",
                     "unsupported-family:entry-runway-fallback",
                     "unsupported-family:intra-section-fallback",
                     "unsupported-family:left-exit-far-side-left-entry-wrap",
@@ -428,6 +427,8 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _NO_PLANNED_TURN_FOR_SUBSHAPE,
+                    "unsupported-subshape:bottom-exit-junction-right-landings",
+                    "unsupported-subshape:bottom-exit-junction-via-gap",
                     "unsupported-subshape:bypass-cellmate_gap_drop",
                     "unsupported-subshape:bypass-degenerate-source-seam",
                     "unsupported-subshape:bypass-left_exit_around_below",

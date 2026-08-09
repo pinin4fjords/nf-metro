@@ -2131,6 +2131,84 @@ def _route_around_stack(f: _InterFacts) -> RoutedPath | None:
     return route
 
 
+@dataclass(frozen=True, slots=True)
+class _BottomExitJunctionGeometry:
+    """The plain vertical-drop-then-turn seam shared by planning and emission.
+
+    Only describes the shape ``_route_bottom_exit_junction`` draws when
+    neither the right-landings fan plan nor the inter-section-crossing detour
+    claims the edge -- both draw a different shape this record does not
+    state.
+    """
+
+    vx: float
+    hy: float
+    lane_offset: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+
+
+def _bottom_exit_junction_exit_port(
+    ctx: _RoutingCtx, source_id: str
+) -> tuple[str, str]:
+    """The (exit port id, its section id) a bottom-exit junction descends from."""
+    exit_pid = ctx.bottom_exit_junction_ports[source_id]
+    exit_station = ctx.graph.stations.get(exit_pid)
+    exit_sec = exit_station.section_id if exit_station else None
+    return exit_pid, exit_sec or ""
+
+
+def _bottom_exit_junction_geometry(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    exit_x_offset: Callable[[str], float],
+    members: list[_TaperedMember],
+    tgt_center: float,
+) -> _BottomExitJunctionGeometry:
+    """Resolve the plain bottom-exit-junction seam for *edge*.
+
+    ``lane_offset`` is the rigid perpendicular offset *edge* keeps on both
+    legs (its own displacement from the bundle's exit mean); projecting it
+    through the turn onto the horizontal leg is what makes ``axis_coordinate``
+    the row this line actually turns on.
+    """
+    exit_offs = [exit_x_offset(line_id) for _e, line_id, _s, _t in members]
+    vx = src.x + sum(exit_offs) / len(exit_offs)
+    hy = tgt.y + tgt_center
+    lane_offset = next(s for _e, lid, s, _t in members if lid == edge.line_id)
+    turn_direction = horizontal_direction(tgt.x - vx)
+    run_direction = vertical_direction(hy - src.y)
+    return _BottomExitJunctionGeometry(
+        vx,
+        hy,
+        lane_offset,
+        run_direction,
+        turn_direction,
+        src.y,
+        hy + lane_offset * turn_direction.sign,
+    )
+
+
+def _bottom_exit_junction_is_right_landings(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether a fan plan's right-landings emitter, not the plain L, draws *edge*."""
+    if ctx.is_compatibility_edge(edge):
+        return False
+    query = ctx.graph.fan_plan_query
+    if query is None:
+        return False
+    binding = query.route_emission_for_resolved_edge(
+        ResolvedEdge(edge.source, edge.target, edge.line_id)
+    )
+    return (
+        binding is not None
+        and binding[2].emitter is FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
+    )
+
+
 def _route_bottom_exit_junction(
     edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
 ) -> RoutedPath | None:
@@ -2143,20 +2221,19 @@ def _route_bottom_exit_junction(
     -- so the bundle is built with each line's source offset on both ends and
     ``route_tapered`` sends it down its rigid (``route_along``) path.
     """
-    exit_pid = ctx.bottom_exit_junction_ports[edge.source]
-    exit_src = ctx.graph.stations.get(exit_pid)
-    exit_sec = exit_src.section_id if exit_src else ""
+    exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
 
     def exit_x_offset(line_id: str) -> float:
         if ctx.station_offsets:
-            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec or "")
+            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
         bi, bn = ctx.bundle_info.get((edge.source, edge.target, line_id), (i, n))
         return l_shape_stagger(bi, bn, Direction.D, ctx.offset_step)
 
     members, _, tgt_center = gather_tapered_bundle(ctx, edge)
-    exit_offs = [exit_x_offset(line_id) for _e, line_id, _s, _t in members]
-    vx = src.x + sum(exit_offs) / len(exit_offs)
-    hy = tgt.y + tgt_center
+    geometry = _bottom_exit_junction_geometry(
+        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+    )
+    vx, hy = geometry.vx, geometry.hy
 
     # Each line keeps its source offset on both legs: the channel is anchored
     # on the exit fan, so a per-end taper would detach the descent from the
