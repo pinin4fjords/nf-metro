@@ -2190,7 +2190,7 @@ def _flank_endpoint(axis: ConvergenceTrunkAxis, flank_rank: int) -> float | None
     )
 
 
-def _flank_lane(
+def _counter_running_flank_lane(
     axis: ConvergenceTrunkAxis,
     flank_rank: int,
     obstacle_columns: tuple[float, ...],
@@ -2245,7 +2245,7 @@ def _lane_trunk_flanks(
             )
             if not obstacles:
                 continue
-            coordinate = _flank_lane(
+            coordinate = _counter_running_flank_lane(
                 axis,
                 flank_rank,
                 tuple(other.segment[0][lateral] for other in obstacles),
@@ -2290,7 +2290,7 @@ def _give_way_to(
         axis = settled[obstacle.plan_rank].trunk_axis
         if axis is None:
             continue
-        lane = _flank_lane(
+        lane = _counter_running_flank_lane(
             axis, obstacle.flank_rank, (column,), clearance, curve_radius
         )
         if lane is None:

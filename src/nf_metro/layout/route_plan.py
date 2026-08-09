@@ -521,7 +521,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "convergence landing conflicts with an upstream exit turn",
                 ),
             ),
-            "member-geometry-plan": MappingProxyType(
+            "member-geometry-plan": _registry(
                 _reasons(
                     _MEMBER_HAS_NO_COMPLETE_SEED,
                     "canonical-template-declined-member",
