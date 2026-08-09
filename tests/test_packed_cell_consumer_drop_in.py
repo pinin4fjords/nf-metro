@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nf_metro.layout.constants import OFFSET_STEP
+from nf_metro.layout.constants import BUNDLE_TO_BUNDLE_CLEARANCE, OFFSET_STEP
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing.core import route_edges_centred
 from nf_metro.layout.routing.offsets import compute_station_offsets
@@ -156,6 +156,37 @@ def test_intra_row_wrap_nests_under_inter_row_bypass() -> None:
         f"bypass top lane y={bypass_top:.1f} does not sit above the wrap peak "
         f"y={wrap_peak:.1f}"
     )
+
+
+def test_counter_running_gap_traverses_hold_a_bundle_clearance() -> None:
+    """Opposing lanes over the packed cell stay a bundle clearance apart.
+
+    ``alt``'s bypass into the cell-mate crosses the inter-row gap westward while
+    ``main``'s over-top wrap runs eastward through the same gap.  Two lines
+    travelling opposite directions must never close to bundle pitch, where they
+    read as one bundle rather than two routes.
+    """
+    graph = _layout()
+    gap_top = max(
+        s.bbox_y + s.bbox_h for s in graph.sections.values() if s.bbox_y < 200
+    )
+    gap_bottom = min(s.bbox_y for s in graph.sections.values() if s.bbox_y > 200)
+    legs = [
+        (y1, min(x1, x2), max(x1, x2), 1 if x2 > x1 else -1)
+        for rp in _routes(graph)
+        if rp.is_inter_section
+        for (x1, y1), (x2, y2) in _segments(rp.points)
+        if abs(y1 - y2) <= TOL and abs(x1 - x2) > TOL and gap_top <= y1 <= gap_bottom
+    ]
+    for i, (y_a, lo_a, hi_a, sign_a) in enumerate(legs):
+        for y_b, lo_b, hi_b, sign_b in legs[i + 1 :]:
+            if sign_a == sign_b or min(hi_a, hi_b) - max(lo_a, lo_b) <= TOL:
+                continue
+            assert abs(y_a - y_b) >= BUNDLE_TO_BUNDLE_CLEARANCE - TOL, (
+                f"counter-running gap traverses at y={y_a:.1f} and y={y_b:.1f} "
+                f"sit {abs(y_a - y_b):.1f}px apart, inside the "
+                f"{BUNDLE_TO_BUNDLE_CLEARANCE}px bundle clearance"
+            )
 
 
 def test_junction_feeds_descend_as_one_bundle() -> None:

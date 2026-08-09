@@ -49,6 +49,7 @@ from nf_metro.layout.routing.normalize import (
     _materialize_gap_slots,
     _materialize_trunk_slots,
     _reseat_concentric_flanking,
+    _separate_opposing_inter_row_trunks,
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
@@ -1004,6 +1005,13 @@ def build_member_geometry_execution(
         co_resident = [*candidate_routes, *context_routes]
         _materialize_gap_slots(co_resident, ctx)
         _materialize_trunk_slots(co_resident, ctx)
+        # Trunk-slot materialization compares dip groups, never two flows that
+        # entered one inter-row gap from opposite rows, so counter-running
+        # trunks leave it within bundle pitch of each other and read as one
+        # bundle.  The freeze is the last word on an owned channel, so the
+        # direction bands have to be settled here rather than by the same pass
+        # running after emission, which skips a plan-owned trunk.
+        _separate_opposing_inter_row_trunks(co_resident, ctx)
         _coincide_same_line_tracks(co_resident, ctx)
         _coincide_fanout_opening_descents(co_resident, ctx, settle_frozen_arcs=True)
         _coincide_same_line_fanout_traverses(co_resident, ctx)
