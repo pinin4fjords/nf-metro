@@ -407,7 +407,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:left-exit-far-side-left-entry-wrap",
                     "unsupported-family:merge-trunk",
                     "unsupported-family:near-vertical-same-col-junction",
-                    "unsupported-family:perp-exit",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
                     "unsupported-family:rail-inter-section",
                     "unsupported-family:right-entry-plough-bypass",

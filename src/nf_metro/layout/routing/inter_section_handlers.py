@@ -1436,7 +1436,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         RouteFamilyId.PERP_EXIT,
         "perp-exit",
         lambda f: f.is_perp_exit,
-        lambda f: _route_perp_exit(f.edge, f.src, f.tgt, f.src_col, f.tgt_col, f.ctx),
+        lambda f: _route_perp_exit(f.edge, f.src, f.tgt, f.ctx),
     ),
     # A TB/BT trailing perp exit feeding an entry against the flow (a side entry
     # at/above a downward exit, or a perpendicular entry on the target's far
@@ -1448,7 +1448,9 @@ _INTER_SECTION_RULES: list[_Rule] = [
         RouteFamilyId.TB_PERP_EXIT_OVER,
         "TB perp-exit over",
         lambda f: f.is_tb_perp_exit_against_flow,
-        lambda f: _route_perp_exit_over(f.edge, f.src, f.tgt, f.ctx),
+        lambda f: _route_perp_exit_over(
+            f.edge, _perp_exit_over_geometry(f.edge, f.src, f.tgt, f.ctx), f.ctx
+        ),
     ),
     # Same Y, no obstacle, neither a right- nor a left-entry far-side plough: a
     # straight horizontal run.  A far-side entry (source past the port's outward
@@ -3171,41 +3173,82 @@ def _source_exit_side(graph: MetroGraph, src: Station) -> Direction | None:
     return None
 
 
-def _route_perp_exit_drop(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath | None:
-    """Straight vertical drop from a perpendicular exit into an aligned entry.
+@dataclass(frozen=True, slots=True)
+class _PerpExitGeometry:
+    points: tuple[tuple[float, float], ...]
+    member_offset: float
+    bundle_offsets: tuple[float, ...]
+    target_offsets: tuple[float, ...] | None
+    transition_leg: int | None
+    aligned_drop: bool
+    run_direction: Direction
+    turn_direction: Direction | None
+    launch_coordinate: float | None
+    axis_coordinate: float | None
+    cross_lo: float
+    cross_hi: float
 
-    A TOP/BOTTOM exit on a horizontal-flow section and the TOP/BOTTOM entry it
-    feeds share an X (the target trunk is aligned to the exit), so the
-    inter-section leg is a single straight segment.  Each line drops at the
-    target trunk's per-line X offset so a co-travelling bundle stays parallel
-    down to the port and on into the trunk, merging only at the first real
-    station inside the target.
+
+def _perp_exit_record(
+    points: tuple[tuple[float, float], ...],
+    member_offset: float,
+    bundle_offsets: tuple[float, ...],
+    target_offsets: tuple[float, ...] | None,
+    transition_leg: int | None,
+    *,
+    aligned_drop: bool,
+) -> _PerpExitGeometry:
+    """Complete a perpendicular-exit record from its centreline.
+
+    The route leaves the port along its first leg and, where the centreline
+    turns, runs the second leg across at ``axis_coordinate``.  A centreline
+    whose turn leg has collapsed to a point states no turn: the emitted member
+    is one straight vertical.
     """
-    x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
-    return route_along(
-        edge,
-        [(edge, edge.line_id, 0.0)],
-        [(x, src.y), (x, tgt.y)],
-        base_radius=ctx.curve_radius,
+    run_direction = vertical_direction(points[1][1] - points[0][1])
+    turns = len(points) >= 4 and abs(points[2][0] - points[1][0]) > COORD_TOLERANCE
+    turn_direction = (
+        horizontal_direction(points[2][0] - points[1][0]) if turns else None
+    )
+    if len(points) < 4:
+        cross_lo = cross_hi = points[0][0]
+    else:
+        # The turn leg is horizontal, so each of its ends takes its X shift from
+        # the vertical leg that meets it there (``bundle._right_normal``).
+        cross_lo, cross_hi = sorted(
+            (
+                points[1][0] - member_offset * run_direction.sign,
+                points[2][0]
+                - member_offset * vertical_direction(points[3][1] - points[2][1]).sign,
+            )
+        )
+    return _PerpExitGeometry(
+        points,
+        member_offset,
+        bundle_offsets,
+        target_offsets,
+        transition_leg,
+        aligned_drop,
+        run_direction,
+        turn_direction,
+        None if aligned_drop else points[0][1],
+        None
+        if turn_direction is None
+        else points[1][1] + member_offset * turn_direction.sign,
+        cross_lo,
+        cross_hi,
     )
 
 
-def _route_perp_exit(
-    edge: Edge,
-    src: Station,
-    tgt: Station,
-    src_col: int | None,
-    tgt_col: int | None,
-    ctx: _RoutingCtx,
-) -> RoutedPath | None:
-    """Route a perpendicular (TOP/BOTTOM) exit on a horizontal-flow section.
+def _perp_exit_geometry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> _PerpExitGeometry | None:
+    """Resolve the source seam shared by perpendicular-exit planning and emission.
 
-    A column-aligned drop into a TB/BT trunk is a straight vertical (the trunk
-    is aligned under the exit X by ``_align_drop_target_trunk``); a side entry
-    or a cross-column perpendicular entry goes up and over the source section.
-    Returns ``None`` when *src* is not such an exit.
+    A TOP/BOTTOM exit on a horizontal-flow section either drops straight into a
+    column-aligned TB/BT trunk (``aligned_drop``) or goes up and over the source
+    section (:func:`_perp_exit_over_geometry`).  Returns ``None`` when *src* is
+    not such an exit.
     """
     graph = ctx.graph
     src_port = graph.ports.get(edge.source)
@@ -3217,51 +3260,69 @@ def _route_perp_exit(
     ):
         return None
     tgt_port = graph.ports.get(edge.target)
-    is_aligned_drop = (
+    aligned_drop = (
         tgt_port is not None
         and tgt_port.is_entry
         and tgt_port.side in (PortSide.TOP, PortSide.BOTTOM)
         and tgt.section_id in ctx.tb_sections
-        and src_col == tgt_col
+        and _resolve_section_col(graph, src) == _resolve_section_col(graph, tgt)
     )
-    if is_aligned_drop:
-        return _route_perp_exit_drop(edge, src, tgt, ctx)
-    return _route_perp_exit_over(edge, src, tgt, ctx)
+    if not aligned_drop:
+        return _perp_exit_over_geometry(edge, src, tgt, ctx)
+    # The exit and the trunk below it share an X (``_align_drop_target_trunk``),
+    # so the leg is one straight segment.  Each line drops at the target trunk's
+    # per-line X offset, keeping a co-travelling bundle parallel down to the
+    # port and on into the trunk, merging only at the first station inside it.
+    drop_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
+    return _perp_exit_record(
+        ((drop_x, src.y), (drop_x, tgt.y)),
+        0.0,
+        (),
+        None,
+        None,
+        aligned_drop=True,
+    )
 
 
-def _route_perp_exit_over(
+def _held_corridor_y(
+    ctx: _RoutingCtx,
+    coordinate: float,
+    *,
+    section_ids: Sequence[str | None],
+    run_start: float,
+    run_end: float,
+) -> float:
+    """*coordinate*, moved the least it takes to sit inside its corridor's band.
+
+    ``None`` sections and an unclaimed boundary both leave the coordinate as it
+    stands: there is no reservation to hold it to.
+    """
+    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
+
+    owned = tuple(item for item in section_ids if item is not None)
+    if not owned or abs(run_end - run_start) <= COORD_TOLERANCE:
+        return coordinate
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=1,
+        section_ids=owned,
+        coordinate=coordinate,
+        run_start=run_start,
+        run_end=run_end,
+    )
+    if band is None:
+        return coordinate
+    return min(max(coordinate, band.lo), band.hi)
+
+
+def _perp_exit_over_geometry(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath:
-    """Up-and-over route from a perpendicular exit that does not drop straight.
+) -> _PerpExitGeometry:
+    """Resolve the up-and-over centreline a perpendicular exit leaves on.
 
-    A TOP/BOTTOM exit on a horizontal-flow section whose target is not a
-    column-aligned vertical drop (a side entry, or a perpendicular entry in
-    another column) leaves the section vertically, rises (TOP) or descends
-    (BOTTOM) into the inter-row header band that clears the source section,
-    runs across, then descends to the target's own row and turns straight in::
-
-        (lift)     (corridor)      (descent)      (into target)
-        port -> up -> over -> down to station Y -> straight into entry
-
-    The polyline above is the bundle's centreline; every co-travelling line is
-    fanned as a perpendicular offset of it by the bundle builder, which anchors
-    each corner on the bundle's innermost-of-turn line so no arc pinches below
-    the floor radius.  The vertical legs carry the source-side riser lateral and
-    the final turn-in carries the target's per-line Y, so a side entry tapers
-    between the two while a perp-entry trunk drop stays rigid.
-
-    When a perpendicular entry sits on the far side of the target from the
-    exit-side corridor (a BOTTOM exit feeding a TOP entry, or the mirror), a
-    straight descent on the trunk X would run through the target's stations.
-    Such a route crosses to the inter-column gap, rises/descends there to the
-    entry-side corridor outside the box, and turns the final leg into the port
-    from the port's own side.
-
-    This is the exit end of the up-and-over shape whose entry end is
-    ``tb_handlers._route_perp_entry_from_corridor``; both seat their bundle on
-    the per-line lateral from ``perp._perp_riser_lateral`` (see that module for
-    the TOP vs BOTTOM sign convention) so the two legs stay parallel across the
-    shared port.
+    ``member_offset`` is *edge*'s own lateral on the centreline's vertical legs;
+    ``cross_lo``/``cross_hi`` bound the X the emitted turn leg spans once that
+    lateral is applied.  See :func:`_route_perp_exit_over` for the shape.
     """
     graph = ctx.graph
     sx, sy = src.x, src.y
@@ -3302,13 +3363,26 @@ def _route_perp_exit_over(
             graph, src_col, tgt_col, row, reserved=ctx.reserved_bands.columns
         )
 
-    # Corridor Y: the header band clearing the source section's near edge.
-    cy_base = (
-        header_corridor_y(graph, row, below=not is_top, base_radius=base, default=sy)
-        if row is not None
-        else sy - base
-        if is_top
-        else sy + base
+    # Corridor Y: the header band clearing the source section's near edge, held
+    # inside the clearance the corridor it crosses owes.  The header band is
+    # derived from whichever grid edges the handler has to hand, which overstates
+    # the obstruction; the reservation raised over the drawn leg measures the
+    # real one, and a planned turn axis is frozen against later settlement, so
+    # the axis has to be stated where the reservation wants it.
+    cy_base = _held_corridor_y(
+        ctx,
+        (
+            header_corridor_y(
+                graph, row, below=not is_top, base_radius=base, default=sy
+            )
+            if row is not None
+            else sy - base
+            if is_top
+            else sy + base
+        ),
+        section_ids=(src.section_id, tgt.section_id),
+        run_start=sx,
+        run_end=tx,
     )
 
     perp_entry = (
@@ -3316,86 +3390,172 @@ def _route_perp_exit_over(
         and tgt_port.is_entry
         and tgt_port.side in (PortSide.TOP, PortSide.BOTTOM)
     )
-    if perp_entry:
-        assert tgt_port is not None
-        entry_above = tgt_port.side == PortSide.TOP
-        crosses_box = (cy_base > ty) if entry_above else (cy_base < ty)
-        if crosses_box:
-            # The exit-side corridor sits on the far side of the target from its
-            # entry port, so a straight descent on the trunk X would run up
-            # through the target's stations.  Cross to the inter-column gap,
-            # switch to the entry-side corridor outside the target box, then turn
-            # the final perpendicular leg in from the port's own side.
-            gap_x = inter_col_gap_x()
-            # The exit-side down-leg drops at the exit X and runs across only to
-            # the inter-column gap, so it need clear just the source column's
-            # sections, not the row's deepest section in a far column (which
-            # would loop the leg to the canvas bottom around a box it never
-            # passes under).
-            cy_down = (
-                header_corridor_y(
-                    graph,
-                    row,
-                    below=not is_top,
-                    base_radius=base,
-                    default=sy,
-                    col=src_sec.grid_col if src_sec is not None else None,
-                )
-                if row is not None
-                else cy_base
-            )
-            cy_entry = (
-                header_corridor_y(
-                    graph,
-                    tgt_sec.grid_row,
-                    below=not entry_above,
-                    base_radius=base,
-                    default=ty,
-                )
-                if tgt_sec is not None
-                else (ty - base if entry_above else ty + base)
-            )
-            centerline = [
-                (sx, sy),
-                (sx, cy_down),
-                (gap_x, cy_down),
-                (gap_x, cy_entry),
-                (tx, cy_entry),
-                (tx, ty),
-            ]
-        else:
-            # Perpendicular entry: descend straight on the target trunk's per-line
-            # X and stop there.  The matching entry drop continues from that same
-            # X, so ending the corridor short of the port centre keeps the two
-            # legs one continuous line instead of jogging onto the port marker.
-            centerline = [(sx, sy), (sx, cy_base), (tx, cy_base), (tx, ty)]
-        route = route_along(
-            edge,
-            [(edge, edge.line_id, src_offs[edge.line_id])],
-            centerline,
-            base_radius=ctx.curve_radius,
-            bundle_offsets=[src_offs[lid] for lid in line_ids],
-        )
-    else:
+    if not perp_entry:
         # Side entry: descend in the inter-column gap to the consumer's row and
         # turn straight in, holding each line on the target section's per-line Y
         # so the bundle stays stacked into the station marker rather than
         # collapsing onto the entry-port Y (which would hide all but one line).
         gap_x = inter_col_gap_x()
-        centerline = [
+        return _perp_exit_record(
+            ((sx, sy), (sx, cy_base), (gap_x, cy_base), (gap_x, ty), (tx, ty)),
+            src_offs[edge.line_id],
+            tuple(src_offs[lid] for lid in line_ids),
+            tuple(_get_offset(ctx, edge.target, lid) for lid in line_ids),
+            3,
+            aligned_drop=False,
+        )
+
+    assert tgt_port is not None
+    entry_above = tgt_port.side == PortSide.TOP
+    crosses_box = (cy_base > ty) if entry_above else (cy_base < ty)
+    if crosses_box:
+        # The exit-side corridor sits on the far side of the target from its
+        # entry port, so a straight descent on the trunk X would run up through
+        # the target's stations.  Cross to the inter-column gap, switch to the
+        # entry-side corridor outside the target box, then turn the final
+        # perpendicular leg in from the port's own side.
+        gap_x = inter_col_gap_x()
+        # The exit-side down-leg drops at the exit X and runs across only to the
+        # inter-column gap, so it need clear just the source column's sections,
+        # not the row's deepest section in a far column (which would loop the leg
+        # to the canvas bottom around a box it never passes under).
+        cy_down = (
+            header_corridor_y(
+                graph,
+                row,
+                below=not is_top,
+                base_radius=base,
+                default=sy,
+                col=src_sec.grid_col if src_sec is not None else None,
+            )
+            if row is not None
+            else cy_base
+        )
+        cy_entry = (
+            header_corridor_y(
+                graph,
+                tgt_sec.grid_row,
+                below=not entry_above,
+                base_radius=base,
+                default=ty,
+            )
+            if tgt_sec is not None
+            else (ty - base if entry_above else ty + base)
+        )
+        points: tuple[tuple[float, float], ...] = (
             (sx, sy),
-            (sx, cy_base),
-            (gap_x, cy_base),
-            (gap_x, ty),
+            (sx, cy_down),
+            (gap_x, cy_down),
+            (gap_x, cy_entry),
+            (tx, cy_entry),
             (tx, ty),
-        ]
-        tgt_offs = {lid: _get_offset(ctx, edge.target, lid) for lid in line_ids}
-        routes = build_tapered_bundle(
-            [(edge, edge.line_id, src_offs[edge.line_id], tgt_offs[edge.line_id])],
-            centerline,
-            transition_leg=3,
+        )
+    else:
+        # Perpendicular entry: descend straight on the target trunk's per-line X
+        # and stop there.  The matching entry drop continues from that same X, so
+        # ending the corridor short of the port centre keeps the two legs one
+        # continuous line instead of jogging onto the port marker.
+        points = ((sx, sy), (sx, cy_base), (tx, cy_base), (tx, ty))
+    return _perp_exit_record(
+        points,
+        src_offs[edge.line_id],
+        tuple(src_offs[lid] for lid in line_ids),
+        None,
+        None,
+        aligned_drop=False,
+    )
+
+
+def _route_perp_exit(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> RoutedPath | None:
+    """Route a perpendicular (TOP/BOTTOM) exit on a horizontal-flow section.
+
+    A column-aligned drop into a TB/BT trunk is a straight vertical; a side
+    entry or a cross-column perpendicular entry goes up and over the source
+    section.  Returns ``None`` when *src* is not such an exit.
+    """
+    geometry = _perp_exit_geometry(edge, src, tgt, ctx)
+    if geometry is None:
+        return None
+    if geometry.aligned_drop:
+        return _route_perp_exit_drop(edge, geometry, ctx)
+    return _route_perp_exit_over(edge, geometry, ctx)
+
+
+def _route_perp_exit_drop(
+    edge: Edge, geometry: _PerpExitGeometry, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Straight vertical drop from a perpendicular exit into an aligned entry.
+
+    A TOP/BOTTOM exit on a horizontal-flow section and the TOP/BOTTOM entry it
+    feeds share an X (the target trunk is aligned to the exit), so the
+    inter-section leg is a single straight segment.
+    """
+    return route_along(
+        edge,
+        [(edge, edge.line_id, geometry.member_offset)],
+        list(geometry.points),
+        base_radius=ctx.curve_radius,
+    )
+
+
+def _route_perp_exit_over(
+    edge: Edge, geometry: _PerpExitGeometry, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Up-and-over route from a perpendicular exit that does not drop straight.
+
+    A TOP/BOTTOM exit on a horizontal-flow section whose target is not a
+    column-aligned vertical drop (a side entry, or a perpendicular entry in
+    another column) leaves the section vertically, rises (TOP) or descends
+    (BOTTOM) into the inter-row header band that clears the source section,
+    runs across, then descends to the target's own row and turns straight in::
+
+        (lift)     (corridor)      (descent)      (into target)
+        port -> up -> over -> down to station Y -> straight into entry
+
+    The polyline above is the bundle's centreline; every co-travelling line is
+    fanned as a perpendicular offset of it by the bundle builder, which anchors
+    each corner on the bundle's innermost-of-turn line so no arc pinches below
+    the floor radius.  The vertical legs carry the source-side riser lateral and
+    the final turn-in carries the target's per-line Y, so a side entry tapers
+    between the two while a perp-entry trunk drop stays rigid.
+
+    When a perpendicular entry sits on the far side of the target from the
+    exit-side corridor (a BOTTOM exit feeding a TOP entry, or the mirror), a
+    straight descent on the trunk X would run through the target's stations.
+    Such a route crosses to the inter-column gap, rises/descends there to the
+    entry-side corridor outside the box, and turns the final leg into the port
+    from the port's own side.
+
+    This is the exit end of the up-and-over shape whose entry end is
+    ``tb_handlers._route_perp_entry_from_corridor``; both seat their bundle on
+    the per-line lateral from ``perp._perp_riser_lateral`` (see that module for
+    the TOP vs BOTTOM sign convention) so the two legs stay parallel across the
+    shared port.
+    """
+    if geometry.target_offsets is None:
+        route = route_along(
+            edge,
+            [(edge, edge.line_id, geometry.member_offset)],
+            list(geometry.points),
             base_radius=ctx.curve_radius,
-            bundle_offsets=[(src_offs[lid], tgt_offs[lid]) for lid in line_ids],
+            bundle_offsets=list(geometry.bundle_offsets),
+        )
+    else:
+        assert geometry.transition_leg is not None
+        target_offset = _get_offset(ctx, edge.target, edge.line_id)
+        routes = build_tapered_bundle(
+            [(edge, edge.line_id, geometry.member_offset, target_offset)],
+            list(geometry.points),
+            transition_leg=geometry.transition_leg,
+            base_radius=ctx.curve_radius,
+            bundle_offsets=list(
+                zip(geometry.bundle_offsets, geometry.target_offsets, strict=True)
+            ),
         )
         route = next((r for r in routes if r.line_id == edge.line_id), None)
 

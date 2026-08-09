@@ -69,6 +69,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _merge_branch_lead_x,
     _merge_entry_route_kind,
     _MergeEntryRoute,
+    _perp_exit_geometry,
     _tb_bottom_exit_around_stack_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
@@ -87,7 +88,7 @@ from nf_metro.layout.routing.orientation import (
     lateral_axis,
     lateral_order_sign,
 )
-from nf_metro.layout.routing.perp import _perp_entry_crossing_x
+from nf_metro.layout.routing.perp import _perp_entry_crossing_x, _perp_riser_lateral
 from nf_metro.parser.model import Edge, MetroGraph, PortSide
 from nf_metro.parser.route_topology import (
     ConnectorId,
@@ -107,6 +108,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TOP_ENTRY_L_SHAPE,
         RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
         RouteFamilyId.TB_BOTTOM_EXIT,
+        RouteFamilyId.PERP_EXIT,
     }
 )
 
@@ -448,6 +450,24 @@ def _source_lane_order(
 ) -> tuple[tuple[str, float], ...] | None:
     if ctx.station_offsets is None:
         return None
+    exit_port = ctx.graph.ports.get(exit_port_id)
+    # A TOP/BOTTOM exit off a horizontal-flow section leaves on the riser
+    # lateral, which reflects the per-line offset on a BOTTOM port; the
+    # vertical-flow section lane frame ranks those lanes the other way round.
+    perpendicular_exit = (
+        exit_port is not None
+        and exit_port.side in (PortSide.TOP, PortSide.BOTTOM)
+        and section_id not in ctx.tb_sections
+    )
+
+    def vertical_lateral(line_id: str) -> float:
+        if perpendicular_exit:
+            assert exit_port is not None
+            return _perp_riser_lateral(
+                ctx, exit_port_id, line_id, exit_port.side, section_id
+            )
+        return _tb_x_offset(ctx, source_id, line_id, section_id)
+
     graph_rank = {line_id: rank for rank, line_id in enumerate(ctx.graph.lines)}
     values = []
     for line_id in line_ids:
@@ -463,8 +483,7 @@ def _source_lane_order(
         lateral_coordinate = (
             ctx.graph.stations[source_id].y + offset
             if run_direction in {Direction.R, Direction.L}
-            else ctx.graph.stations[source_id].x
-            + _tb_x_offset(ctx, source_id, line_id, section_id)
+            else ctx.graph.stations[source_id].x + vertical_lateral(line_id)
         )
         values.append((line_id, offset, lateral_coordinate))
     if len({coordinate for _line, _offset, coordinate in values}) != len(values):
@@ -519,6 +538,37 @@ def _source_turn_requirement(
             geometry.launch_coordinate,
             abs(geometry.axis_coordinate - geometry.launch_coordinate),
             geometry.axis_coordinate,
+        )
+    if family_id is RouteFamilyId.PERP_EXIT:
+        if source_run_direction not in {Direction.U, Direction.D}:
+            return _SourceTurnRequirement(
+                None,
+                None,
+                None,
+                None,
+                None,
+                "unsupported-subshape:nonvertical-perp-exit",
+            )
+        perp_geometry = _perp_exit_geometry(edge, src, tgt, ctx)
+        assert perp_geometry is not None
+        if perp_geometry.turn_direction is None:
+            return _SourceTurnRequirement(
+                perp_geometry.run_direction,
+                None,
+                None,
+                None,
+                None,
+            )
+        assert (
+            perp_geometry.launch_coordinate is not None
+            and perp_geometry.axis_coordinate is not None
+        )
+        return _SourceTurnRequirement(
+            perp_geometry.run_direction,
+            perp_geometry.turn_direction,
+            perp_geometry.launch_coordinate,
+            abs(perp_geometry.axis_coordinate - perp_geometry.launch_coordinate),
+            perp_geometry.axis_coordinate,
         )
     if family_id is RouteFamilyId.SAME_Y_STRAIGHT:
         if source_run_direction not in {Direction.R, Direction.L}:
@@ -960,6 +1010,32 @@ def _continuation_lane_ownership(
         ):
             return (), (), "unresolved-perpendicular-entry-seam"
         return (), (), None
+
+    if family_id is RouteFamilyId.PERP_EXIT:
+        source_offsets = dict(offsets)
+        source_offsets[source_id, line_id] = desired
+        seam_ctx = replace(ctx, station_offsets=source_offsets, built_routes=[])
+        resolved_edge = ResolvedEdge(source_id, entry_id, line_id)
+        edge = _graph_edge(ctx.edge_by_key, resolved_edge)
+        source, target = graph.edge_endpoints(edge)
+        geometry = _perp_exit_geometry(edge, source, target, seam_ctx)
+        assert geometry is not None
+        # A column-aligned drop lands on the target trunk's own per-line X, which
+        # the crossing oracle does not describe; the generic in-section walk below
+        # is what owns that lane.
+        if not geometry.aligned_drop:
+            target_crossing = _perp_entry_crossing_x(
+                seam_ctx,
+                entry_id,
+                line_id,
+                target.x,
+            )
+            if (
+                target_crossing is None
+                or abs(geometry.cross_lo - target_crossing) > COORD_TOLERANCE
+            ):
+                return (), (), "unresolved-perpendicular-entry-seam"
+            return (), (), None
 
     stations = []
     transitions = []
@@ -2094,6 +2170,16 @@ def _planned_axis_cross_range(
             source_offsets = dict(ctx.station_offsets or {})
             source_offsets[edge.source, edge.line_id] = lane.planned_offset
             tentative_ctx = replace(ctx, station_offsets=source_offsets)
+            if assignment.planned_family_id is RouteFamilyId.PERP_EXIT:
+                perp_geometry = _perp_exit_geometry(
+                    _graph_edge(ctx.edge_by_key, edge),
+                    source,
+                    target,
+                    tentative_ctx,
+                )
+                assert perp_geometry is not None
+                values.extend((perp_geometry.cross_lo, perp_geometry.cross_hi))
+                continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
                 raise ExitTurnInvariantError(
                     _failure(plan, "vertical turn axis has no production geometry")
