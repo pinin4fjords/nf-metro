@@ -414,7 +414,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _NO_PLANNED_TURN_FOR_FAMILY,
                     "unsupported-family:bottom-exit-junction",
-                    "unsupported-family:bypass-family",
                     "unsupported-family:entry-runway-fallback",
                     "unsupported-family:intra-section-fallback",
                     "unsupported-family:left-exit-far-side-left-entry-wrap",
@@ -429,6 +428,10 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _NO_PLANNED_TURN_FOR_SUBSHAPE,
+                    "unsupported-subshape:bypass-cellmate_gap_drop",
+                    "unsupported-subshape:bypass-degenerate-source-seam",
+                    "unsupported-subshape:bypass-left_exit_around_below",
+                    "unsupported-subshape:bypass-packed_cell_same_row",
                     "unsupported-subshape:degenerate-horizontal-straight",
                     "unsupported-subshape:left-entry-corridor",
                     "unsupported-subshape:left-entry-left_exit_drop",
@@ -455,6 +458,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
                     "fixed-anchor-owned-by-another-plan",
                     "fixed-axis-conflict",
+                    "gap-bundle-owns-the-descent-column",
                     "linear-entry-frame-ownership-conflict",
                     "overlapping-planned-turn-axes",
                     "planned-axis-overlaps-compatibility-channel",

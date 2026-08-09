@@ -1496,7 +1496,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
             and ctx.station_offsets is not None
             and ctx.station_offsets[(edge.source, edge.line_id)] == pytest.approx(8.0)
         ):
-            return RouteFamilyId.BYPASS_FAMILY
+            return RouteFamilyId.MERGE_TRUNK
         return family
 
     monkeypatch.setattr(exit_turns, "classify_inter_section_family", classify)
@@ -1504,7 +1504,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
     plan = _plan_for_source(observation, "__junction_37")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "unsupported-family:bypass-family"
+    assert plan.legacy_reason == "unsupported-family:merge-trunk"
     assert plan.axes == ()
     assert plan.lane_transitions == ()
     assert all(lane.station_ids == () for lane in plan.source_lanes)
