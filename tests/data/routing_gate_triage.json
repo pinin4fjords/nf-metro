@@ -219,12 +219,24 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
+  "convergences.py::and plan.trunk_axis is not None::#1": {
+    "note": "_settle_opposing_landing_channels carries the trunk flank only when the landing it re-seated is the plan's primary trunk member. A plan naming a primary trunk member always states the trunk axis that member travels, so the false arm is unreachable through this conjunction; it narrows the Optional for the flank move below.",
+    "status": "defensive"
+  },
+  "convergences.py::and plan.trunk_axis.axis is landing.approach_axis::#1": {
+    "note": "The flank follows a re-seated landing only where flank and landing are measured on one axis. Every primary-trunk landing the corpus re-seats approaches on its own trunk's axis, so the false arm wants a fixture whose trunk travels one axis while its primary trunk member's landing approaches on the other -- a perpendicular approach into a convergence, which is the class the widened scope newly admits. Reachable.",
+    "status": "needs-review"
+  },
   "convergences.py::for candidate_coordinate in direct_candidates:::#1": {
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
   },
+  "convergences.py::for obstacle in obstacles:::#1": {
+    "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident.",
+    "status": "needs-review"
+  },
   "convergences.py::if (::#12": {
-    "note": "_system_conflict's SHARED_TRUNK_CHANNEL condition for two non-central trunk runs that travel the same way off one source: same-line runs that leave daylight between them, distinct-line runs closer than one cotravelling lane step, or a turn crossing the other's shared run. A new gate whose ordinal collided with a pre-existing baseline key, so the ratchet acknowledged it without a verdict. The pairing reaches this test on 7 fixtures and every pair is reconciled, because _settle_shared_trunk_channels lanes them first. Reachable; a fixture is a topology the planner declares it cannot own.",
+    "note": "_system_conflict's SHARED_TRUNK_CHANNEL condition for two non-central trunk runs that travel the same way off one source: same-line runs that leave daylight between them, distinct-line runs closer than one cotravelling lane step, or a turn crossing the other's shared run. Measured with _settle_shared_trunk_channels neutralised, this arm still fires on no corpus fixture, so settlement is not what keeps it silent: construction already seats same-line flanks off one source at separation 0 and distinct-line flanks at exactly one OFFSET_STEP, which are the two targets the condition measures against. Reachable only where the trial approaches two carriers take give one source two different flank columns.",
     "status": "needs-review"
   },
   "convergences.py::if (::#14": {
@@ -240,7 +252,7 @@
     "status": "candidate-dead"
   },
   "convergences.py::if (::#4": {
-    "note": "_opposing_landing_approaches' SHARED_APPROACH_CHANNEL condition: two feeders of one line whose approach runs stand on one coordinate travelling against each other. The loop reaches this pair test on 17 fixtures, so the shape of the scan is exercised; only the conflicting pair is absent, because _settle_opposing_landing_channels resolves the opposing pairs the corpus does produce before the check runs. Reachable -- the conflict is still constructed and still escalates its system to the compatibility disposition -- but a fixture for it is a topology the planner declares it cannot own, which is the population #1658 exists to eliminate. Wants a fixture only once a residual opposing pair is found that settlement genuinely cannot lane.",
+    "note": "_opposing_landing_approaches' SHARED_APPROACH_CHANNEL condition: two feeders of one line whose approach runs stand on one coordinate travelling against each other. The loop reaches this pair test on 17 fixtures, so the shape of the scan is exercised. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap, at separation 0 with 150px of overlap, so that pass alone is what keeps it silent; the two opening passes account for none of it. Reachable. Reaching it is now a feasibility refusal rather than a change of emitter -- see #1712.",
     "status": "needs-review"
   },
   "convergences.py::if (::#9": {
@@ -267,6 +279,10 @@
     "note": "Pre-existing gap, re-keyed from #2 by the newly inserted packing gates (unchanged [0,18] split). The `axis is None` half cannot fire: callers filter on plan.owns_geometry and owns_geometry => trunk_axis is not None is asserted at 4 sites. The DemandAxis.Y half is unsettled -- a vertical trunk axis is constructible in code (_direct_axis_points / _shared_terminal_axis yield Y for a vertical approach) but no corpus topology produces one; if a TB convergence trunk is shown constructible this reclassifies reachable-but-benign (the guard returns the right empty answer).",
     "status": "defensive"
   },
+  "convergences.py::if axis is None:::#4": {
+    "note": "A resident flank in _give_way_to was seated from a plan whose trunk axis was read to build it, so the plan still states one. The guard narrows the Optional before the flank move.",
+    "status": "defensive"
+  },
   "convergences.py::if coordinate is None:::#3": {
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
@@ -274,6 +290,10 @@
   "convergences.py::if coordinate is not None:::#3": {
     "note": "Pre-existing gap, re-keyed from #2 by the newly inserted packing gates (unchanged [0,2] split). _nearest_lane's fall-through when no flank candidate clears the runway: it runs 9 times, always against a single obstacle, and in 5 of those one of the two candidates is already rejected by the curve-radius runway test, so a shorter flank runway rejects both. Reachable; wants a fixture.",
     "status": "needs-review"
+  },
+  "convergences.py::if endpoint is None:::#2": {
+    "note": "_flank_lane needs the endpoint its flank turns onto to price the runway. ConvergenceTrunkAxis states source and target endpoint coordinates together or not at all, and every construction site in this module passes both, so the arm guards the Optional rather than a shape the planner builds.",
+    "status": "defensive"
   },
   "convergences.py::if first.claimant_member_ids & second.claimant_member_ids:::#1": {
     "note": "_channels_share_source_carrier's shared-claimant shortcut. Its sole caller is _validate_final_convergence_feasibility, which pairs a convergence plan channel against a frozen member channel; the intersection is non-empty only when the plan's channel names the very member it is compared with, which no corpus fixture produces. Reachable in principle, wants a fixture.",
@@ -284,11 +304,27 @@
     "status": "needs-review"
   },
   "convergences.py::if first_delta * second_delta < 0:::#1": {
-    "note": "OPPOSING_OPENING_CHANNEL: two arms of one line that turn on one shared column and then open to opposite sides of their source. Six fixtures reach the test with a genuine shared-opening pair, and in every one the two trunks open the same way, which the code below reads as one stroke branching to several destinations. Reachable -- _settle_shared_opening_pivots and _settle_shared_source_openings fuse the opposing pairs the corpus produces, and the conflict is what remains when they cannot -- but a fixture for it renders through the compatibility fallback.",
+    "note": "OPPOSING_OPENING_CHANNEL: two arms of one line that turn on one shared column and then open to opposite sides of their source. Six fixtures reach the test with a genuine shared-opening pair, and in every one the two trunks open the same way, which the code below reads as one stroke branching to several destinations. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap; neutralising _settle_shared_opening_pivots and _settle_shared_source_openings does not, and the pivot pass cannot suppress it in any case because its group key partitions by the travel direction of flank 1. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
     "status": "needs-review"
   },
   "convergences.py::if first_plan.trunk_axis.axis is DemandAxis.X:::#1": {
     "note": "The Y-axis half of the opening-arm delta measurement. Six fixtures reach it and all take the X half, for the one root cause shared with this module's other DemandAxis.X scope guards: no corpus topology produces a vertical convergence trunk. Not a guard -- both halves are correct code for their axis -- so it is reachable exactly when a vertical trunk axis is. What would settle it is a TB convergence whose _direct_axis_points / _shared_terminal_axis yields DemandAxis.Y.",
+    "status": "needs-review"
+  },
+  "convergences.py::if forked:::#2": {
+    "note": "_landing_gives_way_to_flank joins the landing to the flank's column when the two are one stroke off a shared fork, and steps it one clearance off otherwise. Neither arm is reached because _flank_settled_column never declines on the corpus: all 32 crowded landing/flank pairs seat with 9px to spare. Reachable; a fixture needs an inter-column gap below MERGE_GAP_MIN carrying a chained convergence.",
+    "status": "needs-review"
+  },
+  "convergences.py::if landing.member_id == landing_plan.primary_trunk_member_id:::#1": {
+    "note": "Moving a primary trunk member's landing has to carry its trunk flank, which the give-way path does not do, so that member declines instead. Un-exercised for the same reason as `if forked:::#2`: the decline this guard sits inside is not reached on the corpus. Reachable.",
+    "status": "needs-review"
+  },
+  "convergences.py::if landing.opening_turn_segment is not None:::#1": {
+    "note": "_reseat_landing_cross moves a stated opening turn where there is one, and otherwise states the crossing coordinate through the approach runway. The false arm is the perpendicular and no-opening-turn class the widened _settle_opposing_landing_channels scope newly admits; corpus-wide every counter-running same-line pair that conflicts states an opening turn, so the arm is reached by no fixture. Reachable.",
+    "status": "needs-review"
+  },
+  "convergences.py::if lane is None:::#1": {
+    "note": "A resident asked to give way that has no reachable lane of its own either. Un-entered because the give-way path itself is un-entered on the corpus. Reachable; a fixture is a channel with no seat for either run, which is the population #1712 exists to give room to.",
     "status": "needs-review"
   },
   "convergences.py::if not carries_coupled_primary and any(::#1": {
@@ -299,8 +335,12 @@
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
   },
+  "convergences.py::if not obstacles:::#2": {
+    "note": "The ordinal moved when the endpoint check left this condition; the arm is the ordinary no-crowding case _lane_trunk_flanks takes on most plans.",
+    "status": "defensive"
+  },
   "convergences.py::if opposing_approaches is not None:::#1": {
-    "note": "The escalation arm for the SHARED_APPROACH_CHANNEL conflict _opposing_landing_approaches reports. Un-exercised for exactly the reason that helper's own pair test is (`convergences.py::if (::#4`): the helper is called on 18 fixtures and returns None on every one. Reachable; closing it and closing #4 are the same fixture.",
+    "note": "The refusal arm for the SHARED_APPROACH_CHANNEL conflict _opposing_landing_approaches reports. Un-exercised for exactly the reason that helper's own pair test is (`convergences.py::if (::#4`): the helper is called on 18 fixtures and returns None on every one. Reachable; closing it and closing #4 are the same fixture.",
     "status": "needs-review"
   },
   "convergences.py::if plan.edge in owned_edges:::#1": {
@@ -319,9 +359,17 @@
     "note": "_pack_cotravelling_corridor_runs skips a plan with no X-axis trunk run. _trunk_corridor_run returns None only when trunk_axis is absent or is DemandAxis.Y; every plan reaching here is owns_geometry, and owns_geometry => trunk_axis is not None is asserted at four call sites. One root cause with the module's other DemandAxis.X scope guards: no corpus topology produces a vertical convergence trunk (346 calls, all X).",
     "status": "defensive"
   },
-  "convergences.py::if same_line and first_direction is not second_direction:::#1": {
-    "note": "SHARED_TRUNK_CHANNEL for the same-line counter-running pairs _settle_shared_trunk_channels declined to lane: a flank with no endpoint to measure a lane against, one whose every candidate lane is boxed in, and a rank-1/rank-3 pair whose listed directions oppose while their travel directions agree. Seven fixtures reach the test and every crowded pair is either distinct-line or co-travelling. Reachable; a fixture is a topology whose flanks the laning pass cannot separate, which renders through the compatibility fallback.",
+  "convergences.py::if runway < curve_radius - COORD_TOLERANCE:::#2": {
+    "note": "_reseat_landing_cross refusing a seat that costs the approach corner its radius, on the runway-stated branch. Un-exercised because that branch is itself un-exercised; see `if landing.opening_turn_segment is not None:::#1`. Reachable.",
     "status": "needs-review"
+  },
+  "convergences.py::if same_line and first_direction is not second_direction:::#1": {
+    "note": "SHARED_TRUNK_CHANNEL for a same-line pair whose outward and return legs crowd one channel and which _settle_shared_trunk_channels could seat no lane for: both runs boxed in by the obstacles either side of them, since the arriving flank now gives way to a resident and the resident gives way back. Read in the travel frame the laning pass decides in, so it no longer fires on a rank-1/rank-3 pair that pass deliberately fused. Neutralising that pass makes it fire 5 times on merge_around_below_leftmost, all central-run pairs at separation 0 and 6px. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
+    "status": "needs-review"
+  },
+  "convergences.py::landing.member_id == plan.primary_trunk_member_id::#1": {
+    "note": "The first conjunct of the widened flank-carry condition. Its false arm is the ordinary feeder landing, which every fixture re-seating a landing takes; the coverage tool reports the operand separately from the conjunction above it.",
+    "status": "defensive"
   },
   "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
     "note": "Mirror of the leading-flank reject: an interior horizontal whose trailing flank is not vertical. Same H-D-H evidence and the same reason it is not covered by the common.py precedent. Wants a fixture.",
@@ -1241,6 +1289,10 @@
   },
   "reversal.py::if receiver not in reversed_secs:::#1": {
     "note": "BFS dedup guard in _detect_tb_bottom_top_entries: the False arm fires when a TB section is queued as a vertical receiver via two different positive_fan paths. The detection only registers a receiver when a BOTTOM exit PORT directly feeds a TOP entry port (edge.source is the exit port). A TB section reached by two upstream sections is fed through a fork/merge junction, so the edges into its TOP entry originate at the junction, not a port -- the detection skips them and the receiver is never queued twice. A diamond renders (examples/topologies/tb_bottom_exit_fork_diamond.mmd) but does not drive this arm. The guard is correct and necessary to prevent double-queueing and ensure BFS termination should a direct double-feed ever arise.",
+    "status": "defensive"
+  },
+  "system_emission.py::if has_geometry_failure:::#1": {
+    "note": "_system_decider's first precedence step. A member holding no geometry decision at all settles the system before any later owner is consulted. The key was renamed from `if geometry_failure is not None:::#1` when the decision moved into its own function; the arm and its verdict are unchanged.",
     "status": "defensive"
   },
   "tb_handlers.py::if crossing_x is not None:::#1": {

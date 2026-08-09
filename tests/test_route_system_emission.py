@@ -22,6 +22,11 @@ from nf_metro.layout.route_plan import (
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.core import observe_route_edges
+from nf_metro.layout.routing.exit_turns import (
+    PLANNED_EXIT_FAMILIES,
+    _MergeEntryRoute,
+)
+from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
@@ -231,7 +236,13 @@ def test_compatibility_emission_has_one_explicit_reason_and_no_plan_owner() -> N
         for plan in observation.plan.member_geometry_plans
     )
     assert all(
-        reason.justification and reason.follow_up
+        (reason.justification, reason.follow_up)
+        == (
+            ROUTE_SYSTEM_COMPATIBILITY_REASONS[reason.owner][
+                reason.reason
+            ].justification,
+            ROUTE_SYSTEM_COMPATIBILITY_REASONS[reason.owner][reason.reason].follow_up,
+        )
         for system in compatible
         for reason in system.compatibility_reasons
     )
@@ -467,3 +478,38 @@ def test_planned_convergence_never_enters_compatibility_merge_snap(
 
     assert observed_dispositions
     assert any(None in dispositions for dispositions in observed_dispositions)
+
+
+def test_every_reason_a_planner_can_generate_is_registered() -> None:
+    """A reason built from an enum value carries the family that owns it.
+
+    The exit-turn planner names an unsupported family and an unsupported merge
+    entry from the enum member it read, so the registry has to hold every member
+    those two enums can produce. One it does not hold is a route that raises on
+    an unattributable reason instead of falling back.
+    """
+    registered = set(ROUTE_SYSTEM_COMPATIBILITY_REASONS["exit-turn-plan"])
+    generated = {
+        f"unsupported-family:{family.value}"
+        for family in RouteFamilyId
+        if family not in PLANNED_EXIT_FAMILIES
+    } | {
+        f"unsupported-subshape:merge-entry-{kind.value}"
+        for kind in _MergeEntryRoute
+        if kind is not _MergeEntryRoute.L_SHAPE
+    }
+
+    assert generated <= registered
+
+
+def test_a_retained_family_names_its_follow_up_or_states_why_it_is_permanent() -> None:
+    """Every reason resolves to one authored family, not a generated sentence."""
+    for owner, reasons in ROUTE_SYSTEM_COMPATIBILITY_REASONS.items():
+        for reason, family in reasons.items():
+            assert family.justification, f"{owner}:{reason} states no justification"
+            assert reason not in family.justification, (
+                f"{owner}:{reason} restates its own reason instead of explaining it"
+            )
+            assert family.follow_up is None or family.follow_up.startswith(
+                "https://github.com/seqeralabs/nf-metro/issues/"
+            ), f"{owner}:{reason} names a follow-up that is not an issue"

@@ -52,22 +52,46 @@ built from the supplied realised reservations, and the same template-building
 step consumes those bands. Production emission copies the resulting points; it
 does not allocate another planned channel or call the family again.
 
-The decisive compatibility owners are finite:
+The decisive compatibility owners are the four planners, and every reason each
+of them can record belongs to one named family in
+`ROUTE_SYSTEM_COMPATIBILITY_REASONS`. A family states the justification for
+retaining it and either the issue that retires it or nothing, which asserts
+permanent support:
 
-| Owner                  | Deterministic reason source                                                                                                                                                  | Explicit permanent justification                                                                                                                                                                                                                            |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `convergence-plan`     | The exact `UnsupportedConvergenceError` or measured convergence conflict reason, for example `convergence landing conflicts with an upstream exit turn`.                     | The public router accepts custom offset spacing and hand-built geometry that can contradict the runway a complete convergence needs. Established templates emit the whole system in that case. No later pass may reconstruct a partial planned convergence. |
-| `fan-plan`             | The fan candidate's single `legacy_reason`, covering incomplete resolver membership, a foreign local owner, or a frame the planner cannot claim completely.                  | Hand-built graphs and overlapping local layout owners remain valid compatibility inputs. Claiming only part of their fan would be unsound, so established layout and routing own the whole fan.                                                             |
-| `exit-turn-plan`       | The exit group's single `legacy_reason`, covering missing or ambiguous source order, an unsupported production family, a transition inversion, or insufficient fixed runway. | The routing API permits explicit graphs and offset maps without complete semantic ordering. Base offsets and established templates remain the defined behaviour for those inputs.                                                                           |
-| `member-geometry-plan` | A classified member is missing from the emission graph, has no production family, or its canonical family declines to build a complete template.                             | A system cannot be planned when any non-convergence member lacks a complete production seed and explicit immutable channel ownership. The established first-match dispatcher emits the complete system instead.                                             |
+| Owner                  | Family                                  | Retired by                                                                 |
+| ---------------------- | --------------------------------------- | -------------------------------------------------------------------------- |
+| `exit-turn-plan`       | no planned turn for the family          | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                |
+| `exit-turn-plan`       | no planned turn for the subshape        | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                |
+| `exit-turn-plan`       | the turn requirement contradicts itself | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                |
+| `exit-turn-plan`       | another plan holds the anchor           | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                |
+| `exit-turn-plan`       | the authored exit group is incomplete   | permanent: explicit graphs and offset maps are defined inputs              |
+| `exit-turn-plan`       | the turn has no runway                  | permanent: a placement can always be tighter than one curve radius         |
+| `exit-turn-plan`       | the verdict states no geometry          | permanent: it constrains nothing and escalates no system                   |
+| `fan-plan`             | layout owns the fan frame               | permanent: the section allocator or rail emitter fixes that frame          |
+| `fan-plan`             | the resolved fan is incomplete          | permanent: hand-built graphs are valid routing inputs                      |
+| `fan-plan`             | overlapping fan ownership               | [#1711](https://github.com/seqeralabs/nf-metro/issues/1711)                |
+| `fan-plan`             | no planned frame for the fan shape      | [#1711](https://github.com/seqeralabs/nf-metro/issues/1711)                |
+| `convergence-plan`     | the canonical template declined         | [#1713](https://github.com/seqeralabs/nf-metro/issues/1713)                |
+| `convergence-plan`     | an upstream exit turn holds the frame   | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                |
+| `member-geometry-plan` | the member has no complete seed         | permanent: a member the emission graph does not describe cannot be planned |
 
-Each `RouteSystemCompatibilityReason` keeps the owner, the planner's exact
-deterministic reason, and this compatibility justification. An unfamiliar
-reason is not caught by a generic repair owner: it remains attributed to the
-planner that declined the system. These four owners are the complete
-compatibility map. Adding another owner or reason category requires updating
-this table and a test that pins the new deterministic reason; there is no
-open-ended “legacy” owner.
+Each `RouteSystemCompatibilityReason` carries the owner, the planner's exact
+deterministic reason, and that family's justification and follow-up verbatim.
+A reason no family registers is rejected rather than given a generic
+justification, so an unfamiliar reason cannot enter the map unattributed.
+
+No `ConvergenceConflictKind` appears here. Those four conditions name two runs
+of one line the settlement passes could seat no lane between, and the
+established templates draw the same two runs in the same gap, so emitting the
+system through them would state nothing the plan did not while losing its
+attribution. They are refused by `_validate_final_convergence_feasibility`
+after every movable decision is frozen.
+
+A system whose disposition is decided by one owner may still carry a verdict
+from another: a convergence states the geometry of every member it joins, so an
+exit-turn or fan verdict underneath it constrains nothing.
+`RouteSystem.superseded_verdicts` records each one with the owner that overrode
+it, so a system labelled planned is auditable as such.
 
 ## Emitters
 
@@ -96,7 +120,7 @@ recovering semantic ownership from the paths.
 | 1   | `_center_bubble_stations`                  | Reads flat route segments and emits station X move requests.                                                                                                                      |
 | 2   | `_spread_diagonal_bundles`                 | Spreads coincident diagonal bundle members without changing semantic membership.                                                                                                  |
 | 3   | `_materialize_gap_slots`                   | Allocates vertical channels that are not frozen in member templates. Planned member slots were materialized during template construction and their owned segment ranks are fixed. |
-| 4   | `_clear_compatibility_entry_wrap_leadouts` | Moves only compatibility entry-wrap leadouts clear of final sibling descents. Planned and reservation-backed segments are excluded.                                               |
+| 4   | `_clear_compatibility_entry_wrap_leadouts` | Moves entry-wrap leadouts of compatibility systems clear of final sibling descents. Admission is the route-system disposition; reservation-backed segments are excluded as well.  |
 | 5   | `_materialize_trunk_slots`                 | Allocates unowned horizontal trunk bands. Planned member trunk slots were materialized before member freeze, and production skips trunks or flanks touching their owned segments. |
 | 6   | `_separate_opposing_inter_row_trunks`      | Separates counter-running unowned flows in one inter-row gap.                                                                                                                     |
 | 7   | `_reconcile_port_peeloff_risers`           | Re-seats unowned peel-off risers from their settled trunk depths.                                                                                                                 |
@@ -153,7 +177,7 @@ construction time, or are compatibility-only:
 | Bypass, fan-corridor, label-strike, and reserved-band scans                 | Final-geometry construction                   | They compare routed spans with settled section boxes, headers, obstructions, and realised reservation bands.                                                                                                                                                                                                                             |
 | `_classify_merge_edges`                                                     | Compatibility measurement and structural hint | It supplies compatibility merge templates and a longest-bypass candidate. A planned convergence freezes the selected identity and geometry before emission.                                                                                                                                                                              |
 | Convergence-internal canonical trial templates                              | Planner construction                          | A convergence constructs only the trunk and feeder candidates it owns so it can freeze their complete shared geometry. Non-convergence members are never reconstructed here. Final global settlement receives their frozen `RouteMemberGapChannel` records, plus immutable prior-convergence claims, as its only planned channel inputs. |
-| `_clear_compatibility_entry_wrap_leadouts`                                  | Compatibility-only repair                     | It reads final sibling descents after gap-slot materialization and moves only compatibility entry-wrap leadouts without reservation or plan ownership.                                                                                                                                                                                   |
+| `_clear_compatibility_entry_wrap_leadouts`                                  | Compatibility-only repair                     | It reads final sibling descents after gap-slot materialization and moves entry-wrap leadouts, admitting a route only on its system's compatibility disposition and skipping any whose opening a reservation binds.                                                                                                                       |
 | `_land_merge_feeders_on_trunk` and `_drop_covered_merge_entry_hops`         | Compatibility-only repair and suppression     | They are gated away from planned convergence systems and are the retained passes allowed to repair or suppress compatibility merge output.                                                                                                                                                                                               |
 | Planner validators, `assert_render_curve_invariants`, and layout validators | Final-geometry validation                     | They inspect exactly the paths and anchors the renderer will draw; replacing them with pre-emission inference would validate a different object.                                                                                                                                                                                         |
 | `RoutePlanObserver.finish` and reservation realisation                      | Final observation                             | They bind the final paths and measure their actual corridors without changing emission.                                                                                                                                                                                                                                                  |

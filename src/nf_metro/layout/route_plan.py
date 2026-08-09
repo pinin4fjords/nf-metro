@@ -254,111 +254,282 @@ class RouteSystemDisposition(str, Enum):
     COMPATIBILITY = "compatibility"
 
 
-ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {
-        "exit-turn-plan": frozenset(
-            {
-                "ambiguous-continuation",
-                "ambiguous-source-lane-boundary",
-                "continuation-transition-has-no-runway",
-                "family-changed-after-lane-compaction",
-                "fixed-anchor-owned-by-another-plan",
-                "fixed-axis-conflict",
-                "insufficient-fixed-runway",
-                "insufficient-structural-runway",
-                "invalid-source-turn-requirement",
-                "lane-transition-order-inversion",
-                "linear-entry-frame-ownership-conflict",
-                "missing-or-ambiguous-source-order",
-                "missing-outbound-member",
-                "missing-production-family",
-                "missing-source-turn",
-                "multiple-destinations",
-                "opposed-source-run",
-                "overlapping-planned-turn-axes",
-                "planned-axis-overlaps-compatibility-channel",
-                "shared-source-ownership-conflict",
-                "shared-station-lane-collision",
-                "single-member-group",
-                "source-lane-transition-has-no-runway",
-                "unresolved-perpendicular-entry-seam",
-                "unsupported-family:bottom-exit-junction",
-                "unsupported-family:bypass-family",
-                "unsupported-family:left-entry-wrap-family",
-                "unsupported-family:merge-branch",
-                "unsupported-family:merge-trunk",
-                "unsupported-family:near-vertical-same-col-junction",
-                "unsupported-family:perp-exit",
-                "unsupported-family:perp-exit-far-side-entry-wrap",
-                "unsupported-family:right-entry-plough-bypass",
-                "unsupported-family:right-entry-wrap",
-                "unsupported-family:tb-bottom-exit-around-stack",
-                "unsupported-family:tb-perp-exit-over",
-                "unsupported-subshape:degenerate-horizontal-straight",
-                "unsupported-subshape:left-exit-right-entry-step",
-                "unsupported-subshape:merge-entry-straight",
-                "unsupported-subshape:nonvertical-tb-exit",
-                "unsupported-subshape:opposed-horizontal-straight",
-                "unsupported-subshape:unaligned-perpendicular-entry",
-                "unsupported-subshape:vertical-source-horizontal-straight",
-            }
-        ),
-        "fan-plan": frozenset(
-            {
-                "ambiguous-branch-to-join",
-                "ambiguous-resolved-branch-tail",
-                "ambiguous-resolved-fork",
-                "ambiguous-resolved-join",
-                "empty-resolved-member-path",
-                "fan-route-system-has-no-emission-member",
-                "local-layout-has-foreign-owner",
-                "missing-centreline-anchor",
-                "missing-resolved-extra-output-path",
-                "missing-resolved-member-path",
-                "off-track-layout-owns-fan-geometry",
-                "offset-carrier-has-unowned-line",
-                "overlapping-branch-lane-ownership",
-                "overlapping-fan-ownership",
-                "rail-layout-owns-fan-geometry",
-                "same-line-open-fan-layout-owns-geometry",
-                "straight-diamond-layout-owns-geometry",
-                "unsupported-branch-line-transition",
-                "unsupported-fan-direction",
-            }
-        ),
-        "convergence-plan": frozenset(
-            {
-                "convergence alignment conflicts with an upstream exit turn",
-                "convergence landing conflicts with an upstream exit turn",
-                "convergence landing has no approach",
-                "convergence template declined its member",
-                "covered continuation is absent from its carrier",
-                "direct convergence has no emitted terminal approach",
-                "feeder template declined its member",
-                "planned convergence member has no routing family",
-                "planned trunk has no drawable segment",
-                "primary trunk template declined its member",
-                "primary trunk template emitted no shared run",
-                "unsupported convergence shape",
-            }
-        ),
-        "member-geometry-plan": frozenset(
-            {
-                "canonical-template-declined-member",
-                "missing-emission-edge",
-                "missing-production-family",
-            }
-        ),
-    }
+@dataclass(frozen=True, slots=True)
+class CompatibilityFamily:
+    """Why one named family emits through compatibility, and who closes it.
+
+    ``follow_up`` names the issue that retires the family.  ``None`` states
+    permanent support, which ``justification`` then has to earn: the limit is a
+    property of the input or of a frame another owner holds, not a planner the
+    pipeline has yet to teach.
+    """
+
+    justification: str
+    follow_up: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.justification:
+            raise ValueError("a compatibility family states why it is retained")
+        if self.follow_up is not None and not self.follow_up:
+            raise ValueError("a compatibility family's follow-up names an issue")
+
+
+def _reasons(
+    family: CompatibilityFamily, *reasons: str
+) -> dict[str, CompatibilityFamily]:
+    """Assign *family* to each of *reasons*, which share one cause."""
+    return dict.fromkeys(reasons, family)
+
+
+_NO_PLANNED_TURN_FOR_FAMILY = CompatibilityFamily(
+    "The exit-turn planner has no turn sequence, lane order or runway rule for "
+    "this inter-section production family, so it can claim no part of the "
+    "system's source geometry and the established dispatcher emits all of it.",
+    "https://github.com/seqeralabs/nf-metro/issues/1710",
 )
-ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION = (
-    "The owning planner has no complete geometry for this named family; "
-    "the established compatibility templates remain its explicit emitter."
+_NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
+    "The production family is planned, but this degenerate or reversed variant "
+    "of it has no planned turn: the source run and the entry it leads to do not "
+    "meet in the arrangement the family's turn sequence describes.",
+    "https://github.com/seqeralabs/nf-metro/issues/1710",
+)
+_TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
+    "The requirement derived for this exit group states a turn the group cannot "
+    "take: an order that inverts, a run opposed to its own transition, or a "
+    "continuation the group serves more than one of. The planner has no rule "
+    "for choosing between the readings, so it claims none of them.",
+    "https://github.com/seqeralabs/nf-metro/issues/1710",
+)
+_ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
+    "Two owners claim the same anchor, axis, lane or station frame, and the "
+    "precedence between inter-section owners is not yet stated, so neither "
+    "claim can be taken as the one that holds.",
+    "https://github.com/seqeralabs/nf-metro/issues/1441",
+)
+_INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
+    "The routing API accepts explicit graphs and offset maps with no complete "
+    "semantic ordering, and this group is one: its source order, outbound "
+    "member or production family is absent or ambiguous in the input rather "
+    "than undecided by the planner. Base offsets and the established templates "
+    "are the defined behaviour for those inputs, so support is permanent."
+)
+_TURN_HAS_NO_RUNWAY = CompatibilityFamily(
+    "Layout leaves the planned turn less room than one curve radius, so the "
+    "turn the plan would state cannot be drawn where it stands. The shortfall "
+    "is section placement capacity rather than a decision the plan or "
+    "reservation pipeline declines to make, and support is permanent for as "
+    "long as a placement can be tighter than a radius."
+)
+_STATES_NO_GEOMETRY = CompatibilityFamily(
+    "The verdict constrains no geometry: a single-member exit group has no lane "
+    "order and no shared axis to plan. It is recorded for attribution and never "
+    "escalates a system, so there is nothing to retire."
+)
+_LAYOUT_OWNS_THE_FAN_FRAME = CompatibilityFamily(
+    "The section allocator, the rail emitter or an overlapping local layout "
+    "owns this fan's frame. Claiming part of a fan whose frame another owner "
+    "fixes would state geometry the emitter does not draw, so established "
+    "layout and routing own the whole fan and support is permanent."
+)
+_INCOMPLETE_RESOLVED_FAN = CompatibilityFamily(
+    "The fan's resolved membership is incomplete in the input: a missing or "
+    "empty member path, an unanchored centreline, or a fork, join or branch "
+    "tail with more than one reading. Hand-built graphs are valid routing "
+    "inputs, so support for emitting them through the established templates is "
+    "permanent."
+)
+_OVERLAPPING_FAN_OWNERSHIP = CompatibilityFamily(
+    "Two fan or branch-lane owners claim geometry that overlaps, and the "
+    "planner has no rule for which of them takes the shared part, so it claims "
+    "neither. The membership is fully resolved and the frame is the fan's, so "
+    "what is missing is the precedence rule rather than the plan.",
+    "https://github.com/seqeralabs/nf-metro/issues/1711",
+)
+_NO_PLANNED_FRAME_FOR_FAN_SHAPE = CompatibilityFamily(
+    "The fan is completely resolved, and the planner has no frame for this "
+    "direction or for the line transition its branch takes.",
+    "https://github.com/seqeralabs/nf-metro/issues/1711",
+)
+_CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
+    "The convergence plan is semantically complete, and the canonical template "
+    "it asks for one member declined to build it or built no drawable run. The "
+    "failure is in the construction step beneath a stated plan, so it is the "
+    "template's gap or the plan's overreach rather than a property of the "
+    "input.",
+    "https://github.com/seqeralabs/nf-metro/issues/1713",
+)
+_UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME = CompatibilityFamily(
+    "An upstream exit turn already fixes the axis or landing this convergence "
+    "would state, and the precedence between the two owners is not yet stated.",
+    "https://github.com/seqeralabs/nf-metro/issues/1441",
+)
+_MEMBER_HAS_NO_COMPLETE_SEED = CompatibilityFamily(
+    "A non-convergence member of the system has no complete production seed, so "
+    "no immutable channel ownership can be frozen for it and the system cannot "
+    "be planned as a whole. The established first-match dispatcher emits the "
+    "complete system instead, which is the defined behaviour for an input "
+    "carrying a member the emission graph does not describe."
+)
+
+ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamily]] = (
+    MappingProxyType(
+        {
+            "exit-turn-plan": MappingProxyType(
+                {
+                    **_reasons(
+                        _NO_PLANNED_TURN_FOR_FAMILY,
+                        "unsupported-family:bottom-exit-junction",
+                        "unsupported-family:bypass-family",
+                        "unsupported-family:entry-runway-fallback",
+                        "unsupported-family:intra-section-fallback",
+                        "unsupported-family:left-entry-wrap-family",
+                        "unsupported-family:left-exit-far-side-left-entry-wrap",
+                        "unsupported-family:merge-branch",
+                        "unsupported-family:merge-trunk",
+                        "unsupported-family:near-vertical-same-col-junction",
+                        "unsupported-family:perp-exit",
+                        "unsupported-family:perp-exit-far-side-entry-wrap",
+                        "unsupported-family:rail-inter-section",
+                        "unsupported-family:right-entry-plough-bypass",
+                        "unsupported-family:right-entry-wrap",
+                        "unsupported-family:same-x-vertical-drop",
+                        "unsupported-family:serpentine-left-exit-left-entry",
+                        "unsupported-family:tb-bottom-exit-around-stack",
+                        "unsupported-family:tb-perp-exit-over",
+                        "unsupported-family:tb-section-fallback",
+                    ),
+                    **_reasons(
+                        _NO_PLANNED_TURN_FOR_SUBSHAPE,
+                        "unsupported-subshape:degenerate-horizontal-straight",
+                        "unsupported-subshape:left-exit-right-entry-step",
+                        "unsupported-subshape:merge-entry-around_below",
+                        "unsupported-subshape:merge-entry-corridor",
+                        "unsupported-subshape:merge-entry-perpendicular_entry",
+                        "unsupported-subshape:merge-entry-straight",
+                        "unsupported-subshape:nonvertical-tb-exit",
+                        "unsupported-subshape:opposed-horizontal-straight",
+                        "unsupported-subshape:unaligned-perpendicular-entry",
+                        "unsupported-subshape:vertical-source-horizontal-straight",
+                    ),
+                    **_reasons(
+                        _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
+                        "ambiguous-continuation",
+                        "invalid-source-turn-requirement",
+                        "lane-transition-order-inversion",
+                        "multiple-destinations",
+                        "opposed-source-run",
+                        "unresolved-perpendicular-entry-seam",
+                    ),
+                    **_reasons(
+                        _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
+                        "fixed-anchor-owned-by-another-plan",
+                        "fixed-axis-conflict",
+                        "linear-entry-frame-ownership-conflict",
+                        "overlapping-planned-turn-axes",
+                        "planned-axis-overlaps-compatibility-channel",
+                        "shared-source-ownership-conflict",
+                        "shared-station-lane-collision",
+                    ),
+                    **_reasons(
+                        _INCOMPLETE_AUTHORED_EXIT_GROUP,
+                        "ambiguous-source-lane-boundary",
+                        "family-changed-after-lane-compaction",
+                        "missing-or-ambiguous-source-order",
+                        "missing-outbound-member",
+                        "missing-production-family",
+                        "missing-source-turn",
+                    ),
+                    **_reasons(
+                        _TURN_HAS_NO_RUNWAY,
+                        "continuation-transition-has-no-runway",
+                        "insufficient-fixed-runway",
+                        "insufficient-structural-runway",
+                        "source-lane-transition-has-no-runway",
+                    ),
+                    **_reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                }
+            ),
+            "fan-plan": MappingProxyType(
+                {
+                    **_reasons(
+                        _LAYOUT_OWNS_THE_FAN_FRAME,
+                        "local-layout-has-foreign-owner",
+                        "off-track-layout-owns-fan-geometry",
+                        "rail-layout-owns-fan-geometry",
+                        "same-line-open-fan-layout-owns-geometry",
+                        "straight-diamond-layout-owns-geometry",
+                    ),
+                    **_reasons(
+                        _INCOMPLETE_RESOLVED_FAN,
+                        "ambiguous-branch-to-join",
+                        "ambiguous-resolved-branch-tail",
+                        "ambiguous-resolved-fork",
+                        "ambiguous-resolved-join",
+                        "empty-resolved-member-path",
+                        "fan-route-system-has-no-emission-member",
+                        "missing-centreline-anchor",
+                        "missing-resolved-extra-output-path",
+                        "missing-resolved-member-path",
+                    ),
+                    **_reasons(
+                        _OVERLAPPING_FAN_OWNERSHIP,
+                        "offset-carrier-has-unowned-line",
+                        "overlapping-branch-lane-ownership",
+                        "overlapping-fan-ownership",
+                    ),
+                    **_reasons(
+                        _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
+                        "unsupported-branch-line-transition",
+                        "unsupported-fan-direction",
+                    ),
+                }
+            ),
+            "convergence-plan": MappingProxyType(
+                {
+                    **_reasons(
+                        _CONVERGENCE_TEMPLATE_DECLINED,
+                        "convergence landing has no approach",
+                        "convergence template declined its member",
+                        "covered continuation is absent from its carrier",
+                        "direct convergence has no emitted terminal approach",
+                        "feeder template declined its member",
+                        "planned convergence member has no routing family",
+                        "planned trunk has no drawable segment",
+                        "primary trunk template declined its member",
+                        "primary trunk template emitted no shared run",
+                        "unsupported convergence shape",
+                    ),
+                    **_reasons(
+                        _UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME,
+                        "convergence alignment conflicts with an upstream exit turn",
+                        "convergence landing conflicts with an upstream exit turn",
+                    ),
+                }
+            ),
+            "member-geometry-plan": MappingProxyType(
+                _reasons(
+                    _MEMBER_HAS_NO_COMPLETE_SEED,
+                    "canonical-template-declined-member",
+                    "missing-emission-edge",
+                    "missing-production-family",
+                )
+            ),
+        }
+    )
 )
 
 
-def route_system_compatibility_follow_up(owner: str, reason: str) -> str:
-    return f"Teach {owner} to own {reason!r}, then remove this registry entry."
+def compatibility_family(owner: str, reason: str) -> CompatibilityFamily:
+    """The retained family *reason* belongs to under *owner*.
+
+    The registry is closed: a reason no owner registers has no justification and
+    no follow-up, so it cannot be attributed and is rejected rather than given a
+    generic one.
+    """
+    family = ROUTE_SYSTEM_COMPATIBILITY_REASONS.get(owner, {}).get(reason)
+    if family is None:
+        raise ValueError(f"unregistered compatibility reason {owner}:{reason}")
+    return family
 
 
 class ConvergenceTrunkReason(str, Enum):
@@ -1952,19 +2123,13 @@ class RouteSystemCompatibilityReason:
     owner: str
     reason: str
     justification: str
-    follow_up: str
+    follow_up: str | None
 
     def __post_init__(self) -> None:
-        if not all((self.owner, self.reason, self.justification, self.follow_up)):
-            raise ValueError("route-system compatibility reason is incomplete")
-        if self.reason not in ROUTE_SYSTEM_COMPATIBILITY_REASONS.get(self.owner, ()):
-            raise ValueError(
-                f"unregistered compatibility reason {self.owner}:{self.reason}"
-            )
-        if (
-            self.justification != ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION
-            or self.follow_up
-            != route_system_compatibility_follow_up(self.owner, self.reason)
+        family = compatibility_family(self.owner, self.reason)
+        if (self.justification, self.follow_up) != (
+            family.justification,
+            family.follow_up,
         ):
             raise ValueError("route-system compatibility metadata is not canonical")
 

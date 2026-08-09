@@ -133,6 +133,24 @@ radius as the separation two lanes of one bundle owed each other and was
 corrected to ask each pair for the clearance its own kind requires. The count is
 now zero by proof rather than by absence of detection, and the renders across
 that corpus are byte-identical to the ones the six-condition tree drew.
+
+A later measurement established what keeps the remaining four silent, by
+neutralising each settlement pass in turn and recording every pair the condition
+would then have caught. With `_settle_shared_trunk_channels` neutralised,
+`SHARED_TRUNK_CHANNEL`'s same-line arm catches 5 pairs on
+`merge_around_below_leftmost`, all central-run pairs; its co-travelling arm
+catches none anywhere, with or without that pass, because construction already
+seats same-line flanks at separation 0 and distinct-line flanks at exactly one
+`OFFSET_STEP`. With `_settle_opposing_landing_channels` neutralised,
+`SHARED_APPROACH_CHANNEL` and `OPPOSING_OPENING_CHANNEL` each catch one pair on
+`merge_bottom_row_bypass` and one on `merge_feeder_shared_channel_gap`; the two
+opening passes account for none of it, and `_settle_shared_opening_pivots`
+cannot, because its group key partitions by the travel direction of flank 1.
+`_landing_trunk_flank_conflict` sees 32 crowded, entirely unexcused pairs across
+5 fixtures, every one cleared by `_settle_landing_trunk_flanks`, every one at
+`endpoint - landing = 30` against a `clearance + curve_radius = 21` requirement:
+9px of headroom held by `MERGE_GAP_MIN = 50` rather than by fixture geometry.
+Its three excuse predicates fire nowhere in the corpus.
 `test_every_corpus_convergence_is_planned_not_left_to_compatibility` in
 `tests/test_convergence_planner.py` is the live guard; it asserts the absence
 rather than any of the totals above.

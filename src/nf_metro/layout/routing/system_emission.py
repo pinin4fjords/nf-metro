@@ -9,7 +9,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.route_plan import (
-    ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION,
     ConvergenceDisposition,
     ConvergencePlan,
     EmissionMemberId,
@@ -23,7 +22,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemDisposition,
     RouteSystemId,
     RouteSystemSupersededVerdict,
-    route_system_compatibility_follow_up,
+    compatibility_family,
 )
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -121,11 +120,12 @@ class RouteSystemEmissionExecution:
 
 
 def _compatibility_reason(owner: str, reason: str) -> RouteSystemCompatibilityReason:
+    family = compatibility_family(owner, reason)
     return RouteSystemCompatibilityReason(
         owner=owner,
         reason=reason,
-        justification=ROUTE_SYSTEM_COMPATIBILITY_JUSTIFICATION,
-        follow_up=route_system_compatibility_follow_up(owner, reason),
+        justification=family.justification,
+        follow_up=family.follow_up,
     )
 
 

@@ -1956,12 +1956,10 @@ They are design evidence, not part of this specification.
   (`_bundled_sibling_owns_opening_column`): `_divergent_source_groups` draws its
   reference from the bundled members, and a lone feeder's own handler column is
   not the plan's to freeze.
-  **The convergence family states its own geometry.** Every convergence plan the
-  corpus produces is `PLANNED` and carries no `legacy_reason`, so no route system
-  reaches emission through the compatibility path on a convergence's account.
-  That is a property of the checks rather than of the fixtures: a condition can
-  only send a system to compatibility if it can state a case at all, and three
-  could not.
+  **The convergence family states its own geometry.** No convergence plan
+  reaches emission through the compatibility path, and none can: a
+  `ConvergenceConflictKind` is not a registered compatibility reason. Three of
+  the six conditions were retired for being unable to state a case at all.
   `CHAINED_SAME_LINE` compared two same-line trunks and asked them to sit within
   one channel's lanes, but `parser/route_topology.py` builds one convergence group
   per `(entry_group_id, line_id)`, so two distinct plans never share both keys;
@@ -1972,18 +1970,21 @@ They are design evidence, not part of this specification.
   `build_route_system_emission_execution(require_member_geometry=True)` requires
   every member of a planned system to hold exactly one geometry decision, so such
   an edge is owned by a member-geometry plan and the category is empty by
-  construction. `SHARED_TRUNK_CHANNEL`'s second arm used the turn radius as the
-  separation two lanes of one bundle owed each other and demanded exact
-  coincidence from distinct lines; it asks each pair for the clearance its own
-  kind requires, and a same-line pair owes coincidence.
-  The one condition that states a real case is `NO_APPROACH_SETTLEMENT_ROOM`,
-  produced by `_landing_trunk_flank_conflict`
-  (`layout/routing/convergences.py`): a landing whose approach and trunk flank
-  leave no room between them names a clearance, and its `ConvergenceConflict`
-  publishes the axis, both run coordinates, and the distance measured between
-  them.
-  Where that decision belongs to the convergence planner it is made rather than
-  declined, and this stage's part in it is to charge for the result and nothing
+  construction.
+  The four that remain state real cases, and each names a **pair** of runs the
+  settlement passes could seat no lane between. They are refused by
+  `_validate_final_convergence_feasibility` once every movable decision is
+  frozen, rather than sending the system to the compatibility templates: those
+  templates draw the same two runs in the same gap, so emitting through them
+  states nothing the plan did not and loses the attribution it carried.
+  Reaching one is a statement that the map has no room, which is section
+  placement's to give; [#1712](https://github.com/seqeralabs/nf-metro/issues/1712)
+  carries the grant that would.
+  Every decision the passes below **can** make they do make, and from the pair
+  rather than from whichever run arrived last: laning only the arrival leaves
+  one line's outward and return legs on one column whenever the arrival has no
+  reachable lane, so a resident with the runway gives way instead. This stage's
+  part is to charge for the result and nothing
   more. `_settle_shared_trunk_channels` lanes the runs of one route system's
   trunks. Each convergence plan reads its trunk geometry off a trial route taken
   with no knowledge of its siblings, so two plans of one system whose trunks take
