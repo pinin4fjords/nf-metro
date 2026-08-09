@@ -3696,12 +3696,15 @@ def _declare_placed_channels(
     declared: set[tuple[int, int | None, Direction]] = {
         (slot.gap_lo_col, slot.row, slot.direction) for slot in route.gap_slots
     }
-    for _k, x, y_lo, y_hi, down in iter_vertical_segments(route):
+    for (x0, y0), (x1, y1) in zip(route.points, route.points[1:]):
+        if abs(x1 - x0) > COORD_TOLERANCE or abs(y1 - y0) <= COORD_TOLERANCE:
+            continue
+        x, y_lo, y_hi = x0, min(y0, y1), max(y0, y1)
         match = gap_lo_for_x(ctx.graph, x, y_lo, y_hi)
         if match is None:
             continue
         lo, matched_row = match
-        direction = Direction.D if down else Direction.U
+        direction = Direction.D if y1 > y0 else Direction.U
         if (lo, matched_row, direction) in declared:
             continue
         declared.add((lo, matched_row, direction))
