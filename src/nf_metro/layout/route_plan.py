@@ -367,9 +367,7 @@ _OVERLAPPING_FAN_OWNERSHIP = CompatibilityFamily(
 )
 _NO_PLANNED_FRAME_FOR_FAN_SHAPE = CompatibilityFamily(
     "The fan is completely resolved, and the planner has no frame for the shape "
-    "it takes: this direction, this line transition across a branch, or a "
-    "branch whose whole path lies between the fork and the join it spans, "
-    "leaving it no interior to draw.",
+    "it takes: this direction, or this line transition across a branch.",
     _ISSUE.format(1711),
 )
 _CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
@@ -484,6 +482,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "ambiguous-resolved-branch-tail",
                     "ambiguous-resolved-fork",
                     "ambiguous-resolved-join",
+                    "empty-resolved-member-path",
                     "fan-route-system-has-no-emission-member",
                     "missing-centreline-anchor",
                     "missing-resolved-extra-output-path",
@@ -497,7 +496,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
-                    "empty-resolved-member-path",
                     "unsupported-fan-direction",
                 ),
             ),

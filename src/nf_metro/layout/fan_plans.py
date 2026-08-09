@@ -569,13 +569,22 @@ def _nearest_common_join(
     adjacency: Mapping[str, tuple[str, ...]],
     branch_roots: tuple[str, ...],
     ranks: Mapping[str, int],
+    *,
+    allow_root: bool = True,
 ) -> str | None:
+    """Nearest station every branch root reaches.
+
+    Under ``allow_root`` a branch root qualifies as the join when the other
+    roots reach it: a diamond whose short branch lands directly on the
+    convergence node joins at that node, not at whatever follows it.
+    """
     distances = tuple(_distances(adjacency, root) for root in branch_roots)
     common = set(distances[0]).intersection(*(set(item) for item in distances[1:]))
+    reaches = any if allow_root else all
     candidates = [
         station_id
         for station_id in common
-        if all(item[station_id] > 0 for item in distances)
+        if reaches(item[station_id] > 0 for item in distances)
     ]
     if not candidates:
         return None
@@ -1501,6 +1510,30 @@ class _RecognisedFan:
     join_id: str | None
 
 
+def _branch_node_paths(
+    ctx: _FanPlanningContext,
+    source_id: str,
+    branch_targets: tuple[str, ...],
+    join_id: str | None,
+) -> tuple[list[tuple[str, ...]], bool]:
+    """Each branch's authored node path to *join_id*, and whether any is plural."""
+    adjacency = ctx.adjacency
+    if join_id is None:
+        return [
+            (source_id, *_linear_path(adjacency, target)) for target in branch_targets
+        ], False
+    reaches_join = _reverse_reachable(ctx.incoming, join_id)
+    node_paths: list[tuple[str, ...]] = []
+    ambiguous = False
+    for target in branch_targets:
+        path = _unique_path_to_join(adjacency, target, join_id, reaches_join)
+        if path is None:
+            ambiguous = True
+            path = _linear_path(adjacency, target)
+        node_paths.append((source_id, *path))
+    return node_paths, ambiguous
+
+
 def _recognise_fan(
     ctx: _FanPlanningContext,
     source_id: str,
@@ -1525,19 +1558,21 @@ def _recognise_fan(
     )
 
     authored_join = _nearest_common_join(adjacency, branch_targets, ctx.ranks)
-    node_paths: list[tuple[str, ...]] = []
-    if authored_join is not None:
-        reaches_join = _reverse_reachable(ctx.incoming, authored_join)
-        for target in branch_targets:
-            path = _unique_path_to_join(adjacency, target, authored_join, reaches_join)
-            if path is None:
-                reason = reason or "ambiguous-branch-to-join"
-                path = _linear_path(adjacency, target)
-            node_paths.append((source_id, *path))
-    else:
-        node_paths = [
-            (source_id, *_linear_path(adjacency, target)) for target in branch_targets
-        ]
+    node_paths, ambiguous = _branch_node_paths(
+        ctx, source_id, branch_targets, authored_join
+    )
+    if ambiguous and authored_join in branch_targets:
+        # A branch root closes the fan only where every other branch reaches it
+        # one way.  Where they reach it through a web of alternatives it is a
+        # downstream sink the whole graph drains into, not this fan's join.
+        authored_join = _nearest_common_join(
+            adjacency, branch_targets, ctx.ranks, allow_root=False
+        )
+        node_paths, ambiguous = _branch_node_paths(
+            ctx, source_id, branch_targets, authored_join
+        )
+    if ambiguous:
+        reason = reason or "ambiguous-branch-to-join"
     extended_branch_ranks = tuple(
         rank for rank, path in enumerate(node_paths) if len(path) > 2
     )

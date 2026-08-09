@@ -350,7 +350,6 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     "fixture,source_id",
     [
         ("wide_label_fan.mmd", "hub"),
-        ("bypass_v_tight.mmd", "m1"),
         ("junction_entry_collision.mmd", "pre2"),
     ],
 )
@@ -1880,21 +1879,21 @@ def test_centreline_port_membership_is_frozen_before_materialisation() -> None:
 
 
 def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
-    path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
-    plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
 
-    assert plan.centreline_anchor == FanCentrelineAnchor("src__exit_right_0")
-    assert plan.local_frame_anchor == FanCentrelineAnchor("m1")
+    assert plan.centreline_anchor == FanCentrelineAnchor("pre__exit_right_0")
+    assert plan.local_frame_anchor == FanCentrelineAnchor("s_a")
     anchor_y = 137.0
     graph.stations[plan.centreline_anchor.station_id].y = anchor_y
-    graph.stations["mid__entry_left_2"].y = 263.0
+    graph.stations["src__entry_left_2"].y = 263.0
 
     graph.ports.pop(plan.centreline_anchor.station_id)
     graph.edges.clear()
-    graph.sections["src"].grid_row += 3
-    graph.sections["mid"].grid_col += 2
+    graph.sections["pre"].grid_row += 3
+    graph.sections["src"].grid_col += 2
 
     _apply_planned_fan_port_geometry(graph)
     centrelines = _snapshot_planned_fan_centrelines(graph)
@@ -1907,11 +1906,26 @@ def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
     } == {anchor_y}
 
 
-def test_centreline_anchor_is_complete_and_inside_fan_membership() -> None:
+def test_diamond_branch_target_is_its_own_join() -> None:
+    """A two-branch diamond whose short branch lands on the convergence node."""
     path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+
+    assert plan.authored_join_station_id == "d1"
+    assert plan.join_station_id == "mid__exit_right_1"
+    assert all(
+        path for branch in plan.branches for path in branch.continuation_resolved_paths
+    )
+    assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
+
+
+def test_centreline_anchor_is_complete_and_inside_fan_membership() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
 
     with pytest.raises(ValueError, match="centreline anchor is incomplete"):
         replace(plan, centreline_anchor=None)
