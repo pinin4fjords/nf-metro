@@ -3332,14 +3332,22 @@ def _perp_exit_over_geometry(
             graph, src_col, tgt_col, row, reserved=ctx.reserved_bands.columns
         )
 
-    # Corridor Y: the header band clearing the source section's near edge.
+    # Corridor Y: the header band is the clearance the lane nearest the section
+    # owes its edge, and the bundle stacks from the centreline toward that edge,
+    # so the whole ladder seats one bundle depth further out.  A run settled
+    # after the fact would be pushed here anyway; a planned turn axis is frozen
+    # against that settlement and so has to state it.
+    toward_content = 1.0 if is_top else -1.0
+    bundle_depth = max(
+        (offset * toward_content for offset in src_offs.values()), default=0.0
+    )
     cy_base = (
         header_corridor_y(graph, row, below=not is_top, base_radius=base, default=sy)
         if row is not None
         else sy - base
         if is_top
         else sy + base
-    )
+    ) - toward_content * max(bundle_depth, 0.0)
 
     perp_entry = (
         tgt_port is not None
