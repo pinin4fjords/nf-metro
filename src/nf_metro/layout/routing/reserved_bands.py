@@ -255,6 +255,78 @@ class ReservedCorridors:
         return self.column_bands_by_edge.get((source, target, line_id), ())
 
 
+def _bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
+    """The least distance that carries every ``(band, coordinate)`` pair inside.
+
+    Clamping lane by lane would seat two lanes on one coordinate wherever a band
+    is narrower than the stagger, drawing the bundle as a single stroke, so the
+    whole bundle travels together or not at all.  A bundle whose bands leave it
+    nowhere to stand does not travel: which edge to overrun is the closing
+    guard's report to make.
+    """
+    if not items:
+        return 0.0
+    lower = max(band.lo - coordinate for band, coordinate in items)
+    upper = min(band.hi - coordinate for band, coordinate in items)
+    if lower > upper + COORD_TOLERANCE:
+        return 0.0
+    return min(max(0.0, lower), upper)
+
+
+def seat_bundle_in_corridor_clearance(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    section_ids: Sequence[str],
+    lanes: Sequence[float],
+    run_start: float,
+    run_end: float,
+) -> float:
+    """The travel that seats a whole bundle inside its corridor's clearance.
+
+    The bundle counterpart of :func:`seat_run_in_corridor_clearance`: the band
+    says where one lane may run, and a bundle satisfies it only when its
+    outermost lanes both stand inside, so the stagger is carried rather than
+    collapsed onto the band's edge.
+    """
+    band = corridor_clearance_band(
+        graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=(min(lanes) + max(lanes)) / 2 if lanes else 0.0,
+        run_start=run_start,
+        run_end=run_end,
+    )
+    if band is None or band.hi < band.lo - COORD_TOLERANCE:
+        return 0.0
+    return _bundle_travel([(ReservedBand(band.lo, band.hi), item) for item in lanes])
+
+
+def seat_bundle_in_claimed_bands(
+    corridors: ReservedCorridors,
+    lanes: Sequence[tuple[EdgeKey, float]],
+    *,
+    rank: int,
+) -> float:
+    """The travel that seats every lane of one bundle inside its claimed band.
+
+    Each lane owns the same segment rank of its own emitted path and each claim
+    realises its own band there.  This is the arithmetic the pre-freeze seating
+    pass applies, so reading it here lets a plan owning the turn beside the run
+    state the coordinate that pass would settle on, rather than being moved off
+    a coordinate it has already frozen.  A bundle no claim covers does not
+    travel: the ledger is published by a routing pass, so the first has none to
+    read and the live-geometry proxy speaks for the corridor instead.
+    """
+    return _bundle_travel(
+        [
+            (band, coordinate)
+            for key, coordinate in lanes
+            if (band := corridors.for_segment(*key, rank)) is not None
+        ]
+    )
+
+
 def _measured_gap_bands(
     graph: MetroGraph,
     plan: RoutePlan,

@@ -420,7 +420,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
                     "unsupported-family:right-entry-plough-bypass",
-                    "unsupported-family:right-entry-wrap",
                     "unsupported-family:same-x-vertical-drop",
                     "unsupported-family:serpentine-left-exit-left-entry",
                     "unsupported-family:tb-section-fallback",

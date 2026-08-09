@@ -992,7 +992,7 @@ def build_member_geometry_execution(
         _materialize_gap_slots(co_resident, ctx)
         _materialize_trunk_slots(co_resident, ctx)
         _coincide_same_line_tracks(co_resident, ctx)
-        _coincide_fanout_opening_descents(co_resident, ctx)
+        _coincide_fanout_opening_descents(co_resident, ctx, settle_frozen_arcs=True)
         _coincide_same_line_fanout_traverses(co_resident, ctx)
         _bundle_divergent_distinct_traverses(candidate_routes, ctx)
         # Feeders converging on one entry port from opposite sides only nest

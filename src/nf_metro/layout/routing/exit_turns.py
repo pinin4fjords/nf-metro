@@ -88,6 +88,8 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _perp_exit_geometry,
     _perp_exit_over_geometry,
     _PerpExitGeometry,
+    _right_entry_over_top_geometry,
+    _right_entry_wrap_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
     classify_inter_section_family,
@@ -134,6 +136,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         RouteFamilyId.BYPASS_FAMILY,
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
+        RouteFamilyId.RIGHT_ENTRY_WRAP,
     }
 )
 
@@ -691,6 +694,33 @@ def _left_entry_wrap_turn_requirement(
     )
 
 
+def _right_entry_wrap_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a RIGHT-entry wrap opens with, by the leaf that draws it.
+
+    Both leaves lead horizontally out of the source and turn into a column of
+    their own: the cross-row wrap into the lead-out gap beside the source, the
+    same-row loop into the channel over the target's top.
+    """
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    seam = (
+        _right_entry_wrap_geometry(facts).seam
+        if facts.cross_row and facts.src_col is not None and facts.tgt_col is not None
+        else _right_entry_over_top_geometry(ctx, edge, src, tgt)
+    )
+    return _SourceTurnRequirement(
+        seam.run_direction,
+        seam.turn_direction,
+        seam.launch_coordinate,
+        abs(seam.axis_coordinate - seam.launch_coordinate),
+        seam.axis_coordinate,
+    )
+
+
 def _right_entry_cross_row_turn_requirement(
     edge: Edge,
     ctx: _RoutingCtx,
@@ -970,6 +1000,8 @@ def _source_turn_requirement(
         )
     if family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP:
         return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.RIGHT_ENTRY_WRAP:
+        return _right_entry_wrap_turn_requirement(edge, ctx, src, tgt)
     if family_id is RouteFamilyId.BYPASS_FAMILY:
         return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
     if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:

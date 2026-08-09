@@ -1189,7 +1189,7 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
 
 
 def _coincide_fanout_opening_descents(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath], ctx: _RoutingCtx, *, settle_frozen_arcs: bool = False
 ) -> None:
     """Own the opening-descent column of every fan-out, one owner for both intents.
 
@@ -1221,7 +1221,9 @@ def _coincide_fanout_opening_descents(
             ctx.graph,
             validate_planned_axes=ctx.validate_final_route_frames,
         )
-    _bundle_divergent_distinct_descents(routes, ctx)
+    _bundle_divergent_distinct_descents(
+        routes, ctx, settle_frozen_arcs=settle_frozen_arcs
+    )
 
 
 def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
@@ -2398,7 +2400,7 @@ def _fan_opening_reference_radii(
 
 
 def _bundle_divergent_distinct_descents(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath], ctx: _RoutingCtx, *, settle_frozen_arcs: bool = False
 ) -> None:
     """Bundle distinct-line opening descents leaving one source until they fork.
 
@@ -2421,8 +2423,7 @@ def _bundle_divergent_distinct_descents(
 
     step = ctx.offset_step
     for chans in by_source.values():
-        if any(_channel_coordinate_is_frozen(channel) for channel in chans):
-            continue
+        frozen = any(_channel_coordinate_is_frozen(channel) for channel in chans)
         # Same-line descents share one X (the coincidence pass snaps them onto a
         # common track), so a line occupies ONE bundle slot however many branches
         # it carries.  Seat per line, not per channel: keying each channel
@@ -2459,6 +2460,14 @@ def _bundle_divergent_distinct_descents(
         }
         ordered = sorted(by_line, key=line_key.__getitem__)
         tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+        # A frozen coordinate is one this pass may not choose, which stands in
+        # its way only where the group has to move onto tighter tracks: a group
+        # already on them keeps every coordinate and takes only the arc sizes its
+        # ranks imply.  Those belong to the freeze: a plan holds its opening arc
+        # from the freeze onward, so a group carrying one can be given a shared
+        # arc centre there and nowhere later.
+        if frozen and not (settle_frozen_arcs and tight):
+            continue
         if (
             any(
                 route_system_owns_segment_boundary(channel.route, channel.idx)

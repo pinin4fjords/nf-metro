@@ -37,6 +37,7 @@ from nf_metro.layout.geometry import lanes_run_along_x
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.routing.bundle import build_tapered_bundle
 from nf_metro.layout.routing.centrelines import (
+    _Member,
     _TaperedMember,
     fan_offsets,
     gather_bundle,
@@ -121,6 +122,8 @@ from nf_metro.layout.routing.reserved_bands import (
     ReservedBands,
     corridor_clearance_band,
     held_in_reserved_band,
+    seat_bundle_in_claimed_bands,
+    seat_bundle_in_corridor_clearance,
     seat_run_in_corridor_clearance,
 )
 from nf_metro.parser.model import (
@@ -1635,7 +1638,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
             (f.entry_side is PortSide.RIGHT and f.horizontal is Direction.R)
             or f.is_stacked_right_exit_right_entry
         ),
-        lambda f: _route_right_entry_wrap(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
+        lambda f: _route_right_entry_wrap(f),
     ),
     _Rule(
         RouteFamilyId.LEFT_ENTRY_WRAP,
@@ -4982,7 +4985,7 @@ def _route_entry_wrap(
 
 
 @dataclass(frozen=True, slots=True)
-class _LeftEntryWrapGeometry:
+class _EntryWrapGeometry:
     pos_n: int
     delta: float
     corner_x: float
@@ -4994,7 +4997,7 @@ class _LeftEntryWrapGeometry:
     axis_coordinate: float
 
 
-def _left_entry_wrap_record(
+def _entry_wrap_record(
     ctx: _RoutingCtx,
     edge: Edge,
     src: Station,
@@ -5004,8 +5007,8 @@ def _left_entry_wrap_record(
     corner_x: float,
     channel_y: float,
     descent_x: float,
-) -> _LeftEntryWrapGeometry:
-    """Complete a left-entry-wrap record from the channels its leaf resolved.
+) -> _EntryWrapGeometry:
+    """Complete an entry-wrap record from the channels its leaf resolved.
 
     The loop leaves the source horizontally at the line's own station lateral
     and turns into the corner column, so ``launch_coordinate`` is the source X.
@@ -5017,7 +5020,7 @@ def _left_entry_wrap_record(
     turn_direction = _leg_direction(
         (src.x, src.y + src_off + delta), (src.x, channel_y)
     )
-    return _LeftEntryWrapGeometry(
+    return _EntryWrapGeometry(
         pos_n,
         delta,
         corner_x,
@@ -5032,7 +5035,7 @@ def _left_entry_wrap_record(
 
 def _left_entry_wrap_geometry(
     ctx: _RoutingCtx, edge: Edge, src: Station, tgt: Station, i: int, n: int
-) -> _LeftEntryWrapGeometry:
+) -> _EntryWrapGeometry:
     """Resolve the seam shared by left-entry-wrap planning and emission.
 
     See :func:`_route_left_entry_wrap` for the shape this describes.
@@ -5118,7 +5121,7 @@ def _left_entry_wrap_geometry(
             if shared_vx is not None:
                 vx = shared_vx
 
-    return _left_entry_wrap_record(
+    return _entry_wrap_record(
         ctx,
         edge,
         src,
@@ -5537,7 +5540,7 @@ def _around_section_below_geometry(
     i: int,
     n: int,
     channel_y: float | None = None,
-) -> _LeftEntryWrapGeometry:
+) -> _EntryWrapGeometry:
     """Resolve the seam shared by around-below planning and emission.
 
     See :func:`_route_around_section_below` for the shape this describes and
@@ -5633,7 +5636,7 @@ def _around_section_below_geometry(
         # centreline the other way so the trunk's own track lands on that level.
         by -= _entry_wrap_run_displacement(delta, corner_x, vx)
 
-    return _left_entry_wrap_record(
+    return _entry_wrap_record(
         ctx,
         edge,
         src,
@@ -5716,27 +5719,42 @@ def _route_around_section_below(
     return route
 
 
-def _route_right_entry_over_top(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath | None:
-    """Loop a same-row left source over the top of a TB section's RIGHT port.
+def _wrap_lane_coordinates(
+    members: Sequence[_Member], centre: float, run: Direction
+) -> list[tuple[tuple[str, str, str], float]]:
+    """Each bundle lane's own coordinate on a leg travelling *run*."""
+    sign = right_normal_axis_sign(run)
+    return [
+        ((member.source, member.target, line_id), centre + offset * sign)
+        for member, line_id, offset in members
+    ]
 
-    The source sits at (nearly) the port's own Y, so a straight or under-the-box
-    channel would cut the interior.  The bundle instead rises over the section's
-    top edge, runs right past its right edge, and descends into the RIGHT port
-    from the port's own outward side.  Approaching a right-side port from the
-    left is a U-turn, which transposes the bundle end-to-end; the descent into
-    the section therefore reverses the lines, matched by the section's reversed
-    internal order (driven from the arrival bundle by
-    :func:`offsets._reorder_reconvergence`).
 
-    Built via :func:`build_concentric_bundle` from the bundle's centreline, so
-    the loop cannot flip and every corner is concentric by construction.
+@dataclass(frozen=True, slots=True)
+class _OverTopGeometry:
+    lead_x: float
+    channel_y: float
+    descent_x: float
+    source_y: float
+    entry_y: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+
+
+def _right_entry_over_top_geometry(
+    ctx: _RoutingCtx, edge: Edge, src: Station, tgt: Station
+) -> _OverTopGeometry:
+    """Resolve the seam shared by over-top planning and emission.
+
+    See :func:`_route_right_entry_over_top` for the loop this describes.  The
+    bundle keeps its source mean end to end, so both the source-side and the
+    entry-side horizontals sit on ``src_center``; this line's own rank against
+    that centreline is what puts its rise one stagger off ``lead_x``.
     """
     graph = ctx.graph
-    # A U-turn keeps the bundle centred on its source mean end-to-end (the
-    # descent's reversal is matched by the section's reversed internal order).
-    members, src_center, _ = gather_bundle(ctx, edge)
+    members, src_center, _tgt_center = gather_bundle(ctx, edge)
 
     sx, sy = src.x, src.y
     ex, ey = tgt.x, tgt.y
@@ -5759,7 +5777,7 @@ def _route_right_entry_over_top(
     # Keep the over-top channel below the bottom of any upstream section its
     # horizontal span crosses: channel_y derives from the target's own top and
     # would otherwise sit inside a taller row-mate above the span whose bottom
-    # edge dips into the band (#1364).
+    # edge dips into the band.
     exclude = frozenset(
         sid for sid in (src.section_id, tgt.section_id) if sid is not None
     )
@@ -5777,17 +5795,82 @@ def _route_right_entry_over_top(
         )
 
     mid_sy = sy + src_center
-    mid_ey = ey + src_center
+    offset = next(off for _member, line_id, off in members if line_id == edge.line_id)
+    turn_direction = _leg_direction((lead_x, mid_sy), (lead_x, channel_y))
+    # Both channels are placed from the grid edges to hand, which under-states
+    # what their own corridors' reservations charge them; travel each bundle onto
+    # the band its claims realise so the loop stands where the pre-freeze seating
+    # would put it rather than being moved off an axis the plan has stated.
+    lead_x += seat_bundle_in_corridor_clearance(
+        graph,
+        axis=0,
+        section_ids=section_ids_of_stations(graph, src, tgt),
+        lanes=[
+            lane
+            for _key, lane in _wrap_lane_coordinates(members, lead_x, turn_direction)
+        ],
+        run_start=min(mid_sy, channel_y),
+        run_end=max(mid_sy, channel_y),
+    )
+    lead_x += seat_bundle_in_claimed_bands(
+        ctx.reserved_bands,
+        _wrap_lane_coordinates(members, lead_x, turn_direction),
+        rank=1,
+    )
+    channel_y += seat_bundle_in_claimed_bands(
+        ctx.reserved_bands,
+        _wrap_lane_coordinates(members, channel_y, Direction.R),
+        rank=2,
+    )
+    return _OverTopGeometry(
+        lead_x,
+        channel_y,
+        descent_x,
+        mid_sy,
+        ey + src_center,
+        _leg_direction((sx, mid_sy), (lead_x, mid_sy)),
+        turn_direction,
+        sx,
+        lead_x + offset * right_normal_axis_sign(turn_direction),
+    )
+
+
+def _route_right_entry_over_top(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Loop a same-row left source over the top of a TB section's RIGHT port.
+
+    The source sits at (nearly) the port's own Y, so a straight or under-the-box
+    channel would cut the interior.  The bundle instead rises over the section's
+    top edge, runs right past its right edge, and descends into the RIGHT port
+    from the port's own outward side.  Approaching a right-side port from the
+    left is a U-turn, which transposes the bundle end-to-end; the descent into
+    the section therefore reverses the lines, matched by the section's reversed
+    internal order (driven from the arrival bundle by
+    :func:`offsets._reorder_reconvergence`).
+
+    Built via :func:`build_concentric_bundle` from the bundle's centreline, so
+    the loop cannot flip and every corner is concentric by construction.
+    """
+    # A U-turn keeps the bundle centred on its source mean end-to-end (the
+    # descent's reversal is matched by the section's reversed internal order).
+    members, _src_center, _tgt_center = gather_bundle(ctx, edge)
+    geometry = _right_entry_over_top_geometry(ctx, edge, src, tgt)
     centerline = [
-        (sx, mid_sy),
-        (lead_x, mid_sy),
-        (lead_x, channel_y),
-        (descent_x, channel_y),
-        (descent_x, mid_ey),
-        (ex, mid_ey),
+        (src.x, geometry.source_y),
+        (geometry.lead_x, geometry.source_y),
+        (geometry.lead_x, geometry.channel_y),
+        (geometry.descent_x, geometry.channel_y),
+        (geometry.descent_x, geometry.entry_y),
+        (tgt.x, geometry.entry_y),
     ]
     route = route_along(edge, members, centerline, base_radius=ctx.curve_radius)
-    _declare_channel(route, ctx, descent_x, vertical_direction(mid_ey - channel_y))
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(geometry.entry_y - geometry.channel_y),
+    )
     return route
 
 
@@ -5842,9 +5925,106 @@ def _leadout_self_meets_sibling_descent(
     return False
 
 
-def _route_right_entry_wrap(
-    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
-) -> RoutedPath:
+@dataclass(frozen=True, slots=True)
+class _RightEntryWrapGeometry:
+    """A cross-row RIGHT-entry wrap's channels, and which shape draws them.
+
+    ``drop_in`` names the straight descent down the corridor right of the target
+    column, which the wrap collapses to when that corridor is clear; the staged
+    wrap through the inter-row channel is the general case.  Both open on the
+    same lead-out and differ only in the Y their source-side descent runs to,
+    which is what ``seam`` carries.
+    """
+
+    seam: _EntryWrapGeometry
+    drop_in: bool
+
+
+def _right_entry_wrap_geometry(f: _InterFacts) -> _RightEntryWrapGeometry:
+    """Resolve the seam shared by cross-row RIGHT-entry-wrap planning and emission.
+
+    See :func:`_route_right_entry_wrap` for the shapes this describes.  Only
+    valid for the cross-row case -- a same-row source loops over the top instead
+    (:func:`_right_entry_over_top_geometry`).
+    """
+    ctx, edge, src, tgt = f.ctx, f.edge, f.src, f.tgt
+    src_col, src_row, tgt_col, tgt_row = f.src_col, f.src_row, f.tgt_col, f.tgt_row
+    assert src_col is not None and tgt_col is not None and tgt_row is not None
+    vertical = vertical_direction(f.dy)
+
+    _fan, pos_n, delta, corner_x = _wrap_fan_geometry(
+        ctx, edge, src, f.i, f.n, vertical
+    )
+
+    # V2 descent channel centre, just past the entry port in the gap to the
+    # right of the target column.
+    vx = _right_entry_descent_x(ctx, f.tx, pos_n)
+
+    # Horizontal channel Y centre, below the source row's sections, seated in
+    # the clearance its own corridor owes over the stretch it traverses.
+    hy = seat_run_in_corridor_clearance(
+        ctx.graph,
+        axis=1,
+        section_ids=section_ids_of_stations(ctx.graph, src, tgt),
+        coordinate=bypass_bottom_y(
+            ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row
+        ),
+        run_start=min(corner_x, vx),
+        run_end=max(corner_x, vx),
+    )
+    # That seat measures the corridor over the run's own endpoint sections,
+    # which under-states a boundary the reservation charges over a wider span;
+    # where the claim has realised its band, it is the one the closing guard
+    # reads, and a frozen traverse has no later pass to move it back inside.
+    hy += seat_bundle_in_claimed_bands(
+        ctx.reserved_bands,
+        [
+            (
+                (edge.source, edge.target, edge.line_id),
+                hy + _entry_wrap_run_displacement(delta, corner_x, vx),
+            )
+        ],
+        rank=2,
+    )
+
+    # A same-line descent from another source already in the lead-out gap would
+    # merge with a source-hugging turn-down into one corner.  Carry the
+    # horizontal on and turn down clear to its right (bounded at the target row
+    # so the drop misses the descent but never reaches a right-column section).
+    _gap_left, gap_right = column_gap_edges(
+        ctx.graph, src_col, src_col + 1, row=tgt_row
+    )
+    if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, f.sy, hy, gap_right):
+        corner_x = max(corner_x, gap_right - ctx.curve_radius - ctx.offset_step)
+
+    # Same-column source (stacked directly above) drops straight down the
+    # corridor when clear, leading to it at the top corner rather than down the
+    # wrap's inter-row staging channel.  An adjacent-column source keeps the wrap
+    # so its band traverse runs through the inter-row channel between the boxes.
+    drop_in = src_col == tgt_col and _right_entry_corridor_drop_in_is_clear(
+        ctx.graph, src, tgt, vx
+    )
+    if drop_in:
+        corner_x = vx
+        # The descent runs straight to the entry lateral, so that -- not the
+        # staging channel -- is the Y the opening turn heads for.
+        hy = tgt.y + _get_offset(ctx, edge.target, edge.line_id) - delta
+    return _RightEntryWrapGeometry(
+        _entry_wrap_record(
+            ctx,
+            edge,
+            src,
+            pos_n=pos_n,
+            delta=delta,
+            corner_x=corner_x,
+            channel_y=hy,
+            descent_x=vx,
+        ),
+        drop_in,
+    )
+
+
+def _route_right_entry_wrap(f: _InterFacts) -> RoutedPath:
     """Route to a RIGHT entry port by wrapping around the right side.
 
     When the source is to the LEFT of a RIGHT entry port, the standard
@@ -5866,89 +6046,48 @@ def _route_right_entry_wrap(
     corner concentrically so the loop cannot flip.  Same-row sources delegate to
     :func:`_route_right_entry_over_top` (also a centreline build).
     """
-    sy, tx, ty = src.y, tgt.x, tgt.y
-    vertical = vertical_direction(ty - sy)
-
-    # Detect cross-row case: use bypass-style Y just below the source
-    # row's sections so the line runs horizontally under the adjacent
-    # section before dropping to the target row.
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    tgt_col, tgt_row = _resolve_section_colrow(ctx.graph, tgt)
-
-    cross_row = (
-        src_row is not None
-        and tgt_row is not None
-        and src_row != tgt_row
-        and src_col is not None
-        and tgt_col is not None
-    )
-
-    if not cross_row:
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    # The cross-row channel is a bypass-style Y just below the source row's
+    # sections, so the line stays high and only drops at the target column.
+    if not (f.cross_row and f.src_col is not None and f.tgt_col is not None):
         # Same-row source: loop over the top into the right port (the channel
         # below would cut the interior).  Built as a concentric bundle.
         over_top = _route_right_entry_over_top(edge, src, tgt, ctx)
         assert over_top is not None  # edge is always among its own bundle members
         return over_top
 
-    assert src_col is not None and tgt_col is not None
-
-    _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, vertical)
-
-    # V2 descent channel centre, just past the entry port in the gap to the
-    # right of the target column.
-    vx = _right_entry_descent_x(ctx, tx, pos_n)
-
-    # Horizontal channel Y centre, below the source row's sections, seated in
-    # the clearance its own corridor owes over the stretch it traverses.
-    hy = seat_run_in_corridor_clearance(
-        ctx.graph,
-        axis=1,
-        section_ids=section_ids_of_stations(ctx.graph, src, tgt),
-        coordinate=bypass_bottom_y(
-            ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row
-        ),
-        run_start=min(corner_x, vx),
-        run_end=max(corner_x, vx),
-    )
-
-    # A same-line descent from another source already in the lead-out gap would
-    # merge with a source-hugging turn-down into one corner.  Carry the
-    # horizontal on and turn down clear to its right (bounded at the target row
-    # so the drop misses the descent but never reaches a right-column section).
-    _gap_left, gap_right = column_gap_edges(
-        ctx.graph, src_col, src_col + 1, row=tgt_row
-    )
-    if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, sy, hy, gap_right):
-        corner_x = max(corner_x, gap_right - ctx.curve_radius - ctx.offset_step)
-
-    # Same-column source (stacked directly above) drops straight down the
-    # corridor when clear, leading to it at the top corner rather than down the
-    # wrap's inter-row staging channel.  An adjacent-column source keeps the wrap
-    # so its band traverse runs through the inter-row channel between the boxes.
-    if src_col == tgt_col and _right_entry_corridor_drop_in_is_clear(
-        ctx.graph, src, tgt, vx
-    ):
+    geometry = _right_entry_wrap_geometry(f)
+    seam = geometry.seam
+    if geometry.drop_in:
         return _route_right_entry_drop_in(
-            edge, src, tgt, ctx, pos_n=pos_n, delta=delta, corner_x=vx
+            edge,
+            src,
+            tgt,
+            ctx,
+            pos_n=seam.pos_n,
+            delta=seam.delta,
+            corner_x=seam.descent_x,
         )
 
+    tgt_col, tgt_row = f.tgt_col, f.tgt_row
+    assert tgt_col is not None
     route = _route_entry_wrap(
         edge,
         src,
         tgt,
         ctx,
-        pos_n=pos_n,
-        delta=delta,
-        corner_x=corner_x,
-        channel_y=hy,
-        descent_x=vx,
+        pos_n=seam.pos_n,
+        delta=seam.delta,
+        corner_x=seam.corner_x,
+        channel_y=seam.channel_y,
+        descent_x=seam.descent_x,
         entry_side=PortSide.RIGHT,
     )
     route.declare_gap_slot(
         lo_col=tgt_col,
         hi_col=tgt_col + 1,
         row=tgt_row,
-        direction=vertical_direction(ty - hy),
+        direction=vertical_direction(f.ty - seam.channel_y),
         slot_index=0,
         n_slots=1,
     )
@@ -6180,7 +6319,7 @@ def _left_entry_gap_above_geometry(
     i: int,
     n: int,
     tgt_row: int,
-) -> _LeftEntryWrapGeometry:
+) -> _EntryWrapGeometry:
     """Resolve the seam shared by gap-above planning and emission.
 
     See :func:`_route_left_entry_via_gap_above` for the shape this describes.
@@ -6190,7 +6329,7 @@ def _left_entry_gap_above_geometry(
         gap_top, gap_bottom, reserved=ctx.reserved_bands.rows.at(tgt_row)
     )
     _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, Direction.D)
-    return _left_entry_wrap_record(
+    return _entry_wrap_record(
         ctx,
         edge,
         src,
@@ -6373,7 +6512,7 @@ def _band_hop_geometry(f: _InterFacts) -> _BandHopGeometry | None:
     return _BandHopGeometry(band0_y, band1_y, lead_x, corner_x, vx, pos_n, delta)
 
 
-def _left_entry_band_hop_source_seam(f: _InterFacts) -> _LeftEntryWrapGeometry:
+def _left_entry_band_hop_source_seam(f: _InterFacts) -> _EntryWrapGeometry:
     """Resolve the seam shared by band-hop planning and emission.
 
     The hop opens on the same lead-out, turn and traverse as every other shape
@@ -6383,7 +6522,7 @@ def _left_entry_band_hop_source_seam(f: _InterFacts) -> _LeftEntryWrapGeometry:
     """
     geometry = _band_hop_geometry(f)
     assert geometry is not None
-    return _left_entry_wrap_record(
+    return _entry_wrap_record(
         f.ctx,
         f.edge,
         f.src,
