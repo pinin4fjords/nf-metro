@@ -2142,13 +2142,55 @@ def _lane_trunk_runs(
     return settled
 
 
+@dataclass(frozen=True, slots=True)
+class _SeatedFlank:
+    """One flank already laned, and the plan that re-seats it if it gives way."""
+
+    line_ids: tuple[str, ...]
+    segment: _Segment
+    direction: Direction
+    plan_rank: int
+    flank_rank: int
+
+
+def _flank_lane(
+    axis: ConvergenceTrunkAxis,
+    flank_rank: int,
+    obstacle_columns: tuple[float, ...],
+    clearance: float,
+    curve_radius: float,
+) -> float | None:
+    """The nearest lane clear of *obstacle_columns* one flank can turn onto.
+
+    A flank turns off its endpoint, so a lane it cannot leave a full turn radius
+    to that endpoint from is a lane it cannot draw.
+    """
+    endpoint = (
+        axis.source_endpoint_coordinate
+        if flank_rank == 1
+        else axis.target_endpoint_coordinate
+    )
+    if endpoint is None:
+        return None
+    lateral = axis.axis.point_index
+    column = _trunk_segments(axis)[flank_rank][0][lateral]
+    toward = 1.0 if endpoint > column else -1.0
+    return _nearest_lane(
+        column,
+        obstacle_columns,
+        clearance,
+        toward,
+        lambda candidate: (endpoint - candidate) * toward >= curve_radius,
+    )
+
+
 def _lane_trunk_flanks(
     settled: list[ConvergencePlan], clearance: float, curve_radius: float
 ) -> list[ConvergencePlan]:
     """Give each flank its own lane across the channel it turns out into."""
-    seated: list[tuple[tuple[str, ...], _Segment, Direction]] = []
+    seated: list[_SeatedFlank] = []
     for plan_rank, plan in enumerate(settled):
-        resident = tuple(seated)
+        resident_count = len(seated)
         if plan.trunk_axis is None:
             continue
         for flank_rank in (1, 3):
@@ -2158,45 +2200,75 @@ def _lane_trunk_flanks(
             assert axis is not None
             flank = _trunk_segments(axis)[flank_rank]
             direction = _trunk_run_travel_direction(axis, flank_rank)
+            lateral = axis.axis.point_index
             obstacles = tuple(
                 other
-                for other_lines, other, other_direction in resident
-                if other_lines == plan.line_ids
-                and other_direction is not direction
-                and _parallel_segments_conflict(other, flank, clearance)
+                for other in seated[:resident_count]
+                if other.line_ids == plan.line_ids
+                and other.direction is not direction
+                and _parallel_segments_conflict(other.segment, flank, clearance)
             )
-            endpoint = (
-                axis.source_endpoint_coordinate
-                if flank_rank == 1
-                else axis.target_endpoint_coordinate
-            )
-            if not obstacles or endpoint is None:
+            if not obstacles:
                 continue
-            lateral = axis.axis.point_index
-            column = flank[0][lateral]
-            toward = 1.0 if endpoint > column else -1.0
-            coordinate = _nearest_lane(
-                column,
-                tuple(item[0][lateral] for item in obstacles),
+            coordinate = _flank_lane(
+                axis,
+                flank_rank,
+                tuple(other.segment[0][lateral] for other in obstacles),
                 clearance,
-                toward,
-                lambda candidate: (endpoint - candidate) * toward >= curve_radius,
+                curve_radius,
             )
             if coordinate is not None:
                 settled[plan_rank] = _move_trunk_flank(
                     settled[plan_rank], flank_rank, coordinate
                 )
+                continue
+            # No lane this flank can turn onto clears the residents crowding it,
+            # so the channel is the pair's to settle rather than the newcomer's:
+            # a resident with the runway to give way takes the lane instead.
+            _give_way_to(
+                settled, seated, obstacles, flank[0][lateral], clearance, curve_radius
+            )
         axis = settled[plan_rank].trunk_axis
         assert axis is not None
         seated.extend(
-            (
+            _SeatedFlank(
                 plan.line_ids,
                 _trunk_segments(axis)[flank_rank],
                 _trunk_run_travel_direction(axis, flank_rank),
+                plan_rank,
+                flank_rank,
             )
             for flank_rank in (1, 3)
         )
     return settled
+
+
+def _give_way_to(
+    settled: list[ConvergencePlan],
+    seated: list[_SeatedFlank],
+    obstacles: tuple[_SeatedFlank, ...],
+    column: float,
+    clearance: float,
+    curve_radius: float,
+) -> None:
+    """Move each resident in *obstacles* one clearance clear of *column*."""
+    for obstacle in obstacles:
+        axis = settled[obstacle.plan_rank].trunk_axis
+        if axis is None:
+            continue
+        lane = _flank_lane(
+            axis, obstacle.flank_rank, (column,), clearance, curve_radius
+        )
+        if lane is None:
+            continue
+        settled[obstacle.plan_rank] = _move_trunk_flank(
+            settled[obstacle.plan_rank], obstacle.flank_rank, lane
+        )
+        moved = settled[obstacle.plan_rank].trunk_axis
+        assert moved is not None
+        seated[seated.index(obstacle)] = replace(
+            obstacle, segment=_trunk_segments(moved)[obstacle.flank_rank]
+        )
 
 
 def _forked_flank(
@@ -3334,12 +3406,17 @@ def _system_conflict(
     if opposing_approaches is not None:
         return opposing_approaches
 
+    # Read every run in the frame a member travels it, which is the frame
+    # `_lane_trunk_flanks` lanes them in.  `_trunk_segments` lists a source-side
+    # flank against its travel, so reading the listed order here would call a
+    # pair the laning pass deliberately fused counter-running, and a pair it
+    # tried and failed to lane co-travelling.
     trunks = tuple(
         (
             plan,
             segment,
             rank == 0,
-            plan.trunk_axis.direction if rank == 0 else _direction(*segment),
+            _trunk_run_travel_direction(plan.trunk_axis, rank),
         )
         for plan in plans
         if plan.trunk_axis is not None
@@ -3375,12 +3452,10 @@ def _system_conflict(
             )
             same_line = first_plan.line_ids == second_plan.line_ids
             if same_line and first_direction is not second_direction:
-                # Accepts the pairs `_settle_shared_trunk_channels` declined to
-                # lane: a flank with no endpoint to measure a lane against, one
-                # whose every candidate lane is boxed in by another obstacle, and
-                # a rank-1/rank-3 pair whose listed directions oppose while their
-                # travel directions agree, which that pass reads as a
-                # deliberately fused stroke.
+                # One line's outward and return legs crowding one channel, which
+                # `_settle_shared_trunk_channels` lanes.  Reaching here is a pair
+                # that pass could seat no lane for: both runs boxed in by the
+                # obstacles either side of them.
                 return shared_channel
             if (
                 not first_central

@@ -15,6 +15,7 @@ against a sibling trunk or against a frozen member run already in the corridor.
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from itertools import combinations
 from pathlib import Path
 
@@ -318,3 +319,59 @@ def test_the_lane_decision_reads_the_same_on_either_travel_axis(
     landing = settled[1].landings[0]
     across = 1 if axis is DemandAxis.X else 0
     assert landing.join_point[across] == pytest.approx(50.0 + LANE_CLEARANCE)
+
+
+def _boxed_in_flank_pair() -> tuple[ConvergencePlan, ConvergencePlan]:
+    """Two flanks of one line crowding one column, the second with no lane.
+
+    Both turn out of the channel toward an endpoint barely a turn radius away,
+    so every lane one clearance from the other flank costs the second plan the
+    runway its own corner needs.  The first has room on the far side.
+    """
+    resident, newcomer = (
+        _planned_plan("resident", DemandAxis.X, Direction.R, -30.0),
+        _planned_plan("newcomer", DemandAxis.X, Direction.R, 130.0),
+    )
+    return (
+        replace(
+            resident,
+            trunk_axis=replace(
+                resident.trunk_axis,
+                extent_start=0.0,
+                source_endpoint_coordinate=5.0,
+                target_endpoint_coordinate=105.0,
+            ),
+        ),
+        replace(
+            newcomer,
+            trunk_axis=replace(
+                newcomer.trunk_axis,
+                coordinate=20.0,
+                extent_start=-5.0,
+                extent_end=400.0,
+                source_endpoint_coordinate=-3.0,
+                target_endpoint_coordinate=405.0,
+            ),
+        ),
+    )
+
+
+def test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident() -> None:
+    """The channel is the pair's to settle, so a boxed-in flank is not declined.
+
+    Laning only the arriving flank leaves one line's outward and return legs on
+    one column whenever the arrival has no reachable lane, which is a doubled
+    stroke the system has the geometry to avoid: the flank already seated moves
+    instead, and the pair ends up one clearance apart either way round.
+    """
+    resident, newcomer = _boxed_in_flank_pair()
+
+    settled = _settle_shared_trunk_channels((resident, newcomer), CURVE_RADIUS)
+
+    columns = [item.trunk_axis.extent_start for item in settled]
+    assert columns[1] == pytest.approx(-5.0), (
+        "the flank with no reachable lane keeps its column"
+    )
+    assert abs(columns[0] - columns[1]) >= LANE_CLEARANCE, (
+        "the resident gave way, so the two flanks no longer share one column"
+    )
