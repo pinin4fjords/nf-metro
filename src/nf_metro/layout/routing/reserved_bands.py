@@ -26,11 +26,11 @@ rows or columns as a whole.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
 
-from nf_metro.layout.constants import COORD_TOLERANCE, COORD_TOLERANCE_FINE
+from nf_metro.layout.constants import COORD_TOLERANCE
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
@@ -72,28 +72,6 @@ class ReservedBand:
         stagger goes through :meth:`hold` instead.
         """
         return (self.lo + self.hi) / 2 + offset
-
-
-def band_seating_shift(items: Iterable[tuple[float, ReservedBand]]) -> float:
-    """The one displacement that seats every claimed run of a group in its band.
-
-    A group of co-travelling runs translates as one, so the shift is the
-    smallest that brings the whole set inside its bands; where no such shift
-    exists the group stays where it is.  Applying it twice is applying it once,
-    since a set already inside its bands asks for no travel.
-
-    Stated once because the pass that applies it and the plan that names the
-    seated coordinate have to read the same number: a plan naming the
-    coordinate before the shift describes a column the seating then vacates.
-    """
-    pairs = tuple(items)
-    if not pairs:
-        return 0.0
-    lower = max(band.lo - coordinate for coordinate, band in pairs)
-    upper = min(band.hi - coordinate for coordinate, band in pairs)
-    if lower > upper + COORD_TOLERANCE_FINE:
-        return 0.0
-    return min(max(0.0, lower), upper)
 
 
 def held_in_reserved_band(coordinate: float, band: ReservedBand | None) -> float:
@@ -277,7 +255,7 @@ class ReservedCorridors:
         return self.column_bands_by_edge.get((source, target, line_id), ())
 
 
-def _bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
+def bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
     """The least distance that carries every ``(band, coordinate)`` pair inside.
 
     Clamping lane by lane would seat two lanes on one coordinate wherever a band
@@ -285,6 +263,12 @@ def _bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
     whole bundle travels together or not at all.  A bundle whose bands leave it
     nowhere to stand does not travel: which edge to overrun is the closing
     guard's report to make.
+
+    Stated once because the pass that applies the travel and the plan that names
+    the seated coordinate have to read the same number: a plan naming the
+    coordinate before the travel describes a lane the seating then vacates.
+    Applying it twice is applying it once, since a bundle already inside its
+    bands asks for no travel.
     """
     if not items:
         return 0.0
@@ -321,7 +305,7 @@ def seat_bundle_in_corridor_clearance(
     )
     if band is None or band.hi < band.lo - COORD_TOLERANCE:
         return 0.0
-    return _bundle_travel([(ReservedBand(band.lo, band.hi), item) for item in lanes])
+    return bundle_travel([(ReservedBand(band.lo, band.hi), item) for item in lanes])
 
 
 def seat_bundle_in_claimed_bands(
@@ -340,7 +324,7 @@ def seat_bundle_in_claimed_bands(
     travel: the ledger is published by a routing pass, so the first has none to
     read and the live-geometry proxy speaks for the corridor instead.
     """
-    return _bundle_travel(
+    return bundle_travel(
         [
             (band, coordinate)
             for key, coordinate in lanes

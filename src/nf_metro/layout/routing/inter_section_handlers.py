@@ -121,9 +121,8 @@ from nf_metro.layout.routing.perp import (
     _perp_riser_lateral,
 )
 from nf_metro.layout.routing.reserved_bands import (
-    ReservedBand,
+    EdgeKey,
     ReservedBands,
-    band_seating_shift,
     corridor_clearance_band,
     held_in_reserved_band,
     seat_bundle_in_claimed_bands,
@@ -2542,6 +2541,105 @@ def _has_around_section_sibling(
     return False
 
 
+class _MergeTrunkShape(NamedTuple):
+    """How a merge trunk reaches the entry port standing behind its junction.
+
+    ``around_below`` marks the loop under the target; every other field is a
+    :func:`_bypass_geometry` input for the U-shape drawn otherwise.  Stated
+    apart from the builder so the plan naming the trunk's turn and the emission
+    drawing it read one description of the shape.
+    """
+
+    around_below: bool
+    entry_port: Station | None
+    effective_tx: float
+    effective_ty: float
+    force_cross_row: bool
+    trunk_v_up_pull_away: bool
+    around_below_channel_y: float | None
+
+
+def _merge_trunk_shape(
+    edge: Edge,
+    tgt: Station,
+    src_col: int,
+    tgt_col: int,
+    ctx: _RoutingCtx,
+    src_row: int | None = None,
+) -> _MergeTrunkShape:
+    """The shape the trunk carrier draws from its source to the entry port.
+
+    Both X and Y of the entry port override the target coordinates because the
+    merge junction is virtual and lives inside the target section at a
+    different Y from the actual entry port; without the Y override the bypass
+    terminates at the merge junction's Y and leaves a visible "hanging" curve
+    disconnected from the entry port.
+
+    A LEFT entry port with no clear inter-column channel to its left (the
+    target sits in the leftmost column, fed from its right) has no gap for the
+    bypass to rise in on the port's own side; the U-shape's gap2 lands to the
+    RIGHT of the box and its final port-approach leg ploughs leftward through
+    the target interior.  Such a trunk goes around below the target instead,
+    rising on the far (left) side and entering the LEFT port from outside.  The
+    around-below traverse runs at the trunk's ``bypass_bottom_y`` channel, the
+    same Y the branch feeders drop onto, so the converging lines overlay as one
+    stroke.
+
+    When the trunk and entry are in the same grid row but separated by
+    intervening row-mates, the standard above-row bypass channel sits in the
+    inter-row gap that also holds the target row's section titles.
+    ``force_cross_row`` runs the channel BELOW all sections in the column
+    range instead, mirroring :func:`_route_around_section_below` and avoiding
+    overlap with the title text.
+
+    When a sibling edge to the same merge junction will route via
+    :func:`_route_around_section_below`, both routes would place their V_up
+    channels in the inter-column gap just left of the target section,
+    producing overlapping bundles in the same x range.
+    ``trunk_v_up_pull_away`` pulls the trunk's V_up channel further from the
+    target edge (towards the previous column) so the two bundles occupy
+    distinct columns within the gap.
+    """
+    ep_id = ctx.merge.entry_port_for.get(edge.target)
+    ep = ctx.graph.stations.get(ep_id) if ep_id else None
+    ep_port = ctx.graph.ports.get(ep_id) if ep_id else None
+    effective_tx = ep.x if ep else tgt.x
+    effective_ty = ep.y if ep else tgt.y
+
+    if ep is not None and ep_port is not None and ep_port.side == PortSide.LEFT:
+        ep_col, ep_row = _resolve_section_colrow(ctx.graph, ep)
+        no_left_channel = (
+            ep_col is None
+            or ep_row is None
+            or _corridor_descent_x(ctx, ep_col, ep_row, 0.0) is None
+        )
+        if no_left_channel:
+            return _MergeTrunkShape(
+                True,
+                ep,
+                effective_tx,
+                effective_ty,
+                False,
+                False,
+                ctx.merge.trunk_by.get(edge.target),
+            )
+    return _MergeTrunkShape(
+        False,
+        ep,
+        effective_tx,
+        effective_ty,
+        merge_trunk_force_cross_row(
+            ctx.graph,
+            src_col,
+            tgt_col,
+            src_row,
+            _resolve_section_row(ctx.graph, tgt),
+        ),
+        ep is not None and _has_around_section_sibling(edge, ep, ep_port, ctx),
+        None,
+    )
+
+
 def _route_merge_trunk(
     edge: Edge,
     src: Station,
@@ -2555,66 +2653,27 @@ def _route_merge_trunk(
 ) -> RoutedPath:
     """Full U-shape bypass for the trunk carrier, ending at the entry port.
 
-    Delegates to _route_bypass with the entry port as the effective
-    target so the route extends past the merge junction to the section
-    entry.  Both X and Y of the entry port are overridden because the
-    merge junction is virtual and lives inside the target section at a
-    different Y from the actual entry port; without the Y override the
-    bypass terminates at the merge junction's Y and leaves a visible
-    "hanging" curve disconnected from the entry port.
-
-    A LEFT entry port with no clear inter-column channel to its left (the
-    target sits in the leftmost column, fed from its right) has no gap for the
-    bypass to rise in on the port's own side; the U-shape's gap2 lands to the
-    RIGHT of the box and its final port-approach leg ploughs leftward through
-    the target interior.  Route such a trunk around below the target instead,
-    rising on the far (left) side and entering the LEFT port from outside.  The
-    around-below traverse runs at the trunk's ``bypass_bottom_y`` channel, the
-    same Y the branch feeders drop onto, so the converging lines overlay as one
-    stroke.
-
-    When the trunk and entry are in the same grid row but separated by
-    intervening row-mates, the standard above-row bypass channel sits
-    in the inter-row gap that also holds the target row's section
-    titles.  Force ``cross_row`` so the channel runs BELOW all sections
-    in the column range, mirroring :func:`_route_around_section_below`
-    and avoiding overlap with the title text.
-
-    When a sibling edge to the same merge junction will route via
-    :func:`_route_around_section_below`, both routes would place
-    their V_up channels in the inter-column gap just left of the target
-    section, producing overlapping bundles in the same x range.  Detect
-    that and pull the trunk's V_up channel further from the target edge
-    (towards the previous column) so the two bundles occupy distinct
-    columns within the gap.
+    Delegates to :func:`_route_bypass` with the entry port as the effective
+    target so the route extends past the merge junction to the section entry,
+    or to :func:`_route_around_section_below` for the arm with no channel on
+    its port's own side.  :func:`_merge_trunk_shape` picks between the two and
+    supplies the U's inputs.
     """
-    ep_id = ctx.merge.entry_port_for.get(edge.target)
-    ep = ctx.graph.stations.get(ep_id) if ep_id else None
-    ep_port = ctx.graph.ports.get(ep_id) if ep_id else None
-    effective_tx = ep.x if ep else tgt.x
-    effective_ty = ep.y if ep else tgt.y
-    tgt_row = _resolve_section_row(ctx.graph, tgt)
-
-    if ep is not None and ep_port is not None and ep_port.side == PortSide.LEFT:
-        ep_col, ep_row = _resolve_section_colrow(ctx.graph, ep)
-        no_left_channel = (
-            ep_col is None
-            or ep_row is None
-            or _corridor_descent_x(ctx, ep_col, ep_row, 0.0) is None
+    shape = _merge_trunk_shape(edge, tgt, src_col, tgt_col, ctx, src_row)
+    if shape.around_below:
+        assert shape.entry_port is not None
+        around = _route_around_section_below(
+            edge,
+            src,
+            tgt,
+            shape.entry_port,
+            i,
+            n,
+            ctx,
+            channel_y=shape.around_below_channel_y,
         )
-        if no_left_channel:
-            trunk_by = ctx.merge.trunk_by.get(edge.target)
-            around = _route_around_section_below(
-                edge, src, tgt, ep, i, n, ctx, channel_y=trunk_by
-            )
-            assert around is not None  # the trunk is always its own bundle member
-            return around
-    force_cross_row = merge_trunk_force_cross_row(
-        ctx.graph, src_col, tgt_col, src_row, tgt_row
-    )
-    trunk_v_up_pull_away = ep is not None and _has_around_section_sibling(
-        edge, ep, ep_port, ctx
-    )
+        assert around is not None  # the trunk is always its own bundle member
+        return around
     return _route_bypass(
         edge,
         src,
@@ -2624,10 +2683,10 @@ def _route_merge_trunk(
         tgt_col,
         ctx,
         src_row,
-        effective_tx=effective_tx,
-        effective_ty=effective_ty,
-        force_cross_row=force_cross_row,
-        trunk_v_up_pull_away=trunk_v_up_pull_away,
+        effective_tx=shape.effective_tx,
+        effective_ty=shape.effective_ty,
+        force_cross_row=shape.force_cross_row,
+        trunk_v_up_pull_away=shape.trunk_v_up_pull_away,
     )
 
 
@@ -3114,23 +3173,63 @@ def _bypass_geometry(
 BYPASS_DESCENT_RANK = 1
 
 
-def _u_bypass_facts(edge: Edge, ctx: _RoutingCtx) -> _InterFacts | None:
-    """This edge's inter-section facts when it draws the U-shaped bypass."""
+def u_bypass_descent_geometry(edge: Edge, ctx: _RoutingCtx) -> _BypassGeometry | None:
+    """The U-shaped bypass *edge*'s own handler builds, when it draws one.
+
+    Two families open on that U: the bypass family, and a merge trunk drawing
+    it to the entry port standing behind its junction instead of to the
+    junction itself.  They share the gap-1 channel a bundle is seated in, so
+    one reading of the shape has to serve both -- and it has to be the reading
+    the dispatcher's own choice of family gives, since a member some earlier
+    rule claims draws no U at all.
+
+    ``None`` where the member draws something else.
+    """
     src, tgt = ctx.graph.edge_endpoints(edge)
     facts = _build_inter_facts(edge, src, tgt, ctx)
+    if facts.src_col is None or facts.tgt_col is None:
+        return None
+    family = classify_inter_section_family(edge, src, tgt, ctx)
+    if family is RouteFamilyId.MERGE_TRUNK:
+        shape = _merge_trunk_shape(
+            edge, tgt, facts.src_col, facts.tgt_col, ctx, facts.src_row
+        )
+        if shape.around_below:
+            return None
+        return _bypass_geometry(
+            edge,
+            src,
+            tgt,
+            facts.i,
+            facts.src_col,
+            facts.tgt_col,
+            ctx,
+            facts.src_row,
+            shape.effective_tx,
+            shape.effective_ty,
+            shape.force_cross_row,
+            shape.trunk_v_up_pull_away,
+        )
     if (
-        not facts.needs_bypass
-        or facts.src_col is None
-        or facts.tgt_col is None
+        family is not RouteFamilyId.BYPASS_FAMILY
         or _bypass_route_kind(facts) is not _BypassRoute.U_BYPASS
     ):
         return None
-    return facts
+    return _bypass_geometry(
+        edge,
+        src,
+        tgt,
+        facts.i,
+        facts.src_col,
+        facts.tgt_col,
+        ctx,
+        facts.src_row,
+    )
 
 
-def _bypass_descent_claims(
+def _bypass_descent_lanes(
     edge: Edge, ctx: _RoutingCtx
-) -> list[tuple[float, ReservedBand | None]] | None:
+) -> list[tuple[EdgeKey, float]] | None:
     """Every co-travelling descent the reservation seats with this one.
 
     The seating pass translates a claimed group as a whole, so the group -- not
@@ -3142,38 +3241,28 @@ def _bypass_descent_claims(
     the group is then not this bundle, and no member's column follows from the
     bundle's own claims.
     """
-    claims: list[tuple[float, ReservedBand | None]] = []
+    lanes: list[tuple[EdgeKey, float]] = []
     for member in ctx.graph.edges:
         if (member.source, member.target) != (edge.source, edge.target):
             continue
-        facts = _u_bypass_facts(member, ctx)
-        if facts is None:
+        descent = u_bypass_descent_geometry(member, ctx)
+        if descent is None:
             return None
-        assert facts.src_col is not None and facts.tgt_col is not None
-        column = _bypass_geometry(
-            member,
-            facts.src,
-            facts.tgt,
-            facts.i,
-            facts.src_col,
-            facts.tgt_col,
-            ctx,
-            facts.src_row,
-        ).gap1_x
-        claims.append(
-            (
-                column,
-                ctx.reserved_bands.for_segment(
-                    member.source, member.target, member.line_id, BYPASS_DESCENT_RANK
-                ),
-            )
-        )
-    return claims or None
+        lanes.append(((member.source, member.target, member.line_id), descent.gap1_x))
+    return lanes or None
+
+
+class SeatedDescent(NamedTuple):
+    """A U-bypass descent's seated column with its place in the seating group."""
+
+    column: float
+    rank: int
+    width: int
 
 
 def seated_bypass_descent(
     edge: Edge, geometry: _BypassGeometry, ctx: _RoutingCtx
-) -> tuple[float, int, int] | None:
+) -> SeatedDescent | None:
     """This descent's seated column with its rank and width in the bundle.
 
     The handler places the descent from the grid edges it has to hand, and the
@@ -3182,14 +3271,16 @@ def seated_bypass_descent(
     turn and the plan that names it stand on one column; ``None`` where the
     bundle's own claims do not name it.
     """
-    claims = _bypass_descent_claims(edge, ctx)
-    if claims is None:
+    lanes = _bypass_descent_lanes(edge, ctx)
+    if lanes is None:
         return None
-    columns = sorted({column for column, _band in claims})
-    shift = band_seating_shift(
-        (column, band) for column, band in claims if band is not None
+    columns = sorted({column for _key, column in lanes})
+    travel = seat_bundle_in_claimed_bands(
+        ctx.reserved_bands, lanes, rank=BYPASS_DESCENT_RANK
     )
-    return geometry.gap1_x + shift, columns.index(geometry.gap1_x), len(columns)
+    return SeatedDescent(
+        geometry.gap1_x + travel, columns.index(geometry.gap1_x), len(columns)
+    )
 
 
 def bypass_line_draws_a_chained_trunk(edge: Edge, ctx: _RoutingCtx) -> bool:
@@ -3209,7 +3300,7 @@ def bypass_line_draws_a_chained_trunk(edge: Edge, ctx: _RoutingCtx) -> bool:
         member.line_id == edge.line_id
         and (member.source, member.target) != (edge.source, edge.target)
         and ctx.graph.stations[member.target].section_id == section
-        and _u_bypass_facts(member, ctx) is not None
+        and u_bypass_descent_geometry(member, ctx) is not None
         for member in ctx.graph.edges
     )
 
@@ -3239,7 +3330,6 @@ def _seat_bypass_descent(
     seated = seated_bypass_descent(edge, geometry, ctx)
     if seated is None:
         return
-    column, rank, width = seated
     start, end = route.points[BYPASS_DESCENT_RANK : BYPASS_DESCENT_RANK + 2]
     if abs(start[0] - end[0]) > COORD_TOLERANCE:
         return
@@ -3252,9 +3342,9 @@ def _seat_bypass_descent(
             max(start[1], end[1]),
             end[1] > start[1],
         ),
-        column,
-        rank,
-        width,
+        seated.column,
+        seated.rank,
+        seated.width,
         ctx.offset_step,
         ctx.curve_radius,
     )

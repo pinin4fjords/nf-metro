@@ -27,11 +27,16 @@ from nf_metro.layout.route_plan import (
 from nf_metro.layout.routing.common import Direction, GapSlot, OffsetRegime, RoutedPath
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
+from nf_metro.layout.routing.corners import _corner_travel_units
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.normalize import _VChannel
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.planning import _allocation_eligible_system_ids
-from nf_metro.layout.routing.reserved_bands import build_reserved_corridors
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    ReservedCorridors,
+    build_reserved_corridors,
+)
 from nf_metro.parser.model import Edge
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge
 
@@ -338,6 +343,83 @@ def test_same_line_fanout_opening_is_coincident_before_member_freeze() -> None:
     assert len({plan.gap_channels[0].start[0] for plan in plans}) == 1
     for plan in plans:
         _assert_channels_equal_emission(observation, plan)
+
+
+def _arc_centre(
+    points: list[tuple[float, float]], corner: int, radius: float
+) -> tuple[float, float]:
+    """The centre of the arc rounding ``points[corner]`` at *radius*."""
+    turn_in, turn_out = _corner_travel_units(*points[corner - 1 : corner + 2])
+    return (
+        points[corner][0] + radius * (turn_out[0] - turn_in[0]),
+        points[corner][1] + radius * (turn_out[1] - turn_in[1]),
+    )
+
+
+def test_seating_a_claimed_bundle_carries_its_concentric_fan() -> None:
+    """Two lanes seated together keep the arc centre their fan shares.
+
+    Both lanes travel one displacement into their claimed bands, so each keeps
+    the corner radii its own displacement from the bundle reference gave it.
+    Re-deriving them at the base radius instead leaves the two lanes turning on
+    separate centres, which is the bundle drawn with its fan flattened.
+    """
+    lanes = {
+        "wide": RoutedPath(
+            Edge("src", "tgt", "wide"),
+            "wide",
+            [(0.0, -4.0), (104.0, -4.0), (104.0, 196.0), (304.0, 196.0)],
+            curve_radii=[CURVE_RADIUS + OFFSET_STEP, CURVE_RADIUS - OFFSET_STEP],
+        ),
+        "ref": RoutedPath(
+            Edge("src", "tgt", "ref"),
+            "ref",
+            [(0.0, 0.0), (100.0, 0.0), (100.0, 200.0), (300.0, 200.0)],
+            curve_radii=[CURVE_RADIUS, CURVE_RADIUS],
+        ),
+    }
+    centres_before = {
+        name: tuple(
+            _arc_centre(route.points, corner, route.curve_radii[corner - 1])
+            for corner in (1, 2)
+        )
+        for name, route in lanes.items()
+    }
+    assert centres_before["wide"] == centres_before["ref"]
+
+    candidates = tuple(
+        SimpleNamespace(
+            route=route,
+            system_id=RouteSystemId("system"),
+            carrier_id="carrier",
+        )
+        for route in lanes.values()
+    )
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(
+            per_claim={
+                ("src", "tgt", "wide", 1): ReservedBand(116.0, 200.0),
+                ("src", "tgt", "ref", 1): ReservedBand(112.0, 200.0),
+            }
+        )
+    )
+
+    member_geometry._seat_claimed_segments_before_freeze(candidates, ctx)
+
+    assert lanes["ref"].points[1:3] == [(112.0, 0.0), (112.0, 200.0)]
+    assert lanes["wide"].points[1:3] == [(116.0, -4.0), (116.0, 196.0)]
+    centres_after = {
+        name: tuple(
+            _arc_centre(route.points, corner, route.curve_radii[corner - 1])
+            for corner in (1, 2)
+        )
+        for name, route in lanes.items()
+    }
+    assert centres_after["wide"] == centres_after["ref"]
+    assert lanes["wide"].curve_radii == [
+        CURVE_RADIUS + OFFSET_STEP,
+        CURVE_RADIUS - OFFSET_STEP,
+    ]
 
 
 def test_member_plans_persist_exact_connector_ownership() -> None:

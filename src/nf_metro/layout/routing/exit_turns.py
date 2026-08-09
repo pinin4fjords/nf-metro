@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -73,6 +73,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
     _bypass_geometry,
     _bypass_route_kind,
+    _BypassGeometry,
     _BypassRoute,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
@@ -95,6 +96,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     bypass_line_draws_a_chained_trunk,
     classify_inter_section_family,
     seated_bypass_descent,
+    u_bypass_descent_geometry,
 )
 from nf_metro.layout.routing.normalize import (
     _h_segment_crosses_other_section,
@@ -139,6 +141,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.BYPASS_FAMILY,
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
         RouteFamilyId.RIGHT_ENTRY_WRAP,
+        RouteFamilyId.MERGE_TRUNK,
     }
 )
 
@@ -1006,6 +1009,8 @@ def _source_turn_requirement(
         return _right_entry_wrap_turn_requirement(edge, ctx, src, tgt)
     if family_id is RouteFamilyId.BYPASS_FAMILY:
         return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    if family_id is RouteFamilyId.MERGE_TRUNK:
+        return _merge_trunk_turn_requirement(edge, ctx)
     if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
         return _bottom_exit_junction_turn_requirement(edge, ctx, src, tgt)
     return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
@@ -1052,11 +1057,139 @@ def _standard_l_shape_turn_requirement(
 
 
 def _seam_also_feeds_a_merge(edge: Edge, ctx: _RoutingCtx) -> bool:
-    """Whether this edge's source also carries a branch into a merge junction."""
+    """Whether a *sibling* off this edge's source feeds a merge junction.
+
+    The edge's own destinations are excluded: a trunk carrying the whole merge
+    reaches a junction by definition, and the corner at issue is one another
+    family turns off, not one the seam draws itself.
+    """
     return any(
-        member.source == edge.source and member.target in ctx.merge.junctions
+        member.source == edge.source
+        and member.target != edge.target
+        and member.target in ctx.merge.junctions
         for member in ctx.graph.edges
     )
+
+
+def _u_bypass_source_turn(
+    edge: Edge, geometry: _BypassGeometry, ctx: _RoutingCtx
+) -> _SourceTurnRequirement:
+    """The turn a built U-shaped bypass opens with, at the column it stands on.
+
+    Both the bypass family and a merge trunk open on this U, so the axes each
+    of them cannot speak for are the same three, each named for the owner that
+    settles it.
+    """
+    if _seam_also_feeds_a_merge(edge, ctx):
+        # A merge branch turns off the same corner the descent opens on, and the
+        # two families size that corner from different bundles: a plan naming
+        # the descent's column names a radius the merge branch owns too.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "merge-branch-shares-the-descent-corner",
+        )
+    seated = seated_bypass_descent(edge, geometry, ctx)
+    if seated is None or seated.width != geometry.g1_n:
+        # The descent shares its channel with runs the reservation seats as one
+        # group.  Where this member is not stated in that group, or the group is
+        # narrower than the gap's own population of the channel, neither where
+        # the group lands nor the stagger the two flanking corners are sized
+        # from follows from the member's own claim.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "seating-group-owns-the-descent-column",
+        )
+    if bypass_line_draws_a_chained_trunk(edge, ctx):
+        # This line's two chained trunks are ranked in separate channel groups,
+        # and which of them keeps the packed track is settled after a plan would
+        # freeze this descent: the trunk axis has an owner of its own.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "trunk-band-owns-the-chained-same-line-trunk",
+        )
+    if geometry.run_direction is None or geometry.turn_direction is None:
+        # The hop still turns at the far gap, so a source seam with no lead-in
+        # or no descent is not a straight run into the entry either: no
+        # arrangement of the family's turn sequence stands on it.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:bypass-degenerate-source-seam",
+        )
+    axis_coordinate = seated.column
+    return _SourceTurnRequirement(
+        geometry.run_direction,
+        geometry.turn_direction,
+        geometry.launch_coordinate,
+        abs(axis_coordinate - geometry.launch_coordinate),
+        axis_coordinate,
+    )
+
+
+def _seam_carries_a_bundle_elsewhere(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether another destination off this seam takes several lines at once.
+
+    A destination reached by one line contests no lane order, so the seam's own
+    ladder is free to state it.  A destination reached by several has an order
+    of its own, settled where the bundle lands rather than where it leaves.
+    """
+    reached: Counter[str] = Counter(
+        member.target for member in ctx.graph.edges if member.source == edge.source
+    )
+    return any(target != edge.target and n > 1 for target, n in reached.items())
+
+
+def _merge_trunk_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+) -> _SourceTurnRequirement:
+    """The turn a merge trunk opens with, by the shape it draws to the entry port.
+
+    The trunk carries the whole merge to the entry port standing behind its
+    junction, and it does so on the same U the bypass family draws, so it states
+    its turn the same way.  The arm whose LEFT entry port has no channel on its
+    own side loops under the target instead -- a different shape, drawn by
+    :func:`~nf_metro.layout.routing.inter_section_handlers._route_around_section_below`,
+    which states no turn of its own.
+    """
+    if _seam_carries_a_bundle_elsewhere(edge, ctx):
+        # The trunk shares its seam with a bundle bound elsewhere, and a plan
+        # here is a plan for the whole seam: the lanes it would hand that bundle
+        # are the ones the port it lands on has already ordered.
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "entry-bundle-owns-the-shared-seam-lanes",
+        )
+    geometry = u_bypass_descent_geometry(edge, ctx)
+    if geometry is None:
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:merge-trunk-around-below",
+        )
+    return _u_bypass_source_turn(edge, geometry, ctx)
 
 
 def _bypass_turn_requirement(
@@ -1095,72 +1228,19 @@ def _bypass_turn_requirement(
             f"unsupported-subshape:bypass-{kind.value}",
         )
     assert facts.src_col is not None and facts.tgt_col is not None
-    geometry = _bypass_geometry(
+    return _u_bypass_source_turn(
         edge,
-        src,
-        tgt,
-        facts.i,
-        facts.src_col,
-        facts.tgt_col,
+        _bypass_geometry(
+            edge,
+            src,
+            tgt,
+            facts.i,
+            facts.src_col,
+            facts.tgt_col,
+            ctx,
+            facts.src_row,
+        ),
         ctx,
-        facts.src_row,
-    )
-    if _seam_also_feeds_a_merge(edge, ctx):
-        # A merge branch turns off the same corner the descent opens on, and the
-        # two families size that corner from different bundles: a plan naming
-        # the descent's column names a radius the merge branch owns too.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "merge-branch-shares-the-descent-corner",
-        )
-    seated = seated_bypass_descent(edge, geometry, ctx)
-    if seated is None:
-        # The descent shares its channel with runs the reservation seats as one
-        # group, and this member is not stated in that group: where the group
-        # lands does not follow from the member's own claim.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "seating-group-owns-the-descent-column",
-        )
-    if bypass_line_draws_a_chained_trunk(edge, ctx):
-        # This line's two chained trunks are ranked in separate channel groups,
-        # and which of them keeps the packed track is settled after a plan would
-        # freeze this descent: the trunk axis has an owner of its own.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "trunk-band-owns-the-chained-same-line-trunk",
-        )
-    if geometry.run_direction is None or geometry.turn_direction is None:
-        # The hop still turns at the far gap, so a source seam with no lead-in
-        # or no descent is not a straight run into the entry either: no
-        # arrangement of the family's turn sequence stands on it.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:bypass-degenerate-source-seam",
-        )
-    axis_coordinate = seated[0]
-    return _SourceTurnRequirement(
-        geometry.run_direction,
-        geometry.turn_direction,
-        geometry.launch_coordinate,
-        abs(axis_coordinate - geometry.launch_coordinate),
-        axis_coordinate,
     )
 
 

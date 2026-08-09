@@ -12,6 +12,7 @@ from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
+    CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
@@ -47,12 +48,11 @@ from nf_metro.layout.routing.normalize import (
     _locate_slot_channel,
     _materialize_gap_slots,
     _materialize_trunk_slots,
-    _set_htrunk_y,
-    _set_vchannel_x,
+    _reseat_concentric_flanking,
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBand, band_seating_shift
+from nf_metro.layout.routing.reserved_bands import ReservedBand, bundle_travel
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge, semantic_route_id
 
@@ -794,6 +794,35 @@ def _allocate_member_gap_channels(
         obstacles.extend(_claim_for_materialized_channel(item) for item in bundle)
 
 
+def _carry_seated_run(
+    route: RoutedPath, rank: int, axis: int, coordinate: float
+) -> None:
+    """Carry one run of a jointly-seated bundle onto *coordinate*.
+
+    A bundle travels as one, so no member's displacement from the reference line
+    its bundle nests around changes: each of the two corners the run turns on
+    keeps the radius that displacement already gave it, and re-deriving against
+    the base radius instead would seat every member on the single-line radius
+    and draw the fan flat.  Each corner's own radius is therefore the reference
+    the re-derivation anchors on, with no further displacement to apply.
+    """
+    radii = route.curve_radii
+    reference_in = reference_out = CURVE_RADIUS
+    if radii is not None:
+        if 0 <= rank - 1 < len(radii):
+            reference_in = radii[rank - 1]
+        if rank < len(radii):
+            reference_out = radii[rank]
+    _reseat_concentric_flanking(
+        route,
+        rank,
+        coordinate,
+        axis=axis,
+        base_radius=reference_in,
+        base_radius_out=reference_out,
+    )
+
+
 def _seat_claimed_segments_before_freeze(
     candidates: tuple[_MemberCandidate, ...], ctx: _RoutingCtx
 ) -> None:
@@ -825,27 +854,13 @@ def _seat_claimed_segments_before_freeze(
                 )
 
     for (*_identity, axis), items in grouped.items():
-        shift = band_seating_shift(
-            (coordinate, band) for _route, _rank, coordinate, band in items
+        travel = bundle_travel(
+            [(band, coordinate) for _route, _rank, coordinate, band in items]
         )
-        if abs(shift) <= COORD_TOLERANCE_FINE:
+        if abs(travel) <= COORD_TOLERANCE_FINE:
             continue
         for route, rank, coordinate, _band in items:
-            if axis == 1:
-                _set_htrunk_y(route, rank, coordinate + shift)
-            else:
-                start, end = route.points[rank : rank + 2]
-                _set_vchannel_x(
-                    _VChannel(
-                        route,
-                        rank,
-                        coordinate,
-                        min(start[1], end[1]),
-                        max(start[1], end[1]),
-                        end[1] > start[1],
-                    ),
-                    coordinate + shift,
-                )
+            _carry_seated_run(route, rank, axis, coordinate + travel)
 
 
 def _allocate_preliminary_gap_claims(

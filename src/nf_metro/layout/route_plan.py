@@ -416,7 +416,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:entry-runway-fallback",
                     "unsupported-family:intra-section-fallback",
                     "unsupported-family:left-exit-far-side-left-entry-wrap",
-                    "unsupported-family:merge-trunk",
                     "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
                     "unsupported-family:right-entry-plough-bypass",
@@ -440,6 +439,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-subshape:merge-entry-corridor",
                     "unsupported-subshape:merge-entry-perpendicular_entry",
                     "unsupported-subshape:merge-entry-straight",
+                    "unsupported-subshape:merge-trunk-around-below",
                     "unsupported-subshape:nonhorizontal-left-entry-wrap",
                     "unsupported-subshape:nonvertical-tb-exit",
                     "unsupported-subshape:opposed-horizontal-straight",
@@ -457,6 +457,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
                     "fixed-anchor-owned-by-another-plan",
+                    "entry-bundle-owns-the-shared-seam-lanes",
                     "fixed-axis-conflict",
                     "linear-entry-frame-ownership-conflict",
                     "merge-branch-shares-the-descent-corner",
