@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
 from types import MappingProxyType
@@ -241,6 +241,36 @@ def vertical_fan_label_lane_pitch(
                 ),
             )
     return pitch
+
+
+def fan_lane_sign(
+    graph: MetroGraph,
+    frame: AxisFrame,
+    layout_section_id: str | None,
+    source_station_id: str,
+    *,
+    branches: Sequence[FanBranchPlan],
+    tb_positive_fan: Collection[str],
+) -> float:
+    """The side a fan opens its branch lanes toward.
+
+    Branches carrying disjoint lines ride the fork's bundle up to the point
+    they peel apart, so the side the bundle stacks them on is the side they
+    must open toward: stating the other side orders the same two lines twice
+    and swaps them between the fork and their lanes, and they cross on the
+    way.  Branches that all carry the same lines are concentric and state no
+    such order, so there the fan is free to open away from its feeder.
+    """
+    section = graph.sections.get(layout_section_id or "")
+    line_sets = [set(branch.line_ids) for branch in branches]
+    partitions = any(
+        left.isdisjoint(right)
+        for index, left in enumerate(line_sets)
+        for right in line_sets[index + 1 :]
+    )
+    if section is not None and partitions:
+        return section_lane_sign(section, tb_positive_fan)
+    return fan_appearance_lane_sign(graph, frame, layout_section_id, source_station_id)
 
 
 def fan_appearance_lane_sign(
@@ -1754,7 +1784,14 @@ def _build_candidate(
         else None
     )
     appearance_lane_sign = (
-        fan_appearance_lane_sign(graph, frame, layout_section_id, source_id)
+        fan_lane_sign(
+            graph,
+            frame,
+            layout_section_id,
+            source_id,
+            branches=branch_plans,
+            tb_positive_fan=ctx.tb_positive_fan,
+        )
         if frame is not None and reason is None
         else None
     )

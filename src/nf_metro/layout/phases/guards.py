@@ -5239,7 +5239,7 @@ def _guard_planned_fan_frame_realised(
     """Raise when a fan's settled frame disagrees with its semantic contract."""
     from nf_metro.layout.fan_geometry import fan_lane_offsets
     from nf_metro.layout.fan_plans import (
-        fan_appearance_lane_sign,
+        fan_lane_sign,
         vertical_fan_label_lane_pitch,
     )
     from nf_metro.layout.route_plan import FanAppearancePolicy
@@ -5306,16 +5306,18 @@ def _guard_planned_fan_frame_realised(
                 f"{phase}: planned fan {plan.id!s} has no frozen appearance frame"
             )
         section_id = graph.section_for_station(plan.fork_station_id)
-        expected_sign = fan_appearance_lane_sign(
+        expected_sign = fan_lane_sign(
             graph,
             frame,
             section_id,
             plan.authored_source_id,
+            branches=plan.branches,
+            tb_positive_fan=tb_positive_fan,
         )
         if plan.appearance_lane_sign != expected_sign:
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} appearance lane sign "
-                f"{plan.appearance_lane_sign:+.0f} disagrees with its feeder-aware "
+                f"{plan.appearance_lane_sign:+.0f} disagrees with its bundle-aware "
                 f"axis sign {expected_sign:+.0f}"
             )
         section = graph.sections.get(section_id or "")
