@@ -70,6 +70,8 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _merge_entry_route_kind,
     _MergeEntryRoute,
     _perp_exit_geometry,
+    _perp_exit_over_geometry,
+    _PerpExitGeometry,
     _tb_bottom_exit_around_stack_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
@@ -89,7 +91,7 @@ from nf_metro.layout.routing.orientation import (
     lateral_order_sign,
 )
 from nf_metro.layout.routing.perp import _perp_entry_crossing_x, _perp_riser_lateral
-from nf_metro.parser.model import Edge, MetroGraph, PortSide
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import (
     ConnectorId,
     EndpointGroup,
@@ -109,7 +111,13 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
         RouteFamilyId.TB_BOTTOM_EXIT,
         RouteFamilyId.PERP_EXIT,
+        RouteFamilyId.TB_PERP_EXIT_OVER,
     }
+)
+
+# Families whose source seam is a perpendicular-exit centreline.
+_PERPENDICULAR_EXIT_FAMILIES = frozenset(
+    {RouteFamilyId.PERP_EXIT, RouteFamilyId.TB_PERP_EXIT_OVER}
 )
 
 _EdgeKey = tuple[str, str, str]
@@ -500,6 +508,44 @@ def _source_lane_order(
     )
 
 
+def _perp_exit_family_geometry(
+    edge: Edge,
+    family_id: RouteFamilyId,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> _PerpExitGeometry:
+    """The perpendicular-exit centreline *family_id* emits for *edge*.
+
+    A trailing perpendicular exit off a vertical-flow section always goes up and
+    over; a perpendicular exit off a horizontal-flow one may instead drop
+    straight, which its own resolver decides.
+    """
+    if family_id is RouteFamilyId.TB_PERP_EXIT_OVER:
+        return _perp_exit_over_geometry(edge, src, tgt, ctx)
+    geometry = _perp_exit_geometry(edge, src, tgt, ctx)
+    assert geometry is not None
+    return geometry
+
+
+def _perp_exit_turn_requirement(
+    geometry: _PerpExitGeometry,
+) -> _SourceTurnRequirement:
+    """The source turn a resolved perpendicular-exit centreline leaves on."""
+    if geometry.turn_direction is None:
+        return _SourceTurnRequirement(geometry.run_direction, None, None, None, None)
+    assert (
+        geometry.launch_coordinate is not None and geometry.axis_coordinate is not None
+    )
+    return _SourceTurnRequirement(
+        geometry.run_direction,
+        geometry.turn_direction,
+        geometry.launch_coordinate,
+        abs(geometry.axis_coordinate - geometry.launch_coordinate),
+        geometry.axis_coordinate,
+    )
+
+
 def _source_turn_requirement(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -539,7 +585,7 @@ def _source_turn_requirement(
             abs(geometry.axis_coordinate - geometry.launch_coordinate),
             geometry.axis_coordinate,
         )
-    if family_id is RouteFamilyId.PERP_EXIT:
+    if family_id in _PERPENDICULAR_EXIT_FAMILIES:
         if source_run_direction not in {Direction.U, Direction.D}:
             return _SourceTurnRequirement(
                 None,
@@ -549,26 +595,8 @@ def _source_turn_requirement(
                 None,
                 "unsupported-subshape:nonvertical-perp-exit",
             )
-        perp_geometry = _perp_exit_geometry(edge, src, tgt, ctx)
-        assert perp_geometry is not None
-        if perp_geometry.turn_direction is None:
-            return _SourceTurnRequirement(
-                perp_geometry.run_direction,
-                None,
-                None,
-                None,
-                None,
-            )
-        assert (
-            perp_geometry.launch_coordinate is not None
-            and perp_geometry.axis_coordinate is not None
-        )
-        return _SourceTurnRequirement(
-            perp_geometry.run_direction,
-            perp_geometry.turn_direction,
-            perp_geometry.launch_coordinate,
-            abs(perp_geometry.axis_coordinate - perp_geometry.launch_coordinate),
-            perp_geometry.axis_coordinate,
+        return _perp_exit_turn_requirement(
+            _perp_exit_family_geometry(edge, family_id, src, tgt, ctx)
         )
     if family_id is RouteFamilyId.SAME_Y_STRAIGHT:
         if source_run_direction not in {Direction.R, Direction.L}:
@@ -1011,15 +1039,14 @@ def _continuation_lane_ownership(
             return (), (), "unresolved-perpendicular-entry-seam"
         return (), (), None
 
-    if family_id is RouteFamilyId.PERP_EXIT:
+    if family_id in _PERPENDICULAR_EXIT_FAMILIES:
         source_offsets = dict(offsets)
         source_offsets[source_id, line_id] = desired
         seam_ctx = replace(ctx, station_offsets=source_offsets, built_routes=[])
         resolved_edge = ResolvedEdge(source_id, entry_id, line_id)
         edge = _graph_edge(ctx.edge_by_key, resolved_edge)
         source, target = graph.edge_endpoints(edge)
-        geometry = _perp_exit_geometry(edge, source, target, seam_ctx)
-        assert geometry is not None
+        geometry = _perp_exit_family_geometry(edge, family_id, source, target, seam_ctx)
         # A column-aligned drop lands on the target trunk's own per-line X, which
         # the crossing oracle does not describe; the generic in-section walk below
         # is what owns that lane.
@@ -2170,14 +2197,14 @@ def _planned_axis_cross_range(
             source_offsets = dict(ctx.station_offsets or {})
             source_offsets[edge.source, edge.line_id] = lane.planned_offset
             tentative_ctx = replace(ctx, station_offsets=source_offsets)
-            if assignment.planned_family_id is RouteFamilyId.PERP_EXIT:
-                perp_geometry = _perp_exit_geometry(
+            if assignment.planned_family_id in _PERPENDICULAR_EXIT_FAMILIES:
+                perp_geometry = _perp_exit_family_geometry(
                     _graph_edge(ctx.edge_by_key, edge),
+                    assignment.planned_family_id,
                     source,
                     target,
                     tentative_ctx,
                 )
-                assert perp_geometry is not None
                 values.extend((perp_geometry.cross_lo, perp_geometry.cross_hi))
                 continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
