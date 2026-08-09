@@ -108,6 +108,7 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/fanout_hub_two_line_trunk": frozenset({"4.7"}),
     "topologies/fanout_line_reused_nonadjacent_leg": frozenset({"4.7"}),
     "topologies/internal_source_equal_sibling_2fan": frozenset({"4.7"}),
+    "topologies/near_edge_exit_corner": frozenset({"4.7"}),
     "topologies/off_track_convergence": frozenset({"4.7"}),
     "topologies/off_track_convergence_multiline": frozenset({"4.7"}),
     "topologies/off_track_input_above_consumer": frozenset({"4.7"}),
@@ -125,6 +126,8 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/symmetric_join_exit_port_centre": frozenset({"4.7"}),
     "topologies/tb_off_track_inputs": frozenset({"6.6"}),
     "topologies/terminal_symmetric_fan": frozenset({"4.7"}),
+    "topologies/top_descent_over_left_entry": frozenset({"4.7"}),
+    "topologies/top_descent_over_left_entry_junction": frozenset({"4.7"}),
     "topologies/trunk_through_fan": frozenset({"4.7"}),
 }
 
