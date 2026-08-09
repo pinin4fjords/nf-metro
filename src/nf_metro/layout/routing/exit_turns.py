@@ -2559,6 +2559,7 @@ def consume_exit_turn_route(
         )
         > COORD_TOLERANCE
     ):
+        axis_by_id = {axis.id: axis for axis in membership.plan.axes}
         turn_cohort = tuple(
             item
             for item in membership.plan.assignments
@@ -2566,6 +2567,22 @@ def consume_exit_turn_route(
             and item.turn_direction is turn
             and item.axis_id is not None
         )
+        # A heading more than one destination pins carries a ladder per pinning
+        # destination, and the nesting offset is measured within one ladder: a
+        # member read against a foreign ladder's reference reports the distance
+        # between two columns of the map as its own corner's offset.
+        pinning_group_ids = {
+            item.entry_group_id
+            for item in turn_cohort
+            if item.axis_id is not None
+            and axis_by_id[item.axis_id].fixed_anchor_id is not None
+        }
+        if len(pinning_group_ids) > 1:
+            turn_cohort = tuple(
+                item
+                for item in turn_cohort
+                if item.entry_group_id == assignment.entry_group_id
+            )
         cohort_axis_ids = {item.axis_id for item in turn_cohort}
         cohort_axes = tuple(
             axis for axis in membership.plan.axes if axis.id in cohort_axis_ids
