@@ -1358,8 +1358,29 @@ def _centreline_port_ids(
     direction: FlowDirection | None,
     layout_section_id: str | None,
     port_ids: Sequence[str],
+    branches: Sequence[FanBranchPlan],
 ) -> tuple[str, ...]:
-    """Freeze boundary ports that continue one fan's local centreline."""
+    """Freeze boundary ports that continue one fan's local centreline.
+
+    A port only continues the centreline when it lands the fan's un-offset
+    (``lane_offset`` 0 or unset) branch: that is the branch riding the trunk
+    straight across the boundary. A port landing only laterally-offset
+    branches carries lines the fan has already pulled off the centreline to
+    keep them visually separated near the crossing; forcing it onto the raw
+    centreline overrides whatever row its own section settles those branches
+    on downstream (#1711).
+    """
+    offset_only_landing_ports = {
+        pid
+        for branch in branches
+        for pid in branch.landing_port_ids
+        if branch.lane_offset not in (None, 0.0)
+    } - {
+        pid
+        for branch in branches
+        for pid in branch.landing_port_ids
+        if branch.lane_offset in (None, 0.0)
+    }
     layout_section = graph.sections.get(layout_section_id or "")
     if direction is None or layout_section is None:
         return ()
@@ -1367,6 +1388,8 @@ def _centreline_port_ids(
     layout_column, layout_row = _grid_position(graph, layout_section.id)
     result: list[str] = []
     for port_id in port_ids:
+        if port_id in offset_only_landing_ports:
+            continue
         port = graph.ports.get(port_id)
         section = graph.sections.get(port.section_id) if port is not None else None
         if port is None or section is None:
@@ -2361,6 +2384,7 @@ def _build_candidate(
             direction,
             layout_section_id,
             (*entry_ports, *exit_ports),
+            branch_plans,
         )
         if reason is None
         else ()
