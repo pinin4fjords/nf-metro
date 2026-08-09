@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from math import inf
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -122,6 +123,7 @@ from nf_metro.layout.routing.perp import (
 )
 from nf_metro.layout.routing.reserved_bands import (
     EdgeKey,
+    ReservedBand,
     ReservedBands,
     corridor_clearance_band,
     held_in_reserved_band,
@@ -6048,6 +6050,17 @@ def _right_entry_over_top_geometry(
     # what their own corridors' reservations charge them; travel each bundle onto
     # the band its claims realise so the loop stands where the pre-freeze seating
     # would put it rather than being moved off an axis the plan has stated.
+    # The loop's own descent shares that corridor, and the two verticals are
+    # joined by the traverse whose ends they turn on, so the rise may only take
+    # the travel that leaves both corners their full radius on the side it
+    # already stands: a corridor and a descent that share no such coordinate
+    # leave the rise where it stands.
+    runway = 2 * ctx.curve_radius
+    clear_of_descent = (
+        ReservedBand(descent_x + runway, inf)
+        if lead_x > descent_x
+        else ReservedBand(-inf, descent_x - runway)
+    )
     lead_x += seat_bundle_in_corridor_clearance(
         graph,
         axis=0,
@@ -6058,6 +6071,7 @@ def _right_entry_over_top_geometry(
         ],
         run_start=min(mid_sy, channel_y),
         run_end=max(mid_sy, channel_y),
+        clear_of=clear_of_descent,
     )
     lead_x += seat_bundle_in_claimed_bands(
         ctx.reserved_bands,

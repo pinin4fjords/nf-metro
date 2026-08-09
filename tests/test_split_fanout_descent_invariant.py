@@ -68,14 +68,12 @@ def test_no_split_same_line_fanout_descents_in_gallery(path: Path) -> None:
 def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     """Disabling the fan-out fuse pass reproduces the split descents the
     invariant is meant to catch, proving the check is not vacuous."""
-    monkeypatch.setattr(
-        routing_core, "_coincide_fanout_opening_descents", lambda routes, ctx: None
-    )
-    monkeypatch.setattr(
-        member_geometry,
-        "_coincide_fanout_opening_descents",
-        lambda routes, ctx: None,
-    )
+
+    def no_fuse(routes, ctx, *, settle_frozen_arcs: bool = False) -> None:
+        return None
+
+    monkeypatch.setattr(routing_core, "_coincide_fanout_opening_descents", no_fuse)
+    monkeypatch.setattr(member_geometry, "_coincide_fanout_opening_descents", no_fuse)
     graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "divergent_fanout_split.mmd")
     violations = check_no_split_same_line_fanout_descents(graph, routes, offsets)
     assert violations, "expected a split fan-out descent with the fuse pass off"

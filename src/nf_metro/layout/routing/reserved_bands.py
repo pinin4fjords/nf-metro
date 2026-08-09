@@ -287,6 +287,7 @@ def seat_bundle_in_corridor_clearance(
     lanes: Sequence[float],
     run_start: float,
     run_end: float,
+    clear_of: ReservedBand | None = None,
 ) -> float:
     """The travel that seats a whole bundle inside its corridor's clearance.
 
@@ -294,6 +295,15 @@ def seat_bundle_in_corridor_clearance(
     says where one lane may run, and a bundle satisfies it only when its
     outermost lanes both stand inside, so the stagger is carried rather than
     collapsed onto the band's edge.
+
+    *clear_of* is a second band the seated bundle has to stand in as well: the
+    room a peer run of the caller's own shape leaves it, which the corridor
+    knows nothing of.  The two are intersected, so a bundle whose corridor and
+    whose peer share no coordinate does not travel -- the same answer
+    :func:`bundle_travel` gives a bundle its own bands leave nowhere to stand,
+    and the same one
+    :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
+    reaches when a peer denies a shift.
     """
     band = corridor_clearance_band(
         graph,
@@ -303,9 +313,15 @@ def seat_bundle_in_corridor_clearance(
         run_start=run_start,
         run_end=run_end,
     )
-    if band is None or band.hi < band.lo - COORD_TOLERANCE:
+    if band is None:
         return 0.0
-    return bundle_travel([(ReservedBand(band.lo, band.hi), item) for item in lanes])
+    lo, hi = band.lo, band.hi
+    if clear_of is not None:
+        lo, hi = max(lo, clear_of.lo), min(hi, clear_of.hi)
+    seat = resolved_band(lo, hi)
+    if seat is None:
+        return 0.0
+    return bundle_travel([(seat, item) for item in lanes])
 
 
 def seat_bundle_in_claimed_bands(
