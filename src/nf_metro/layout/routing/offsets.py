@@ -1561,15 +1561,35 @@ def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
 
 
 def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
-    """Apply the complete immutable offset assignment of every planned fan."""
+    """Order every planned fan's carriers across the lanes each run already holds.
+
+    A carrier's slots rank the lines that station carries against each other,
+    which is the fan's decision.  Which lanes the run occupies is not: a chain
+    reaches through ports into sections the fan does not lay out, and a carrier
+    the fan only partly fills sits in a bundle whose width the offsets pass
+    settled.  Permuting the lanes in place states the order without restating
+    the lanes.
+    """
     for plan in ctx.graph.fan_plans:
         if not plan.owns_geometry:
             continue
         for carrier in plan.offset_carriers:
-            for assignment in carrier.assignments:
+            if len(carrier.assignments) == 1:
+                assignment = carrier.assignments[0]
                 ctx.offsets[(carrier.station_id, assignment.line_id)] = (
                     assignment.slot * ctx.offset_step
                 )
+                continue
+            lanes = sorted(
+                ctx.offsets.get(
+                    (carrier.station_id, assignment.line_id),
+                    assignment.slot * ctx.offset_step,
+                )
+                for assignment in carrier.assignments
+            )
+            ranked = sorted(carrier.assignments, key=lambda item: item.slot)
+            for lane, assignment in zip(lanes, ranked):
+                ctx.offsets[(carrier.station_id, assignment.line_id)] = lane
 
 
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:

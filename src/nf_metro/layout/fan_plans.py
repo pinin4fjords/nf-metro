@@ -789,6 +789,35 @@ def _trunk_followers(
     )
 
 
+def _carriers_within_the_fan(
+    graph: MetroGraph,
+    carriers: Sequence[FanOffsetCarrier],
+    owned_station_ids: Sequence[str],
+) -> tuple[FanOffsetCarrier, ...]:
+    """Drop every carrier slot where a carried run leaves the fan.
+
+    Carrier slots state how the fan's lines sit against each other along one
+    run.  Where that run carries the same line on into a station the fan
+    neither carries nor owns, the order at the two ends is decided twice: the
+    fan restates it here and whoever placed the neighbour keeps it there, so
+    the run steps sideways at the seam between them.  One such run makes the
+    whole chain's order contentious, since the fan's carriers are consistent
+    only with each other.
+    """
+    reachable = {carrier.station_id for carrier in carriers}.union(owned_station_ids)
+    leaves = any(
+        (edge.target if edge.source == carrier.station_id else edge.source)
+        not in reachable
+        for carrier in carriers
+        for edge in (
+            *graph.edges_from(carrier.station_id),
+            *graph.edges_to(carrier.station_id),
+        )
+        if edge.line_id in carrier.line_ids
+    )
+    return () if leaves else tuple(carriers)
+
+
 def _entry_offset_carriers(
     graph: MetroGraph,
     entry_handoff_paths: tuple[tuple[ResolvedEdge, ...], ...],
@@ -1995,11 +2024,15 @@ def _build_candidate(
         offset_carriers,
         line_priority,
     )
-    offset_carriers = _apply_solo_branch_offset_assignments(
+    offset_carriers = _carriers_within_the_fan(
         graph,
-        branch_plans,
-        fork_id,
-        offset_carriers,
+        _apply_solo_branch_offset_assignments(
+            graph,
+            branch_plans,
+            fork_id,
+            offset_carriers,
+        ),
+        owned_stations,
     )
     # A straight-appearance diamond keeps its top branch on the main track, so
     # its lane frame is the section allocator's symmetric one, not the fan's.
