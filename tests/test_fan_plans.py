@@ -2003,7 +2003,7 @@ def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> Non
 
 
 @pytest.mark.parametrize(
-    "fixture,fork_id,rider_line,helper_id,stepped_id",
+    "fixture,fork_id,rider_line,helper_id,stepped_id,stepped_lane",
     [
         (
             "bypass_label_rake.mmd",
@@ -2011,8 +2011,9 @@ def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> Non
             "dna",
             "__bypass_quant_align_1",
             "quant",
+            (),
         ),
-        ("bypass_v_tight.mmd", "m1", "b", "__bypass_m2_m1_1", "m2"),
+        ("bypass_v_tight.mmd", "m1", "b", "__bypass_m2_m1_1", "m2", ("m2",)),
     ],
 )
 def test_straight_fan_keeps_the_branch_that_rides_past_a_sibling(
@@ -2021,12 +2022,17 @@ def test_straight_fan_keeps_the_branch_that_rides_past_a_sibling(
     rider_line: str,
     helper_id: str,
     stepped_id: str,
+    stepped_lane: tuple[str, ...],
 ) -> None:
     """A bypass helper's line holds the track and the station it skips steps off.
 
     The helper exists to carry one line around a station the other branch stops
     at, so seating that station on the centreline would send the line with no
     business there around the outside of it.
+
+    A second helper carrying a line the fan does not, as in the rake, shares the
+    skipped station's column with it, so the fan names the lane without stating
+    that station's coordinate: the two ride the ladder their common owner sets.
     """
     path = ROOT / "examples" / "topologies" / fixture
     graph = parse_metro_mermaid(path.read_text())
@@ -2043,7 +2049,10 @@ def test_straight_fan_keeps_the_branch_that_rides_past_a_sibling(
     stepped_lines = tuple(graph.station_lines(stepped_id))
 
     assert lanes[(rider_line,)] == (0.0, (helper_id,))
-    assert lanes[stepped_lines][0] == pytest.approx(plan.appearance_lane_pitch)
+    assert lanes[stepped_lines] == (
+        pytest.approx(plan.appearance_lane_pitch),
+        stepped_lane,
+    )
     assert graph.stations[helper_id].y == pytest.approx(graph.stations[fork_id].y)
     assert graph.stations[stepped_id].y > graph.stations[fork_id].y
 

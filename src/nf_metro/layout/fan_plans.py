@@ -153,13 +153,15 @@ def _branch_riding_past_a_sibling(
 
     A hidden bypass helper names the station its line goes around, so a branch
     laning nothing but helpers stops nowhere in the fan.  Where the stations
-    those helpers go around are a sibling's lane, the two branches are already
+    those helpers go around are a sibling's, the two branches are already
     ordered: the rider keeps the track and the sibling steps off it.
     """
     lane_owner = {
         station_id: branch.id
         for branch in branches
-        for station_id in branch.lane_station_ids
+        for path in branch.resolved_paths
+        for edge in path
+        for station_id in (edge.source, edge.target)
     }
     riders = tuple(
         branch
@@ -1377,6 +1379,23 @@ def _centreline_anchor(
     return local_frame_anchor
 
 
+def _foreign_ridden_station_ids(
+    graph: MetroGraph, fan_lines: frozenset[str]
+) -> set[str]:
+    """Stations a bypass helper of some line outside *fan_lines* goes around.
+
+    Such a station stands in a column with that helper, and where the two sit
+    relative to one another is settled by whoever laid the helper out.  A fan
+    stating one of the two coordinates would ladder a column it only half owns.
+    """
+    return {
+        bypassed_id
+        for station in graph.stations.values()
+        if (bypassed_id := station.bypasses_station_id) is not None
+        and not fan_lines.issuperset(graph.station_lines(station.id))
+    }
+
+
 def _lane_station_ids(
     graph: MetroGraph,
     paths: Iterable[tuple[ResolvedEdge, ...]],
@@ -1384,6 +1403,7 @@ def _lane_station_ids(
     section_id: str | None,
     fork_id: str,
     join_id: str | None,
+    foreign_ridden_ids: Collection[str] = (),
 ) -> tuple[str, ...]:
     if section_id is None:
         return ()
@@ -1402,6 +1422,7 @@ def _lane_station_ids(
                 station_id != fork_id
                 and station_id not in graph.ports
                 and station_id not in graph.junction_ids
+                and station_id not in foreign_ridden_ids
                 and graph.section_for_station(station_id) == section_id
                 and station_id not in station_ids
             ):
@@ -1710,6 +1731,14 @@ def _build_candidate(
         for predecessor_id, station_id in zip(path, path[1:])
     ):
         reason = reason or "local-layout-has-foreign-owner"
+    foreign_ridden_ids = _foreign_ridden_station_ids(
+        graph,
+        frozenset(
+            fact.key.line_id
+            for facts in (*continuation_facts, *extra_facts)
+            for fact in facts
+        ),
+    )
     branch_plans: list[FanBranchPlan] = []
     all_member_facts: list[AuthoredEdgeFact] = []
     all_raw_paths: list[tuple[ResolvedEdge, ...]] = []
@@ -1771,6 +1800,7 @@ def _build_candidate(
                     section_id=layout_section_id,
                     fork_id=fork_id,
                     join_id=join_id,
+                    foreign_ridden_ids=foreign_ridden_ids,
                 ),
                 is_trunk_continuation=any(
                     graph.ports[port_id].section_id == layout_section_id
