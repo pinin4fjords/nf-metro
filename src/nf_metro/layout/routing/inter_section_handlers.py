@@ -83,6 +83,7 @@ from nf_metro.layout.routing.common import (
     row_bottom_edge,
     row_top_edge,
     section_header_top,
+    section_ids_of_stations,
     segment_direction,
     symmetric_bundle_midpoint,
     trailing_perp_side,
@@ -116,7 +117,11 @@ from nf_metro.layout.routing.perp import (
     _perp_entry_crossing_x,
     _perp_riser_lateral,
 )
-from nf_metro.layout.routing.reserved_bands import ReservedBands, held_in_reserved_band
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBands,
+    held_in_reserved_band,
+    seat_run_in_corridor_clearance,
+)
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -5496,8 +5501,22 @@ def _route_right_entry_wrap(
 
     _fan, pos_n, delta, corner_x = _wrap_fan_geometry(ctx, edge, src, i, n, vertical)
 
-    # Horizontal channel Y centre, below the source row's sections.
-    hy = bypass_bottom_y(ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row)
+    # V2 descent channel centre, just past the entry port in the gap to the
+    # right of the target column.
+    vx = _right_entry_descent_x(ctx, tx, pos_n)
+
+    # Horizontal channel Y centre, below the source row's sections, seated in
+    # the clearance its own corridor owes over the stretch it traverses.
+    hy = seat_run_in_corridor_clearance(
+        ctx.graph,
+        axis=1,
+        section_ids=section_ids_of_stations(ctx.graph, src, tgt),
+        coordinate=bypass_bottom_y(
+            ctx.graph, src_col, tgt_col, BYPASS_CLEARANCE, src_row=src_row
+        ),
+        run_start=min(corner_x, vx),
+        run_end=max(corner_x, vx),
+    )
 
     # A same-line descent from another source already in the lead-out gap would
     # merge with a source-hugging turn-down into one corner.  Carry the
@@ -5508,10 +5527,6 @@ def _route_right_entry_wrap(
     )
     if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, sy, hy, gap_right):
         corner_x = max(corner_x, gap_right - ctx.curve_radius - ctx.offset_step)
-
-    # V2 descent channel centre, just past the entry port in the gap to the
-    # right of the target column.
-    vx = _right_entry_descent_x(ctx, tx, pos_n)
 
     # Same-column source (stacked directly above) drops straight down the
     # corridor when clear, leading to it at the top corner rather than down the

@@ -64,6 +64,7 @@ from nf_metro.layout.routing.common import (
     planner_owns_segment,
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
+    section_ids_of_stations,
     symmetric_bundle_midpoint,
     tail_on_slot,
     trunk_depths_contiguous,
@@ -4153,11 +4154,13 @@ def _iter_axis_aligned_legs(
 
 def _route_endpoint_section_ids(graph: MetroGraph, rp: RoutedPath) -> tuple[str, ...]:
     """The sections this route runs between, which span its corridor claims."""
-    return tuple(
-        station.section_id
-        for station_id in (rp.edge.source, rp.edge.target)
-        if (station := graph.stations.get(station_id)) is not None
-        and station.section_id in graph.sections
+    return section_ids_of_stations(
+        graph,
+        *(
+            station
+            for station_id in (rp.edge.source, rp.edge.target)
+            if (station := graph.stations.get(station_id)) is not None
+        ),
     )
 
 

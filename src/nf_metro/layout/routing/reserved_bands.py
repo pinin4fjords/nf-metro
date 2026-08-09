@@ -137,6 +137,47 @@ def corridor_clearance_band(
     )
 
 
+def seat_run_in_corridor_clearance(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    section_ids: Sequence[str],
+    coordinate: float,
+    run_start: float,
+    run_end: float,
+) -> float:
+    """*coordinate* seated inside the clearance its own corridor owes.
+
+    A handler derives a channel's depth from the grid edges it has to hand,
+    which is a proxy for the blockers a reservation measures over the corridor's
+    own run: a section spanning the boundary or a header badge inside the run's
+    stretch is charged by the reservation and invisible to the proxy.  A
+    coordinate the proxy leaves outside the band is one the closing guard
+    refuses, so stating the seat here makes the emitted run satisfy its own
+    reservation without a later pass having to move it -- which is the only way
+    it can be satisfied at all once a plan owns the turn beside it and freezes
+    the run in place.
+
+    Emitting and settling therefore read one rule: this is
+    :func:`corridor_clearance_band` clamped, the same pair the containment pass
+    applies to an unfrozen leg.  A run in no gap has no band and keeps
+    *coordinate*, and so does a run whose band is inverted -- a boundary owing
+    more clearance than it has cannot seat anything, and choosing which of its
+    two edges to overrun is the closing guard's report to make, not this one's.
+    """
+    band = corridor_clearance_band(
+        graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=coordinate,
+        run_start=run_start,
+        run_end=run_end,
+    )
+    if band is None or band.hi < band.lo - COORD_TOLERANCE:
+        return coordinate
+    return min(max(coordinate, band.lo), band.hi)
+
+
 @dataclass(frozen=True, slots=True)
 class ReservedBands:
     """Realised gap corridors on one axis, keyed by the boundary they cross."""

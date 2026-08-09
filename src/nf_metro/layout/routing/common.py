@@ -1863,6 +1863,23 @@ def section_header_safe_cap(section: Section) -> float:
     return section_header_top(section) - HEADER_CLEARANCE
 
 
+def section_ids_of_stations(graph: MetroGraph, *stations: Station) -> tuple[str, ...]:
+    """The placed sections *stations* belong to, in order.
+
+    A junction or free-standing endpoint belongs to no section and is dropped.
+    Stated once because a corridor's grid span is measured over exactly these
+    sections whether it is read from a route's endpoints after emission or from
+    the two stations a handler holds before it: a handler seating a run against
+    a span the settling pass would measure differently would seat it in the
+    wrong band.
+    """
+    return tuple(
+        station.section_id
+        for station in stations
+        if station.section_id in graph.sections
+    )
+
+
 def bypass_bottom_y(
     graph: MetroGraph,
     src_col: int,
