@@ -5449,10 +5449,13 @@ def _guard_planned_fan_frame_realised(
                     f"{carrier.station_id!r} names a line outside its offset order"
                 )
             station_lines = set(graph.station_lines(carrier.station_id))
-            if station_lines != set(carrier.line_ids):
+            # A carrier states a slot for each line it names and stays silent
+            # about the rest, so a station may also carry lines another owner
+            # ordered; naming one that is absent states a slot for nothing.
+            if not set(carrier.line_ids).issubset(station_lines):
                 raise PhaseInvariantError(
                     f"{phase}: planned fan {plan.id!s} offset carrier "
-                    f"{carrier.station_id!r} carries unowned lines"
+                    f"{carrier.station_id!r} names a line it does not carry"
                 )
             for assignment in carrier.assignments:
                 expected = assignment.slot * offset_step

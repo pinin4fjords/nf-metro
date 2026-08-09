@@ -2085,11 +2085,6 @@ def _build_candidate(
             for station_id in branch.lane_station_ids
         ),
     )
-    if any(
-        set(graph.station_lines(carrier.station_id)) != set(carrier.line_ids)
-        for carrier in offset_carriers
-    ):
-        reason = reason or "offset-carrier-has-unowned-line"
     if len(set(layout_station_ids)) != len(layout_station_ids):
         reason = reason or "overlapping-branch-lane-ownership"
     if _entry_trunk_has_foreign_head(

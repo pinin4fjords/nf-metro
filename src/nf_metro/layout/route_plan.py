@@ -490,7 +490,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _OVERLAPPING_FAN_OWNERSHIP,
-                    "offset-carrier-has-unowned-line",
                     "overlapping-branch-lane-ownership",
                     "overlapping-fan-ownership",
                 ),

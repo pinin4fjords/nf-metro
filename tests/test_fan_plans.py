@@ -1359,17 +1359,55 @@ def test_runtime_guard_rejects_legacy_offset_carriers() -> None:
         _guard_planned_fan_frame_realised(graph, "test", offsets={})
 
 
-def test_runtime_guard_rejects_unowned_carrier_line() -> None:
+def test_runtime_guard_rejects_a_carrier_line_the_station_does_not_carry() -> None:
+    """A carrier states a slot for every line it names, so each must stand there.
+
+    The station may also carry lines some other owner ordered, and the carrier
+    stays silent about those; naming one that is absent states a slot for
+    nothing, which is a frame the emitter cannot realise.
+    """
     path = ROOT / "examples" / "topologies" / "exit_turn_frame_filters.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     offsets = compute_station_offsets(graph)
     plan = next(item for item in graph.fan_plans if item.offset_carriers)
     carrier = plan.offset_carriers[0]
-    graph.add_edge(Edge(carrier.station_id, carrier.station_id, "seam_blocker"))
+    absent = carrier.line_ids[0]
+    graph.replace_edges(
+        [
+            edge
+            for edge in graph.edges
+            if edge.line_id != absent
+            or carrier.station_id not in (edge.source, edge.target)
+        ]
+    )
 
-    with pytest.raises(PhaseInvariantError, match="carries unowned lines"):
+    with pytest.raises(PhaseInvariantError, match="names a line it does not carry"):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_a_carrier_stays_silent_about_lines_another_owner_ordered() -> None:
+    """A carrier orders the lines it names and leaves the station's others alone.
+
+    A trunk line standing at a carrier belongs to whoever laid the trunk out;
+    the fan orders the lines it does carry against one another and leaves that
+    one where it stands, so a partial frame is realised rather than declined.
+    """
+    path = ROOT / "examples" / "topologies" / "target_lane_transition.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    offsets = compute_station_offsets(graph)
+    carrier = next(
+        item
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for item in plan.offset_carriers
+        if item.station_id == "leave"
+    )
+
+    assert "local" in graph.station_lines("leave")
+    assert "local" not in carrier.line_ids
+    _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
 def test_port_only_fan_freezes_only_structurally_shared_offset_carriers() -> None:
