@@ -3902,6 +3902,13 @@ class _PerpEntryLGeometry:
     axis_coordinate: float | None
 
 
+def _leg_direction(start: tuple[float, float], end: tuple[float, float]) -> Direction:
+    """The heading of an axis-aligned leg, read from its own two endpoints."""
+    direction = segment_direction(start, end)
+    assert direction is not None
+    return direction
+
+
 def _perp_entry_l_record(
     points: tuple[tuple[float, float], ...],
     members: tuple[tuple[Edge, str, float, float], ...],
@@ -3926,7 +3933,7 @@ def _perp_entry_l_record(
             members,
             transition_leg,
             fan_source_offsets,
-            vertical_direction(points[-1][1] - points[0][1]),
+            _leg_direction(points[0], points[-1]),
             None,
             None,
             None,
@@ -3937,13 +3944,13 @@ def _perp_entry_l_record(
         if member_line == line_id
     )
     member_offset = source_offset if transition_leg > 1 else target_offset
-    turn_direction = vertical_direction(points[2][1] - points[1][1])
+    turn_direction = _leg_direction(points[1], points[2])
     return _PerpEntryLGeometry(
         points,
         members,
         transition_leg,
         fan_source_offsets,
-        horizontal_direction(points[1][0] - points[0][0]),
+        _leg_direction(points[0], points[1]),
         turn_direction,
         points[0][0],
         points[1][0] + right_normal_axis_sign(turn_direction) * member_offset,
@@ -4259,7 +4266,7 @@ def _perp_entry_l_geometry(
             # frozen against the settlement that holds a drawn run inside its
             # corridor's clearance, so the centreline states that seat itself.
             lane_offsets = tuple(src_geom(lid) for lid in line_ids)
-            riser_sign = right_normal_axis_sign(vertical_direction(mid_y - sy))
+            riser_sign = right_normal_axis_sign(_leg_direction((sx, sy), (sx, mid_y)))
             lx0 = _perp_entry_seated_corridor(
                 ctx,
                 src,
