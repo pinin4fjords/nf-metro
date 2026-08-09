@@ -4807,14 +4807,16 @@ def _left_entry_wrap_record(
     ``axis_coordinate`` names.
     """
     src_off = _get_offset(ctx, edge.source, edge.line_id)
-    turn_direction = vertical_direction(channel_y - (src.y + src_off + delta))
+    turn_direction = _leg_direction(
+        (src.x, src.y + src_off + delta), (src.x, channel_y)
+    )
     return _LeftEntryWrapGeometry(
         pos_n,
         delta,
         corner_x,
         channel_y,
         descent_x,
-        horizontal_direction(corner_x - src.x),
+        _leg_direction((src.x, src.y), (corner_x, src.y)),
         turn_direction,
         src.x,
         corner_x - delta * right_normal_axis_sign(turn_direction),
