@@ -58,11 +58,13 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     apply_route_offsets,
     horizontal_direction,
+    segment_direction,
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
+    _around_stack_geometry,
     _build_inter_facts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
@@ -72,7 +74,6 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _perp_exit_geometry,
     _perp_exit_over_geometry,
     _PerpExitGeometry,
-    _tb_bottom_exit_around_stack_geometry,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
     classify_inter_section_family,
@@ -609,9 +610,7 @@ def _source_turn_requirement(
                 None,
                 "unsupported-subshape:nonvertical-tb-exit",
             )
-        stack_geometry = _tb_bottom_exit_around_stack_geometry(
-            _build_inter_facts(edge, src, tgt, ctx)
-        )
+        stack_geometry = _around_stack_geometry(_build_inter_facts(edge, src, tgt, ctx))
         return _SourceTurnRequirement(
             stack_geometry.run_direction,
             stack_geometry.turn_direction,
@@ -2116,7 +2115,7 @@ def _compatibility_channel_claims(
                 continue
             graph_edge = _graph_edge(ctx.edge_by_key, edge)
             source, target = graph.edge_endpoints(graph_edge)
-            geometry = _tb_bottom_exit_around_stack_geometry(
+            geometry = _around_stack_geometry(
                 _build_inter_facts(graph_edge, source, target, ctx)
             )
             claims.append(
@@ -2236,7 +2235,7 @@ def _planned_axis_cross_range(
                 assignment.planned_family_id
                 is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK
             ):
-                stack_geometry = _tb_bottom_exit_around_stack_geometry(
+                stack_geometry = _around_stack_geometry(
                     _build_inter_facts(
                         _graph_edge(ctx.edge_by_key, edge),
                         source,
@@ -2465,18 +2464,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     )
 
 
-def _segment_direction(
-    start: tuple[float, float], end: tuple[float, float]
-) -> Direction | None:
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
-        return horizontal_direction(dx)
-    if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
-        return vertical_direction(dy)
-    return None
-
-
 def _opening_turn_segment(
     route: RoutedPath, run_direction: Direction, turn_direction: Direction
 ) -> int | None:
@@ -2484,8 +2471,8 @@ def _opening_turn_segment(
     if len(points) >= 3:
         before, start, end = points[:3]
         if (
-            _segment_direction(before, start) is run_direction
-            and _segment_direction(start, end) is turn_direction
+            segment_direction(before, start) is run_direction
+            and segment_direction(start, end) is turn_direction
         ):
             return 1
     return None
@@ -2631,14 +2618,14 @@ def consume_exit_turn_route(
     if (
         abs(get_point_coordinate(lead, source_axis) - assignment.launch_coordinate)
         > COORD_TOLERANCE
-        or _segment_direction(lead, start) is not run
+        or segment_direction(lead, start) is not run
         or (
             get_point_coordinate(start, source_axis)
             - get_point_coordinate(lead, source_axis)
         )
         * run.sign
         < assignment.minimum_runway - COORD_TOLERANCE
-        or _segment_direction(start, end) is not turn
+        or segment_direction(start, end) is not turn
     ):
         raise ExitTurnInvariantError(
             _failure(membership.plan, "source turn changed during dispatch")
@@ -2915,7 +2902,7 @@ def validate_exit_turn_plans(
                     points = apply_route_offsets(route, station_offsets)
                     if (
                         assignment.run_direction is None
-                        or _segment_direction(points[0], points[-1])
+                        or segment_direction(points[0], points[-1])
                         is not assignment.run_direction
                         or abs(
                             get_point_coordinate(
@@ -2961,7 +2948,7 @@ def validate_exit_turn_plans(
                     - assignment.launch_coordinate
                 )
                 > COORD_TOLERANCE
-                or _segment_direction(lead_in, start) is not assignment.run_direction
+                or segment_direction(lead_in, start) is not assignment.run_direction
                 or (
                     get_point_coordinate(start, axis.axis)
                     - get_point_coordinate(lead_in, axis.axis)
@@ -2969,7 +2956,7 @@ def validate_exit_turn_plans(
                 * assignment.run_direction.sign
                 < assignment.minimum_runway - COORD_TOLERANCE
                 or assignment.turn_direction is None
-                or _segment_direction(start, end) is not assignment.turn_direction
+                or segment_direction(start, end) is not assignment.turn_direction
             ):
                 raise ExitTurnInvariantError(
                     _failure(

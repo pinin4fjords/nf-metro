@@ -93,6 +93,24 @@ def vertical_direction(dy: float) -> Direction:
     return Direction.D if dy > 0 else Direction.U
 
 
+def segment_direction(
+    start: tuple[float, float], end: tuple[float, float]
+) -> Direction | None:
+    """The direction the axis-aligned leg from *start* to *end* travels.
+
+    ``None`` when the leg is diagonal or has collapsed to a point: those carry
+    no single direction.  Reading the leg's own two endpoints is what keeps a
+    caller from having to know which axis it lies on before asking.
+    """
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
+        return horizontal_direction(dx)
+    if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
+        return vertical_direction(dy)
+    return None
+
+
 def is_orthogonal_turn(
     p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float]
 ) -> bool:
