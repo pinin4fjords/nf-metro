@@ -75,6 +75,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _bypass_route_kind,
     _BypassGeometry,
     _BypassRoute,
+    _InterFacts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
     _left_entry_band_hop_source_seam,
@@ -142,6 +143,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
         RouteFamilyId.RIGHT_ENTRY_WRAP,
         RouteFamilyId.MERGE_TRUNK,
+        RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
     }
 )
 
@@ -1009,6 +1011,10 @@ def _source_turn_requirement(
         return _right_entry_wrap_turn_requirement(edge, ctx, src, tgt)
     if family_id is RouteFamilyId.BYPASS_FAMILY:
         return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    if family_id is RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS:
+        # The plough draws its hop through the U-shaped bypass builder itself,
+        # so the shape it opens with is that family's, seated column and all.
+        return _u_bypass_turn_requirement(_build_inter_facts(edge, src, tgt, ctx))
     if family_id is RouteFamilyId.MERGE_TRUNK:
         return _merge_trunk_turn_requirement(edge, ctx)
     if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
@@ -1227,20 +1233,25 @@ def _bypass_turn_requirement(
             None,
             f"unsupported-subshape:bypass-{kind.value}",
         )
+    return _u_bypass_turn_requirement(facts)
+
+
+def _u_bypass_turn_requirement(facts: _InterFacts) -> _SourceTurnRequirement:
+    """The turn the U-shaped hop opens with, for every family that draws one."""
     assert facts.src_col is not None and facts.tgt_col is not None
     return _u_bypass_source_turn(
-        edge,
+        facts.edge,
         _bypass_geometry(
-            edge,
-            src,
-            tgt,
+            facts.edge,
+            facts.src,
+            facts.tgt,
             facts.i,
             facts.src_col,
             facts.tgt_col,
-            ctx,
+            facts.ctx,
             facts.src_row,
         ),
-        ctx,
+        facts.ctx,
     )
 
 

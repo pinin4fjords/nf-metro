@@ -351,6 +351,19 @@ _RAIL_EMISSION_OWNS_THE_ROUTE = CompatibilityFamily(
     "left for an exit-turn plan to claim a part of, so the rail frame is the "
     "emitter's whole output and support is permanent."
 )
+_GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
+    "A junction dropping almost straight into a same-column entry does turn, "
+    "and the column it turns onto is a slot in an inter-column gap rather than "
+    "a lane the exit group ladders: the handler places it one radius and one "
+    "step outward as a starting guess, and "
+    "``normalize._materialize_gap_slots`` then ranks it against every other "
+    "leg descending that gap -- a population drawn from other exit groups and "
+    "other route systems, which is why it needs every leg in the gap at once "
+    "and a single group cannot do it. An exit group can state this drop's run, "
+    "turn and runway but not its column, and a plan that states the guess "
+    "fuses the drop onto a gap-mate's stroke, so the allocator owns the column "
+    "and support is permanent."
+)
 _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
     "The station-offset allocator seats the exit port's lane order and the "
     "destination's lane order in separate phases, and here the two disagree: a "
@@ -416,9 +429,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:entry-runway-fallback",
                     "unsupported-family:intra-section-fallback",
                     "unsupported-family:left-exit-far-side-left-entry-wrap",
-                    "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
-                    "unsupported-family:right-entry-plough-bypass",
                     "unsupported-family:same-x-vertical-drop",
                     "unsupported-family:serpentine-left-exit-left-entry",
                     "unsupported-family:tb-section-fallback",
@@ -492,6 +503,10 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
                     "lane-transition-order-inversion",
+                ),
+                _reasons(
+                    _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN,
+                    "unsupported-family:near-vertical-same-col-junction",
                 ),
             ),
             "fan-plan": _registry(

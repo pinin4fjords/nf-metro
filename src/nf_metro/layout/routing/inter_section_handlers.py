@@ -517,7 +517,9 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
 
     A standard L-shape would place the vertical channel toward the target (back
     inside the shared column); push it the other way so the line keeps the
-    junction's natural direction before dropping.
+    junction's natural direction before dropping.  The column is a starting
+    guess: it is declared as a gap slot, and :func:`_materialize_gap_slots`
+    re-ranks it against every other leg descending the same gap.
     """
     ctx = f.ctx
     if f.horizontal is Direction.L:
