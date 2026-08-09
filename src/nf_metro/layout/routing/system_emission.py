@@ -101,6 +101,14 @@ class RouteSystemEmissionExecution:
     ) -> EmissionMemberId | None:
         return self._covered_by_member.get(member_id)
 
+    def covered_edges(self) -> frozenset[ResolvedEdge]:
+        """The legs another member draws end to end rather than each their own."""
+        return frozenset(
+            edge
+            for edge, member in self._member_by_edge.items()
+            if member.member_id in self._covered_by_member
+        )
+
     def attribute_route(self, route: RoutedPath) -> None:
         edge = route.edge
         resolved = (

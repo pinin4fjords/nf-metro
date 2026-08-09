@@ -5239,7 +5239,7 @@ def _guard_planned_fan_frame_realised(
     """Raise when a fan's settled frame disagrees with its semantic contract."""
     from nf_metro.layout.fan_geometry import fan_lane_offsets
     from nf_metro.layout.fan_plans import (
-        fan_appearance_lane_sign,
+        fan_lane_sign,
         vertical_fan_label_lane_pitch,
     )
     from nf_metro.layout.route_plan import FanAppearancePolicy
@@ -5306,16 +5306,18 @@ def _guard_planned_fan_frame_realised(
                 f"{phase}: planned fan {plan.id!s} has no frozen appearance frame"
             )
         section_id = graph.section_for_station(plan.fork_station_id)
-        expected_sign = fan_appearance_lane_sign(
+        expected_sign = fan_lane_sign(
             graph,
             frame,
             section_id,
             plan.authored_source_id,
+            branches=plan.branches,
+            tb_positive_fan=tb_positive_fan,
         )
         if plan.appearance_lane_sign != expected_sign:
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} appearance lane sign "
-                f"{plan.appearance_lane_sign:+.0f} disagrees with its feeder-aware "
+                f"{plan.appearance_lane_sign:+.0f} disagrees with its bundle-aware "
                 f"axis sign {expected_sign:+.0f}"
             )
         section = graph.sections.get(section_id or "")
@@ -5447,10 +5449,13 @@ def _guard_planned_fan_frame_realised(
                     f"{carrier.station_id!r} names a line outside its offset order"
                 )
             station_lines = set(graph.station_lines(carrier.station_id))
-            if station_lines != set(carrier.line_ids):
+            # A carrier states a slot for each line it names and stays silent
+            # about the rest, so a station may also carry lines another owner
+            # ordered; naming one that is absent states a slot for nothing.
+            if not set(carrier.line_ids).issubset(station_lines):
                 raise PhaseInvariantError(
                     f"{phase}: planned fan {plan.id!s} offset carrier "
-                    f"{carrier.station_id!r} carries unowned lines"
+                    f"{carrier.station_id!r} names a line it does not carry"
                 )
             for assignment in carrier.assignments:
                 expected = assignment.slot * offset_step

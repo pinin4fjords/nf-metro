@@ -409,3 +409,49 @@ def test_violation_message_self_describing() -> None:
     assert "alpha" in msg and "beta" in msg
     assert "D" in msg and "L" in msg
     assert "LEFT" in msg and "RIGHT" in msg
+
+
+def test_disjoint_runs_sharing_a_name_are_free_to_differ_at_the_two_ends() -> None:
+    """An inherited exit slot binds a stroke that spans the section.
+
+    In this section the entry bundle terminates inside and separate runs of the
+    same lines leave it, so the two ends share names but no stroke: holding the
+    exit to the entry's order would constrain geometry that is not connected.
+    Chaining the two halves gives each name one stroke end to end, and the same
+    offsets then are a violation.
+
+    This fixture's entry and exit also sit on one materialized linear-entry
+    frame, which threads first/second/third identically end to end for an
+    unrelated, separately-tested reason (see
+    ``test_linear_entry_cohort_keeps_one_lane_frame``): the offsets
+    :func:`compute_station_offsets` hands back naturally agree at both ports.
+    The exit port's offsets are overridden below (reversing the entry order)
+    so this test exercises the disjoint-run exemption on its own, independent
+    of that separate frame invariant.
+    """
+    from nf_metro.layout.routing.invariants import (
+        check_exit_inherits_entry_bundle_order,
+    )
+
+    path = EXAMPLES / "topologies" / "target_lane_transition.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    offsets = dict(compute_station_offsets(graph))
+    entry_id = "source__entry_left_2"
+    exit_id = "source__exit_right_1"
+    shared = ("first", "second", "third")
+
+    entry_order = [offsets[(entry_id, line_id)] for line_id in shared]
+    exit_keys = ((exit_id, line_id) for line_id in shared)
+    offsets.update(zip(exit_keys, reversed(entry_order)))
+
+    assert [offsets[(entry_id, line_id)] for line_id in shared] != [
+        offsets[(exit_id, line_id)] for line_id in shared
+    ]
+    assert not check_exit_inherits_entry_bundle_order(graph, offsets)
+
+    for line_id in shared:
+        graph.add_edge(Edge("enter", "leave", line_id))
+
+    violations = check_exit_inherits_entry_bundle_order(graph, offsets)
+    assert [item.exit_port for item in violations] == [exit_id]

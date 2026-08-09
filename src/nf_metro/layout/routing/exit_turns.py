@@ -2062,6 +2062,20 @@ def _plan_lane_ownership(
     )
 
 
+def _fan_stated_offsets(
+    graph: MetroGraph, station_id: str, offset_step: float
+) -> dict[str, float]:
+    """Per-line offsets a planned fan states for *station_id*."""
+    return {
+        assignment.line_id: assignment.slot * offset_step
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for carrier in plan.offset_carriers
+        if carrier.station_id == station_id
+        for assignment in carrier.assignments
+    }
+
+
 def _build_group_plan(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -2171,6 +2185,19 @@ def _build_group_plan(
         * ctx.offset_step
         for rank, (line_id, _input_offset) in enumerate(ordered_lanes)
     }
+    stated_offsets = _fan_stated_offsets(graph, source_id, ctx.offset_step)
+    if all(
+        line_id in stated_offsets
+        and abs(stated_offsets[line_id] - input_offset) <= COORD_TOLERANCE
+        for line_id, input_offset in ordered_lanes
+    ):
+        # A fan reserves one slot per line identity it carries anywhere in the
+        # system, so a branch that retags its line across a leg leaves a slot
+        # here that no line occupies.  Ranking the lanes contiguously would
+        # close that gap and pull the siblings off the frame the fan stated.
+        planned_offsets = {
+            line_id: stated_offsets[line_id] for line_id, _input in ordered_lanes
+        }
     ownership = _LaneOwnership(MappingProxyType({}), (), None)
     if reason is None:
         ownership = _plan_lane_ownership(
@@ -2891,6 +2918,27 @@ def _apply_cross_plan_fallbacks(
     return plans, references, demands
 
 
+def _handover_line_ids(
+    graph: MetroGraph, station_id: str, line_id: str
+) -> tuple[str, ...]:
+    """The other names one single-track station carries *line_id* under.
+
+    A station with one arrival and one departure is a single piece of track,
+    so where those two edges are authored on different lines the station is
+    where one line hands over to the next.  Both names then belong to the one
+    lane the track occupies; seating them apart would step the run across the
+    marker and spread the marker over a lane nothing travels.
+    """
+    incoming = tuple(graph.edges_to(station_id))
+    outgoing = tuple(graph.edges_from(station_id))
+    if len(incoming) != 1 or len(outgoing) != 1:
+        return ()
+    names = (incoming[0].line_id, outgoing[0].line_id)
+    if line_id not in names:
+        return ()
+    return tuple(dict.fromkeys(name for name in names if name != line_id))
+
+
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     fan_execution = graph.fan_plan_execution
@@ -2968,6 +3016,8 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
             for lane in plan.source_lanes:
                 for station_id in lane.station_ids:
                     trial_offsets[(station_id, lane.line_id)] = lane.planned_offset
+                    for partner in _handover_line_ids(graph, station_id, lane.line_id):
+                        trial_offsets[(station_id, partner)] = lane.planned_offset
         validate_linear_entry_frame_ownership(trial_offsets, frame_ownership)
         ctx.station_offsets.clear()
         ctx.station_offsets.update(trial_offsets)

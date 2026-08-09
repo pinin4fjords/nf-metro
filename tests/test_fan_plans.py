@@ -22,8 +22,10 @@ from nf_metro.layout.fan_plans import (
     FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
+    claimed_station_ids,
     fan_appearance_lane_sign,
     install_fan_plan_execution,
+    stated_station_ids,
     validate_fan_route_emissions,
 )
 from nf_metro.layout.geometry import AxisFrame
@@ -349,7 +351,6 @@ def test_straight_diamond_keeps_established_layout_ownership() -> None:
     "fixture,source_id",
     [
         ("wide_label_fan.mmd", "hub"),
-        ("bypass_v_tight.mmd", "m1"),
         ("junction_entry_collision.mmd", "pre2"),
     ],
 )
@@ -1091,7 +1092,15 @@ def test_off_track_member_falls_back_as_one_complete_group() -> None:
     assert execution.query.planned_for_fork("fork") is None
 
 
-def test_overlapping_fans_are_both_rejected() -> None:
+def test_a_fan_that_states_no_geometry_does_not_veto_the_one_that_does() -> None:
+    """Only a fan that claims a coordinate can contend for it.
+
+    Two chained fans pass through each other's stations, but a fan that
+    declines states no frame, lanes or carriers, so it holds nothing to contend
+    with; and the stations both merely travel through carry no claim either.
+    The downstream fan is planned, and the reason the upstream one declined is
+    its own rather than the contest.
+    """
     facts = [
         _fact("outer", "a", "one", 0),
         _fact("outer", "b", "two", 1),
@@ -1109,15 +1118,85 @@ def test_overlapping_fans_are_both_rejected() -> None:
         minimum_runway=20.0,
     )
 
-    assert len(execution.plans) == 2
-    assert {plan.authored_source_id for plan in execution.plans} == {"outer", "shared"}
-    assert all(
-        plan.disposition is FanPlanDisposition.LEGACY
-        and plan.legacy_reason == "overlapping-fan-ownership"
-        for plan in execution.plans
+    by_source = {plan.authored_source_id: plan for plan in execution.plans}
+    assert set(by_source) == {"outer", "shared"}
+    assert by_source["outer"].disposition is FanPlanDisposition.LEGACY
+    assert by_source["outer"].legacy_reason == "straight-diamond-layout-owns-geometry"
+    assert by_source["shared"].disposition is FanPlanDisposition.PLANNED
+    assert set(by_source["outer"].owned_station_ids) & set(
+        by_source["shared"].owned_station_ids
     )
-    assert execution.query.planned_for_fork("outer") is None
-    assert execution.query.planned_for_fork("shared") is None
+    assert not claimed_station_ids(by_source["shared"]) & {"a", "b"}
+
+
+def test_chained_fans_take_one_seat_each_of_a_shared_port_pair() -> None:
+    """Two chained fans reaching one pair of section ports keep one seat each.
+
+    The downstream fan lands a branch on the entry port, so it seats that port
+    on the branch's lane and the upstream fan reads it.  Neither fan lands on,
+    lanes or carries the exit port, so nothing states it and the fork the trunk
+    reaches first keeps it.  Each port ends with one claimant, which lets both
+    fans hold their frames, and a station a fan reads stays on its membership.
+    """
+    path = ROOT / "examples" / "topologies" / "merge_trunk_over_low_section.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
+    upstream = by_source["ta"]
+    downstream = by_source["i2"]
+
+    shared = {"ingest__exit_right_0", "tall__entry_left_3"}
+    assert upstream.ceded_station_ids == ("tall__entry_left_3",)
+    assert downstream.ceded_station_ids == ("ingest__exit_right_0",)
+    assert claimed_station_ids(upstream) & shared == {"ingest__exit_right_0"}
+    assert claimed_station_ids(downstream) & shared == {"tall__entry_left_3"}
+    assert shared.issubset(set(downstream.owned_station_ids))
+    assert upstream.disposition is FanPlanDisposition.PLANNED
+    assert downstream.disposition is FanPlanDisposition.PLANNED
+
+
+def test_two_fans_landing_on_one_port_both_state_it() -> None:
+    """A port two fans land a branch on is stated twice, so neither may keep it.
+
+    Each fan seats the port it lands on at the end of its own branch lane, so a
+    port reached by both is a coordinate the two would state differently.  There
+    is no reader to nominate and both fans decline, leaving the port to the
+    layout that placed it.
+    """
+    path = ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
+    left, right = by_fork["__junction_13"], by_fork["__junction_14"]
+
+    landed = "target__entry_left_11"
+    assert landed in stated_station_ids(left)
+    assert landed in stated_station_ids(right)
+    assert landed not in left.ceded_station_ids
+    assert landed not in right.ceded_station_ids
+    assert left.legacy_reason == "overlapping-fan-ownership"
+    assert right.legacy_reason == "overlapping-fan-ownership"
+
+
+def test_a_seat_read_from_a_declined_fan_goes_back_to_its_reader() -> None:
+    """A fan cannot read a seat from a fan that ends up declining it.
+
+    One fan reads two boundary stations from a neighbour that loses its own
+    contest elsewhere.  A declined fan states nothing, so there is no seat to
+    read: the reader takes both stations back, and having them back puts it in
+    contention with that same neighbour.
+    """
+    path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
+    reader, declined = by_source["t"], by_source["a"]
+
+    shared = {"src__exit_right_0", "top_sec__entry_left_1"}
+    assert declined.legacy_reason == "overlapping-fan-ownership"
+    assert reader.ceded_station_ids == ()
+    assert shared.issubset(claimed_station_ids(reader))
+    assert reader.legacy_reason == "overlapping-fan-ownership"
 
 
 def test_install_publishes_matching_immutable_query() -> None:
@@ -1351,17 +1430,55 @@ def test_runtime_guard_rejects_legacy_offset_carriers() -> None:
         _guard_planned_fan_frame_realised(graph, "test", offsets={})
 
 
-def test_runtime_guard_rejects_unowned_carrier_line() -> None:
+def test_runtime_guard_rejects_a_carrier_line_the_station_does_not_carry() -> None:
+    """A carrier states a slot for every line it names, so each must stand there.
+
+    The station may also carry lines some other owner ordered, and the carrier
+    stays silent about those; naming one that is absent states a slot for
+    nothing, which is a frame the emitter cannot realise.
+    """
     path = ROOT / "examples" / "topologies" / "exit_turn_frame_filters.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     offsets = compute_station_offsets(graph)
     plan = next(item for item in graph.fan_plans if item.offset_carriers)
     carrier = plan.offset_carriers[0]
-    graph.add_edge(Edge(carrier.station_id, carrier.station_id, "seam_blocker"))
+    absent = carrier.line_ids[0]
+    graph.replace_edges(
+        [
+            edge
+            for edge in graph.edges
+            if edge.line_id != absent
+            or carrier.station_id not in (edge.source, edge.target)
+        ]
+    )
 
-    with pytest.raises(PhaseInvariantError, match="carries unowned lines"):
+    with pytest.raises(PhaseInvariantError, match="names a line it does not carry"):
         _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
+
+
+def test_a_carrier_stays_silent_about_lines_another_owner_ordered() -> None:
+    """A carrier orders the lines it names and leaves the station's others alone.
+
+    A trunk line standing at a carrier belongs to whoever laid the trunk out;
+    the fan orders the lines it does carry against one another and leaves that
+    one where it stands, so a partial frame is realised rather than declined.
+    """
+    path = ROOT / "examples" / "topologies" / "target_lane_transition.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    offsets = compute_station_offsets(graph)
+    carrier = next(
+        item
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for item in plan.offset_carriers
+        if item.station_id == "leave"
+    )
+
+    assert "local" in graph.station_lines("leave")
+    assert "local" not in carrier.line_ids
+    _guard_planned_fan_frame_realised(graph, "test", offsets=offsets)
 
 
 def test_port_only_fan_freezes_only_structurally_shared_offset_carriers() -> None:
@@ -1871,21 +1988,21 @@ def test_centreline_port_membership_is_frozen_before_materialisation() -> None:
 
 
 def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
-    path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
-    plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
 
-    assert plan.centreline_anchor == FanCentrelineAnchor("src__exit_right_0")
-    assert plan.local_frame_anchor == FanCentrelineAnchor("m1")
+    assert plan.centreline_anchor == FanCentrelineAnchor("pre__exit_right_0")
+    assert plan.local_frame_anchor == FanCentrelineAnchor("s_a")
     anchor_y = 137.0
     graph.stations[plan.centreline_anchor.station_id].y = anchor_y
-    graph.stations["mid__entry_left_2"].y = 263.0
+    graph.stations["src__entry_left_2"].y = 263.0
 
     graph.ports.pop(plan.centreline_anchor.station_id)
     graph.edges.clear()
-    graph.sections["src"].grid_row += 3
-    graph.sections["mid"].grid_col += 2
+    graph.sections["pre"].grid_row += 3
+    graph.sections["src"].grid_col += 2
 
     _apply_planned_fan_port_geometry(graph)
     centrelines = _snapshot_planned_fan_centrelines(graph)
@@ -1898,11 +2015,26 @@ def test_absolute_centreline_anchor_is_frozen_before_materialisation() -> None:
     } == {anchor_y}
 
 
-def test_centreline_anchor_is_complete_and_inside_fan_membership() -> None:
+def test_diamond_branch_target_is_its_own_join() -> None:
+    """A two-branch diamond whose short branch lands on the convergence node."""
     path = ROOT / "examples" / "topologies" / "bypass_v_tight.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
     plan = next(item for item in graph.fan_plans if item.authored_source_id == "m1")
+
+    assert plan.authored_join_station_id == "d1"
+    assert plan.join_station_id == "mid__exit_right_1"
+    assert all(
+        path for branch in plan.branches for path in branch.continuation_resolved_paths
+    )
+    assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
+
+
+def test_centreline_anchor_is_complete_and_inside_fan_membership() -> None:
+    path = ROOT / "examples" / "topologies" / "junction_entry_collision.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.authored_source_id == "pre2")
 
     with pytest.raises(ValueError, match="centreline anchor is incomplete"):
         replace(plan, centreline_anchor=None)
@@ -1939,6 +2071,53 @@ def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> Non
     fork = laid_out.stations["s1__entry_left_2"]
     branch_ys = [laid_out.stations[station_id].y for station_id in ("split", "salmon")]
     assert fork.y == pytest.approx(sum(branch_ys) / 2)
+
+
+@pytest.mark.parametrize(
+    "fixture,fork_id,helper_id,stepped_id",
+    [
+        ("bypass_label_rake.mmd", "align", "__bypass_quant_align_1", "quant"),
+        ("bypass_label_rake_left.mmd", "align", "__bypass_quant_align_1", "quant"),
+        ("bypass_label_rake_wide.mmd", "align", "__bypass_quant_align_1", "quant"),
+        pytest.param(
+            "bypass_v_tight.mmd",
+            "m1",
+            "__bypass_m2_m1_1",
+            "m2",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "the column seats the stopping station on the fork's row and "
+                    "sends the passing line around it"
+                ),
+            ),
+        ),
+    ],
+)
+def test_a_bypass_helper_keeps_the_row_the_line_it_carries_runs_on(
+    fixture: str,
+    fork_id: str,
+    helper_id: str,
+    stepped_id: str,
+) -> None:
+    """The line with no station here runs straight; the one that stops steps off.
+
+    A hidden bypass helper carries its line around a station that line skips, so
+    the helper stands where that line already runs - the fork's row - and the
+    skipped station takes a rung beside it.  Seating them the other way round
+    sends the line with no business at the station around the outside of it.
+
+    Held against the settled coordinates rather than any one owner's decision:
+    which of the fan frame and the section's column ladder states the rung
+    depends on whether the branches reconverge at an authored join.
+    """
+    path = ROOT / "examples" / "topologies" / fixture
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    fork_y = graph.stations[fork_id].y
+
+    assert graph.stations[helper_id].y == pytest.approx(fork_y)
+    assert graph.stations[stepped_id].y > fork_y
 
 
 def test_runtime_guard_rejects_asymmetric_symmetric_fan_plan() -> None:

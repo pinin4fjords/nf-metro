@@ -282,7 +282,8 @@ pass:
 The remaining channels tolerate an unwritten value by design (their read sites
 fall back to live geometry or a `None`/empty default), so they are documented in
 the registry but carry no runtime check: `graph._struct_height_below_top`
-(snapshotted after 6.15a, read by the 6.13 cascade), `graph._placement_ref_y` /
+(snapshotted after 6.15a and retaken after a 6.18a planned-fan refit, read by
+the 6.13 cascade), `graph._placement_ref_y` /
 `graph._placement_ref_bbox_top` (frozen before 6.1/6.11, read via `_ref_y` /
 `_ref_bbox_top`), `graph._base_y_spacing` (recorded before the spread loop
 when `y_spacing` is auto-resolved), and `graph._resolved_x_spacing` (the
@@ -1138,8 +1139,8 @@ in pipeline order.
   bbox as the row-ending extent.  If `graph._struct_height_below_top`
   is populated, its per-section height is used instead (reconstructed
   on the current bbox top); that dict is populated after Stage 6.15a
-  so it records the fully settled extent for structural-extent fidelity
-  checks, not as a cascade input.
+  and retaken after a Stage 6.18a planned-fan refit, so it records the
+  fully settled extent for structural-extent fidelity checks.
 - **Helper**: `_shrink_and_tighten_rows` (orchestrates
   `_shrink_bboxes_to_content_bottom` then
   `_tighten_lower_rows_after_shrink`).
@@ -1354,19 +1355,31 @@ in pipeline order.
   the final boundary (no later Y mutation). The cleared marker reaches the
   next `_layout_once` pass, which re-derives the marks from scratch.
 
-### Stage 6.18a: refit planned fan bbox tops (engine.py)
+### Stage 6.18a: refit planned fan bbox bands (engine.py)
 - **Purpose**: Stage 6.17 can move planned fan content after the general bbox
-  fit in Stage 6.15a. Remove top slack left by that final placement without
-  forcing the section to share a top edge with its row mates.
-- **Helper**: `refit_empty_section_tops_to_content` (`phases/bbox.py`), scoped
+  fit in Stage 6.15a. Restate the padding band around where that placement left
+  the content: remove top slack it no longer needs, widen the row boundary when
+  the row above blocks the band it does need, then grow the box back to the
+  content it now holds. Whatever the placement moved is what the structural
+  extent must record, so the snapshot is retaken here.
+- **Helper**: `refit_empty_section_tops_to_content`,
+  `_reserve_row_gap_for_top_padding`, `grow_section_bands_to_content`,
+  `push_lower_rows_after_bbox_grow`, then
+  `_snapshot_struct_heights_below_top` (all `phases/bbox.py`), scoped
   by `planned_fan_layout_section_ids` (`phases/planned_fans.py`).
 - **Precondition**: Planned fan geometry and half-pitch expansion are settled
   (post-6.18).
 - **Postcondition**: A planned fan section with an unused top band has exactly
-  `section_y_padding` above its highest visible content.
-- **Invariants preserved**: Station and route geometry, unrelated section
-  bboxes, and top bands used by ports or bypass helpers.
-- **Related tests**: `test_section_bbox_top_hugs_content` and
+  `section_y_padding` above its highest visible content; every planned fan
+  section keeps a full padding band on both Y edges, the row boundary above it
+  having widened where the ceiling would otherwise cut the band short.
+  `graph._struct_height_below_top` holds each section's settled extent.
+- **Invariants preserved**: Station and route geometry within a section
+  (a widened row boundary translates whole rows), unrelated section bboxes, and
+  top bands used by ports or bypass helpers.
+- **Related tests**: `test_section_bbox_top_hugs_content`,
+  `test_section_bbox_has_top_padding`,
+  `test_structural_extent_matches_settled_within_tolerance` and
   `_guard_section_top_padding`.
 - **Lifecycle:** invariant - no geometry or bbox phase follows this refit.
 

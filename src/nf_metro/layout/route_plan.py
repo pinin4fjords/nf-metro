@@ -394,9 +394,7 @@ _OVERLAPPING_FAN_OWNERSHIP = CompatibilityFamily(
 )
 _NO_PLANNED_FRAME_FOR_FAN_SHAPE = CompatibilityFamily(
     "The fan is completely resolved, and the planner has no frame for the shape "
-    "it takes: this direction, this line transition across a branch, or a "
-    "branch whose whole path lies between the fork and the join it spans, "
-    "leaving it no interior to draw.",
+    "it takes: this direction, or this line transition across a branch.",
     _ISSUE.format(1711),
 )
 _CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
@@ -516,6 +514,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "off-track-layout-owns-fan-geometry",
                     "rail-layout-owns-fan-geometry",
                     "same-line-open-fan-layout-owns-geometry",
+                    "section-entry-trunk-has-foreign-head",
                     "straight-diamond-layout-owns-geometry",
                 ),
                 _reasons(
@@ -524,6 +523,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "ambiguous-resolved-branch-tail",
                     "ambiguous-resolved-fork",
                     "ambiguous-resolved-join",
+                    "empty-resolved-member-path",
                     "fan-route-system-has-no-emission-member",
                     "missing-centreline-anchor",
                     "missing-resolved-extra-output-path",
@@ -531,14 +531,11 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _OVERLAPPING_FAN_OWNERSHIP,
-                    "offset-carrier-has-unowned-line",
                     "overlapping-branch-lane-ownership",
                     "overlapping-fan-ownership",
                 ),
                 _reasons(
                     _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
-                    "empty-resolved-member-path",
-                    "unsupported-branch-line-transition",
                     "unsupported-fan-direction",
                 ),
             ),
@@ -1463,6 +1460,8 @@ class FanPlan:
     frame: AxisFrame | None
     disposition: FanPlanDisposition
     legacy_reason: str | None
+    ceded_station_ids: tuple[str, ...] = ()
+    """Stations another fan states the seat of, which this plan only reads."""
 
     def __post_init__(self) -> None:
         planned = self.disposition is FanPlanDisposition.PLANNED
@@ -3717,6 +3716,35 @@ def _validate_exit_turn_demands(
             raise ValueError("exit-turn lane-transition demand is inconsistent")
 
 
+def _expected_source_lane_gaps(
+    plan: RoutePlan, exit_turn_plan: ExitTurnPlan
+) -> tuple[float, ...]:
+    """The offset each adjacent source-lane pair must span, in lane order.
+
+    Lanes normally compact to one ``spacing`` step per rank.  Where a planned
+    fan states the offsets of this exit source, its frame decides the pitch
+    instead: a fan holds one slot per line identity it carries anywhere in its
+    system, so a slot whose line is absent at this station is reserved rather
+    than forgotten, and the pair straddling it spans as many steps as the
+    fan's own slots are apart.
+    """
+    slots = {
+        assignment.line_id: assignment.slot
+        for fan_plan in plan.fan_plans
+        if fan_plan.owns_geometry
+        for carrier in fan_plan.offset_carriers
+        if carrier.station_id == exit_turn_plan.source_id
+        for assignment in carrier.assignments
+    }
+    lines = tuple(lane.line_id for lane in exit_turn_plan.source_lanes)
+    if any(line_id not in slots for line_id in lines):
+        return tuple(exit_turn_plan.spacing for _line in lines[1:])
+    return tuple(
+        abs(slots[right] - slots[left]) * exit_turn_plan.spacing
+        for left, right in zip(lines, lines[1:])
+    )
+
+
 def _validate_planned_exit_turn_resources(
     plan: RoutePlan,
     exit_turn_plan: ExitTurnPlan,
@@ -3750,9 +3778,10 @@ def _validate_planned_exit_turn_resources(
     ):
         raise ValueError("exit-turn plan has inconsistent provenance")
     offsets = tuple(lane.planned_offset for lane in exit_turn_plan.source_lanes)
+    expected_gaps = _expected_source_lane_gaps(plan, exit_turn_plan)
     if any(
-        abs(abs(right - left) - exit_turn_plan.spacing) > 1e-6
-        for left, right in zip(offsets, offsets[1:])
+        abs(abs(right - left) - gap) > 1e-6
+        for (left, right), gap in zip(zip(offsets, offsets[1:]), expected_gaps)
     ):
         raise ValueError("planned exit-turn source lanes are not compact")
     turning_assignment_ids = tuple(
@@ -3850,11 +3879,13 @@ def _validate_planned_exit_turn_resources(
         (right.input_offset - left.input_offset)
         * (right.planned_offset - left.planned_offset)
         <= 0
-        or abs(abs(right.planned_offset - left.planned_offset) - exit_turn_plan.spacing)
-        > 1e-6
-        for left, right in zip(
-            exit_turn_plan.source_lanes,
-            exit_turn_plan.source_lanes[1:],
+        or abs(abs(right.planned_offset - left.planned_offset) - gap) > 1e-6
+        for (left, right), gap in zip(
+            zip(
+                exit_turn_plan.source_lanes,
+                exit_turn_plan.source_lanes[1:],
+            ),
+            expected_gaps,
         )
     ):
         raise ValueError("exit-turn source lanes do not preserve travel order")

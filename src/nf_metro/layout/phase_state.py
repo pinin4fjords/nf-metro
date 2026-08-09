@@ -165,9 +165,10 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
         reader_stages=("6.13",),
         enforcement=FieldEnforcement.FALLBACK,
         why=(
-            "settled structural extents snapshotted after Stage 6.15a; the Stage "
-            "6.13 inter-row cascade reads it for fidelity checks and falls back to "
-            "live bbox heights when the snapshot is empty (default before 6.15a)"
+            "settled structural extents snapshotted after Stage 6.15a and retaken "
+            "after a Stage 6.18a planned-fan refit; the Stage 6.13 inter-row "
+            "cascade reads it for fidelity checks and falls back to live bbox "
+            "heights when the snapshot is empty (default before 6.15a)"
         ),
     ),
     "_placement_ref_y": PhaseFieldSpec(
