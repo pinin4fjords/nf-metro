@@ -315,9 +315,9 @@ _NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
 )
 _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "The requirement derived for this exit group states a turn the group cannot "
-    "take: a run opposed to its own transition, or a continuation the group "
-    "serves more than one of. The planner has no rule for choosing between the "
-    "readings, so it claims none of them.",
+    "take: a run opposed to its own transition, or a member whose connectors "
+    "point at more than one destination. The planner has no rule for choosing "
+    "between the readings, so it claims none of them.",
     _ISSUE.format(1710),
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
@@ -456,9 +456,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
-                    "ambiguous-continuation",
                     "invalid-source-turn-requirement",
-                    "lane-pinned-to-two-axes",
                     "multiple-destinations",
                     "opposed-source-run",
                     "unresolved-perpendicular-entry-seam",
@@ -468,6 +466,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "fixed-anchor-owned-by-another-plan",
                     "entry-bundle-owns-the-shared-seam-lanes",
                     "fixed-axis-conflict",
+                    "lane-arms-pinned-to-overlapping-corners",
                     "linear-entry-frame-ownership-conflict",
                     "merge-branch-shares-the-descent-corner",
                     "overlapping-planned-turn-axes",

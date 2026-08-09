@@ -24,6 +24,7 @@ from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
+    EmissionRole,
     ExitLaneOrderSource,
     ExitTurnDisposition,
     RouteFamilyId,
@@ -956,11 +957,6 @@ def test_lane_order_inversion_uses_whole_group_legacy() -> None:
     ("fixture", "source_id", "reason"),
     (
         (
-            "ambiguous_exit_continuation.mmd",
-            "__junction_4",
-            "ambiguous-continuation",
-        ),
-        (
             "compact_continuation_slot_conflict.mmd",
             "src__exit_right_0",
             "continuation-transition-has-no-runway",
@@ -979,6 +975,95 @@ def test_unsupported_continuations_use_whole_group_legacy(
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason == reason
+
+
+def test_lane_arms_a_corner_apart_fork_off_one_stroke() -> None:
+    """Arms of one lane on well-separated columns are a fork, not a doubling."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "riboseq_fold_two_dir_entry.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_10")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    columns = sorted(axis.coordinate for axis in plan.axes if axis.line_id == "ribo")
+    assert len(columns) == 2
+    assert columns[1] - columns[0] >= CURVE_RADIUS
+
+
+def test_lane_arms_inside_one_corner_are_not_one_stroke() -> None:
+    """Columns closer than a corner leave the lane drawn as two tracks."""
+    assert exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1075.0, CURVE_RADIUS)
+    assert exit_turns._lane_arms_read_as_one_stroke((536.0,), 692.0, CURVE_RADIUS)
+    assert not exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1079.0, CURVE_RADIUS)
+
+
+def test_lane_arms_two_owners_pin_a_corner_apart_use_whole_group_legacy() -> None:
+    """Two families pinning one lane's arms within a corner hold the column."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / "target_entry_runway_bypass.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_13")
+
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "lane-arms-pinned-to-overlapping-corners"
+
+
+def test_several_turnless_members_each_state_their_own_landing() -> None:
+    """One lane's turn-less members land at different depths on one ray."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "tb_bottom_exit_fork_diamond.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_6")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    continuations = tuple(
+        item
+        for item in plan.assignments
+        if EmissionRole.CONTINUATION in item.roles and item.turn_direction is None
+    )
+    assert len(continuations) == 2
+    assert len({item.entry_group_id for item in continuations}) == 2
+    assert {item.run_direction for item in continuations} == {Direction.D}
+
+
+def test_opposed_travel_on_one_column_uses_whole_group_legacy() -> None:
+    """Two groups running one line both ways down a column keep neither."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / "ambiguous_exit_continuation.mmd"
+    )
+    contested = tuple(
+        item
+        for item in execution.plans
+        if item.source_id in {"__junction_4", "__junction_5"}
+    )
+
+    assert len(contested) == 2
+    for plan in contested:
+        assert plan.disposition is ExitTurnDisposition.LEGACY
+        assert plan.legacy_reason == "overlapping-planned-turn-axes"
+
+
+def test_branches_gathering_on_one_column_keep_their_plans() -> None:
+    """Groups travelling one column the same way share the one stroke."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "shared_sink_parallel.mmd"
+    )
+    gathering = tuple(
+        item
+        for item in execution.plans
+        if item.source_id in {"branch_b__exit_right_2", "branch_c__exit_right_3"}
+    )
+
+    assert len(gathering) == 2
+    for plan in gathering:
+        assert plan.disposition is ExitTurnDisposition.PLANNED
+    columns = {
+        axis.coordinate
+        for plan in gathering
+        for axis in plan.axes
+        if axis.line_id == "alpha"
+    }
+    assert len(columns) == 1
 
 
 def test_repeated_same_line_arms_share_one_lane_and_axis() -> None:

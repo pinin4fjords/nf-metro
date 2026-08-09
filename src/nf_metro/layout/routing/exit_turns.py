@@ -1707,9 +1707,18 @@ def _classify_assignment_seeds(
                 requirement.fixed_axis,
             )
         )
-    if len({edge.target for edge in straight_edges}) > 1:
-        reason = reason or "ambiguous-continuation"
     straight_set = frozenset(straight_edges)
+    # A turn-less member states its lane's ray out of the shared source, and a
+    # lane's turn-less members all draw that one ray: they land at different
+    # depths along it.  What no ray can do is leave the source both ways, so a
+    # lane whose turn-less members disagree on the run direction states a run
+    # opposed to itself.
+    straight_runs_by_lane: defaultdict[str, set[Direction | None]] = defaultdict(set)
+    for item in classified:
+        if item.edge in straight_set:
+            straight_runs_by_lane[item.edge.line_id].add(item.run_direction)
+    if any(len(runs) > 1 for runs in straight_runs_by_lane.values()):
+        reason = reason or "opposed-source-run"
     seeds = tuple(
         _AssignmentSeed(
             item.edge,
@@ -1771,6 +1780,24 @@ def _pinned_ladders_keep_bundle_order(
         or (second.column - first.column) * progression >= -COORD_TOLERANCE
         for first in pinned
         for second in pinned
+    )
+
+
+def _lane_arms_read_as_one_stroke(
+    known: Iterable[float], coordinate: float, curve_radius: float
+) -> bool:
+    """Whether an arm turning at *coordinate* keeps one stroke with *known*.
+
+    A corner takes one radius of the shared run before its turn column, so arms
+    a radius or more apart open corners that never overlap and the lane reads
+    as one stroke forking late; arms on one column are one corner.  Between the
+    two the corners share run, and the lane is drawn as two near-parallel
+    tracks instead of one.
+    """
+    return all(
+        abs(item - coordinate) <= COORD_TOLERANCE
+        or abs(item - coordinate) >= curve_radius - COORD_TOLERANCE
+        for item in known
     )
 
 
@@ -1856,9 +1883,6 @@ def _plan_turn_axes(
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
-    # One lane is one stroke, so the columns its arms turn on across every
-    # ladder of a heading have to agree: two arms of one lane on neighbouring
-    # columns draw the line twice, side by side, instead of once.
     lane_coordinates: dict[tuple[Direction, Direction, int], set[float]] = defaultdict(
         set
     )
@@ -1923,9 +1947,14 @@ def _plan_turn_axes(
             return _AxisPlan((), MappingProxyType({}), minimum_runway, reason)
         for rank in ranks:
             known = lane_coordinates[run_direction, turn_direction, rank]
-            if any(abs(item - coordinates[rank]) > COORD_TOLERANCE for item in known):
+            if not _lane_arms_read_as_one_stroke(
+                known, coordinates[rank], ctx.curve_radius
+            ):
                 return _AxisPlan(
-                    (), MappingProxyType({}), minimum_runway, "lane-pinned-to-two-axes"
+                    (),
+                    MappingProxyType({}),
+                    minimum_runway,
+                    "lane-arms-pinned-to-overlapping-corners",
                 )
             known.add(coordinates[rank])
         for rank in ranks:
@@ -2640,8 +2669,68 @@ def _cross_plan_fallback_reasons(
             for second in plan.axes[rank + 1 :]
         ):
             reasons[plan.id] = "overlapping-planned-turn-axes"
+    _add_shared_axis_contention_fallbacks(
+        graph, ctx, plans, assignments_by_plan, reasons
+    )
     _add_station_lane_collision_fallbacks(graph, ctx, plans, reasons)
     return reasons
+
+
+def _add_shared_axis_contention_fallbacks(
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    plans: Iterable[ExitTurnPlan],
+    assignments_by_plan: Mapping[
+        ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
+    ],
+    reasons: dict[ExitTurnPlanId, str],
+) -> None:
+    """Refuse two plans that run one line down one column in both directions.
+
+    Groups that turn a line onto one column and travel it the same way share
+    one stroke, which is how branches gather onto a trunk.  Groups that travel
+    it opposite ways are two tracks in one column: the leaf builders lane one
+    of them aside, onto a column neither plan states.  Each plan reads its own
+    group, so neither can be taken as the one that keeps the column.
+    """
+    claims = tuple(
+        (
+            plan.id,
+            axis,
+            _planned_axis_cross_range(
+                graph, ctx, plan, axis, assignments_by_plan[plan.id]
+            ),
+            _axis_turn_directions(axis, assignments_by_plan[plan.id]),
+        )
+        for plan in plans
+        if plan.disposition is ExitTurnDisposition.PLANNED and plan.id not in reasons
+        for axis in plan.axes
+    )
+    for rank, (first_id, first, first_range, first_turns) in enumerate(claims):
+        for second_id, second, second_range, second_turns in claims[rank + 1 :]:
+            if (
+                first_id == second_id
+                or first.line_id != second.line_id
+                or first.axis is not second.axis
+                or abs(first.coordinate - second.coordinate) > COORD_TOLERANCE
+                or len(first_turns | second_turns) < 2
+                or not _ranges_overlap(*first_range, *second_range)
+            ):
+                continue
+            reasons.setdefault(first_id, "overlapping-planned-turn-axes")
+            reasons.setdefault(second_id, "overlapping-planned-turn-axes")
+
+
+def _axis_turn_directions(
+    axis: ExitTurnAxis, assignments: Mapping[ResolvedEdge, ExitTurnAssignment]
+) -> frozenset[Direction]:
+    """The ways the members claiming *axis* travel along it."""
+    turns = {item.member_id: item.turn_direction for item in assignments.values()}
+    return frozenset(
+        turn
+        for member_id in axis.claimant_member_ids
+        if (turn := turns.get(member_id)) is not None
+    )
 
 
 def _compatibility_channel_claims(
