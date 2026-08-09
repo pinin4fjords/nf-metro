@@ -1220,6 +1220,44 @@ def refit_empty_section_tops_to_content(
             move_section_bbox_min_edge(graph, section, "y", hug)
 
 
+def grow_section_bands_to_content(
+    graph: MetroGraph,
+    section_ids: set[str],
+    section_y_padding: float,
+    section_y_gap: float,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """Restore the padding band of sections a late content placement resized.
+
+    The corpus-wide top fit and bottom shrink size each box around where the
+    content stood when they ran.  A later owner that re-seats content inside a
+    named section leaves the box stating the old band, so the marker it moved
+    outward crowds an edge.  Growing each named box back to the same two
+    targets the padding contract is written in -- the row-bounded content top
+    and the pill-aware content bottom -- restores the band without moving
+    anything the placement decided.
+    """
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+
+    for section_id in section_ids:
+        section = graph.sections.get(section_id)
+        if section is None or section.bbox_h <= 0:
+            continue
+        top = _section_fit_top(
+            graph, section, section_y_padding, section_y_gap, offsets
+        )
+        if top is not None:
+            grow_section_bbox_min_edge(graph, section, "y", top)
+        bottom = _predict_section_content_bottom(
+            graph, section, section_y_padding, offsets
+        )
+        if bottom is not None:
+            grow_section_bbox_max_edge(graph, section, "y", bottom)
+
+
 def refit_tops_after_entry_resnap(
     graph: MetroGraph,
     section_ids: set[str],

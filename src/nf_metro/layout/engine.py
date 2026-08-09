@@ -92,6 +92,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
     _snapshot_struct_heights_below_top,
     _tighten_lower_rows_after_shrink,
     _top_align_side_entered_vertical_to_feeder,
+    grow_section_bands_to_content,
     push_lower_rows_after_bbox_grow,
     refit_empty_section_tops_to_content,
     refit_tops_after_entry_resnap,
@@ -2083,6 +2084,13 @@ def _finalize_layout(
             planned_fan_sections,
             section_y_padding,
         )
+        grow_section_bands_to_content(
+            graph,
+            planned_fan_sections,
+            section_y_padding,
+            section_y_gap,
+        )
+        push_lower_rows_after_bbox_grow(graph, section_y_gap)
     _snap(graph, "6.18a")
 
     if validate:
