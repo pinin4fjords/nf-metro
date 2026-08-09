@@ -315,9 +315,9 @@ _NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
 )
 _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "The requirement derived for this exit group states a turn the group cannot "
-    "take: an order that inverts, a run opposed to its own transition, or a "
-    "continuation the group serves more than one of. The planner has no rule "
-    "for choosing between the readings, so it claims none of them.",
+    "take: a run opposed to its own transition, or a continuation the group "
+    "serves more than one of. The planner has no rule for choosing between the "
+    "readings, so it claims none of them.",
     _ISSUE.format(1710),
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
@@ -344,6 +344,20 @@ _STATES_NO_GEOMETRY = CompatibilityFamily(
     "The verdict constrains no geometry: a single-member exit group has no lane "
     "order and no shared axis to plan. It is recorded for attribution and never "
     "escalates a system, so there is nothing to retire."
+)
+_RAIL_EMISSION_OWNS_THE_ROUTE = CompatibilityFamily(
+    "Rail mode draws every inter-section edge from its own emitter, on a route "
+    "system frozen with no exit-turn plan at all. There is no source geometry "
+    "left for an exit-turn plan to claim a part of, so the rail frame is the "
+    "emitter's whole output and support is permanent."
+)
+_LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
+    "The station-offset allocator seats the exit port's lane order and the "
+    "destination's lane order in separate phases, and here the two disagree: a "
+    "pair of lanes swaps lateral order between the ends of one run. An exit "
+    "group owns the source end alone, so the crossing is already in the offsets "
+    "it reads rather than an ordering it declines to state, and support is "
+    "permanent."
 )
 _LAYOUT_OWNS_THE_FAN_FRAME = CompatibilityFamily(
     "The section allocator, the rail emitter or an overlapping local layout "
@@ -407,13 +421,10 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:merge-trunk",
                     "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
-                    "unsupported-family:rail-inter-section",
                     "unsupported-family:right-entry-plough-bypass",
                     "unsupported-family:right-entry-wrap",
                     "unsupported-family:same-x-vertical-drop",
                     "unsupported-family:serpentine-left-exit-left-entry",
-                    "unsupported-family:tb-bottom-exit-around-stack",
-                    "unsupported-family:tb-perp-exit-over",
                     "unsupported-family:tb-section-fallback",
                 ),
                 _reasons(
@@ -429,7 +440,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-subshape:nonhorizontal-left-entry-wrap",
                     "unsupported-subshape:nonvertical-tb-exit",
                     "unsupported-subshape:opposed-horizontal-straight",
-                    "unsupported-subshape:unaligned-perpendicular-entry",
                     "unsupported-subshape:vertical-source-horizontal-straight",
                 ),
                 _reasons(
@@ -437,7 +447,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "ambiguous-continuation",
                     "invalid-source-turn-requirement",
                     "lane-pinned-to-two-axes",
-                    "lane-transition-order-inversion",
                     "multiple-destinations",
                     "opposed-source-run",
                     "unresolved-perpendicular-entry-seam",
@@ -469,6 +478,14 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "source-lane-transition-has-no-runway",
                 ),
                 _reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                _reasons(
+                    _RAIL_EMISSION_OWNS_THE_ROUTE,
+                    "unsupported-family:rail-inter-section",
+                ),
+                _reasons(
+                    _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
+                    "lane-transition-order-inversion",
+                ),
             ),
             "fan-plan": _registry(
                 _reasons(
@@ -1100,7 +1117,14 @@ class ExitLaneTransition:
 
 @dataclass(frozen=True, slots=True)
 class ExitTurnAxis:
-    """One shared turn axis assigned to every arm of one source lane."""
+    """One turn axis, shared by the arms of one source lane on one ladder.
+
+    ``pinning_group_id`` names the destination whose structure fixes this axis
+    where several destinations pin the same heading, and is ``None`` on the one
+    free ladder a heading otherwise carries. Axes ladder at the plan spacing
+    only against their own ladder-mates: separately pinned axes answer to their
+    destinations, not to each other.
+    """
 
     id: ExitTurnAxisId
     line_id: str
@@ -1111,6 +1135,7 @@ class ExitTurnAxis:
     fixed_anchor_id: str | None
     fixed_anchor_coordinate: float | None
     fixed_anchor_offset: float | None
+    pinning_group_id: EndpointGroupId | None
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
 
     def __post_init__(self) -> None:
@@ -3733,13 +3758,28 @@ def _validate_planned_exit_turn_resources(
     turning_assignments = tuple(
         item for item in exit_turn_plan.assignments if item.axis_id is not None
     )
-    cohort_ranks: dict[tuple[Direction, Direction], set[int]] = defaultdict(set)
+    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
+    turning_axis: dict[EmissionMemberId, ExitTurnAxis] = {}
+    for assignment in turning_assignments:
+        named = (
+            axis_by_id.get(assignment.axis_id)
+            if assignment.axis_id is not None
+            else None
+        )
+        if named is None:
+            raise ValueError("exit-turn assignment names an unknown axis")
+        turning_axis[assignment.member_id] = named
+    cohort_ranks: dict[
+        tuple[Direction, Direction, EndpointGroupId | None], set[int]
+    ] = defaultdict(set)
     for assignment in turning_assignments:
         if assignment.run_direction is None or assignment.turn_direction is None:
             raise ValueError("exit-turn assignment has incomplete directions")
-        cohort_ranks[assignment.run_direction, assignment.turn_direction].add(
-            assignment.source_lane_rank
-        )
+        cohort_ranks[
+            assignment.run_direction,
+            assignment.turn_direction,
+            turning_axis[assignment.member_id].pinning_group_id,
+        ].add(assignment.source_lane_rank)
     ordered_turn_span = max(
         ((len(ranks) - 1) * exit_turn_plan.spacing for ranks in cohort_ranks.values()),
         default=0.0,
@@ -3778,6 +3818,7 @@ def _validate_planned_exit_turn_resources(
                 assignment.run_direction,
                 assignment.turn_direction,
                 assignment.source_lane_rank,
+                turning_axis[assignment.member_id].pinning_group_id,
             )
             for assignment in turning_assignments
         }
@@ -3795,14 +3836,17 @@ def _validate_planned_exit_turn_resources(
         )
     ):
         raise ValueError("exit-turn source lanes do not preserve travel order")
-    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
-    for (run_direction, turn_direction), _ranks in cohort_ranks.items():
+    for (
+        run_direction,
+        turn_direction,
+        pinning_group_id,
+    ), _ranks in cohort_ranks.items():
         cohort_axes = tuple(
-            axis_by_id[assignment.axis_id]
+            turning_axis[assignment.member_id]
             for assignment in turning_assignments
             if assignment.run_direction is run_direction
             and assignment.turn_direction is turn_direction
-            and assignment.axis_id is not None
+            and turning_axis[assignment.member_id].pinning_group_id == pinning_group_id
         )
         unique_axes = tuple(dict.fromkeys(cohort_axes))
         unique_axes = tuple(sorted(unique_axes, key=lambda axis: axis.rank))

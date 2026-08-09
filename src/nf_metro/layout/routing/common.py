@@ -93,6 +93,24 @@ def vertical_direction(dy: float) -> Direction:
     return Direction.D if dy > 0 else Direction.U
 
 
+def segment_direction(
+    start: tuple[float, float], end: tuple[float, float]
+) -> Direction | None:
+    """The direction the axis-aligned leg from *start* to *end* travels.
+
+    ``None`` when the leg is diagonal or has collapsed to a point: those carry
+    no single direction.  Reading the leg's own two endpoints is what keeps a
+    caller from having to know which axis it lies on before asking.
+    """
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
+        return horizontal_direction(dx)
+    if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
+        return vertical_direction(dy)
+    return None
+
+
 def is_orthogonal_turn(
     p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float]
 ) -> bool:
@@ -1843,6 +1861,23 @@ def section_header_safe_cap(section: Section) -> float:
     """Lowest Y a routing channel may occupy that clears the section's header
     badge by ``HEADER_CLEARANCE``."""
     return section_header_top(section) - HEADER_CLEARANCE
+
+
+def section_ids_of_stations(graph: MetroGraph, *stations: Station) -> tuple[str, ...]:
+    """The placed sections *stations* belong to, in order.
+
+    A junction or free-standing endpoint belongs to no section and is dropped.
+    Stated once because a corridor's grid span is measured over exactly these
+    sections whether it is read from a route's endpoints after emission or from
+    the two stations a handler holds before it: a handler seating a run against
+    a span the settling pass would measure differently would seat it in the
+    wrong band.
+    """
+    return tuple(
+        station.section_id
+        for station in stations
+        if station.section_id in graph.sections
+    )
 
 
 def bypass_bottom_y(
