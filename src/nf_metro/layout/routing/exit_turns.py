@@ -75,11 +75,13 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _bypass_route_kind,
     _BypassGeometry,
     _BypassRoute,
+    _entry_wrap_record,
     _InterFacts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
     _left_entry_band_hop_source_seam,
     _left_entry_gap_above_geometry,
+    _left_entry_over_top_geometry,
     _left_entry_route_kind,
     _left_entry_wrap_geometry,
     _LeftEntryRoute,
@@ -95,8 +97,12 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
     bypass_line_draws_a_chained_trunk,
+    cellmate_gap_drop_column,
     classify_inter_section_family,
+    left_exit_around_below_geometry,
+    packed_cell_handoff_carrier,
     seated_bypass_descent,
+    seated_left_exit_under_target_descent,
     u_bypass_descent_geometry,
 )
 from nf_metro.layout.routing.normalize import (
@@ -1044,6 +1050,26 @@ def _standard_l_shape_turn_requirement(
             abs(fan_geometry.axis_x - fan_geometry.launch_x),
             fan_geometry.axis_x,
         )
+    return _plain_l_shape_turn_requirement(edge, src, tgt, ctx, None)
+
+
+def _plain_l_shape_turn_requirement(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    centreline_axis: float | None,
+) -> _SourceTurnRequirement:
+    """The turn a tapered L-shape opens with on the channel it descends.
+
+    *centreline_axis* pins that channel; ``None`` reads the gap-centred default
+    the plain builder falls to.
+    """
+    turn_delta = tgt.y - src.y
+    if abs(turn_delta) <= COORD_TOLERANCE:
+        return _SourceTurnRequirement(
+            None, None, None, None, None, "missing-source-turn"
+        )
     members, _source_center, _target_center = gather_tapered_bundle(ctx, edge)
     target_offset = next(
         target
@@ -1051,7 +1077,8 @@ def _standard_l_shape_turn_requirement(
         if line_id == edge.line_id
     )
     turn_direction = vertical_direction(turn_delta)
-    centreline_axis = _l_shape_mid_x(edge, src, tgt, len(members), ctx)
+    if centreline_axis is None:
+        centreline_axis = _l_shape_mid_x(edge, src, tgt, len(members), ctx)
     emitted_axis = centreline_axis + lateral_order_sign(turn_direction) * target_offset
     return _SourceTurnRequirement(
         horizontal_direction(emitted_axis - src.x),
@@ -1125,17 +1152,19 @@ def _u_bypass_source_turn(
             None,
             "trunk-band-owns-the-chained-same-line-trunk",
         )
-    if geometry.run_direction is None or geometry.turn_direction is None:
-        # The hop still turns at the far gap, so a source seam with no lead-in
-        # or no descent is not a straight run into the entry either: no
-        # arrangement of the family's turn sequence stands on it.
+    if geometry.turn_direction is None:
+        # The descent has no depth: the lead-out and the below-row traverse
+        # stand on one level, so the seam's whole source-side geometry is a
+        # single run and its first corner is the far gap's rise.  The only
+        # requirement derivable from that run is a straight continuation into
+        # the entry, which is not the shape the member goes on to draw.
         return _SourceTurnRequirement(
             None,
             None,
             None,
             None,
             None,
-            "unsupported-subshape:bypass-degenerate-source-seam",
+            "invalid-source-turn-requirement",
         )
     axis_coordinate = seated.column
     return _SourceTurnRequirement(
@@ -1209,10 +1238,9 @@ def _bypass_turn_requirement(
 
     The hop is a family of shapes rather than one: the leaves that already have
     a planned family of their own state their turn through that family's record,
-    and the U-shaped bypass states its own.  The two arrangements whose leaf is
-    settled by whether a candidate route can be built at all are declined --
-    which shape they draw is not knowable before emission -- as is a descent the
-    member does not travel alone.
+    and the U-shaped bypass states its own.  The leaves whose shape is settled
+    by whether a candidate route can be built at all ask the same viability
+    question the emitter does, and state the turn of whichever shape answers it.
     """
     facts = _build_inter_facts(edge, src, tgt, ctx)
     kind = _bypass_route_kind(facts)
@@ -1224,16 +1252,75 @@ def _bypass_turn_requirement(
         return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
     if kind is _BypassRoute.L_SHAPE:
         return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
-    if kind is not _BypassRoute.U_BYPASS:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            f"unsupported-subshape:bypass-{kind.value}",
+    if kind is _BypassRoute.CELLMATE_GAP_DROP:
+        column = cellmate_gap_drop_column(facts)
+        if column is None:
+            return _u_bypass_turn_requirement(facts)
+        return _plain_l_shape_turn_requirement(edge, src, tgt, ctx, column)
+    if kind is _BypassRoute.LEFT_EXIT_AROUND_BELOW:
+        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+    if kind is _BypassRoute.PACKED_CELL_SAME_ROW:
+        return _packed_cell_same_row_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt, facts
         )
     return _u_bypass_turn_requirement(facts)
+
+
+def _left_exit_around_below_turn_requirement(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> _SourceTurnRequirement:
+    """The turn a LEFT exit looping under a far-side LEFT entry opens with."""
+    geometry = left_exit_around_below_geometry(edge, src, tgt, ctx)
+    axis_coordinate = seated_left_exit_under_target_descent(geometry, ctx)
+    return _SourceTurnRequirement(
+        geometry.run_direction,
+        geometry.turn_direction,
+        geometry.launch_coordinate,
+        abs(axis_coordinate - geometry.launch_coordinate),
+        axis_coordinate,
+    )
+
+
+def _packed_cell_same_row_turn_requirement(
+    edge: Edge,
+    source_run_direction: Direction,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+    facts: _InterFacts,
+) -> _SourceTurnRequirement:
+    """The turn a hop boxed in by a same-row packed cell-mate opens with.
+
+    Three shapes reach the entry past the cell-mate, in the order the emitter
+    tries them: a hand-over that leaves on a packed sibling's descent, the
+    row-top corridor, and the left-entry wrap family.
+    """
+    handoff = packed_cell_handoff_carrier(facts)
+    if handoff is not None:
+        carrier, descent = handoff
+        return _u_bypass_source_turn(carrier, descent, ctx)
+    corridor = _left_entry_over_top_geometry(facts)
+    if corridor is None:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
+    seam = _entry_wrap_record(
+        ctx,
+        edge,
+        src,
+        pos_n=corridor.pos_n,
+        delta=corridor.delta,
+        corner_x=corridor.corner_x,
+        channel_y=corridor.channel_y,
+        descent_x=corridor.descent_x,
+    )
+    return _SourceTurnRequirement(
+        seam.run_direction,
+        seam.turn_direction,
+        seam.launch_coordinate,
+        abs(seam.axis_coordinate - seam.launch_coordinate),
+        seam.axis_coordinate,
+    )
 
 
 def _u_bypass_turn_requirement(facts: _InterFacts) -> _SourceTurnRequirement:

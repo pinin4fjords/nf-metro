@@ -633,7 +633,7 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
     if kind is _BypassRoute.L_SHAPE:
         return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
     if kind is _BypassRoute.CELLMATE_GAP_DROP:
-        clean = _route_cellmate_gap_drop(f, _bypass_section_exclusions(f))
+        clean = _route_cellmate_gap_drop(f)
         if clean is not None:
             return clean
     elif kind is _BypassRoute.LEFT_ENTRY_FAMILY:
@@ -653,8 +653,8 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
     return _route_bypass(edge, src, tgt, f.i, f.src_col, f.tgt_col, ctx, f.src_row)
 
 
-def _route_cellmate_gap_drop(f: _InterFacts, exclude: set[str]) -> RoutedPath | None:
-    """Single-channel L-shape descending the gap before the blocking cell-mate.
+def cellmate_gap_drop_column(f: _InterFacts) -> float | None:
+    """The cell-mate gap channel a blocked source row descends in.
 
     When a packed cell-mate blocks the source row, the gap-centred L-shape
     channel lands past the cell-mate and its source-row leg plows through it,
@@ -673,11 +673,20 @@ def _route_cellmate_gap_drop(f: _InterFacts, exclude: set[str]) -> RoutedPath | 
     if edges is None:
         return None
     mid_x = (edges[0] + edges[1]) / 2
+    exclude = _bypass_section_exclusions(f)
     if (
         _h_segment_crosses_other_section(f.graph, f.sx, mid_x, f.sy, exclude)
         or _v_segment_crosses_other_section(f.graph, mid_x, f.sy, f.ty, exclude)
         or _h_segment_crosses_other_section(f.graph, mid_x, f.tx, f.ty, exclude)
     ):
+        return None
+    return mid_x
+
+
+def _route_cellmate_gap_drop(f: _InterFacts) -> RoutedPath | None:
+    """Single-channel L-shape descending the gap before the blocking cell-mate."""
+    mid_x = cellmate_gap_drop_column(f)
+    if mid_x is None:
         return None
     return _route_l_shape_plain(f.edge, f.src, f.tgt, f.n, f.ctx, mid_x=mid_x)
 
@@ -874,10 +883,33 @@ def _route_left_exit_right_entry_step(
     return route
 
 
-def _route_left_exit_around_below_left_entry(
+@dataclass(frozen=True)
+class _LeftExitUnderTargetLoop:
+    """The loop a LEFT exit draws to a far-side LEFT entry, plus its source seam.
+
+    ``members`` carries each line's source and target offset against
+    ``centreline``; a leg places its member at that offset along the leg's own
+    right-hand normal, which is what ``axis_coordinate`` reads for the descent.
+    ``lane_columns`` is that reading for the whole bundle.
+    """
+
+    centreline: tuple[tuple[float, float], ...]
+    members: tuple[tuple[Edge, str, float, float], ...]
+    lane_columns: tuple[tuple[tuple[str, str, str], float], ...]
+    over_top: bool
+    corner_x: float
+    channel_y: float
+    descent_x: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+
+
+def left_exit_around_below_geometry(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath | None:
-    """Wrap a LEFT exit around below the target into a far-side LEFT entry.
+) -> _LeftExitUnderTargetLoop:
+    """Resolve the loop shared by far-side LEFT-entry planning and emission.
 
     A reverse-flow bypass (source to the RIGHT of the target, past one or more
     intervening sections) whose target entry sits on the FAR (left) edge: the
@@ -982,28 +1014,68 @@ def _route_left_exit_around_below_left_entry(
     )
     over_top = over_gy is not None
     channel_y = over_gy if over_gy is not None else by
-    centerline = [
-        (sx, sy),
-        (cx, sy),
-        (cx, channel_y),
-        (vx, channel_y),
-        (vx, ey),
-        (ex, ey),
-    ]
+    lead_out = -exit_offs[edge.line_id]
+    run_direction = _leg_direction((sx, sy), (cx, sy))
+    lead_out_y = sy + lead_out * right_normal_axis_sign(run_direction)
+    turn_direction = _leg_direction((cx, lead_out_y), (cx, channel_y))
+    return _LeftExitUnderTargetLoop(
+        (
+            (sx, sy),
+            (cx, sy),
+            (cx, channel_y),
+            (vx, channel_y),
+            (vx, ey),
+            (ex, ey),
+        ),
+        tuple(members),
+        tuple(
+            _wrap_lane_coordinates(
+                [(edge_by_line[lid], lid, -exit_offs[lid]) for lid in line_ids],
+                cx,
+                turn_direction,
+            )
+        ),
+        over_top,
+        cx,
+        channel_y,
+        vx,
+        run_direction,
+        turn_direction,
+        sx,
+        cx + lead_out * right_normal_axis_sign(turn_direction),
+    )
+
+
+def _route_left_exit_around_below_left_entry(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> RoutedPath | None:
+    """Build the loop :func:`left_exit_around_below_geometry` describes."""
+    geometry = left_exit_around_below_geometry(edge, src, tgt, ctx)
     # The over-top loop's outward-side port approach reads as a backtrack to the
     # normalize pass, so it opts out; the dip stays normalize-able, letting a
     # multi-feeder port's dips bundle apart into separate descents.
     route = route_tapered(
         edge,
-        members,
-        centerline,
+        list(geometry.members),
+        list(geometry.centreline),
         transition_leg=3,
         base_radius=ctx.curve_radius,
-        normalize_exempt=over_top,
+        normalize_exempt=geometry.over_top,
     )
     if route is not None:
-        _declare_channel(route, ctx, cx, vertical_direction(channel_y - sy))
-        _declare_channel(route, ctx, vx, vertical_direction(ey - channel_y))
+        _declare_channel(
+            route,
+            ctx,
+            geometry.corner_x,
+            vertical_direction(geometry.channel_y - src.y),
+        )
+        _seat_left_exit_under_target_descent(route, edge, geometry, ctx)
+        _declare_channel(
+            route,
+            ctx,
+            geometry.descent_x,
+            vertical_direction(tgt.y - geometry.channel_y),
+        )
     return route
 
 
@@ -1222,8 +1294,36 @@ def _packed_cell_target_sibling(f: _InterFacts) -> tuple[Edge, Station, Section]
     return max(candidates, key=lambda candidate: candidate[2].bbox_x)
 
 
-def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
-    """Share the nearer packed sibling's corridor, then pass below its box."""
+@dataclass(frozen=True)
+class _PackedCellHandoff:
+    """A hop leaving the source on a packed sibling's descent, then splitting off.
+
+    ``carrier`` is the sibling whose U-shaped bypass draws the shared opening,
+    ``descent`` that bypass's geometry, and ``centreline`` the whole hop: the
+    carrier's first four points, then the legs under the sibling's box.
+    """
+
+    carrier: Edge
+    descent: _BypassGeometry
+    centreline: list[tuple[float, float]]
+
+
+def packed_cell_handoff_carrier(f: _InterFacts) -> tuple[Edge, _BypassGeometry] | None:
+    """The packed sibling whose descent this hop leaves the source on.
+
+    ``None`` where the hop draws a corridor of its own, which is what
+    :func:`_packed_cell_handoff_plan` refuses the hand-over for.
+    """
+    plan = _packed_cell_handoff_plan(f)
+    return None if plan is None else (plan.carrier, plan.descent)
+
+
+def _packed_cell_handoff_plan(f: _InterFacts) -> _PackedCellHandoff | None:
+    """The carrier this hand-over shares, with the centreline it then draws.
+
+    ``None`` where no sibling carries it, the sibling's own hop is not a plain
+    multi-column one, or any leg of the split-off passes through a section.
+    """
     sibling = _packed_cell_target_sibling(f)
     if sibling is None:
         return None
@@ -1236,6 +1336,16 @@ def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
         or sibling_facts.cellmate_blocks_source_row
     ):
         return None
+    sibling_descent = _bypass_geometry(
+        sibling_edge,
+        f.src,
+        sibling_target,
+        sibling_facts.i,
+        sibling_facts.src_col,
+        sibling_facts.tgt_col,
+        f.ctx,
+        sibling_facts.src_row,
+    )
     sibling_route = _route_bypass(
         sibling_edge,
         f.src,
@@ -1269,13 +1379,25 @@ def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
     ):
         return None
 
-    centerline = [
-        *prefix,
-        (split_x, under_y),
-        (descent_x, under_y),
-        (descent_x, target_y),
-        (f.tgt.x, target_y),
-    ]
+    return _PackedCellHandoff(
+        sibling_edge,
+        sibling_descent,
+        [
+            *prefix,
+            (split_x, under_y),
+            (descent_x, under_y),
+            (descent_x, target_y),
+            (f.tgt.x, target_y),
+        ],
+    )
+
+
+def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
+    """Share the nearer packed sibling's corridor, then pass below its box."""
+    plan = _packed_cell_handoff_plan(f)
+    if plan is None:
+        return None
+    centerline = plan.centreline
     ctx = f.ctx
     route = route_along(
         f.edge,
@@ -1285,9 +1407,9 @@ def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
         normalize_exempt=False,
     )
     assert route is not None
-    _declare_channel(route, f.ctx, prefix[1][0], Direction.D)
-    _declare_channel(route, f.ctx, split_x, Direction.D)
-    _declare_channel(route, f.ctx, descent_x, Direction.U)
+    _declare_channel(route, ctx, centerline[1][0], Direction.D)
+    _declare_channel(route, ctx, centerline[3][0], Direction.D)
+    _declare_channel(route, ctx, centerline[5][0], Direction.U)
     return route
 
 
@@ -3290,6 +3412,63 @@ def seated_bypass_descent(
     )
     return SeatedDescent(
         geometry.gap1_x + travel, columns.index(geometry.gap1_x), len(columns)
+    )
+
+
+def seated_left_exit_under_target_descent(
+    geometry: _LeftExitUnderTargetLoop, ctx: _RoutingCtx
+) -> float:
+    """This loop's descent column once the reservation seats its bundle.
+
+    The loop places the descent from the grid edges it has to hand, and the
+    member-geometry freeze then translates the whole claimed bundle into its
+    reserved band.  Reading the same arithmetic here is what lets the emitted
+    turn and the plan that names it stand on one column.
+    """
+    return geometry.axis_coordinate + seat_bundle_in_claimed_bands(
+        ctx.reserved_bands, list(geometry.lane_columns), rank=BYPASS_DESCENT_RANK
+    )
+
+
+def _seat_left_exit_under_target_descent(
+    route: RoutedPath,
+    edge: Edge,
+    geometry: _LeftExitUnderTargetLoop,
+    ctx: _RoutingCtx,
+) -> None:
+    """Stack the built descent at its rank in the seated bundle.
+
+    A planned member has no later pass to discover where the reservation seats
+    its bundle, since the plan owns the segment from the moment it is bound.  A
+    member with no plan keeps the drawn column, which the freeze then translates
+    over the whole claimed bundle at once.
+    """
+    if ctx.exit_turns is None:
+        return
+    membership = ctx.exit_turns.membership_for_edge(edge)
+    if (
+        membership is None
+        or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+    ):
+        return
+    start, end = route.points[BYPASS_DESCENT_RANK : BYPASS_DESCENT_RANK + 2]
+    if abs(start[0] - end[0]) > COORD_TOLERANCE:
+        return
+    columns = sorted({column for _key, column in geometry.lane_columns})
+    _restack_channel(
+        _VChannel(
+            route,
+            BYPASS_DESCENT_RANK,
+            start[0],
+            min(start[1], end[1]),
+            max(start[1], end[1]),
+            end[1] > start[1],
+        ),
+        seated_left_exit_under_target_descent(geometry, ctx),
+        columns.index(geometry.axis_coordinate),
+        len(columns),
+        ctx.offset_step,
+        ctx.curve_radius,
     )
 
 
