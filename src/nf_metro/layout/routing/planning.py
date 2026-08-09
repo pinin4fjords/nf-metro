@@ -172,7 +172,6 @@ def prepare_route_system_planning(
         convergences,
         graph,
         ctx,
-        scaffold,
         exit_turn_plans=exit_turns.plans,
         member_geometry=member_geometry,
         planned_system_ids=allocation_planned_ids,

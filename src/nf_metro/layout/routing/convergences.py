@@ -86,7 +86,6 @@ from nf_metro.layout.routing.orientation import direction_axis, lateral_axis
 from nf_metro.layout.routing.reserved_bands import ReservedBand
 from nf_metro.parser.model import Edge, MetroGraph, Station
 from nf_metro.parser.route_topology import (
-    EndpointGroupId,
     ResolvedConvergenceView,
     ResolvedEdge,
     semantic_route_id,
@@ -3274,54 +3273,21 @@ def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     return abs(first[0][index] - second[0][index]) <= COORD_TOLERANCE
 
 
-def _fuses_onto_trunk(
-    axis: ConvergenceTrunkAxis,
-    route: RoutedPath,
-    segment: tuple[tuple[float, float], tuple[float, float]],
-) -> bool:
-    """Whether *segment* is a run a later pass fuses onto the trunk *axis*.
-
-    :func:`normalize._convergent_port_groups` keys same-line final port
-    approaches by their shared entry port and travel direction, clusters them
-    within :data:`EDGE_TO_BUNDLE_CLEARANCE`, and :func:`normalize._snap_group`
-    seats every unplanned member of such a cluster on the planned channel's
-    coordinate.  A run that fuses that way draws as a single stroke with the
-    trunk, so the two share one corridor on the settled map and the trial
-    geometry a conflict would be measured on is not what either is drawn at.
-
-    The exemption is exactly that fusion's reach and no wider.  Only a route's
-    own final approach fuses, so a conflict anywhere else along the same route
-    is a second corridor the fusion never touches; and only an approach landing
-    where the trunk lands joins the trunk's cluster, so a sibling that stops
-    short of the port keeps its conflict.  The fusion reads a vertical channel
-    (:func:`normalize._final_port_approach`), so a trunk on the other travel
-    axis has no fusion to defer to and keeps its conflict as well: an exemption
-    wider than the pass justifying it would clear a conflict nothing resolves.
-    """
-    from nf_metro.layout.routing.normalize import _final_port_approach
-
-    approach = _final_port_approach(route)
-    if approach is None or axis.axis is not DemandAxis.Y:
-        return False
-    if (
-        route.points[approach.idx] != segment[0]
-        or route.points[approach.idx + 1] != segment[1]
-    ):
-        return False
-    if abs(approach.x - axis.coordinate) > EDGE_TO_BUNDLE_CLEARANCE:
-        return False
-    _trunk_x, trunk_y = _axis_target_point(axis)
-    return abs(route.points[-1][1] - trunk_y) <= COORD_TOLERANCE
-
-
 def _system_conflict(
     plans: tuple[ConvergencePlan, ...],
-    system_edges: tuple[ResolvedEdge, ...],
-    scaffold: RouteSemanticScaffold,
     ctx: _RoutingCtx,
 ) -> ConvergenceConflict | None:
+    """Geometry this system's own plans cannot reconcile between themselves.
+
+    Only convergence-owned geometry is in question.  Every other edge of a
+    planned route system carries a :class:`RouteMemberGeometryPlan`, which
+    ``build_route_system_emission_execution`` requires under
+    ``require_member_geometry``: a member with neither owner rejects the whole
+    system.  So an edge outside :attr:`ConvergencePlan.resolved_member_edges`
+    is member-owned rather than unowned, and its corridor is settled against
+    the plans through the fixed member channels rather than contested here.
+    """
     complete_pairwise_system = len(plans) == 2
-    complete_isolated_system = len(plans) == 1
     opening_arms = tuple(
         (plan, landing, ctx.graph.stations[landing.source_junction_id])
         for plan in plans
@@ -3448,121 +3414,21 @@ def _system_conflict(
             ):
                 return shared_channel
 
-    flank_conflict = _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius)
-    if flank_conflict is not None:
-        return flank_conflict
-
-    owned_edges = {edge for plan in plans for edge in plan.resolved_member_edges}
-    unowned_system_edges: list[ResolvedEdge] = []
-    for edge_key in system_edges:
-        if edge_key in owned_edges:
-            continue
-        unowned_system_edges.append(edge_key)
-        candidate_trunks = tuple(
-            (plan.trunk_axis, trunk_segment, planned_direction)
-            for plan, trunk_segment, central, planned_direction in trunks
-            if central
-            and plan.trunk_axis is not None
-            and edge_key.line_id in plan.line_ids
-            and edge_key.target in plan.target_entry_port_ids
-        )
-        if not candidate_trunks:
-            continue
-        edge = ctx.edge_by_key.get((edge_key.source, edge_key.target, edge_key.line_id))
-        if edge is None:
-            continue
-        try:
-            route = _trial_route(edge, ctx)
-        except UnsupportedConvergenceError:
-            continue
-        _bake_route(route, ctx)
-        for trunk_axis, trunk_segment, planned_direction in candidate_trunks:
-            for route_segment in _route_segments(route):
-                if (
-                    planned_direction is _direction(*route_segment)
-                    and _parallel_segments_conflict(
-                        trunk_segment, route_segment, ctx.curve_radius
-                    )
-                    and not _fuses_onto_trunk(trunk_axis, route, route_segment)
-                ):
-                    return _conflict(
-                        ConvergenceConflictKind.UNOWNED_MEMBER_CORRIDOR,
-                        trunk_segment,
-                        route_segment,
-                        (edge_key.line_id,),
-                    )
-    if not complete_isolated_system:
-        return None
-    landing_sources = {
-        landing.source_junction_id for plan in plans for landing in plan.landings
-    }
-    foreign_groups: defaultdict[
-        tuple[str, tuple[EndpointGroupId, ...], tuple[EndpointGroupId, ...]],
-        set[str],
-    ] = defaultdict(set)
-    for foreign_edge in unowned_system_edges:
-        if foreign_edge.source not in landing_sources:
-            continue
-        connectors = tuple(
-            scaffold.query.connector(ref.connector_id)
-            for ref in scaffold.refs_by_edge[foreign_edge]
-        )
-        foreign_groups[
-            (
-                foreign_edge.source,
-                _ordered_unique(item.exit_group_id for item in connectors),
-                _ordered_unique(item.entry_group_id for item in connectors),
-            )
-        ].add(foreign_edge.line_id)
-    shared_group = next(
-        (
-            (source_id, tuple(sorted(line_ids)))
-            for (source_id, _exits, _entries), line_ids in foreign_groups.items()
-            if len(line_ids) > 1
-        ),
-        None,
-    )
-    if shared_group is None:
-        return None
-    # The members leave one junction through one endpoint-group pair, so their
-    # runs start from the same point: the site is that shared origin, recorded
-    # twice because there are two runs standing on it.
-    source = ctx.graph.stations[shared_group[0]]
-    origin = ((source.x, source.y), (source.x, source.y))
-    return _conflict(
-        ConvergenceConflictKind.UNOWNED_MEMBER_GROUP, origin, origin, shared_group[1]
-    )
-
-
-def _edges_by_system(
-    scaffold: RouteSemanticScaffold,
-) -> dict[RouteSystemId, list[ResolvedEdge]]:
-    """Group every scaffold edge under the route system that contains it."""
-    edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
-    for edge in scaffold.edge_order:
-        edges_by_system[scaffold.system_for_edge(edge)].append(edge)
-    return edges_by_system
+    return _landing_trunk_flank_conflict(plans, ctx.graph, ctx.curve_radius)
 
 
 def _validate_final_convergence_feasibility(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     ctx: _RoutingCtx,
-    scaffold: RouteSemanticScaffold,
     fixed_channels: tuple[_PlanGapChannel, ...],
 ) -> None:
     """Reject unresolved geometry after every movable decision is frozen."""
-    edges_by_system = _edges_by_system(scaffold)
     plans_by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(list)
     for plan in plans:
         plans_by_system[plan.system_id].append(plan)
     for system_id, system_plans in plans_by_system.items():
-        conflict = _system_conflict(
-            tuple(system_plans),
-            tuple(edges_by_system.get(system_id, ())),
-            scaffold,
-            ctx,
-        )
+        conflict = _system_conflict(tuple(system_plans), ctx)
         if conflict is not None:
             raise FinalConvergenceFeasibilityError(
                 f"final convergence system {system_id} has unresolved "
@@ -3807,7 +3673,6 @@ def build_convergence_plan_execution(
     )
     for view in scaffold.query.convergences:
         views_by_system[scaffold.system_for(view.group.connector_ids)].append(view)
-    edges_by_system = _edges_by_system(scaffold)
     exit_turn_plans_by_system: dict[RouteSystemId, list[ExitTurnPlan]] = defaultdict(
         list
     )
@@ -3890,12 +3755,7 @@ def build_convergence_plan_execution(
             )
             system_plans = _reconcile_continuation_ownership(system_plans)
             system_plans = _reconcile_landing_handedness(system_plans, graph)
-            conflict = _system_conflict(
-                system_plans,
-                tuple(edges_by_system.get(system_id, ())),
-                scaffold,
-                ctx,
-            )
+            conflict = _system_conflict(system_plans, ctx)
             if conflict is not None:
                 raise UnsupportedConvergenceError(conflict.kind.reason, conflict)
         except UnsupportedConvergenceError as error:
@@ -3965,7 +3825,6 @@ def settle_global_convergence_execution(
     execution: ConvergencePlanExecution,
     graph: MetroGraph,
     ctx: _RoutingCtx,
-    scaffold: RouteSemanticScaffold,
     *,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     member_geometry: MemberGeometryExecution,
@@ -3990,9 +3849,7 @@ def settle_global_convergence_execution(
         fixed_channels,
         _member_corridor_runs(eligible, member_geometry, graph),
     )
-    _validate_final_convergence_feasibility(
-        settled, graph, ctx, scaffold, fixed_channels
-    )
+    _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
     settled_by_id = {plan.id: plan for plan in settled}
     plans = tuple(settled_by_id.get(plan.id, plan) for plan in execution.plans)
     references, demands = _resources(graph, plans) if include_resources else ((), ())

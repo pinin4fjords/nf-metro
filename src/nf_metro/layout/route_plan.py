@@ -336,10 +336,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
                 "direct convergence has no emitted terminal approach",
                 "feeder template declined its member",
                 "planned convergence approaches and trunks have no settlement room",
-                "planned convergence corridor conflicts with unowned route-system "
-                "member",
-                "planned convergence corridor conflicts with unowned route-system "
-                "members",
                 "planned convergence feeder approaches require one shared channel "
                 "decision",
                 "planned convergence member has no routing family",
@@ -419,16 +415,6 @@ class ConvergenceConflictKind(Enum):
         "planned convergence approaches and trunks have no settlement room",
         ConflictRelief.CLEARANCE,
         "plan-driven chained-convergence emission (#1658)",
-    )
-    UNOWNED_MEMBER_CORRIDOR = (
-        "planned convergence corridor conflicts with unowned route-system member",
-        ConflictRelief.CLEARANCE,
-        "plan-driven whole-system emission (#1658)",
-    )
-    UNOWNED_MEMBER_GROUP = (
-        "planned convergence corridor conflicts with unowned route-system members",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven whole-system emission (#1658)",
     )
 
     def __init__(self, reason: str, relief: ConflictRelief, owner: str) -> None:
