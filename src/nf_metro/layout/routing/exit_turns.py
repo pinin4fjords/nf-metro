@@ -112,6 +112,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TB_BOTTOM_EXIT,
         RouteFamilyId.PERP_EXIT,
         RouteFamilyId.TB_PERP_EXIT_OVER,
+        RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
     }
 )
 
@@ -597,6 +598,26 @@ def _source_turn_requirement(
             )
         return _perp_exit_turn_requirement(
             _perp_exit_family_geometry(edge, family_id, src, tgt, ctx)
+        )
+    if family_id is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK:
+        if source_run_direction not in {Direction.U, Direction.D}:
+            return _SourceTurnRequirement(
+                None,
+                None,
+                None,
+                None,
+                None,
+                "unsupported-subshape:nonvertical-tb-exit",
+            )
+        stack_geometry = _tb_bottom_exit_around_stack_geometry(
+            _build_inter_facts(edge, src, tgt, ctx)
+        )
+        return _SourceTurnRequirement(
+            stack_geometry.run_direction,
+            stack_geometry.turn_direction,
+            stack_geometry.launch_coordinate,
+            abs(stack_geometry.axis_coordinate - stack_geometry.launch_coordinate),
+            stack_geometry.axis_coordinate,
         )
     if family_id is RouteFamilyId.SAME_Y_STRAIGHT:
         if source_run_direction not in {Direction.R, Direction.L}:
@@ -2079,10 +2100,14 @@ def _compatibility_channel_claims(
         ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
     ],
 ) -> tuple[_CompatibilityChannelClaim, ...]:
+    """Descent channels the leaf builders draw, whoever plans the source turn.
+
+    A stack-bypass feeder always descends its clear-gap channel: a plan owns
+    only the source turn, never the legs beyond it, so the channel is a hazard
+    to every other plan's turn axis regardless of this plan's disposition.
+    """
     claims: list[_CompatibilityChannelClaim] = []
     for plan in plans:
-        if plan.disposition is not ExitTurnDisposition.LEGACY:
-            continue
         for edge, assignment in assignments_by_plan[plan.id].items():
             if (
                 assignment.planned_family_id
@@ -2206,6 +2231,20 @@ def _planned_axis_cross_range(
                     tentative_ctx,
                 )
                 values.extend((perp_geometry.cross_lo, perp_geometry.cross_hi))
+                continue
+            if (
+                assignment.planned_family_id
+                is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK
+            ):
+                stack_geometry = _tb_bottom_exit_around_stack_geometry(
+                    _build_inter_facts(
+                        _graph_edge(ctx.edge_by_key, edge),
+                        source,
+                        target,
+                        tentative_ctx,
+                    )
+                )
+                values.extend((stack_geometry.cross_lo, stack_geometry.cross_hi))
                 continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
                 raise ExitTurnInvariantError(

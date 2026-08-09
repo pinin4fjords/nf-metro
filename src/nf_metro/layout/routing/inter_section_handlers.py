@@ -1931,6 +1931,12 @@ class _TbBottomExitAroundStackGeometry:
     channel_x: float
     channel_y_lo: float
     channel_y_hi: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+    cross_lo: float
+    cross_hi: float
 
 
 def _tb_bottom_exit_around_stack_geometry(
@@ -1978,7 +1984,10 @@ def _tb_bottom_exit_around_stack_geometry(
         return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
 
     # The bundle fan lifts the jog's innermost line toward the source box, so
-    # seat its corridor a fan width below the bottom edge to hold the clearance.
+    # seat the corridor a fan width below the clearance that innermost lane owes
+    # the bottom edge.  That clearance is the one the row-gap reservation is
+    # measured against, and a planned turn axis is frozen against the settlement
+    # that would otherwise push the ladder onto it, so it is stated here.
     src_bottom = src_sec.bbox_y + src_sec.bbox_h
     fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
     cy_down = max(
@@ -1990,7 +1999,7 @@ def _tb_bottom_exit_around_stack_geometry(
             default=sy,
             col=f.src_col,
         ),
-        src_bottom + fan_clearance + ctx.curve_radius,
+        src_bottom + fan_clearance,
     )
     cy_entry = header_corridor_y(
         graph, tgt_sec.grid_row, below=False, base_radius=ctx.curve_radius, default=ty
@@ -2000,20 +2009,32 @@ def _tb_bottom_exit_around_stack_geometry(
     own_offset = lane_offset(edge.line_id)
     channel_y_start = cy_down - own_offset
     channel_y_end = cy_entry + own_offset
+    points = (
+        (sx, sy),
+        (sx, cy_down),
+        (vx, cy_down),
+        (vx, cy_entry),
+        (tx, cy_entry),
+        (tx, ty),
+    )
+    # Both legs the jog joins descend, so the jog's ends and the jog itself take
+    # their shift from the same right-hand normal (``bundle._right_normal``): one
+    # lateral off the exit X, off the channel X, and off the corridor Y.
+    channel_x = vx - own_offset
+    turn_direction = horizontal_direction(vx - sx)
     return _TbBottomExitAroundStackGeometry(
-        (
-            (sx, sy),
-            (sx, cy_down),
-            (vx, cy_down),
-            (vx, cy_entry),
-            (tx, cy_entry),
-            (tx, ty),
-        ),
+        points,
         own_offset,
         tuple(lane_offset(line_id) for line_id in line_ids),
-        vx - own_offset,
+        channel_x,
         min(channel_y_start, channel_y_end),
         max(channel_y_start, channel_y_end),
+        vertical_direction(cy_down - sy),
+        turn_direction,
+        sy,
+        cy_down + own_offset * turn_direction.sign,
+        min(sx - own_offset, channel_x),
+        max(sx - own_offset, channel_x),
     )
 
 

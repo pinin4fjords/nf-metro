@@ -413,7 +413,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:right-entry-wrap",
                     "unsupported-family:same-x-vertical-drop",
                     "unsupported-family:serpentine-left-exit-left-entry",
-                    "unsupported-family:tb-bottom-exit-around-stack",
                     "unsupported-family:tb-section-fallback",
                 ),
                 _reasons(
