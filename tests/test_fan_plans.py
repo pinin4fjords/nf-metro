@@ -57,6 +57,14 @@ from nf_metro.layout.routing import (
     observe_route_edges,
     route_edges,
 )
+from nf_metro.layout.routing.common import (
+    Direction,
+    RoutedPath,
+    gap_lo_for_x,
+    gap_lookup_geometry,
+    iter_vertical_segments,
+)
+from nf_metro.layout.routing.invariants import check_gap_channels_materialized
 from nf_metro.layout.routing.offsets import _apply_planned_fan_offsets
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
@@ -2410,3 +2418,174 @@ def test_junction_rides_a_foreign_corridor_when_any_feeder_carries_one(
     assert fan_plans._rides_foreign_line_corridor(
         graph, "__junction_1", frozenset({"alpha", "beta"})
     )
+
+
+def test_unchained_boundary_peers_read_the_seat_from_the_earlier_fork(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two fans that only bound one station settle it without a chain between them.
+
+    Neither fan lanes, centres, carries or lands on ``extra__exit_right_3``, and
+    neither fork lies on the other's membership, so no topological order says
+    which of them should hold the seat.  Both are reading a coordinate the
+    section allocator settled, so one holder is as good as the other and the
+    choice only has to be total: the earlier fork keeps it and the other reads
+    it, independent of the order the plans were built in.
+    """
+    seen: list[tuple[tuple[fan_plans.FanPlan, ...], dict[str, int], dict]] = []
+    cede = fan_plans._cede_read_claims
+
+    def record(plans, ranks):  # type: ignore[no-untyped-def]
+        result = cede(plans, ranks)
+        seen.append((plans, ranks, result))
+        return result
+
+    monkeypatch.setattr(fan_plans, "_cede_read_claims", record)
+    path = ROOT / "examples" / "topologies" / "merge_trunk_out_of_range_section.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+
+    candidates, ranks, read_from = seen[-1]
+    by_fork = {plan.fork_station_id: plan for plan in candidates}
+    far, near = by_fork["__junction_8"], by_fork["__junction_9"]
+    seat = "extra__exit_right_3"
+
+    assert seat in claimed_station_ids(far) & claimed_station_ids(near)
+    assert seat not in stated_station_ids(far) | stated_station_ids(near)
+    assert far.fork_station_id not in near.owned_station_ids
+    assert near.fork_station_id not in far.owned_station_ids
+    assert (ranks.get(far.fork_station_id), str(far.id)) < (
+        ranks.get(near.fork_station_id),
+        str(near.id),
+    )
+    assert read_from[near.id][seat] == far.id
+    assert seat not in read_from.get(far.id, {})
+
+
+_GAP_CROSSING_FAN = """\
+%%metro title: Bottom-exit Fan Climbing an Inter-column Gap
+%%metro line: upper | Upper branch | #e63946
+%%metro line: lower | Lower branch | #0570b0
+%%metro line: side | Side branch | #2a9d8f
+%%metro grid: source | 0,1
+%%metro grid: upper_target | 0,0
+%%metro grid: lower_target | 0,2
+%%metro grid: feeder | 0,3
+%%metro grid: aux | 1,3
+
+graph LR
+    subgraph source [Vertical source]
+        %%metro direction: TB
+        %%metro exit: bottom | upper, lower
+        prepare[Prepare]
+        split[Split]
+        prepare -->|upper,lower| split
+    end
+
+    subgraph upper_target [Upper target]
+        %%metro direction: RL
+        %%metro entry: right | upper
+        upper_in[Upper in]
+        upper_done[Upper done]
+        upper_in -->|upper| upper_done
+    end
+
+    subgraph lower_target [Lower target]
+        %%metro direction: RL
+        %%metro entry: right | lower
+        lower_in[Lower in]
+        lower_done[Lower done]
+        lower_in -->|lower| lower_done
+    end
+
+    subgraph feeder [Feeder]
+        %%metro direction: LR
+        %%metro exit: right | side
+        feed_a[Feed a]
+        feed_b[Feed b]
+        feed_a -->|side| feed_b
+    end
+
+    subgraph aux [Aux]
+        %%metro direction: LR
+        %%metro entry: left | side
+        aux_in[Aux in]
+        aux_done[Aux done]
+        aux_in -->|side| aux_done
+    end
+
+    split -->|upper| upper_in
+    split -->|lower| lower_in
+    feed_b -->|side| aux_in
+"""
+"""A planned fan whose branches climb and drop through one inter-column gap.
+
+The ``feeder`` / ``aux`` pair exists only to open a gap between grid columns 0
+and 1; the fan drops out of ``source`` and reaches its two RIGHT landings by
+running back up that gap for ``upper`` and on down it for ``lower``.
+"""
+
+
+def test_planned_fan_declares_a_gap_slot_for_each_leg_it_runs_in_a_gap() -> None:
+    """A planned fan states the gap columns its frozen branches occupy.
+
+    The fan settles both branch legs at once, so which of them lands in a gap,
+    and which way each runs, are facts of the geometry it just built rather than
+    of any single leg the emitter could name up front.  Every leg that lands in
+    one carries a slot for it, which is what lets the gap seat its movable
+    bundles clear of a column no later pass can move.
+    """
+    graph = prepare_graph(_GAP_CROSSING_FAN)
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    lookup = gap_lookup_geometry(graph)
+    routes = [route for route in observation.routes if route.fan_route_emitter]
+
+    assert {route.line_id for route in routes} == {"upper", "lower"}
+    occupied = {
+        (route.line_id, match[0], Direction.D if down else Direction.U)
+        for route in routes
+        for _rank, x, y_lo, y_hi, down in iter_vertical_segments(route)
+        if (match := gap_lo_for_x(graph, x, y_lo, y_hi, lookup=lookup)) is not None
+    }
+    declared = {
+        (route.line_id, slot.gap_lo_col, slot.direction)
+        for route in routes
+        for slot in route.gap_slots
+    }
+
+    assert ("upper", 0, Direction.U) in occupied
+    assert ("lower", 0, Direction.D) in occupied
+    assert declared == occupied
+
+
+def test_an_undeclared_fan_gap_leg_is_named_by_the_gap_channel_check() -> None:
+    """The fan's climb through the gap is clean because it declared it.
+
+    Replaying the same waypoints without the declaration is the whole
+    difference: the check that every in-gap channel is materialized names the
+    leg, so the slot is what answers it rather than any exemption.
+    """
+    graph = prepare_graph(_GAP_CROSSING_FAN)
+    observation = observe_route_edges(
+        graph, station_offsets=compute_station_offsets(graph)
+    )
+    climb = next(
+        route
+        for route in observation.routes
+        if route.fan_route_emitter and route.line_id == "upper"
+    )
+    replay = RoutedPath(
+        climb.edge, climb.line_id, list(climb.points), is_inter_section=True
+    )
+
+    undeclared = check_gap_channels_materialized(graph, [replay])
+    assert [violation.message() for violation in undeclared] == [
+        "undeclared gap channel: line 'upper' "
+        "(__junction_5->upper_target__entry_right_2) runs up at x=214.0 "
+        "in gap (cols 0,1) with no declared GapSlot"
+    ]
+
+    replay.gap_slots = list(climb.gap_slots)
+    assert check_gap_channels_materialized(graph, [replay]) == []

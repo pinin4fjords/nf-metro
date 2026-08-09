@@ -2381,7 +2381,12 @@ def _route_planned_bottom_exit_right_landings(
         raise RuntimeError(f"planned fan {plan.id!s} emitter omitted {resolved!r}")
     route.fan_plan_id = plan.id
     route.fan_route_emitter = emission.emitter.value
-    _declare_channel(route, ctx, corridor_x, Direction.D)
+    _declare_placed_channels(
+        route,
+        ctx,
+        source_lines.index(edge.line_id),
+        len(source_lines),
+    )
     return route
 
 
@@ -3478,6 +3483,46 @@ def _declare_channel(
         slot_index=slot_index,
         n_slots=n_slots,
     )
+
+
+def _declare_placed_channels(
+    route: RoutedPath | None,
+    ctx: _RoutingCtx,
+    slot_index: int = 0,
+    n_slots: int = 1,
+) -> None:
+    """Declare every inter-column gap the built route's vertical legs occupy.
+
+    :func:`_declare_channel` names the one leg a handler can point at by X and
+    intended direction.  A handler that emits a whole frozen frame in one go has
+    no such single leg: which of its legs land in a gap, and which way each
+    runs, are properties of the geometry it just built.  Reading them back leg
+    by leg is what lets that frame state its occupancy the way every other
+    handler does, so :func:`_materialize_gap_slots` can seat the gap's movable
+    bundles clear of it.  A leg outside every gap declares nothing, and a gap
+    already declared for this direction is not declared twice, since one slot
+    stands for the whole column.
+    """
+    if route is None:
+        return
+    declared: set[tuple[int, int | None, Direction]] = set()
+    for _k, x, y_lo, y_hi, down in iter_vertical_segments(route):
+        match = gap_lo_for_x(ctx.graph, x, y_lo, y_hi)
+        if match is None:
+            continue
+        lo, matched_row = match
+        direction = Direction.D if down else Direction.U
+        if (lo, matched_row, direction) in declared:
+            continue
+        declared.add((lo, matched_row, direction))
+        route.declare_gap_slot(
+            lo_col=lo,
+            hi_col=lo + 1,
+            row=matched_row,
+            direction=direction,
+            slot_index=slot_index,
+            n_slots=n_slots,
+        )
 
 
 def _route_l_shape(

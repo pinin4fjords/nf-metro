@@ -2601,20 +2601,18 @@ def _cede_read_claims(
     A boundary station is checked against its own settled coordinate, so a fan
     bounded by one states nothing that a fan which lanes, centres, carries or
     lands on it has not already stated: that fan keeps the seat outright.  Where
-    no fan states the station, an order between the two exists only when one
-    fan's fork lies on the other's membership, which makes them stages of one
-    chain rather than rivals; then the topologically earlier fork keeps the
-    seat, by the authored rank of the fork and then the plan id so the choice is
-    total and deterministic.  Two fans that both state one station, and two
-    unchained fans that merely bound one, have no such order and are left to
-    contend.
+    no fan states the station, every contender is reading a coordinate somebody
+    else settled, so which of them holds the seat decides no geometry and needs
+    only to be one choice rather than the right one: the earliest fork keeps it,
+    by the authored rank of the fork and then the plan id so the choice is total
+    and independent of iteration order.  Two fans that both state one station do
+    state it differently and are left to contend.
     """
     precedence = {
         plan.id: (ranks.get(plan.fork_station_id, len(ranks)), str(plan.id))
         for plan in plans
     }
     stated = {plan.id: stated_station_ids(plan) for plan in plans}
-    membership = {plan.id: set(plan.owned_station_ids) for plan in plans}
     holders: defaultdict[str, list[FanPlan]] = defaultdict(list)
     for plan in plans:
         for station_id in claimed_station_ids(plan):
@@ -2632,14 +2630,8 @@ def _cede_read_claims(
             else min(contesting, key=lambda plan: precedence[plan.id])
         )
         for plan in contesting:
-            if plan.id == owner.id:
-                continue
-            if not staters and not (
-                plan.fork_station_id in membership[owner.id]
-                or owner.fork_station_id in membership[plan.id]
-            ):
-                continue
-            read_from[plan.id][station_id] = owner.id
+            if plan.id != owner.id:
+                read_from[plan.id][station_id] = owner.id
     return dict(read_from)
 
 
