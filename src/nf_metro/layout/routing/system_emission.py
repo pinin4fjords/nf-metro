@@ -296,10 +296,11 @@ def _system_decider(
 
     A member holding no geometry decision at all leaves nothing for a later
     owner to state, so that failure settles the system first.  A convergence
-    states the geometry of every member it joins, and a completely planned fan
-    states its own frame, so where either owns the system the exit-turn and fan
-    verdicts underneath it constrain nothing.  Otherwise the exit-turn and fan
-    owners decide together.
+    states the geometry of the members it joins and member-geometry plans state
+    the rest; a completely planned fan names every member of the system.  Either
+    way the members are partitioned before an exit-turn or fan verdict is
+    consulted, so such a verdict constrains none of them.  Otherwise the
+    exit-turn and fan owners decide together.
 
     The second value names the owner whose precedence the first expresses, and
     so the owner that supersedes every verdict outside it.  It is ``None`` where

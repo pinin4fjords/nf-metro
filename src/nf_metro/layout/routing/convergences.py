@@ -2178,7 +2178,6 @@ class _SeatedFlank:
     direction: Direction
     plan_rank: int
     flank_rank: int
-    seat_rank: int
 
 
 def _flank_endpoint(axis: ConvergenceTrunkAxis, flank_rank: int) -> float | None:
@@ -2237,8 +2236,8 @@ def _lane_trunk_flanks(
             direction = _trunk_run_travel_direction(axis, flank_rank)
             lateral = axis.axis.point_index
             obstacles = tuple(
-                other
-                for other in seated[:resident_count]
+                (seat, other)
+                for seat, other in enumerate(seated[:resident_count])
                 if other.line_ids == plan.line_ids
                 and other.direction is not direction
                 and _parallel_segments_conflict(other.segment, flank, clearance)
@@ -2248,7 +2247,7 @@ def _lane_trunk_flanks(
             coordinate = _counter_running_flank_lane(
                 axis,
                 flank_rank,
-                tuple(other.segment[0][lateral] for other in obstacles),
+                tuple(other.segment[0][lateral] for _seat, other in obstacles),
                 clearance,
                 curve_radius,
             )
@@ -2270,9 +2269,8 @@ def _lane_trunk_flanks(
                 _trunk_run_travel_direction(axis, flank_rank),
                 plan_rank,
                 flank_rank,
-                len(seated) + offset,
             )
-            for offset, flank_rank in enumerate((1, 3))
+            for flank_rank in (1, 3)
         )
     return settled
 
@@ -2280,13 +2278,17 @@ def _lane_trunk_flanks(
 def _give_way_to(
     settled: list[ConvergencePlan],
     seated: list[_SeatedFlank],
-    obstacles: tuple[_SeatedFlank, ...],
+    obstacles: tuple[tuple[int, _SeatedFlank], ...],
     column: float,
     clearance: float,
     curve_radius: float,
 ) -> None:
-    """Move each resident in *obstacles* one clearance clear of *column*."""
-    for obstacle in obstacles:
+    """Move each resident in *obstacles* one clearance clear of *column*.
+
+    Each obstacle arrives with the seat it occupies, so a resident re-seated
+    here is written back where it actually stands.
+    """
+    for seat, obstacle in obstacles:
         axis = settled[obstacle.plan_rank].trunk_axis
         if axis is None:
             continue
@@ -2300,7 +2302,7 @@ def _give_way_to(
         )
         moved = settled[obstacle.plan_rank].trunk_axis
         assert moved is not None
-        seated[obstacle.seat_rank] = replace(
+        seated[seat] = replace(
             obstacle, segment=_trunk_segments(moved)[obstacle.flank_rank]
         )
 

@@ -374,3 +374,59 @@ def test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident() -> No
     assert abs(columns[0] - columns[1]) >= LANE_CLEARANCE, (
         "the resident gave way, so the two flanks stand a clearance apart"
     )
+
+
+def _boxed_in_target_flank_pair() -> tuple[ConvergencePlan, ConvergencePlan]:
+    """The target-side mirror of :func:`_boxed_in_flank_pair`.
+
+    The two rank-3 flanks counter-run one column apart, and the arriving one
+    turns onto an endpoint too close to take either lane beside the resident.
+    """
+    resident, newcomer = (
+        _planned_plan("resident", DemandAxis.X, Direction.R, 130.0),
+        _planned_plan("newcomer", DemandAxis.X, Direction.R, 60.0),
+    )
+    return (
+        replace(
+            resident,
+            trunk_axis=replace(
+                resident.trunk_axis,
+                source_flank_coordinate=-30.0,
+                target_endpoint_coordinate=95.0,
+                source_endpoint_coordinate=5.0,
+            ),
+        ),
+        replace(
+            newcomer,
+            trunk_axis=replace(
+                newcomer.trunk_axis,
+                coordinate=140.0,
+                extent_start=-5.0,
+                extent_end=105.0,
+                source_flank_coordinate=200.0,
+                source_endpoint_coordinate=-10.0,
+                target_endpoint_coordinate=103.0,
+            ),
+        ),
+    )
+
+
+def test_a_boxed_in_target_flank_is_given_way_to_by_the_resident() -> None:
+    """The give-way rule reads the same on the flank at either end of a trunk.
+
+    A trunk states a flank at its source and one at its target, and the seat a
+    resident occupies is what a give-way writes back to. Deriving that seat from
+    the length of the list being appended to would address the source flank and
+    the target flank alike, so the pair is settled from both ends.
+    """
+    resident, newcomer = _boxed_in_target_flank_pair()
+
+    settled = _settle_shared_trunk_channels((resident, newcomer), CURVE_RADIUS)
+
+    columns = [item.trunk_axis.extent_end for item in settled]
+    assert columns[1] == pytest.approx(105.0), (
+        "the flank with no reachable lane keeps its column"
+    )
+    assert abs(columns[0] - columns[1]) >= LANE_CLEARANCE, (
+        "the resident gave way, so the two flanks stand a clearance apart"
+    )

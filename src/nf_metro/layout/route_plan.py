@@ -2146,12 +2146,13 @@ class RouteSystemCompatibilityReason:
 class RouteSystemSupersededVerdict:
     """One owner verdict another owner's decision overrides on a route system.
 
-    A system's disposition follows the owner that decides it, and a system
-    holding convergence plans is decided by the convergence family alone.  An
-    exit-turn or fan verdict on such a system constrains nothing, because the
-    deciding owner already states the whole system's geometry.  Recording the
-    overridden verdict keeps the decision auditable: a reader can tell a verdict
-    that was weighed and superseded from one that was never consulted.
+    A system's disposition follows the owner that decides it.  Where one does,
+    every member of the system already holds exactly one geometry decision,
+    from a planned convergence plan or from a member-geometry plan, so a verdict
+    belonging to an owner outside that decision constrains no member and cannot
+    move the system's geometry.  Recording the overridden verdict keeps the
+    decision auditable: a reader can tell a verdict that was weighed and
+    superseded from one that was never consulted.
     """
 
     owner: str
