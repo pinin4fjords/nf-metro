@@ -1099,6 +1099,49 @@ def _entry_offset_carriers(
     )
 
 
+def _rides_foreign_line_corridor(
+    graph: MetroGraph, station_id: str, fan_lines: frozenset[str]
+) -> bool:
+    """Whether *station_id* is boundary infrastructure whose corridor carries a
+    non-fan line.
+
+    Scoped to ports and junctions only: a fork or join station is the point a
+    fan actively dispatches its own lines from, so it states their order
+    regardless of what else its section carries. A port or junction, by
+    contrast, only relays a corridor another station already lays out; where
+    that corridor's section also carries a line outside the fan, the
+    section's own line-priority ordering already reserves that line's slot,
+    so the fan's compact 0-based numbering at the boundary would recentre
+    the bundle away from the position its section fixes upstream. A junction
+    has no section of its own, so it takes the classification of whichever
+    fan-line predecessor feeds it -- the corridor it is drawn as a
+    continuation of.
+    """
+    if station_id not in graph.ports and station_id not in graph.junction_ids:
+        return False
+    section_id = graph.section_for_station(station_id)
+    if section_id is None:
+        section_id = next(
+            (
+                predecessor_section
+                for edge in graph.edges_to(station_id)
+                if edge.line_id in fan_lines
+                and (predecessor_section := graph.section_for_station(edge.source))
+                is not None
+            ),
+            None,
+        )
+    section = graph.sections.get(section_id or "")
+    if section is None:
+        return False
+    section_lines = {
+        line_id
+        for member_id in section.station_ids
+        for line_id in graph.station_lines(member_id)
+    }
+    return bool(section_lines - fan_lines)
+
+
 def _offset_carriers(
     graph: MetroGraph,
     *,
@@ -1161,6 +1204,7 @@ def _offset_carriers(
             ),
         )
         for station_id, lines in carrier_lines.items()
+        if not _rides_foreign_line_corridor(graph, station_id, fan_lines)
     )
 
 
