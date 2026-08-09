@@ -18,6 +18,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemDisposition,
     RouteSystemId,
     build_route_semantic_scaffold,
+    compatibility_family,
 )
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.common import RoutedPath
@@ -238,10 +239,8 @@ def test_compatibility_emission_has_one_explicit_reason_and_no_plan_owner() -> N
     assert all(
         (reason.justification, reason.follow_up)
         == (
-            ROUTE_SYSTEM_COMPATIBILITY_REASONS[reason.owner][
-                reason.reason
-            ].justification,
-            ROUTE_SYSTEM_COMPATIBILITY_REASONS[reason.owner][reason.reason].follow_up,
+            compatibility_family(reason.owner, reason.reason).justification,
+            compatibility_family(reason.owner, reason.reason).follow_up,
         )
         for system in compatible
         for reason in system.compatibility_reasons
@@ -484,9 +483,10 @@ def test_every_reason_a_planner_can_generate_is_registered() -> None:
     """A reason built from an enum value carries the family that owns it.
 
     The exit-turn planner names an unsupported family and an unsupported merge
-    entry from the enum member it read, so the registry has to hold every member
-    those two enums can produce. One it does not hold is a route that raises on
-    an unattributable reason instead of falling back.
+    entry from the enum member it read, so the registry holds exactly what those
+    two enums can produce. A member missing from it is a route that raises on an
+    unattributable reason instead of falling back; a reason present without a
+    member is a family carrying a justification nothing can reach.
     """
     registered = set(ROUTE_SYSTEM_COMPATIBILITY_REASONS["exit-turn-plan"])
     generated = {
@@ -499,7 +499,15 @@ def test_every_reason_a_planner_can_generate_is_registered() -> None:
         if kind is not _MergeEntryRoute.L_SHAPE
     }
 
-    assert generated <= registered
+    namespaced = {
+        reason
+        for reason in registered
+        if reason.startswith(
+            ("unsupported-family:", "unsupported-subshape:merge-entry-")
+        )
+    }
+
+    assert namespaced == generated
 
 
 def test_a_retained_family_names_its_follow_up_or_states_why_it_is_permanent() -> None:

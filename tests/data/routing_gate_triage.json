@@ -219,6 +219,10 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
+  "convergences.py::and landing.opening_turn_segment is not None::#1": {
+    "note": "The second operand of the same condition. A landing that states an opening turn coordinate states its segment with it, so on an X approach the operand is true wherever the first is; it narrows the Optional _reseat_landing_opening requires.",
+    "status": "defensive"
+  },
   "convergences.py::and plan.trunk_axis is not None::#1": {
     "note": "_settle_opposing_landing_channels carries the trunk flank only when the landing it re-seated is the plan's primary trunk member. A plan naming a primary trunk member always states the trunk axis that member travels, so the false arm is unreachable through this conjunction; it narrows the Optional for the flank move below.",
     "status": "defensive"
@@ -319,10 +323,6 @@
     "note": "Moving a primary trunk member's landing has to carry its trunk flank, which the give-way path does not do, so that member declines instead. Un-exercised for the same reason as `if forked:::#2`: the decline this guard sits inside is not reached on the corpus. Reachable.",
     "status": "needs-review"
   },
-  "convergences.py::if landing.opening_turn_segment is not None:::#1": {
-    "note": "_reseat_landing_cross moves a stated opening turn where there is one, and otherwise states the crossing coordinate through the approach runway. The false arm is the perpendicular and no-opening-turn class the widened _settle_opposing_landing_channels scope newly admits; corpus-wide every counter-running same-line pair that conflicts states an opening turn, so the arm is reached by no fixture. Reachable.",
-    "status": "needs-review"
-  },
   "convergences.py::if lane is None:::#1": {
     "note": "A resident asked to give way that has no reachable lane of its own either. Un-entered because the give-way path itself is un-entered on the corpus. Reachable; a fixture is a channel with no seat for either run, which is the population #1712 exists to give room to.",
     "status": "needs-review"
@@ -365,6 +365,14 @@
   },
   "convergences.py::if same_line and first_direction is not second_direction:::#1": {
     "note": "SHARED_TRUNK_CHANNEL for a same-line pair whose outward and return legs crowd one channel and which _settle_shared_trunk_channels could seat no lane for: both runs boxed in by the obstacles either side of them, since the arriving flank now gives way to a resident and the resident gives way back. Read in the travel frame the laning pass decides in, so it no longer fires on a rank-1/rank-3 pair that pass deliberately fused. Neutralising that pass makes it fire 5 times on merge_around_below_leftmost, all central-run pairs at separation 0 and 6px. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
+    "status": "needs-review"
+  },
+  "convergences.py::if seated_segment is not None:::#1": {
+    "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and re-seating moves that run rather than removing it, so the segment is drawable again when the landing is appended to `resident`. The arm guards the Optional the second read returns.",
+    "status": "defensive"
+  },
+  "convergences.py::landing.approach_axis is DemandAxis.X::#1": {
+    "note": "_reseat_landing_cross moves a stated opening turn only on an X approach, because the opening turn names a column and _landing_cross_segment reads a perpendicular approach's crossing row off the runway whatever opening turn the landing carries. The false arm is the perpendicular class the widened _settle_opposing_landing_channels scope newly admits; corpus-wide every counter-running same-line pair that conflicts approaches on X. Reachable.",
     "status": "needs-review"
   },
   "convergences.py::landing.member_id == plan.primary_trunk_member_id::#1": {
@@ -1291,8 +1299,8 @@
     "note": "BFS dedup guard in _detect_tb_bottom_top_entries: the False arm fires when a TB section is queued as a vertical receiver via two different positive_fan paths. The detection only registers a receiver when a BOTTOM exit PORT directly feeds a TOP entry port (edge.source is the exit port). A TB section reached by two upstream sections is fed through a fork/merge junction, so the edges into its TOP entry originate at the junction, not a port -- the detection skips them and the receiver is never queued twice. A diamond renders (examples/topologies/tb_bottom_exit_fork_diamond.mmd) but does not drive this arm. The guard is correct and necessary to prevent double-queueing and ensure BFS termination should a direct double-feed ever arise.",
     "status": "defensive"
   },
-  "system_emission.py::if has_geometry_failure:::#1": {
-    "note": "_system_decider's first precedence step. A member holding no geometry decision at all settles the system before any later owner is consulted. The key was renamed from `if geometry_failure is not None:::#1` when the decision moved into its own function; the arm and its verdict are unchanged.",
+  "system_emission.py::if geometry_failure is not None:::#1": {
+    "note": "_system_decider's first precedence step. A member holding no geometry decision at all settles the system before any later owner is consulted, and every corpus system has one, so the true arm is un-taken. Reachable through any member whose canonical family declines to build a complete template.",
     "status": "defensive"
   },
   "tb_handlers.py::if crossing_x is not None:::#1": {

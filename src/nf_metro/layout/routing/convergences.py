@@ -102,18 +102,7 @@ class FinalConvergenceFeasibilityError(ConvergenceInvariantError):
 
 
 class UnsupportedConvergenceError(ValueError):
-    """Canonical templates cannot represent a complete convergence system.
-
-    A rejection raised from a whole-system check carries the measurement behind
-    it, so the compatibility record it produces can state where the limit was
-    found instead of only what it was called.
-    """
-
-    def __init__(
-        self, reason: str, conflict: ConvergenceConflict | None = None
-    ) -> None:
-        super().__init__(reason)
-        self.conflict = conflict
+    """Canonical templates cannot represent a complete convergence system."""
 
 
 class ConvergencePlanningError(RuntimeError):
@@ -1153,7 +1142,6 @@ def _legacy_plan(
     view: ResolvedConvergenceView,
     membership: _PlanMembership,
     reason: str,
-    conflict: ConvergenceConflict | None,
 ) -> ConvergencePlan:
     group = view.group
     paths, edges, member_ids = membership
@@ -1186,7 +1174,6 @@ def _legacy_plan(
         foreign_reference_ids=(),
         disposition=ConvergenceDisposition.LEGACY,
         legacy_reason=reason,
-        conflict=conflict,
     )
 
 
@@ -1566,10 +1553,18 @@ def _reseat_landing_cross(
     other landing's cross run is the far end of its approach runway, so seating
     it is stating how long that runway is, which is the same coordinate read the
     other way round.  ``None`` where the seat costs the corner its radius.
+
+    The opening turn names a column, so it describes the crossing only where the
+    approach travels the X axis: `_landing_cross_segment` reads a perpendicular
+    approach's crossing row off the runway whatever opening turn the landing
+    carries, and seating one has to move the coordinate that is read.
     """
-    if landing.opening_turn_segment is not None:
+    if (
+        landing.approach_axis is DemandAxis.X
+        and landing.opening_turn_segment is not None
+    ):
         return _reseat_landing_opening(landing, coordinate, curve_radius)
-    along = 0 if landing.approach_axis is DemandAxis.X else 1
+    along = landing.approach_axis.point_index
     runway = landing.approach_direction.sign * (landing.join_point[along] - coordinate)
     if runway < curve_radius - COORD_TOLERANCE:
         return None
@@ -2044,9 +2039,8 @@ def _settle_opposing_landing_channels(
     """Lane counter-running landing approaches before either route is emitted.
 
     Every run a landing crosses its channel on is laned, on whichever axis
-    carries it.  Reading only the landings that state an opening turn would
-    leave a whole class of approach -- a perpendicular one, whose runway states
-    the crossing row instead -- with no owner for the channel two of them share.
+    carries it, including a perpendicular approach whose runway states the
+    crossing row in place of an opening turn.
     """
     fixed_members = {
         assignment.member_id
@@ -2067,17 +2061,15 @@ def _settle_opposing_landing_channels(
         key=lambda item: (item[2].member_id not in fixed_members, item[0], item[1]),
     )
     settled = list(plans)
-    resident: list[ConvergenceLanding] = []
+    resident: list[tuple[ConvergenceLanding, _Segment]] = []
     for plan_rank, landing_rank, original in ordered:
         landing = settled[plan_rank].landings[landing_rank]
         if landing.member_id not in fixed_members:
-            for obstacle in resident:
+            for obstacle, obstacle_segment in resident:
                 landing_segment = _landing_cross_segment(landing, graph)
-                obstacle_segment = _landing_cross_segment(obstacle, graph)
                 if (
                     obstacle.edge.line_id != landing.edge.line_id
                     or landing_segment is None
-                    or obstacle_segment is None
                     or _direction(*obstacle_segment) is _direction(*landing_segment)
                 ):
                     continue
@@ -2085,7 +2077,7 @@ def _settle_opposing_landing_channels(
                     landing_segment, obstacle_segment, clearance
                 ):
                     continue
-                along = 0 if landing.approach_axis is DemandAxis.X else 1
+                along = landing.approach_axis.point_index
                 candidate = (
                     obstacle_segment[0][along]
                     + landing.approach_direction.sign * clearance
@@ -2129,7 +2121,11 @@ def _settle_opposing_landing_channels(
                 landings = list(plan.landings)
                 landings[landing_rank] = landing
                 settled[plan_rank] = replace(plan, landings=tuple(landings))
-        resident.append(landing)
+        seated_segment = _landing_cross_segment(
+            settled[plan_rank].landings[landing_rank], graph
+        )
+        if seated_segment is not None:
+            resident.append((settled[plan_rank].landings[landing_rank], seated_segment))
     return tuple(settled)
 
 
@@ -2182,6 +2178,16 @@ class _SeatedFlank:
     direction: Direction
     plan_rank: int
     flank_rank: int
+    seat_rank: int
+
+
+def _flank_endpoint(axis: ConvergenceTrunkAxis, flank_rank: int) -> float | None:
+    """The coordinate *axis*'s flank at *flank_rank* turns onto."""
+    return (
+        axis.source_endpoint_coordinate
+        if flank_rank == 1
+        else axis.target_endpoint_coordinate
+    )
 
 
 def _flank_lane(
@@ -2196,11 +2202,7 @@ def _flank_lane(
     A flank turns off its endpoint, so a lane it cannot leave a full turn radius
     to that endpoint from is a lane it cannot draw.
     """
-    endpoint = (
-        axis.source_endpoint_coordinate
-        if flank_rank == 1
-        else axis.target_endpoint_coordinate
-    )
+    endpoint = _flank_endpoint(axis, flank_rank)
     if endpoint is None:
         return None
     lateral = axis.axis.point_index
@@ -2221,6 +2223,8 @@ def _lane_trunk_flanks(
     """Give each flank its own lane across the channel it turns out into."""
     seated: list[_SeatedFlank] = []
     for plan_rank, plan in enumerate(settled):
+        # A bound rather than a snapshot: a resident this plan's own give-way
+        # moves has to be compared at the column it now holds.
         resident_count = len(seated)
         if plan.trunk_axis is None:
             continue
@@ -2253,9 +2257,7 @@ def _lane_trunk_flanks(
                     settled[plan_rank], flank_rank, coordinate
                 )
                 continue
-            # No lane this flank can turn onto clears the residents crowding it,
-            # so the channel is the pair's to settle rather than the newcomer's:
-            # a resident with the runway to give way takes the lane instead.
+            # The channel is the pair's to settle, not the arrival's.
             _give_way_to(
                 settled, seated, obstacles, flank[0][lateral], clearance, curve_radius
             )
@@ -2268,8 +2270,9 @@ def _lane_trunk_flanks(
                 _trunk_run_travel_direction(axis, flank_rank),
                 plan_rank,
                 flank_rank,
+                len(seated) + offset,
             )
-            for flank_rank in (1, 3)
+            for offset, flank_rank in enumerate((1, 3))
         )
     return settled
 
@@ -2297,7 +2300,7 @@ def _give_way_to(
         )
         moved = settled[obstacle.plan_rank].trunk_axis
         assert moved is not None
-        seated[seated.index(obstacle)] = replace(
+        seated[obstacle.seat_rank] = replace(
             obstacle, segment=_trunk_segments(moved)[obstacle.flank_rank]
         )
 
@@ -2446,6 +2449,15 @@ def _landing_gives_way_to_flank(
     )
 
 
+def _with_landing(
+    plan: ConvergencePlan, landing_rank: int, landing: ConvergenceLanding
+) -> ConvergencePlan:
+    """*plan* with the landing at *landing_rank* replaced."""
+    landings = list(plan.landings)
+    landings[landing_rank] = landing
+    return replace(plan, landings=tuple(landings))
+
+
 def _settle_landing_trunk_flanks(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
 ) -> tuple[ConvergencePlan, ...]:
@@ -2455,18 +2467,26 @@ def _settle_landing_trunk_flanks(
         same_line=True, counter_running=True, curve_radius=curve_radius
     )
     for landing_plan in plans:
-        for landing in landing_plan.landings:
-            landing_segment = _landing_cross_segment(landing, graph)
-            if landing_segment is None:
-                continue
-            landing_direction = _direction(*landing_segment)
-            landing_horizontal = (
-                abs(landing_segment[0][1] - landing_segment[1][1]) <= COORD_TOLERANCE
-            )
-            landing_coordinate = (
-                landing_segment[0][1] if landing_horizontal else landing_segment[0][0]
-            )
+        landing_plan_rank = plan_rank_by_id[landing_plan.id]
+        for landing_rank in range(len(landing_plan.landings)):
             for plan_rank, trunk_plan in enumerate(tuple(settled)):
+                # Both runs of the pair are read back from `settled`, so a flank
+                # or landing an earlier pair already moved is compared where it
+                # now stands rather than where this sweep first found it.
+                landing = settled[landing_plan_rank].landings[landing_rank]
+                landing_segment = _landing_cross_segment(landing, graph)
+                if landing_segment is None:
+                    break
+                landing_direction = _direction(*landing_segment)
+                landing_horizontal = (
+                    abs(landing_segment[0][1] - landing_segment[1][1])
+                    <= COORD_TOLERANCE
+                )
+                landing_coordinate = (
+                    landing_segment[0][1]
+                    if landing_horizontal
+                    else landing_segment[0][0]
+                )
                 axis = trunk_plan.trunk_axis
                 if trunk_plan.id == landing_plan.id or axis is None:
                     continue
@@ -2492,15 +2512,12 @@ def _settle_landing_trunk_flanks(
                     flank_coordinate = (
                         flank[0][1] if landing_horizontal else flank[0][0]
                     )
-                    endpoint = (
-                        axis.source_endpoint_coordinate
-                        if flank_rank == 1
-                        else axis.target_endpoint_coordinate
-                    )
+                    endpoint = _flank_endpoint(axis, flank_rank)
                     if endpoint is None:
                         continue
+                    forked = _forked_flank(landing, trunk_plan, flank_rank)
                     coordinate = _flank_settled_column(
-                        forked=_forked_flank(landing, trunk_plan, flank_rank),
+                        forked=forked,
                         flank_coordinate=flank_coordinate,
                         landing_coordinate=landing_coordinate,
                         endpoint=endpoint,
@@ -2512,7 +2529,7 @@ def _settle_landing_trunk_flanks(
                             continue
                         reseated = _landing_gives_way_to_flank(
                             landing,
-                            forked=_forked_flank(landing, trunk_plan, flank_rank),
+                            forked=forked,
                             flank_coordinate=flank_coordinate,
                             endpoint=endpoint,
                             clearance=clearance,
@@ -2520,13 +2537,8 @@ def _settle_landing_trunk_flanks(
                         )
                         if reseated is None:
                             continue
-                        landing_rank = landing_plan.landings.index(landing)
-                        landing_plan_rank = plan_rank_by_id[landing_plan.id]
-                        current_plan = settled[landing_plan_rank]
-                        current_landings = list(current_plan.landings)
-                        current_landings[landing_rank] = reseated
-                        settled[landing_plan_rank] = replace(
-                            current_plan, landings=tuple(current_landings)
+                        settled[landing_plan_rank] = _with_landing(
+                            settled[landing_plan_rank], landing_rank, reseated
                         )
                         continue
                     moved = _move_trunk_flank(trunk_plan, flank_rank, coordinate)
@@ -3473,10 +3485,7 @@ def _system_conflict(
         return opposing_approaches
 
     # Read every run in the frame a member travels it, which is the frame
-    # `_lane_trunk_flanks` lanes them in.  `_trunk_segments` lists a source-side
-    # flank against its travel, so reading the listed order here would call a
-    # pair the laning pass deliberately fused counter-running, and a pair it
-    # tried and failed to lane co-travelling.
+    # `_lane_trunk_flanks` lanes them in.
     trunks = tuple(
         (
             plan,
@@ -3570,7 +3579,8 @@ def _validate_final_convergence_feasibility(
         if conflict is not None:
             raise FinalConvergenceFeasibilityError(
                 f"final convergence system {system_id} has unresolved "
-                f"{conflict.kind.name.lower().replace('_', '-')} geometry"
+                f"{conflict.kind.name.lower().replace('_', '-')} geometry: "
+                f"{conflict.measurement}"
             )
 
     lookup = gap_lookup_geometry(graph)
@@ -3896,7 +3906,7 @@ def build_convergence_plan_execution(
         except UnsupportedConvergenceError as error:
             reason = str(error) or type(error).__name__
             system_plans = tuple(
-                _legacy_plan(scaffold, view, membership, reason, error.conflict)
+                _legacy_plan(scaffold, view, membership, reason)
                 for view, membership in zip(views, memberships, strict=True)
             )
             for item in system_plans:
@@ -4085,7 +4095,6 @@ def restrict_convergence_execution(
             foreign_reference_ids=(),
             disposition=ConvergenceDisposition.LEGACY,
             legacy_reason=compatibility_reason,
-            conflict=None,
         )
         for plan in execution.plans
         if plan.system_id in planned_system_ids

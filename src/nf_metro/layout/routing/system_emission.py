@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -221,33 +221,36 @@ def _classify_route_system_dispositions(
             if member_geometry_failures is None
             else member_geometry_failures.get(system_id)
         )
+        exit_plans = exit_by_system.get(system_id, ())
+        system_fans = fan_by_system.get(system_id, ())
+        convergences = convergence_by_system.get(system_id, ())
         declined = {
             "member-geometry-plan": ()
             if geometry_failure is None
             else (geometry_failure,),
             "convergence-plan": tuple(
                 convergence_plan.legacy_reason
-                for convergence_plan in convergence_by_system.get(system_id, ())
+                for convergence_plan in convergences
                 if convergence_plan.disposition is ConvergenceDisposition.LEGACY
                 and convergence_plan.legacy_reason is not None
             ),
             "exit-turn-plan": tuple(
                 exit_plan.legacy_reason
-                for exit_plan in exit_by_system.get(system_id, ())
+                for exit_plan in exit_plans
                 if exit_plan.disposition is ExitTurnDisposition.LEGACY
                 and exit_plan.legacy_reason is not None
             ),
             "fan-plan": tuple(
                 fan_plan.legacy_reason
-                for fan_plan in fan_by_system.get(system_id, ())
+                for fan_plan in system_fans
                 if fan_plan.disposition is FanPlanDisposition.LEGACY
                 and fan_plan.legacy_reason is not None
             ),
         }
         decisive, decided_by = _system_decider(
-            geometry_failure is not None,
-            bool(convergence_by_system.get(system_id, ())),
-            tuple(fan_by_system.get(system_id, ())),
+            geometry_failure=geometry_failure,
+            convergences=convergences,
+            fans=system_fans,
         )
         reasons = tuple(
             dict.fromkeys(
@@ -284,9 +287,10 @@ def _classify_route_system_dispositions(
 
 
 def _system_decider(
-    has_geometry_failure: bool,
-    has_convergences: bool,
-    system_fans: tuple[FanPlan, ...],
+    *,
+    geometry_failure: str | None,
+    convergences: Sequence[ConvergencePlan],
+    fans: Sequence[FanPlan],
 ) -> tuple[tuple[str, ...], str | None]:
     """Resolve which owners settle one system's disposition, in precedence order.
 
@@ -301,12 +305,12 @@ def _system_decider(
     so the owner that supersedes every verdict outside it.  It is ``None`` where
     exit-turn and fan decide jointly, because no verdict is set aside there.
     """
-    if has_geometry_failure:
+    if geometry_failure is not None:
         return ("member-geometry-plan",), "member-geometry-plan"
-    if has_convergences:
+    if convergences:
         return ("convergence-plan",), "convergence-plan"
-    if system_fans and all(
-        fan_plan.disposition is FanPlanDisposition.PLANNED for fan_plan in system_fans
+    if fans and all(
+        fan_plan.disposition is FanPlanDisposition.PLANNED for fan_plan in fans
     ):
         return (), "fan-plan"
     return ("exit-turn-plan", "fan-plan"), None

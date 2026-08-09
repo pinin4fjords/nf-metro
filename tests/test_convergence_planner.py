@@ -632,7 +632,6 @@ def test_perpendicular_entry_convergences_plan_one_trunk_per_crossing_column() -
     assert len(plans) == 3
     assert len({plan.system_id for plan in plans}) == 1
     assert {plan.disposition for plan in plans} == {ConvergenceDisposition.PLANNED}
-    assert {plan.conflict for plan in plans} == {None}
     assert {plan.primary_trunk_reason for plan in plans} == {
         ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
     }

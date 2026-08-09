@@ -359,10 +359,9 @@ def _boxed_in_flank_pair() -> tuple[ConvergencePlan, ConvergencePlan]:
 def test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident() -> None:
     """The channel is the pair's to settle, so a boxed-in flank is not declined.
 
-    Laning only the arriving flank leaves one line's outward and return legs on
-    one column whenever the arrival has no reachable lane, which is a doubled
-    stroke the system has the geometry to avoid: the flank already seated moves
-    instead, and the pair ends up one clearance apart either way round.
+    One line's outward and return legs on one column is a doubled stroke, and
+    the system has the geometry to avoid it either way round: where the arriving
+    flank can reach no lane, the flank already seated takes one instead.
     """
     resident, newcomer = _boxed_in_flank_pair()
 
@@ -373,5 +372,5 @@ def test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident() -> No
         "the flank with no reachable lane keeps its column"
     )
     assert abs(columns[0] - columns[1]) >= LANE_CLEARANCE, (
-        "the resident gave way, so the two flanks no longer share one column"
+        "the resident gave way, so the two flanks stand a clearance apart"
     )
