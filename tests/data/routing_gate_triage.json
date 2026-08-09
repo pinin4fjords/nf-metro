@@ -219,10 +219,6 @@
     "note": "Defensive: _fan_bypass_band skips a fan edge whose target has no resolvable grid column; every corpus fan target resolves a column, so the skip arm is unexercised.",
     "status": "needs-review"
   },
-  "convergences.py::and low + COORD_TOLERANCE < along[0][1] < high - COORD_TOLERANCE::#1": {
-    "note": "The `return True` of _orthogonal_segments_cross: one run passing strictly through the interior of the other rather than meeting it at a shared endpoint or a T-junction. Reached by one fixture (examples/topologies/exit_run_three_drop_columns.mmd) through _turn_crosses_shared_run, whose flank/central-run pairs all meet at a corner. Reachable -- an interior crossing is the defect the predicate exists to name -- and it feeds `convergences.py::if (::#12`, so one topology closes both.",
-    "status": "needs-review"
-  },
   "convergences.py::for candidate_coordinate in direct_candidates:::#1": {
     "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
     "status": "needs-review"
@@ -250,6 +246,10 @@
   "convergences.py::if (::#9": {
     "note": "Pre-existing gap, re-keyed from #8 by the gates the restored conflict conditions inserted earlier in the file (same never-executed line, same [0,0] split). Dead sub-block of _settle_opposing_gap_flanks' landing-opening move: its enclosing `if not obstacles:` never takes the has-obstacles arm, so no non-flank plan gap channel is ever crowded by a resident one and nothing below line 3072 runs. What would settle it is a fixture whose settled convergence gap channel crowds a resident member channel of a different line in the same column gap.",
     "status": "candidate-dead"
+  },
+  "convergences.py::if _vert_horiz_cross(::#1": {
+    "note": "The `return True` of _orthogonal_segments_cross: one run passing strictly through the interior of the other rather than meeting it at a shared endpoint or a T-junction, as decided by common._vert_horiz_cross. Reached by one fixture (examples/topologies/exit_run_three_drop_columns.mmd) through _turn_crosses_shared_run, whose flank/central-run pairs all meet at a corner. Reachable -- an interior crossing is the defect the predicate exists to name -- and it feeds `convergences.py::if (::#12`, so one topology closes both.",
+    "status": "needs-review"
   },
   "convergences.py::if any(::#10": {
     "note": "Pre-existing gap, re-keyed from #9 by the gates the packing code inserted earlier in the file (same arm, same [18,0] split as at 897747b0). Third re-check of an already-forced fact: consume_convergence_route has just called _connect_route_endpoint(route, landing.join_point) and raises the same convergence_failure upstream, so taking this arm means an engine bug and a hard abort -- no shippable topology reaches it.",
