@@ -690,6 +690,15 @@ def _source_turn_requirement(
                 if exit_port_id is not None
                 else src.x
             )
+            if exit_port_id is not None and abs(axis - feeder_x) <= COORD_TOLERANCE:
+                # ``_perp_entry_junction_straight_drop`` prepends a lead-out
+                # only for a feeder standing off the turn column, so a feeder
+                # on the column is drawn as a bare vertical with no run to turn
+                # off.  That feeder column is the exit port's; a caller naming
+                # no port is asking only where the axis stands.
+                return _SourceTurnRequirement(
+                    vertical_direction(tgt.y - src.y), None, None, None, None
+                )
             run = horizontal_direction(axis - feeder_x)
             # The drop peels off the trunk one corner radius before the turn
             # column, or at the feeder itself when that is the nearer of the

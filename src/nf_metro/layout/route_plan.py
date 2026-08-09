@@ -315,9 +315,9 @@ _NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
 )
 _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "The requirement derived for this exit group states a turn the group cannot "
-    "take: an order that inverts, a run opposed to its own transition, or a "
-    "continuation the group serves more than one of. The planner has no rule "
-    "for choosing between the readings, so it claims none of them.",
+    "take: a run opposed to its own transition, or a continuation the group "
+    "serves more than one of. The planner has no rule for choosing between the "
+    "readings, so it claims none of them.",
     _ISSUE.format(1710),
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
@@ -344,6 +344,20 @@ _STATES_NO_GEOMETRY = CompatibilityFamily(
     "The verdict constrains no geometry: a single-member exit group has no lane "
     "order and no shared axis to plan. It is recorded for attribution and never "
     "escalates a system, so there is nothing to retire."
+)
+_RAIL_EMISSION_OWNS_THE_ROUTE = CompatibilityFamily(
+    "Rail mode draws every inter-section edge from its own emitter, on a route "
+    "system frozen with no exit-turn plan at all. There is no source geometry "
+    "left for an exit-turn plan to claim a part of, so the rail frame is the "
+    "emitter's whole output and support is permanent."
+)
+_LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
+    "The station-offset allocator seats the exit port's lane order and the "
+    "destination's lane order in separate phases, and here the two disagree: a "
+    "pair of lanes swaps lateral order between the ends of one run. An exit "
+    "group owns the source end alone, so the crossing is already in the offsets "
+    "it reads rather than an ordering it declines to state, and support is "
+    "permanent."
 )
 _LAYOUT_OWNS_THE_FAN_FRAME = CompatibilityFamily(
     "The section allocator, the rail emitter or an overlapping local layout "
@@ -408,7 +422,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:merge-trunk",
                     "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
-                    "unsupported-family:rail-inter-section",
                     "unsupported-family:right-entry-plough-bypass",
                     "unsupported-family:right-entry-wrap",
                     "unsupported-family:same-x-vertical-drop",
@@ -432,7 +445,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
                     "ambiguous-continuation",
                     "invalid-source-turn-requirement",
-                    "lane-transition-order-inversion",
                     "multiple-destinations",
                     "opposed-source-run",
                     "unresolved-perpendicular-entry-seam",
@@ -464,6 +476,14 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "source-lane-transition-has-no-runway",
                 ),
                 _reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                _reasons(
+                    _RAIL_EMISSION_OWNS_THE_ROUTE,
+                    "unsupported-family:rail-inter-section",
+                ),
+                _reasons(
+                    _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
+                    "lane-transition-order-inversion",
+                ),
             ),
             "fan-plan": _registry(
                 _reasons(
