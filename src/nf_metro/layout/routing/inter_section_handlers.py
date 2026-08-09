@@ -5252,21 +5252,25 @@ def _leadout_self_meets_sibling_descent(
     y_hi: float,
     gap_right: float,
 ) -> bool:
-    """Whether a same-line descent already claims this wrap's lead-out band.
+    """Whether a same-line descent already sits in this wrap's lead-out band.
 
     The wrap turns down at ``corner_x`` into the gap between the source column
-    and the next.  A descent of the SAME line from a DIFFERENT source claiming
-    that same gap (``corner_x <= x <= gap_right``) across the drop's Y span would
-    render as one merged corner with this lead-out.  When one is there the caller
-    carries the horizontal on and turns down clear to its right.
-
-    Only the convergence planner's claims are read, never emitted sibling routes:
-    a claim states the channel before any route is drawn, so the answer does not
-    depend on which member of the pair happens to be emitted first.
-    :func:`~nf_metro.layout.routing.normalize._clear_compatibility_entry_wrap_leadouts`
-    seats the openings that need moving once every route exists.
+    and the next.  A descent of the SAME line from a DIFFERENT source, already
+    routed down that same gap (``corner_x <= x <= gap_right``) across the drop's
+    Y span, would render as one merged corner with this lead-out.  When one is
+    there the caller carries the horizontal on and turns down clear to its right.
     """
     lo, hi = (y_lo, y_hi) if y_lo <= y_hi else (y_hi, y_lo)
+    for route in ctx.built_routes:
+        if not route.is_inter_section or route.line_id != edge.line_id:
+            continue
+        if route.edge.source == edge.source:
+            continue
+        for _k, x, seg_lo, seg_hi, _down in iter_vertical_segments(route):
+            if not (corner_x - COORD_TOLERANCE <= x <= gap_right + COORD_TOLERANCE):
+                continue
+            if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:
+                return True
     if ctx.convergences is None:
         return False
     for claim in ctx.convergences.prior_channel_claims_for_edge(edge):
