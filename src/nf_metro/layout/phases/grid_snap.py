@@ -116,9 +116,15 @@ def _group_grid_origin(
 ) -> tuple[float, dict[str, set[str]]] | None:
     """Mode of ``y % pitch`` across the group's on-grid stations, with port map.
 
-    Returns ``(origin, per_section_ports)`` or None when the group has no
-    on-grid majority.  Off-track stations were lifted relative to their
-    consumers; they snap to the same grid but don't influence the origin.
+    Returns ``(origin, per_section_ports)``, or None when the group holds no
+    station to read a grid from.  Off-track stations were lifted relative to
+    their consumers; they snap to the same grid but don't influence the origin.
+
+    Rows a section allocator spread to a pitch the grid does not divide carry
+    one residue each and so name no mode.  Every candidate origin puts each of
+    them within half a pitch of a slot, so the group anchors on the residue its
+    first station holds; refusing the vote is the one outcome that leaves the
+    rows off the grid the snap exists to restore them to.
     """
     residues: Counter[float] = Counter()
     per_section_ports: dict[str, set[str]] = {}
@@ -145,9 +151,7 @@ def _group_grid_origin(
             residues[round(st.y % pitch, 3)] += 1
     if not residues:
         return None
-    origin_r, top = residues.most_common(1)[0]
-    if top < 2 and len(residues) > 1:
-        return None
+    origin_r, _count = residues.most_common(1)[0]
     return origin_r, per_section_ports
 
 
