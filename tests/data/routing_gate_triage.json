@@ -3,6 +3,10 @@
   "note": "Single enforcement point for the bundle-centreline contract: a fanned bundle needs at least one leg, i.e. a >=2-vertex centreline. All three public builders (build_concentric_bundle / build_tapered_bundle / build_offset_bundle) funnel through _fan_bundle, which owns this one guard in place of the four per-builder re-checks the corpus never took (#1438). Every caller builds a >=2-vertex polyline by construction, so the raise arm stays un-exercised.",
   "status": "defensive"
  },
+ "centrelines.py::if place_at_source:::#1": {
+  "note": "The else seats the hand-off diagonal against the target end, taken when a lane transition carries ExitLaneTransitionPlacement.TARGET. The only producer of TARGET is _source_lane_ownership (exit_turns.py), on the mismatched-offset path the corpus never takes either (see exit_turns.py::if not mismatched:::#1); every transition the corpus plans is a SOURCE placement from the continuation builders. One fixture closes both: an in-section station whose lane offset for the exiting line differs from the lane the exit-turn plan seats that line on at the port.",
+  "status": "needs-review"
+ },
  "common.py::elif tgt_sec:::#1": {
   "note": "The else (col_key=round(sx)) needs an L-shaped (dx!=0,dy!=0) inter edge whose target resolves to no section. Only exit_port->junction edges lack a target section, and junction positioning makes those axis-aligned (same-X RIGHT exit or same-Y BOTTOM exit), never L-shaped, so the else is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
@@ -62,6 +66,10 @@
  "common.py::if endpoints:::#1": {
   "note": "Non-cross_row bypass guard: the endpoints list always includes the source and target sections (both in src_row), so it is never empty; the default-clearance arm only guards a degenerate empty endpoint set.",
   "status": "defensive"
+ },
+ "common.py::if feeder is None:::#1": {
+  "note": "The feeder-found continuation of perp_peeloff_off_horizontal_junction needs a fan-out junction that both takes a horizontal feed (a feeder on the junction's own Y, off its column) and is left by a bare-vertical drop. The corpus's bare drops hang off bottom-exit junctions whose only feeder sits directly above on the junction column (dx=0), so they return here; the horizontally-fed junctions (riboseq_fold_two_dir_entry, and every hand-built fan of the same shape) leave with a lead-in the fan emitter already builds, so they return at the bare-vertical check above. Reachable only where a horizontally-fed fan-out junction's drop still arrives bare.",
+  "status": "needs-review"
  },
  "common.py::if len({round(value, 6) for value in port_ys}) != n:::#1": {
   "note": "A complete entry port assigns every distinct line a unique station-offset slot. Duplicate port-Y values therefore require a malformed route set that bypassed station offset allocation; test_invalid_opposing_candidate_is_rejected[duplicate-port-slot] exercises the rejection directly.",
@@ -407,6 +415,30 @@
   "note": "Bounds check for resolve_curve_radius_at. Production callers use indices from range(n_corners) or recorded corner buckets, so an invalid index requires a caller-contract violation and is covered as an error case by the corner unit tests.",
   "status": "defensive"
  },
+ "exit_turns.py::if (::#10": {
+  "note": "The emission validation that raises when a rendered turn's axis, lead-in runway or direction differs from the assignment the route was bound to. The emitters derive all four from that same assignment, so the raise names an emitter ignoring its plan rather than a topology.",
+  "status": "defensive"
+ },
+ "exit_turns.py::if (::#6": {
+  "note": "consume_exit_turn_route's fixed-axis check raises when a plan's fixed turn axis disagrees with the structural anchor recomputed at emission. Both sides read that anchor through _fixed_axis and _fixed_axis_matches_plan, so a plan and its emission agree by construction; the raise names a planner/emitter contradiction, not a graph a pipeline can express.",
+  "status": "defensive"
+ },
+ "exit_turns.py::if abs(turn_delta) <= COORD_TOLERANCE:::#2": {
+  "note": "_plain_l_shape_turn_requirement's flat-hop guard, which both its callers exclude: _standard_l_shape_turn_requirement returns its own missing-source-turn for a flat delta before delegating, and the cell-mate gap drop only classifies when the target section sits one grid row below the source (_bypass_route_kind requires tgt_row == src_row + 1), which puts the two ports on different rows. The duplicated guard therefore never fires.",
+  "status": "defensive"
+ },
+ "exit_turns.py::if any(len(runs) > 1 for runs in straight_runs_by_lane.values()):::#1": {
+  "note": "The opposed-source-run recogniser: a lane whose turn-less members disagree on the direction they leave the shared source. Every member of one exit group leaves through one exit port, whose side fixes the outward ray, and a collinear target on the other side of that port is a backward hop the engine rejects before routing. The arm names a classification that contradicts itself and declines the plan; no exit group produces it.",
+  "status": "defensive"
+ },
+ "exit_turns.py::if not _lane_arms_read_as_one_stroke(::#1": {
+  "note": "The reject that declines an axis plan when a lane's arms would turn less than one curve radius apart, drawing as two near-parallel tracks instead of one stroke forking late. Reachable when an unpinned cohort lands its turn axis within a radius of a coordinate a pinned cohort already claimed at the same lane rank; no corpus fixture crowds two same-rank claims that closely, so the reject is un-entered while the accept arm runs on 144 fixtures.",
+  "status": "needs-review"
+ },
+ "exit_turns.py::if not mismatched:::#1": {
+  "note": "The lane hand-off path of _source_lane_ownership, entered when a station feeding the exit port along the run axis carries a different lane offset for the line than the lane the plan seats at the port. Every corpus exit group agrees on its lane from the last station through to the port, so the ownership walk returns the stations unchanged. Reachable, and the fixture that closes it also closes centrelines.py::if place_at_source:::#1, whose TARGET placement only this branch produces.",
+  "status": "needs-review"
+ },
  "exit_turns.py::if scaffold is None:::#2": {
   "note": "The second None check protects the manual or incomplete graph fallback after rebuilding a missing retained scaffold. Parsed render-path graphs publish one canonical scaffold during fan planning, so the fixture corpus never reaches a rebuild that can return None. Direct planner tests retain the fallback for graph construction without topology.",
   "status": "defensive"
@@ -459,6 +491,10 @@
   "note": "FanPlanExecution returns the frozen emission selected by the planner, and BOTTOM_EXIT_RIGHT_LANDINGS is the only FanRouteEmitter member. The mismatch arm detects a corrupted or incompatible plan.",
   "status": "defensive"
  },
+ "inter_section_handlers.py::if (lo, matched_row, direction) in declared:::#1": {
+  "note": "The un-exercised arm is the fresh declaration, not the dedupe skip: declared is seeded from the slots the handler's targeted _declare_channel calls already made, and on the corpus every gap-landing leg of a frozen frame is one of those, so the sweep only ever skips. The declaration fires where two targeted declarations collapse onto one gap and direction, leaving a third leg holding a gap nothing named -- the case the left-entry corridor and U-bypass call sites are commented for.",
+  "status": "needs-review"
+ },
  "inter_section_handlers.py::if _corridor_is_viable(ctx, src, ep):::#1": {
   "note": "Reachable only via a defective render (route skirts/crosses section boundary); see #724.",
   "status": "needs-review"
@@ -483,9 +519,17 @@
   "note": "Merge entry-port Y tracks the source/junction Y, so a sub-curve_radius exit->entry gap never arises (the same-Y rule already handles dy<tol); corpus instrumentation across the fixtures (#762) confirms the arm is never taken. Defensive.",
   "status": "defensive"
  },
+ "inter_section_handlers.py::if abs(start[0] - end[0]) > COORD_TOLERANCE:::#2": {
+  "note": "_seat_bypass_descent reads the segment at BYPASS_DESCENT_RANK, which the U-bypass builder emits as the descent between the two gap corners and is vertical by construction. The non-vertical bail guards a route whose point order does not match the shape the caller just built.",
+  "status": "defensive"
+ },
  "inter_section_handlers.py::if col_left <= 0.0:::#1": {
   "note": "col_left_edge's 0.0 default only fires for a column with no sections; the target's own column always holds its section.",
   "status": "defensive"
+ },
+ "inter_section_handlers.py::if ctx.exit_turns is None:::#3": {
+  "note": "_perp_entry_turn_is_planned answers False for the pre-plan context the exit-turn planner probes emitters with; ctx.exit_turns is bound only for emission. That context does reach these emitters -- the same guard in _seat_bypass_descent takes its None arm on packed_cell_right_exit_left_entry_wrap -- but no corpus probe reaches the TOP/BOTTOM-entry L-shape records this predicate feeds.",
+  "status": "needs-review"
  },
  "inter_section_handlers.py::if ctx.station_offsets:::#1": {
   "note": "_run_pass_c_guards always populates ctx.station_offsets before route_edges, and RAILS mode returns earlier; the empty-offsets arm never fires. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
@@ -565,6 +609,10 @@
  },
  "inter_section_handlers.py::if route is None:::#3": {
   "note": "_declare_channel deliberately accepts RoutedPath | None so declining builders can be ignored. Production callers currently pass concrete routes; the None no-op remains a defensive helper contract.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if route is None:::#4": {
+  "note": "_declare_placed_channels accepts RoutedPath | None to match _declare_trunk and _declare_channel, but all three call sites have already established the route (an assert on the left-entry corridor, a RuntimeError when a planned fan emitter omits a member, and a locally built U-bypass), so the None no-op is a helper contract nothing exercises.",
   "status": "defensive"
  },
  "inter_section_handlers.py::if section not in landing_sections:::#1": {
@@ -938,6 +986,10 @@
  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
   "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
   "status": "defensive"
+ },
+ "normalize.py::if peeloff is None:::#1": {
+  "note": "The lead-in prepend of the junction peel-off pass, entered only for a fan-out junction drop that perp_peeloff_off_horizontal_junction accepts. Every corpus drop is rejected there -- common.py::if feeder is None:::#1 records which condition each shape fails -- so the pass matches nothing and only its skip arm runs.",
+  "status": "needs-review"
  },
  "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
   "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
