@@ -6091,6 +6091,28 @@ def _band_hop_geometry(f: _InterFacts) -> _BandHopGeometry | None:
     return _BandHopGeometry(band0_y, band1_y, lead_x, corner_x, vx, pos_n, delta)
 
 
+def _left_entry_band_hop_source_seam(f: _InterFacts) -> _LeftEntryWrapGeometry:
+    """Resolve the seam shared by band-hop planning and emission.
+
+    The hop opens on the same lead-out, turn and traverse as every other shape
+    of the family; where the wrap proper leaves its band on the target's own
+    descent column, the hop leaves it on the clear column between the two bands.
+    See :func:`_route_left_entry_via_band_hop` for the rest of the shape.
+    """
+    geometry = _band_hop_geometry(f)
+    assert geometry is not None
+    return _left_entry_wrap_record(
+        f.ctx,
+        f.edge,
+        f.src,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.lead_x,
+        channel_y=geometry.band0_y,
+        descent_x=geometry.corner_x,
+    )
+
+
 def _left_entry_band_hop_is_clear(f: _InterFacts) -> bool:
     """Whether a LEFT-entry feed from a boxed-in fan junction can hop two bands.
 

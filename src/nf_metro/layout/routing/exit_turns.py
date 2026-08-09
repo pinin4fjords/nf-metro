@@ -67,6 +67,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
+    _left_entry_band_hop_source_seam,
     _left_entry_gap_above_geometry,
     _left_entry_route_kind,
     _left_entry_wrap_geometry,
@@ -753,6 +754,8 @@ def _source_turn_requirement(
             wrap_geometry = _around_section_below_geometry(
                 ctx, edge, src, tgt, facts.i, facts.n
             )
+        elif wrap_kind is _LeftEntryRoute.BAND_HOP:
+            wrap_geometry = _left_entry_band_hop_source_seam(facts)
         else:
             return _SourceTurnRequirement(
                 None,
