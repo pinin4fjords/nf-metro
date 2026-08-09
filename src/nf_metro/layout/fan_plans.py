@@ -807,6 +807,61 @@ def _leg_ordered_line_ids(
     return cast(tuple[str, ...], _ordered_unique(result))
 
 
+def _inherited_branch_order(
+    source_id: str,
+    branch_plans: Sequence[FanBranchPlan],
+    leg_ordered_lines_by_rank: Mapping[int, tuple[str, ...]],
+    bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
+) -> dict[int, int] | None:
+    """Rank branches by a retagged ancestor bundle's own authored order.
+
+    A fork fed directly by the same lines it is about to split (an ordinary
+    diamond, one hop below its own shared entry) has no other order to
+    consult, so its authored (opening) order stands -- that is the common
+    case, and it is deliberately left alone. A fork some further hop below a
+    shared bundle -- reached only after a leg retagged every one of those
+    lines to a different identity and back -- has no entry edge of its own
+    naming them, yet every carrier between that distant bundle and here
+    already reads its comma-list order (see :func:`_leg_ordered_line_ids`);
+    matching it here is what keeps this fork's reserved slots contiguous
+    with theirs instead of opening a gap. Returns ``None`` when no such
+    distant edge exists.
+    """
+    divergent = frozenset(
+        line_id for lines in leg_ordered_lines_by_rank.values() for line_id in lines
+    )
+    if len(divergent) < 2:
+        return None
+    ancestor = next(
+        (
+            facts
+            for (_source, target), facts in bundles.items()
+            if target != source_id
+            and divergent.issubset({fact.key.line_id for fact in facts})
+        ),
+        None,
+    )
+    if ancestor is None:
+        return None
+    order = {
+        line_id: rank
+        for rank, line_id in enumerate(
+            dict.fromkeys(fact.key.line_id for fact in ancestor)
+        )
+    }
+    return {
+        branch.rank: min(
+            (
+                order[line_id]
+                for line_id in leg_ordered_lines_by_rank[branch.rank]
+                if line_id in order
+            ),
+            default=branch.opening_rank,
+        )
+        for branch in branch_plans
+    }
+
+
 def _extra_output_facts(
     path: tuple[str, ...],
     adjacency: Mapping[str, tuple[str, ...]],
@@ -1986,6 +2041,9 @@ def _build_candidate(
         )
         for branch in branch_plans
     }
+    inherited_branch_order = _inherited_branch_order(
+        source_id, branch_plans, leg_ordered_lines_by_rank, bundles
+    )
     offset_line_order = (
         cast(
             tuple[str, ...],
@@ -1996,7 +2054,11 @@ def _build_candidate(
                     key=lambda item: (
                         item.lane_offset
                         if has_layout_lanes and item.lane_offset is not None
-                        else item.opening_rank
+                        else (
+                            item.opening_rank
+                            if inherited_branch_order is None
+                            else inherited_branch_order[item.rank]
+                        )
                     ),
                 )
                 for line_id in leg_ordered_lines_by_rank[branch.rank]
