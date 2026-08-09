@@ -5259,9 +5259,21 @@ def _leadout_self_meets_sibling_descent(
     routed down that same gap (``corner_x <= x <= gap_right``) across the drop's
     Y span, would render as one merged corner with this lead-out.  When one is
     there the caller carries the horizontal on and turns down clear to its right.
+
+    A planned wrap answers this from published channel claims alone.  Its turn
+    axis is a coordinate its own plan states, and a fact read off the routes
+    built so far would make that coordinate depend on which sibling the emitter
+    reached first.  The claims are selected by canonical edge rank, so they say
+    the same thing in either construction order and in either pass.
+
+    A compatibility wrap also reads the routes already built, because a
+    convergence plan demoted with its whole system keeps its route while losing
+    the trunk axis and landings it would have published a claim from, and that
+    route is then the only statement of the descent that exists.
     """
     lo, hi = (y_lo, y_hi) if y_lo <= y_hi else (y_hi, y_lo)
-    for route in ctx.built_routes:
+    emitted_siblings = ctx.built_routes if ctx.is_compatibility_edge(edge) else ()
+    for route in emitted_siblings:
         if not route.is_inter_section or route.line_id != edge.line_id:
             continue
         if route.edge.source == edge.source:
