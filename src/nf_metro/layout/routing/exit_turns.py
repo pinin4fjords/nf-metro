@@ -3106,6 +3106,7 @@ def snapshot_exit_turn_segments(
                 RouteFamilyId.MERGE_BRANCH.value,
                 RouteFamilyId.LEFT_ENTRY_WRAP.value,
                 RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP.value,
+                RouteFamilyId.RIGHT_ENTRY_WRAP.value,
                 RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BYPASS_FAMILY.value,
