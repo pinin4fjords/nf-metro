@@ -1146,6 +1146,7 @@ def _compute_junction_fan_info(
         has_lshape = False
         has_bypass = False
         has_wrap = False
+        has_perp_entry = False
         # Source-side channels anchored NEAR the junction (no resolvable
         # inter-column gap to centre in) keyed by their rounded X.  These are
         # NOT touched by ``_materialize_gap_slots`` (which only re-stacks
@@ -1190,10 +1191,26 @@ def _compute_junction_fan_info(
                     or (tgt_port.side == PortSide.LEFT and dx_edge < 0)
                 )
             )
+            # A TOP/BOTTOM entry reached from a different row travels the same
+            # inter-row gap band a LEFT/RIGHT wrap does (both are the
+            # gap-branches :func:`_fan_gap_branch_columns` measures together),
+            # so it is its own kind here too rather than falling into the
+            # generic L-shape bucket below.
+            is_perp_entry = (
+                tgt_port is not None
+                and tgt_port.is_entry
+                and not is_bypass
+                and src_row is not None
+                and tgt_row is not None
+                and src_row != tgt_row
+                and tgt_port.side in (PortSide.TOP, PortSide.BOTTOM)
+            )
             if is_bypass:
                 has_bypass = True
             elif is_wrap:
                 has_wrap = True
+            elif is_perp_entry:
+                has_perp_entry = True
             else:
                 has_lshape = True
             # A plain L-shape into an ADJACENT column gets a true inter-column
@@ -1220,6 +1237,8 @@ def _compute_junction_fan_info(
         # overlay distinct lines:
         #   * lshape + bypass: the legacy condition.
         #   * wrap + anything else: extends the same idea to wrap routes.
+        #   * perp-entry + anything else: a TOP/BOTTOM entry shares its
+        #     gap-branch band with the others, so it needs the same corner.
         #   * near_src_collision: distinct lines to distinct targets sharing
         #     one source-hugging channel that no gap-normalise pass reaches.
         # A junction whose source-side channels are all distinct (e.g. a pure
@@ -1228,6 +1247,7 @@ def _compute_junction_fan_info(
         needs_unified = (
             (has_lshape and has_bypass)
             or (has_wrap and (has_lshape or has_bypass))
+            or (has_perp_entry and (has_lshape or has_bypass or has_wrap))
             or near_src_collision
         )
         if not outgoing or not needs_unified:
