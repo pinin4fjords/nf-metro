@@ -3284,37 +3284,6 @@ def _perp_exit_geometry(
     )
 
 
-def _held_corridor_y(
-    ctx: _RoutingCtx,
-    coordinate: float,
-    *,
-    section_ids: Sequence[str | None],
-    run_start: float,
-    run_end: float,
-) -> float:
-    """*coordinate*, moved the least it takes to sit inside its corridor's band.
-
-    ``None`` sections and an unclaimed boundary both leave the coordinate as it
-    stands: there is no reservation to hold it to.
-    """
-    from nf_metro.layout.routing.reserved_bands import corridor_clearance_band
-
-    owned = tuple(item for item in section_ids if item is not None)
-    if not owned or abs(run_end - run_start) <= COORD_TOLERANCE:
-        return coordinate
-    band = corridor_clearance_band(
-        ctx.graph,
-        axis=1,
-        section_ids=owned,
-        coordinate=coordinate,
-        run_start=run_start,
-        run_end=run_end,
-    )
-    if band is None:
-        return coordinate
-    return min(max(coordinate, band.lo), band.hi)
-
-
 def _perp_exit_over_geometry(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> _PerpExitGeometry:
@@ -3363,26 +3332,13 @@ def _perp_exit_over_geometry(
             graph, src_col, tgt_col, row, reserved=ctx.reserved_bands.columns
         )
 
-    # Corridor Y: the header band clearing the source section's near edge, held
-    # inside the clearance the corridor it crosses owes.  The header band is
-    # derived from whichever grid edges the handler has to hand, which overstates
-    # the obstruction; the reservation raised over the drawn leg measures the
-    # real one, and a planned turn axis is frozen against later settlement, so
-    # the axis has to be stated where the reservation wants it.
-    cy_base = _held_corridor_y(
-        ctx,
-        (
-            header_corridor_y(
-                graph, row, below=not is_top, base_radius=base, default=sy
-            )
-            if row is not None
-            else sy - base
-            if is_top
-            else sy + base
-        ),
-        section_ids=(src.section_id, tgt.section_id),
-        run_start=sx,
-        run_end=tx,
+    # Corridor Y: the header band clearing the source section's near edge.
+    cy_base = (
+        header_corridor_y(graph, row, below=not is_top, base_radius=base, default=sy)
+        if row is not None
+        else sy - base
+        if is_top
+        else sy + base
     )
 
     perp_entry = (
