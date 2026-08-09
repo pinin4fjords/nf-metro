@@ -13,6 +13,7 @@ import nf_metro.layout.routing.planning as planning
 import nf_metro.layout.routing.system_emission as system_emission
 from nf_metro.api import prepare_graph
 from nf_metro.layout.route_plan import (
+    ROUTE_SYSTEM_COMPATIBILITY_REASONS,
     EmissionMemberId,
     RouteSystemDisposition,
     RouteSystemId,
@@ -354,12 +355,42 @@ def test_lightweight_dispositions_match_final_execution_in_canonical_order() -> 
 
     assert tuple(item.system_id for item in decisions) == scaffold.ordered_system_ids
     assert tuple(
-        (item.system_id, item.disposition, item.compatibility_reasons)
+        (
+            item.system_id,
+            item.disposition,
+            item.compatibility_reasons,
+            item.superseded_verdicts,
+        )
         for item in decisions
     ) == tuple(
-        (item.system_id, item.disposition, item.compatibility_reasons)
+        (
+            item.system_id,
+            item.disposition,
+            item.compatibility_reasons,
+            item.superseded_verdicts,
+        )
         for item in execution.systems
     )
+
+
+def test_a_planned_system_records_the_child_verdict_its_owner_supersedes() -> None:
+    observation = _observe(
+        ROOT / "examples" / "topologies" / "exit_run_three_drop_columns.mmd"
+    )
+    recorded = tuple(
+        (system, verdict)
+        for system in observation.plan.systems
+        for verdict in system.superseded_verdicts
+    )
+
+    assert recorded
+    for system, verdict in recorded:
+        assert system.disposition is RouteSystemDisposition.PLANNED
+        assert verdict.superseded_by == "convergence-plan"
+        assert verdict.owner in {"exit-turn-plan", "fan-plan"}
+        assert verdict.reason in ROUTE_SYSTEM_COMPATIBILITY_REASONS[verdict.owner]
+    declining_owners = {verdict.owner for _system, verdict in recorded}
+    assert declining_owners == {"exit-turn-plan", "fan-plan"}
 
 
 def test_the_wrap_leadout_pass_moves_only_compatibility_members(
@@ -385,6 +416,16 @@ def test_the_wrap_leadout_pass_moves_only_compatibility_members(
 
     assert moved_dispositions
     assert set(moved_dispositions) == {RouteSystemDisposition.COMPATIBILITY.value}
+
+
+def test_a_compatibility_reason_is_never_also_recorded_as_superseded() -> None:
+    observation = _observe(
+        ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
+    )
+
+    for system in observation.plan.systems:
+        deciding = {reason.owner for reason in system.compatibility_reasons}
+        assert not deciding & {verdict.owner for verdict in system.superseded_verdicts}
 
 
 def test_routing_constructs_only_the_final_emission_execution(

@@ -1943,6 +1943,7 @@ class RouteSystem:
     reservation_ids: tuple[RouteReservationId, ...]
     disposition: RouteSystemDisposition
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+    superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
     def __post_init__(self) -> None:
         compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
@@ -1950,6 +1951,11 @@ class RouteSystem:
             raise ValueError("route-system disposition and compatibility disagree")
         if len(set(self.compatibility_reasons)) != len(self.compatibility_reasons):
             raise ValueError("route-system compatibility reasons are not unique")
+        if len(set(self.superseded_verdicts)) != len(self.superseded_verdicts):
+            raise ValueError("route-system superseded verdicts are not unique")
+        decisive = {reason.owner for reason in self.compatibility_reasons}
+        if any(verdict.owner in decisive for verdict in self.superseded_verdicts):
+            raise ValueError("route-system owner both decides and is superseded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1974,6 +1980,38 @@ class RouteSystemCompatibilityReason:
             != route_system_compatibility_follow_up(self.owner, self.reason)
         ):
             raise ValueError("route-system compatibility metadata is not canonical")
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSystemSupersededVerdict:
+    """One owner verdict another owner's decision overrides on a route system.
+
+    A system's disposition follows the owner that decides it, and a system
+    holding convergence plans is decided by the convergence family alone.  An
+    exit-turn or fan verdict on such a system constrains nothing, because the
+    deciding owner already states the whole system's geometry.  Recording the
+    overridden verdict keeps the decision auditable: a reader can tell a verdict
+    that was weighed and superseded from one that was never consulted.
+    """
+
+    owner: str
+    reason: str
+    superseded_by: str
+
+    def __post_init__(self) -> None:
+        if not all((self.owner, self.reason, self.superseded_by)):
+            raise ValueError("route-system superseded verdict is incomplete")
+        if self.owner == self.superseded_by:
+            raise ValueError("route-system verdict cannot supersede its own owner")
+        for owner, reason in (
+            (self.owner, self.reason),
+            (self.superseded_by, None),
+        ):
+            registered = ROUTE_SYSTEM_COMPATIBILITY_REASONS.get(owner)
+            if registered is None:
+                raise ValueError(f"unregistered compatibility owner {owner}")
+            if reason is not None and reason not in registered:
+                raise ValueError(f"unregistered compatibility reason {owner}:{reason}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -3132,6 +3170,7 @@ def _build_route_plan(
                 (),
                 emission.disposition,
                 emission.compatibility_reasons,
+                emission.superseded_verdicts,
             )
         )
 

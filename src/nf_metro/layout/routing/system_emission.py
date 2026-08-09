@@ -22,6 +22,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemCompatibilityReason,
     RouteSystemDisposition,
     RouteSystemId,
+    RouteSystemSupersededVerdict,
     route_system_compatibility_follow_up,
 )
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
@@ -52,6 +53,7 @@ class RouteSystemEmission:
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
     plan_ids: tuple[str, ...]
     reservation_ids: tuple[str, ...] = ()
+    superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
     def __post_init__(self) -> None:
         compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
@@ -134,6 +136,7 @@ class RouteSystemDispositionDecision:
     system_id: RouteSystemId
     disposition: RouteSystemDisposition
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+    superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
 
 def _plans_by_system(
@@ -213,59 +216,54 @@ def _classify_route_system_dispositions(
 
     decisions: list[RouteSystemDispositionDecision] = []
     for system_id in scaffold.ordered_system_ids:
-        exit_plans = tuple(exit_by_system.get(system_id, ()))
-        system_fans = tuple(fan_by_system.get(system_id, ()))
-        convergences = tuple(convergence_by_system.get(system_id, ()))
         geometry_failure = (
             None
             if member_geometry_failures is None
             else member_geometry_failures.get(system_id)
         )
-        decisive: tuple[tuple[str, tuple[str, ...]], ...]
-        if geometry_failure is not None:
-            decisive = (("member-geometry-plan", (geometry_failure,)),)
-        elif convergences:
-            decisive = (
-                (
-                    "convergence-plan",
-                    tuple(
-                        convergence_plan.legacy_reason
-                        for convergence_plan in convergences
-                        if convergence_plan.disposition is ConvergenceDisposition.LEGACY
-                        and convergence_plan.legacy_reason is not None
-                    ),
-                ),
-            )
-        elif system_fans and all(
-            fan_plan.disposition is FanPlanDisposition.PLANNED
-            for fan_plan in system_fans
-        ):
-            decisive = ()
-        else:
-            decisive = (
-                (
-                    "exit-turn-plan",
-                    tuple(
-                        exit_plan.legacy_reason
-                        for exit_plan in exit_plans
-                        if exit_plan.disposition is ExitTurnDisposition.LEGACY
-                        and exit_plan.legacy_reason is not None
-                    ),
-                ),
-                (
-                    "fan-plan",
-                    tuple(
-                        fan_plan.legacy_reason
-                        for fan_plan in system_fans
-                        if fan_plan.disposition is FanPlanDisposition.LEGACY
-                        and fan_plan.legacy_reason is not None
-                    ),
-                ),
-            )
+        declined = {
+            "member-geometry-plan": ()
+            if geometry_failure is None
+            else (geometry_failure,),
+            "convergence-plan": tuple(
+                convergence_plan.legacy_reason
+                for convergence_plan in convergence_by_system.get(system_id, ())
+                if convergence_plan.disposition is ConvergenceDisposition.LEGACY
+                and convergence_plan.legacy_reason is not None
+            ),
+            "exit-turn-plan": tuple(
+                exit_plan.legacy_reason
+                for exit_plan in exit_by_system.get(system_id, ())
+                if exit_plan.disposition is ExitTurnDisposition.LEGACY
+                and exit_plan.legacy_reason is not None
+            ),
+            "fan-plan": tuple(
+                fan_plan.legacy_reason
+                for fan_plan in fan_by_system.get(system_id, ())
+                if fan_plan.disposition is FanPlanDisposition.LEGACY
+                and fan_plan.legacy_reason is not None
+            ),
+        }
+        decisive, decided_by = _system_decider(
+            geometry_failure is not None,
+            bool(convergence_by_system.get(system_id, ())),
+            tuple(fan_by_system.get(system_id, ())),
+        )
         reasons = tuple(
             dict.fromkeys(
                 _compatibility_reason(owner, reason)
-                for owner, owner_reasons in decisive
+                for owner in decisive
+                for reason in declined[owner]
+                if reason not in _INERT_OWNER_REASONS.get(owner, frozenset())
+            )
+        )
+        superseded = tuple(
+            dict.fromkeys(
+                RouteSystemSupersededVerdict(owner, reason, decided_by)
+                for owner, owner_reasons in declined.items()
+                if decided_by is not None
+                and owner not in decisive
+                and owner != decided_by
                 for reason in owner_reasons
                 if reason not in _INERT_OWNER_REASONS.get(owner, frozenset())
             )
@@ -279,9 +277,39 @@ def _classify_route_system_dispositions(
                     else RouteSystemDisposition.PLANNED
                 ),
                 reasons,
+                superseded,
             )
         )
     return tuple(decisions)
+
+
+def _system_decider(
+    has_geometry_failure: bool,
+    has_convergences: bool,
+    system_fans: tuple[FanPlan, ...],
+) -> tuple[tuple[str, ...], str | None]:
+    """Resolve which owners settle one system's disposition, in precedence order.
+
+    A member holding no geometry decision at all leaves nothing for a later
+    owner to state, so that failure settles the system first.  A convergence
+    states the geometry of every member it joins, and a completely planned fan
+    states its own frame, so where either owns the system the exit-turn and fan
+    verdicts underneath it constrain nothing.  Otherwise the exit-turn and fan
+    owners decide together.
+
+    The second value names the owner whose precedence the first expresses, and
+    so the owner that supersedes every verdict outside it.  It is ``None`` where
+    exit-turn and fan decide jointly, because no verdict is set aside there.
+    """
+    if has_geometry_failure:
+        return ("member-geometry-plan",), "member-geometry-plan"
+    if has_convergences:
+        return ("convergence-plan",), "convergence-plan"
+    if system_fans and all(
+        fan_plan.disposition is FanPlanDisposition.PLANNED for fan_plan in system_fans
+    ):
+        return (), "fan-plan"
+    return ("exit-turn-plan", "fan-plan"), None
 
 
 def build_route_system_emission_execution(
@@ -408,6 +436,7 @@ def build_route_system_emission_execution(
                     else ()
                 ),
                 system_reservation_ids,
+                decision.superseded_verdicts,
             )
         )
 
