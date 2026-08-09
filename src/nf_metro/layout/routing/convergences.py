@@ -1193,11 +1193,16 @@ def _plan_span(graph: MetroGraph, plan: ConvergencePlan) -> GridSpan:
     return grid_span_for_sections(graph, section_ids)
 
 
-def _parallel_segments_conflict(
+def _parallel_run_separation(
     first: tuple[tuple[float, float], tuple[float, float]],
     second: tuple[tuple[float, float], tuple[float, float]],
-    clearance: float,
-) -> bool:
+) -> float | None:
+    """How far apart two runs that share a stretch of one channel stand.
+
+    ``None`` where the two are not parallel on one axis, or where their extents
+    do not overlap: neither pair occupies a common channel, so the distance
+    between their coordinates says nothing about whether they crowd.
+    """
     (first_start, first_end), (second_start, second_end) = first, second
     first_horizontal = abs(first_start[1] - first_end[1]) <= COORD_TOLERANCE
     second_horizontal = abs(second_start[1] - second_end[1]) <= COORD_TOLERANCE
@@ -1206,7 +1211,7 @@ def _parallel_segments_conflict(
     if not (
         first_horizontal and second_horizontal or first_vertical and second_vertical
     ):
-        return False
+        return None
     if first_horizontal:
         separation = abs(first_start[1] - second_start[1])
         first_extent = sorted((first_start[0], first_end[0]))
@@ -1218,7 +1223,16 @@ def _parallel_segments_conflict(
     overlap = min(first_extent[1], second_extent[1]) - max(
         first_extent[0], second_extent[0]
     )
-    return separation < clearance and overlap > COORD_TOLERANCE
+    return separation if overlap > COORD_TOLERANCE else None
+
+
+def _parallel_segments_conflict(
+    first: tuple[tuple[float, float], tuple[float, float]],
+    second: tuple[tuple[float, float], tuple[float, float]],
+    clearance: float,
+) -> bool:
+    separation = _parallel_run_separation(first, second)
+    return separation is not None and separation < clearance
 
 
 def _orthogonal_segments_cross(
@@ -2061,15 +2075,23 @@ def _settle_opposing_landing_channels(
         key=lambda item: (item[2].member_id not in fixed_members, item[0], item[1]),
     )
     settled = list(plans)
-    resident: list[tuple[ConvergenceLanding, _Segment]] = []
-    for plan_rank, landing_rank, original in ordered:
+    resident: list[tuple[int, int]] = []
+    for plan_rank, landing_rank, _seed in ordered:
         landing = settled[plan_rank].landings[landing_rank]
         if landing.member_id not in fixed_members:
-            for obstacle, obstacle_segment in resident:
+            for obstacle_plan_rank, obstacle_landing_rank in resident:
+                # Residents are named by where they sit rather than carried as
+                # snapshots: laning one landing re-seats every landing of its
+                # plan standing on the flank it moved, so a channel is only
+                # whichever one that landing holds when it is read.
+                obstacle = settled[obstacle_plan_rank].landings[obstacle_landing_rank]
+                obstacle_segment = _landing_cross_segment(obstacle, graph)
+                landing = settled[plan_rank].landings[landing_rank]
                 landing_segment = _landing_cross_segment(landing, graph)
                 if (
-                    obstacle.edge.line_id != landing.edge.line_id
+                    obstacle_segment is None
                     or landing_segment is None
+                    or obstacle.edge.line_id != landing.edge.line_id
                     or _direction(*obstacle_segment) is _direction(*landing_segment)
                 ):
                     continue
@@ -2121,11 +2143,11 @@ def _settle_opposing_landing_channels(
                 landings = list(plan.landings)
                 landings[landing_rank] = landing
                 settled[plan_rank] = replace(plan, landings=tuple(landings))
-        seated_segment = _landing_cross_segment(
-            settled[plan_rank].landings[landing_rank], graph
-        )
-        if seated_segment is not None:
-            resident.append((settled[plan_rank].landings[landing_rank], seated_segment))
+        if (
+            _landing_cross_segment(settled[plan_rank].landings[landing_rank], graph)
+            is not None
+        ):
+            resident.append((plan_rank, landing_rank))
     return tuple(settled)
 
 
@@ -2275,6 +2297,27 @@ def _lane_trunk_flanks(
     return settled
 
 
+def _crowding_flank_columns(
+    seated: list[_SeatedFlank], seat: int, mover: _SeatedFlank, lateral: int
+) -> tuple[float, ...]:
+    """The columns every other seated flank *mover* would crowd on its channel.
+
+    A flank stepping aside keeps its extent and changes only its column, so the
+    flanks it has to stay clear of are those sharing its channel whichever lane
+    it ends on: the same lines, running against it, over a stretch of the same
+    run.  Columns are read live from *seated*, which is a bound rather than a
+    snapshot, so each resident is avoided at the column it currently holds.
+    """
+    return tuple(
+        other.segment[0][lateral]
+        for index, other in enumerate(seated)
+        if index != seat
+        and other.line_ids == mover.line_ids
+        and other.direction is not mover.direction
+        and _parallel_run_separation(other.segment, mover.segment) is not None
+    )
+
+
 def _give_way_to(
     settled: list[ConvergencePlan],
     seated: list[_SeatedFlank],
@@ -2286,14 +2329,23 @@ def _give_way_to(
     """Move each resident in *obstacles* one clearance clear of *column*.
 
     Each obstacle arrives with the seat it occupies, so a resident re-seated
-    here is written back where it actually stands.
+    here is written back where it actually stands, and the lane it gives way to
+    clears the flanks already standing on its channel as well as the arrival it
+    is making room for.
     """
     for seat, obstacle in obstacles:
         axis = settled[obstacle.plan_rank].trunk_axis
         if axis is None:
             continue
         lane = _counter_running_flank_lane(
-            axis, obstacle.flank_rank, (column,), clearance, curve_radius
+            axis,
+            obstacle.flank_rank,
+            (
+                column,
+                *_crowding_flank_columns(seated, seat, obstacle, axis.axis.point_index),
+            ),
+            clearance,
+            curve_radius,
         )
         if lane is None:
             continue
@@ -2471,28 +2523,29 @@ def _settle_landing_trunk_flanks(
     for landing_plan in plans:
         landing_plan_rank = plan_rank_by_id[landing_plan.id]
         for landing_rank in range(len(landing_plan.landings)):
-            for plan_rank, trunk_plan in enumerate(tuple(settled)):
-                # Both runs of the pair are read back from `settled`, so a flank
-                # or landing an earlier pair already moved is compared where it
-                # now stands rather than where this sweep first found it.
-                landing = settled[landing_plan_rank].landings[landing_rank]
-                landing_segment = _landing_cross_segment(landing, graph)
-                if landing_segment is None:
-                    break
-                landing_direction = _direction(*landing_segment)
-                landing_horizontal = (
-                    abs(landing_segment[0][1] - landing_segment[1][1])
-                    <= COORD_TOLERANCE
-                )
-                landing_coordinate = (
-                    landing_segment[0][1]
-                    if landing_horizontal
-                    else landing_segment[0][0]
-                )
-                axis = trunk_plan.trunk_axis
-                if trunk_plan.id == landing_plan.id or axis is None:
+            for plan_rank in range(len(settled)):
+                if settled[plan_rank].id == landing_plan.id:
                     continue
                 for flank_rank in (1, 3):
+                    # Both runs of the pair are read back from `settled` on every
+                    # step, so a flank or landing an earlier step re-seats is
+                    # compared where it stands rather than where it was found.
+                    trunk_plan = settled[plan_rank]
+                    axis = trunk_plan.trunk_axis
+                    landing = settled[landing_plan_rank].landings[landing_rank]
+                    landing_segment = _landing_cross_segment(landing, graph)
+                    if landing_segment is None or axis is None:
+                        break
+                    landing_direction = _direction(*landing_segment)
+                    landing_horizontal = (
+                        abs(landing_segment[0][1] - landing_segment[1][1])
+                        <= COORD_TOLERANCE
+                    )
+                    landing_coordinate = (
+                        landing_segment[0][1]
+                        if landing_horizontal
+                        else landing_segment[0][0]
+                    )
                     flank = _trunk_segments(axis)[flank_rank]
                     if (
                         landing.edge.line_id not in trunk_plan.line_ids
@@ -2543,11 +2596,9 @@ def _settle_landing_trunk_flanks(
                             settled[landing_plan_rank], landing_rank, reseated
                         )
                         continue
-                    moved = _move_trunk_flank(trunk_plan, flank_rank, coordinate)
-                    settled[plan_rank] = moved
-                    trunk_plan = moved
-                    axis = moved.trunk_axis
-                    assert axis is not None
+                    settled[plan_rank] = _move_trunk_flank(
+                        trunk_plan, flank_rank, coordinate
+                    )
     return tuple(settled)
 
 

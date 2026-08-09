@@ -18,6 +18,7 @@ import warnings
 from dataclasses import replace
 from itertools import combinations
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -40,9 +41,18 @@ from nf_metro.layout.route_plan import (
     RoutePlan,
     RouteSystemId,
     SharedReferenceId,
+    TurnHandedness,
 )
 from nf_metro.layout.routing.common import Direction
-from nf_metro.layout.routing.convergences import _settle_shared_trunk_channels
+from nf_metro.layout.routing.convergences import (
+    _landing_cross_segment,
+    _parallel_segments_conflict,
+    _settle_landing_trunk_flanks,
+    _settle_opposing_landing_channels,
+    _settle_shared_trunk_channels,
+    _trunk_run_travel_direction,
+    _trunk_segments,
+)
 from nf_metro.parser.route_topology import (
     ConnectorId,
     ConvergenceId,
@@ -429,4 +439,332 @@ def test_a_boxed_in_target_flank_is_given_way_to_by_the_resident() -> None:
     )
     assert abs(columns[0] - columns[1]) >= LANE_CLEARANCE, (
         "the resident gave way, so the two flanks stand a clearance apart"
+    )
+
+
+def _crowded_from_both_sides() -> tuple[ConvergencePlan, ...]:
+    """Three trunks of one line where one resident is asked to give way twice.
+
+    The first plan's flanks stand alone.  The second and third each counter-run
+    it at both ends and can reach no lane of their own, so the first is the one
+    that moves, once for each.
+    """
+
+    def _plan(
+        tag: str,
+        *,
+        coordinate: float,
+        start: float,
+        end: float,
+        flank: float,
+        reach: float,
+    ) -> ConvergencePlan:
+        base = _planned_plan(tag, DemandAxis.X, Direction.R, flank)
+        assert base.trunk_axis is not None
+        return replace(
+            base,
+            trunk_axis=replace(
+                base.trunk_axis,
+                coordinate=coordinate,
+                extent_start=start,
+                extent_end=end,
+                target_flank_coordinate=flank,
+                source_endpoint_coordinate=start + reach,
+                target_endpoint_coordinate=end + reach,
+            ),
+        )
+
+    return (
+        _plan("first", coordinate=50.0, start=0.0, end=300.0, flank=-30.0, reach=5.0),
+        _plan("second", coordinate=20.0, start=-5.0, end=295.0, flank=130.0, reach=2.0),
+        _plan("third", coordinate=20.0, start=-20.0, end=280.0, flank=130.0, reach=2.0),
+    )
+
+
+def test_a_resident_gives_way_to_a_lane_clear_of_the_flanks_around_it() -> None:
+    """A give-way is a lane decision over the whole channel, not over one column.
+
+    A resident asked to make room for an arrival is still standing among every
+    other flank on that channel, so a lane chosen to clear the arrival alone can
+    seat it on top of one of them.  The lane it takes clears them all.
+    """
+    settled = _settle_shared_trunk_channels(_crowded_from_both_sides(), CURVE_RADIUS)
+
+    flanks = [
+        (plan_rank, flank_rank, _trunk_segments(plan.trunk_axis)[flank_rank])
+        for plan_rank, plan in enumerate(settled)
+        if plan.trunk_axis is not None
+        for flank_rank in (1, 3)
+    ]
+    for (left_plan, left_flank, left), (right_plan, right_flank, right) in combinations(
+        flanks, 2
+    ):
+        if _trunk_run_travel_direction(
+            settled[left_plan].trunk_axis, left_flank
+        ) is _trunk_run_travel_direction(settled[right_plan].trunk_axis, right_flank):
+            continue
+        assert not _parallel_segments_conflict(left, right, LANE_CLEARANCE), (
+            f"plan {left_plan} flank {left_flank} and plan {right_plan} flank "
+            f"{right_flank} counter-run inside one clearance"
+        )
+
+
+def _landing_across_both_flanks() -> tuple[
+    tuple[ConvergencePlan, ConvergencePlan], SimpleNamespace
+]:
+    """A landing whose cross run crowds both flanks of one short trunk.
+
+    The trunk turns out of its channel on the same side at each end, so both its
+    flanks travel one way and a single counter-running approach column stands
+    within a radius of each.  Its extent spans less than two curve radii, which
+    is what puts one column inside both.
+    """
+    landing_base = _planned_plan("landing", DemandAxis.X, Direction.R, -30.0)
+    assert landing_base.trunk_axis is not None
+    landing = replace(
+        landing_base.landings[0],
+        corner_handedness=TurnHandedness.CLOCKWISE,
+        approach_axis=DemandAxis.X,
+        approach_direction=Direction.R,
+        join_point=(120.0, -20.0),
+        minimum_runway=16.0,
+    )
+    landing_plan = replace(
+        landing_base,
+        trunk_axis=replace(
+            landing_base.trunk_axis,
+            coordinate=400.0,
+            extent_start=300.0,
+            extent_end=380.0,
+        ),
+        landings=(landing,),
+        primary_trunk_member_id=EmissionMemberId("landing_outgoing"),
+    )
+    trunk_base = _planned_plan("trunk", DemandAxis.X, Direction.R, -30.0)
+    assert trunk_base.trunk_axis is not None
+    trunk_plan = replace(
+        trunk_base,
+        trunk_axis=replace(
+            trunk_base.trunk_axis,
+            coordinate=50.0,
+            extent_start=100.0,
+            extent_end=108.0,
+            source_flank_coordinate=-30.0,
+            target_flank_coordinate=130.0,
+            source_endpoint_coordinate=102.0,
+            target_endpoint_coordinate=110.0,
+        ),
+    )
+    graph = SimpleNamespace(
+        stations={"landing_source": SimpleNamespace(x=0.0, y=100.0)}
+    )
+    return (landing_plan, trunk_plan), graph
+
+
+def test_a_landing_settles_against_each_flank_where_the_last_one_left_it() -> None:
+    """A trunk states a flank at each end, and one landing can crowd both.
+
+    Settling the first pair re-seats the landing, so the column the second pair
+    is settled from is the one the landing now holds: reading the approach once
+    per trunk would settle the second flank against a column nothing stands on
+    and put the landing back beside the first.
+    """
+    plans, graph = _landing_across_both_flanks()
+
+    settled = _settle_landing_trunk_flanks(plans, graph, CURVE_RADIUS)
+
+    approach = _landing_cross_segment(settled[0].landings[0], graph)
+    assert approach is not None
+    axis = settled[1].trunk_axis
+    assert axis is not None
+    for flank_rank in (1, 3):
+        flank = _trunk_segments(axis)[flank_rank]
+        assert not _parallel_segments_conflict(approach, flank, CURVE_RADIUS), (
+            f"the settled approach still crowds the flank at rank {flank_rank}"
+        )
+
+
+def _all_on_line(plan: ConvergencePlan, line_id: str) -> ConvergencePlan:
+    """*plan* with every member of it carrying *line_id*."""
+
+    def relined(edge: ResolvedEdge) -> ResolvedEdge:
+        return ResolvedEdge(edge.source, edge.target, line_id)
+
+    return replace(
+        plan,
+        resolved_member_paths=tuple(
+            tuple(relined(edge) for edge in path) for path in plan.resolved_member_paths
+        ),
+        resolved_member_edges=tuple(
+            relined(edge) for edge in plan.resolved_member_edges
+        ),
+        landings=tuple(
+            replace(item, edge=relined(item.edge)) for item in plan.landings
+        ),
+        outgoing_continuations=tuple(
+            replace(item, edge=relined(item.edge))
+            for item in plan.outgoing_continuations
+        ),
+        endpoint_ownership=tuple(
+            replace(item, edge=relined(item.edge)) for item in plan.endpoint_ownership
+        ),
+        line_ids=(line_id,),
+        lane_order=(line_id,),
+    )
+
+
+def _crossing_approach(
+    plan: ConvergencePlan,
+    *,
+    source_junction_id: str,
+    direction: Direction,
+    join_point: tuple[float, float],
+    runway: float,
+    opening_rows: tuple[float, float] | None = None,
+) -> ConvergenceLanding:
+    """*plan*'s landing restated as an approach crossing a column along X.
+
+    The crossing stands on the column the runway reaches back to from the join.
+    *opening_rows* states that column as an opening turn instead, spanning the
+    two rows given, which is what makes the crossing follow a trunk flank.
+    """
+    opening_column = join_point[0] - direction.sign * runway
+    return replace(
+        plan.landings[0],
+        source_junction_id=source_junction_id,
+        approach_axis=DemandAxis.X,
+        approach_direction=direction,
+        join_point=join_point,
+        corner_handedness=TurnHandedness.CLOCKWISE,
+        minimum_runway=runway,
+        opening_turn_coordinate=None if opening_rows is None else opening_column,
+        opening_turn_segment=None
+        if opening_rows is None
+        else (
+            (opening_column, opening_rows[0]),
+            (opening_column, opening_rows[1]),
+        ),
+    )
+
+
+def _landing_moved_by_a_neighbour() -> tuple[
+    tuple[ConvergencePlan, ...], SimpleNamespace
+]:
+    """Three plans where laning one landing moves a second landing's column.
+
+    The middle plan lands two feeders, one of each line.  Its trunk member's
+    approach shares column 100 with the first plan's landing of the same line
+    and counter-runs it, so laning the pair walks the trunk's source flank off
+    that column.  Its other feeder opens its approach on that same flank, so it
+    travels with it.  The third plan's landing counter-runs that follower and is
+    laned after both.
+    """
+    obstacle_base = _planned_plan("obstacle", DemandAxis.Y, Direction.D, 10.0)
+    obstacle = _all_on_line(
+        replace(
+            obstacle_base,
+            landings=(
+                _crossing_approach(
+                    obstacle_base,
+                    source_junction_id="obstacle_source",
+                    direction=Direction.R,
+                    join_point=(120.0, 10.0),
+                    runway=20.0,
+                ),
+            ),
+        ),
+        "b",
+    )
+
+    shared_base = _planned_plan("shared", DemandAxis.X, Direction.L, 10.0)
+    assert shared_base.trunk_axis is not None
+    trunk_member = EmissionMemberId("shared_trunk")
+    trunk_edge = ResolvedEdge("shared_trunk_source", "shared_merge", "b")
+    shared = replace(
+        shared_base,
+        member_ids=(*shared_base.member_ids, trunk_member),
+        resolved_member_paths=(*shared_base.resolved_member_paths, (trunk_edge,)),
+        resolved_member_edges=(*shared_base.resolved_member_edges, trunk_edge),
+        line_ids=("a", "b"),
+        lane_order=("a", "b"),
+        primary_trunk_member_id=trunk_member,
+        trunk_axis=replace(shared_base.trunk_axis, claimant_member_ids=(trunk_member,)),
+        landings=(
+            _crossing_approach(
+                shared_base,
+                source_junction_id="shared_source",
+                direction=Direction.L,
+                join_point=(60.0, 120.0),
+                runway=40.0,
+                opening_rows=(200.0, 120.0),
+            ),
+            replace(
+                _crossing_approach(
+                    shared_base,
+                    source_junction_id="shared_trunk_source",
+                    direction=Direction.L,
+                    join_point=(70.0, 50.0),
+                    runway=30.0,
+                ),
+                member_id=trunk_member,
+                edge=trunk_edge,
+                lane_rank=1,
+                order=1,
+            ),
+        ),
+        endpoint_ownership=(
+            *shared_base.endpoint_ownership,
+            ConvergenceEndpointOwnership(
+                member_id=trunk_member,
+                edge=trunk_edge,
+                connector_ids=shared_base.connector_ids,
+                role=ConvergenceEndpointRole.TRUNK,
+                endpoint=(70.0, 50.0),
+            ),
+        ),
+    )
+
+    arrival_base = _planned_plan("arrival", DemandAxis.Y, Direction.D, 10.0)
+    arrival = replace(
+        arrival_base,
+        landings=(
+            _crossing_approach(
+                arrival_base,
+                source_junction_id="arrival_source",
+                direction=Direction.L,
+                join_point=(60.0, 180.0),
+                runway=32.0,
+            ),
+        ),
+    )
+
+    graph = SimpleNamespace(
+        stations={
+            "obstacle_source": SimpleNamespace(x=0.0, y=60.0),
+            "shared_source": SimpleNamespace(x=0.0, y=200.0),
+            "shared_trunk_source": SimpleNamespace(x=0.0, y=0.0),
+            "arrival_source": SimpleNamespace(x=0.0, y=100.0),
+        }
+    )
+    return (obstacle, shared, arrival), graph
+
+
+def test_a_landing_lanes_against_the_column_a_resident_now_stands_on() -> None:
+    """A resident of a channel is a seat on it, not the column it arrived on.
+
+    Laning one landing walks its trunk's flank aside, and every landing of that
+    plan opening on the flank travels with it.  A lane measured from the column
+    such a landing held before that move clears nothing, because it seats the
+    arrival on the column the resident actually stands on.
+    """
+    plans, graph = _landing_moved_by_a_neighbour()
+
+    settled = _settle_opposing_landing_channels(plans, graph, (), CURVE_RADIUS)
+
+    resident = _landing_cross_segment(settled[1].landings[0], graph)
+    arrival = _landing_cross_segment(settled[2].landings[0], graph)
+    assert resident is not None and arrival is not None
+    assert not _parallel_segments_conflict(resident, arrival, LANE_CLEARANCE), (
+        f"the arrival took column {arrival[0][0]} against a resident standing on "
+        f"column {resident[0][0]}"
     )
