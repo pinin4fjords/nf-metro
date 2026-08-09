@@ -1411,6 +1411,8 @@ class FanPlan:
     frame: AxisFrame | None
     disposition: FanPlanDisposition
     legacy_reason: str | None
+    ceded_station_ids: tuple[str, ...] = ()
+    """Stations another fan states the seat of, which this plan only reads."""
 
     def __post_init__(self) -> None:
         planned = self.disposition is FanPlanDisposition.PLANNED

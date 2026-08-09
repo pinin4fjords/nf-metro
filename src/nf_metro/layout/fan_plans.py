@@ -94,15 +94,12 @@ class FanTopologyQuery(Protocol):
     ) -> ResolvedConvergenceView | None: ...
 
 
-def claimed_station_ids(plan: FanPlan) -> set[str]:
-    """The stations *plan* states a coordinate for.
+def stated_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* puts a coordinate on itself.
 
-    A fan's ``owned_station_ids`` is the closure of everything its members pass
-    through, which includes junctions and interior path nodes it reads from
-    whoever placed them.  What it *claims* is narrower: the stations on its
-    centreline, the stations its branches lane, the carriers it orders lines at,
-    and the boundaries its frame is asserted against once the routes are
-    emitted.  Only those are coordinates two fans could state differently.
+    These are the seats the fan derives: the stations on its centreline, the
+    stations its branches lane, and the carriers it orders lines at.  Two fans
+    stating one of these state it independently, so only one of them may.
     """
     return {
         *plan.centreline_station_ids,
@@ -112,8 +109,23 @@ def claimed_station_ids(plan: FanPlan) -> set[str]:
             for station_id in branch.lane_station_ids
         ),
         *(carrier.station_id for carrier in plan.offset_carriers),
-        *_fan_boundary_station_ids(plan),
     }
+
+
+def claimed_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* states a coordinate for.
+
+    A fan's ``owned_station_ids`` is the closure of everything its members pass
+    through, which includes junctions and interior path nodes it reads from
+    whoever placed them.  What it *claims* is narrower: the stations it states
+    (see :func:`stated_station_ids`) and the boundaries its frame is asserted
+    against once the routes are emitted.  Only those are coordinates two fans
+    could state differently, and a station another fan owns has been ceded, so
+    this plan reads that seat rather than claiming it.
+    """
+    return (stated_station_ids(plan) | _fan_boundary_station_ids(plan)) - set(
+        plan.ceded_station_ids
+    )
 
 
 def _entry_trunk_has_foreign_head(
@@ -2464,8 +2476,69 @@ def _build_candidate(
     return plan
 
 
+def _cede_read_claims(
+    plans: tuple[FanPlan, ...], ranks: Mapping[str, int]
+) -> tuple[FanPlan, ...]:
+    """Give every contested station one stating fan and let the rest read it.
+
+    A boundary station is checked against its own settled coordinate, so a fan
+    bounded by one states nothing that a fan which lanes, centres or carries it
+    has not already stated: that fan keeps the seat outright.  Where no fan
+    states the station, an order between the two exists only when one fan's fork
+    lies on the other's membership, which makes them stages of one chain rather
+    than rivals; then the topologically earlier fork keeps the seat, by the
+    authored rank of the fork and then the plan id so the choice is total and
+    deterministic.  Every holder that yields cedes the station, which is how it
+    reads a seat instead of restating it.  Two fans that both state one station,
+    and two unchained fans that merely bound one, have no such order and are
+    left to contend.
+    """
+    precedence = {
+        plan.id: (ranks.get(plan.fork_station_id, len(ranks)), str(plan.id))
+        for plan in plans
+    }
+    stated = {plan.id: stated_station_ids(plan) for plan in plans}
+    membership = {plan.id: set(plan.owned_station_ids) for plan in plans}
+    holders: defaultdict[str, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        for station_id in claimed_station_ids(plan):
+            holders[station_id].append(plan)
+    ceded: defaultdict[FanPlanId, set[str]] = defaultdict(set)
+    for station_id, contesting in holders.items():
+        if len(contesting) < 2:
+            continue
+        staters = [plan for plan in contesting if station_id in stated[plan.id]]
+        if len(staters) > 1:
+            continue
+        owner = (
+            staters[0]
+            if staters
+            else min(contesting, key=lambda plan: precedence[plan.id])
+        )
+        for plan in contesting:
+            if plan.id == owner.id:
+                continue
+            if not staters and not (
+                plan.fork_station_id in membership[owner.id]
+                or owner.fork_station_id in membership[plan.id]
+            ):
+                continue
+            ceded[plan.id].add(station_id)
+    return tuple(
+        replace(
+            plan,
+            ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *ceded[plan.id]})),
+        )
+        if plan.id in ceded
+        else plan
+        for plan in plans
+    )
+
+
 def _reject_overlaps(
-    plans: tuple[FanPlan, ...], facts_by_id: Mapping[ConnectorId, AuthoredEdgeFact]
+    plans: tuple[FanPlan, ...],
+    facts_by_id: Mapping[ConnectorId, AuthoredEdgeFact],
+    ranks: Mapping[str, int],
 ) -> tuple[FanPlan, ...]:
     subsumed: set[FanPlanId] = set()
     for inner in plans:
@@ -2482,7 +2555,11 @@ def _reject_overlaps(
         ):
             subsumed.add(inner.id)
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
-    contenders = tuple(plan for plan in plans if plan.legacy_reason is None)
+    contenders = _cede_read_claims(
+        tuple(plan for plan in plans if plan.legacy_reason is None), ranks
+    )
+    ceded_by_id = {plan.id: plan for plan in contenders}
+    plans = tuple(ceded_by_id.get(plan.id, plan) for plan in plans)
     conflicts: set[FanPlanId] = set()
     for index, left in enumerate(contenders):
         left_authored = set(left.authored_edge_ids)
@@ -2621,7 +2698,7 @@ def build_fan_plan_execution(
         for source_id, targets in adjacency.items()
         if len(targets) >= 2
     )
-    plans = _reject_overlaps(plans, {fact.id: fact for fact in facts})
+    plans = _reject_overlaps(plans, {fact.id: fact for fact in facts}, ranks)
     semantic_scaffold = None
     if graph.route_topology is not None:
         connector_groups: list[tuple[ConnectorId, ...]] = []

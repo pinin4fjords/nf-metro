@@ -1128,6 +1128,31 @@ def test_a_fan_that_states_no_geometry_does_not_veto_the_one_that_does() -> None
     assert not claimed_station_ids(by_source["shared"]) & {"a", "b"}
 
 
+def test_chained_fans_give_a_shared_boundary_to_the_earlier_fork() -> None:
+    """A fan that only bounds a station reads the seat the earlier fork keeps.
+
+    Two chained fans reach the same pair of section ports and neither lanes,
+    centres or carries them, so the ports are read on both sides.  The
+    downstream fan cedes them to the fork the trunk reaches first, which leaves
+    one claimant per station and lets both fans hold their frames.
+    """
+    path = ROOT / "examples" / "topologies" / "merge_trunk_over_low_section.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
+    upstream = by_source["ta"]
+    downstream = by_source["i2"]
+
+    shared = {"ingest__exit_right_0", "tall__entry_left_3"}
+    assert downstream.ceded_station_ids == tuple(sorted(shared))
+    assert upstream.ceded_station_ids == ()
+    assert shared.issubset(claimed_station_ids(upstream))
+    assert not shared & claimed_station_ids(downstream)
+    assert shared.issubset(set(downstream.owned_station_ids))
+    assert upstream.disposition is FanPlanDisposition.PLANNED
+    assert downstream.disposition is FanPlanDisposition.PLANNED
+
+
 def test_install_publishes_matching_immutable_query() -> None:
     facts = [_fact("fork", "a", "one", 0), _fact("fork", "b", "two", 1)]
     graph = _graph()
