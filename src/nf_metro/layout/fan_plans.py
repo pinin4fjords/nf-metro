@@ -1591,6 +1591,39 @@ def _lane_station_ids(
     return tuple(station_ids)
 
 
+def _trunk_ends_at_the_fork(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+    local_terminal_ids: Sequence[FanBranchPlanId],
+    structural_trunk_rank: int | None,
+    direction: FlowDirection | None,
+) -> bool:
+    """Whether no leg of an open fan carries its trunk on past the fork.
+
+    A straight fan seats one leg on the trunk's own row because that leg
+    continues the trunk.  Where every leg is a single station that dead-ends
+    inside the fan's section, and they all carry the same bundle of two or more
+    lines, no leg continues anything: the trunk ends at the fork.  Seating one
+    leg there anyway makes every other leg cross it, because the leg that stays
+    holds the whole lane band the others have to leave through.
+
+    Read on the row band a horizontal fan opens into.  A vertical section
+    separates its lines along X, where the section allocator owns the columns
+    the legs stand in rather than the fan.
+    """
+    return (
+        direction is not None
+        and lanes_run_along_y(direction)
+        and len(local_terminal_ids) == len(branches) >= 2
+        and structural_trunk_rank is None
+        and not any(branch.is_trunk_continuation for branch in branches)
+        and all(branch.root_station_id == branch.tail_station_id for branch in branches)
+        and _branch_riding_past_a_sibling(graph, branches) is None
+        and len({frozenset(branch.line_ids) for branch in branches}) == 1
+        and len(branches[0].line_ids) >= 2
+    )
+
+
 def _uncontested_local_terminal_branch_ids(
     graph: MetroGraph,
     node_paths: Sequence[tuple[str, ...]],
@@ -2046,6 +2079,10 @@ def _build_candidate(
             )
             for branch in branch_plans
         ]
+    if authored_join is None and _trunk_ends_at_the_fork(
+        graph, branch_plans, local_terminal_ids, structural_trunk_rank, direction
+    ):
+        appearance_policy = FanAppearancePolicy.SYMMETRIC
     has_vacant_trunk = fan_has_vacant_trunk(
         appearance_policy,
         authored_join,
