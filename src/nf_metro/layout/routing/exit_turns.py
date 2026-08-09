@@ -2215,6 +2215,27 @@ def _apply_cross_plan_fallbacks(
     return plans, references, demands
 
 
+def _handover_line_ids(
+    graph: MetroGraph, station_id: str, line_id: str
+) -> tuple[str, ...]:
+    """The other names one single-track station carries *line_id* under.
+
+    A station with one arrival and one departure is a single piece of track,
+    so where those two edges are authored on different lines the station is
+    where one line hands over to the next.  Both names then belong to the one
+    lane the track occupies; seating them apart would step the run across the
+    marker and spread the marker over a lane nothing travels.
+    """
+    incoming = tuple(graph.edges_to(station_id))
+    outgoing = tuple(graph.edges_from(station_id))
+    if len(incoming) != 1 or len(outgoing) != 1:
+        return ()
+    names = (incoming[0].line_id, outgoing[0].line_id)
+    if line_id not in names:
+        return ()
+    return tuple(dict.fromkeys(name for name in names if name != line_id))
+
+
 def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     fan_execution = graph.fan_plan_execution
@@ -2292,6 +2313,8 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
             for lane in plan.source_lanes:
                 for station_id in lane.station_ids:
                     trial_offsets[(station_id, lane.line_id)] = lane.planned_offset
+                    for partner in _handover_line_ids(graph, station_id, lane.line_id):
+                        trial_offsets[(station_id, partner)] = lane.planned_offset
         validate_linear_entry_frame_ownership(trial_offsets, frame_ownership)
         ctx.station_offsets.clear()
         ctx.station_offsets.update(trial_offsets)
