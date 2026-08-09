@@ -10,7 +10,11 @@ import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
-from nf_metro.layout.route_plan import RouteSystemId
+from nf_metro.layout.route_plan import (
+    ROUTE_SYSTEM_COMPATIBILITY_REASONS,
+    ConvergenceConflictKind,
+    RouteSystemId,
+)
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
     FinalConvergenceFeasibilityError,
@@ -534,3 +538,18 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
             planned_system_ids=frozenset({system_id}),
             include_resources=False,
         )
+
+
+def test_a_pair_settlement_cannot_seat_is_refused_rather_than_re_emitted() -> None:
+    """No settlement conflict names a family the compatibility path could own.
+
+    Every one of these conditions is two runs of one line with no seat between
+    them that keeps both their corner radii.  The established templates draw
+    those runs in the same gap, so emitting the system through them states
+    nothing the plan did not, and loses the attribution the plan carried.  The
+    conditions are therefore refused once every movable decision is frozen,
+    rather than being registered as reasons to change emitter.
+    """
+    registered = frozenset(ROUTE_SYSTEM_COMPATIBILITY_REASONS["convergence-plan"])
+
+    assert not registered & {kind.reason for kind in ConvergenceConflictKind}

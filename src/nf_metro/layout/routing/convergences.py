@@ -3893,9 +3893,6 @@ def build_convergence_plan_execution(
             )
             system_plans = _reconcile_continuation_ownership(system_plans)
             system_plans = _reconcile_landing_handedness(system_plans, graph)
-            conflict = _system_conflict(system_plans, ctx)
-            if conflict is not None:
-                raise UnsupportedConvergenceError(conflict.kind.reason, conflict)
         except UnsupportedConvergenceError as error:
             reason = str(error) or type(error).__name__
             system_plans = tuple(

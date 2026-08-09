@@ -335,12 +335,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, frozenset[str]] = MappingProxyT
                 "covered continuation is absent from its carrier",
                 "direct convergence has no emitted terminal approach",
                 "feeder template declined its member",
-                "planned convergence approaches and trunks have no settlement room",
-                "planned convergence feeder approaches require one shared channel "
-                "decision",
                 "planned convergence member has no routing family",
-                "planned convergence trunks require one shared channel decision",
-                "planned fan arms require opposing opening channels",
                 "planned trunk has no drawable segment",
                 "primary trunk template declined its member",
                 "primary trunk template emitted no shared run",
@@ -375,34 +370,26 @@ class ConvergenceTrunkReason(str, Enum):
 
 
 class ConvergenceConflictKind(Enum):
-    """The class of decision one convergence system could not make.
+    """One pair of runs a convergence system's settlement could not seat apart.
 
-    Each member carries the reason the planner records and the decision the
-    system is short of, so both follow from the check that fired.  Deriving the
-    reason from the kind rather than classifying a reason string keeps the
-    wording a presentation detail of one structural fact.
+    Each is a feasibility condition rather than a compatibility family: the
+    settlement passes decide the channel, the opening and the approach room
+    these name, from the pair rather than from whichever run arrived last.  A
+    system reaching one of them has no seat for either run that keeps both their
+    corner radii, which is room the map does not have rather than a decision the
+    planner declined, so it is refused after every movable decision is frozen
+    instead of being emitted through a second path that has the same room.
     """
 
-    SHARED_TRUNK_CHANNEL = (
-        "planned convergence trunks require one shared channel decision",
-        "plan-driven shared-channel emission (#1658)",
-    )
-    SHARED_APPROACH_CHANNEL = (
-        "planned convergence feeder approaches require one shared channel decision",
-        "plan-driven shared-channel emission (#1658)",
-    )
-    OPPOSING_OPENING_CHANNEL = (
-        "planned fan arms require opposing opening channels",
-        "plan-driven opposing-opening emission (#1658)",
-    )
+    SHARED_TRUNK_CHANNEL = "convergence trunks have no separable channel"
+    SHARED_APPROACH_CHANNEL = "convergence feeder approaches have no separable channel"
+    OPPOSING_OPENING_CHANNEL = "opposing fan arms have no separable opening channel"
     NO_APPROACH_SETTLEMENT_ROOM = (
-        "planned convergence approaches and trunks have no settlement room",
-        "plan-driven chained-convergence emission (#1658)",
+        "a convergence approach and trunk flank have no settlement room"
     )
 
-    def __init__(self, reason: str, owner: str) -> None:
+    def __init__(self, reason: str) -> None:
         self.reason = reason
-        self.owner = owner
 
 
 @dataclass(frozen=True, slots=True)
