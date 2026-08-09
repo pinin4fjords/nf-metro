@@ -26,6 +26,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_x,
     lanes_run_along_y,
     perpendicular_port_sides,
+    point_to_polyline_distance,
     section_lane_sign,
 )
 from nf_metro.layout.labels import tb_left_label_marker_pitch
@@ -91,6 +92,57 @@ class FanTopologyQuery(Protocol):
     def convergence_for_junction(
         self, junction_id: str
     ) -> ResolvedConvergenceView | None: ...
+
+
+def claimed_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* states a coordinate for.
+
+    A fan's ``owned_station_ids`` is the closure of everything its members pass
+    through, which includes junctions and interior path nodes it reads from
+    whoever placed them.  What it *claims* is narrower: the stations on its
+    centreline, the stations its branches lane, the carriers it orders lines at,
+    and the boundaries its frame is asserted against once the routes are
+    emitted.  Only those are coordinates two fans could state differently.
+    """
+    return {
+        *plan.centreline_station_ids,
+        *(
+            station_id
+            for branch in plan.branches
+            for station_id in branch.lane_station_ids
+        ),
+        *(carrier.station_id for carrier in plan.offset_carriers),
+        *_fan_boundary_station_ids(plan),
+    }
+
+
+def _entry_trunk_has_foreign_head(
+    graph: MetroGraph,
+    *,
+    fork_id: str,
+    layout_section_id: str | None,
+    entry_port_ids: Sequence[str],
+    layout_station_ids: Sequence[str],
+) -> bool:
+    """Whether the port feeding the fork also feeds a station the fan does not own.
+
+    A fan anchors its centreline on the trunk arriving at its section, which
+    states that the fork is where that trunk lands.  Where the same port feeds a
+    station outside the fan, the trunk splits before the fork and which of the
+    two heads keeps the trunk's row is the section allocator's decision, not the
+    fan's: asserting it would seat the fork on the sibling.
+    """
+    owned = {fork_id, *layout_station_ids}
+    return any(
+        target not in owned
+        and target not in graph.ports
+        and target not in graph.junction_ids
+        and graph.section_for_station(target) == layout_section_id
+        for port_id in entry_port_ids
+        if (port := graph.ports.get(port_id)) is not None
+        and port.section_id == layout_section_id
+        for target in (edge.target for edge in graph.edges_from(port_id))
+    )
 
 
 def _appearance_centreline_branch_id(
@@ -353,7 +405,7 @@ class FanPlanQuery:
                     branches_by_id[emission.branch_id],
                     emission,
                 )
-            for station_id in plan.owned_station_ids:
+            for station_id in claimed_station_ids(plan):
                 if station_id in by_station:
                     raise ValueError("two planned fans own one station")
                 by_station[station_id] = plan
@@ -704,30 +756,37 @@ def _trunk_followers(
     approach_paths: Iterable[tuple[ResolvedEdge, ...]],
     departure_paths: Iterable[tuple[ResolvedEdge, ...]],
 ) -> tuple[str, ...]:
-    result: list[str] = []
-    for path in approach_paths:
-        nodes = _path_nodes(path)
-        if fork_id not in nodes:
-            continue
-        for station_id in reversed(nodes[: nodes.index(fork_id)]):
-            if station_id in graph.ports or station_id in graph.junction_ids:
+    """The stations the fan's trunk runs through either side of its span.
+
+    A follower is the one station the trunk continues from before the fork, or
+    continues to after the join, and it stands on the fan's centreline.  Where a
+    side reaches more than one station the trunk continues through none of them:
+    those are the arms of a convergence or of a second fan, and putting them all
+    on one centreline would draw them in a single row.
+    """
+
+    def _side(
+        node_id: str, paths: Iterable[tuple[ResolvedEdge, ...]], *, upstream: bool
+    ) -> tuple[str, ...]:
+        found: list[str] = []
+        for path in paths:
+            nodes = _path_nodes(path)
+            if node_id not in nodes:
                 continue
-            if station_id not in result:
-                result.append(station_id)
-            break
-    if join_id is None:
-        return tuple(result)
-    for path in departure_paths:
-        nodes = _path_nodes(path)
-        if join_id not in nodes:
-            continue
-        for station_id in nodes[nodes.index(join_id) + 1 :]:
-            if station_id in graph.ports or station_id in graph.junction_ids:
-                continue
-            if station_id not in result:
-                result.append(station_id)
-            break
-    return tuple(result)
+            index = nodes.index(node_id)
+            walk = reversed(nodes[:index]) if upstream else iter(nodes[index + 1 :])
+            for station_id in walk:
+                if station_id in graph.ports or station_id in graph.junction_ids:
+                    continue
+                if station_id not in found:
+                    found.append(station_id)
+                break
+        return tuple(found) if len(found) == 1 else ()
+
+    return (
+        *_side(fork_id, approach_paths, upstream=True),
+        *(() if join_id is None else _side(join_id, departure_paths, upstream=False)),
+    )
 
 
 def _entry_offset_carriers(
@@ -1878,8 +1937,21 @@ def _build_candidate(
             for station_id in branch.lane_station_ids
         ),
     )
+    if any(
+        set(graph.station_lines(carrier.station_id)) != set(carrier.line_ids)
+        for carrier in offset_carriers
+    ):
+        reason = reason or "offset-carrier-has-unowned-line"
     if len(set(layout_station_ids)) != len(layout_station_ids):
         reason = reason or "overlapping-branch-lane-ownership"
+    if _entry_trunk_has_foreign_head(
+        graph,
+        fork_id=fork_id,
+        layout_section_id=layout_section_id,
+        entry_port_ids=entry_ports,
+        layout_station_ids=layout_station_ids,
+    ):
+        reason = reason or "section-entry-trunk-has-foreign-head"
     if (
         layout_station_ids
         and appearance_lane_sign is not None
@@ -1929,11 +2001,6 @@ def _build_candidate(
         fork_id,
         offset_carriers,
     )
-    if any(
-        set(graph.station_lines(carrier.station_id)) != set(carrier.line_ids)
-        for carrier in offset_carriers
-    ):
-        reason = reason or "offset-carrier-has-unowned-line"
     # A straight-appearance diamond keeps its top branch on the main track, so
     # its lane frame is the section allocator's symmetric one, not the fan's.
     if (
@@ -2116,16 +2183,17 @@ def _reject_overlaps(
         ):
             subsumed.add(inner.id)
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
+    contenders = tuple(plan for plan in plans if plan.legacy_reason is None)
     conflicts: set[FanPlanId] = set()
-    for index, left in enumerate(plans):
+    for index, left in enumerate(contenders):
         left_authored = set(left.authored_edge_ids)
         left_resolved = set(left.resolved_member_edges)
-        left_stations = set(left.owned_station_ids)
-        for right in plans[index + 1 :]:
+        left_stations = claimed_station_ids(left)
+        for right in contenders[index + 1 :]:
             if (
                 left_authored.intersection(right.authored_edge_ids)
                 or left_resolved.intersection(right.resolved_member_edges)
-                or left_stations.intersection(right.owned_station_ids)
+                or left_stations.intersection(claimed_station_ids(right))
             ):
                 conflicts.update((left.id, right.id))
     return tuple(
@@ -2330,17 +2398,18 @@ def _validate_fan_runtime_frame(
     from nf_metro.layout.routing.common import apply_route_offsets
 
     context = f"planned fan {plan.id!s} in route system {plan.system_id!s}"
-    endpoints: dict[tuple[str, str], list[tuple[ResolvedEdge, tuple[float, float]]]] = (
-        defaultdict(list)
-    )
+    endpoints: dict[
+        tuple[str, str],
+        list[tuple[ResolvedEdge, tuple[float, float], tuple[tuple[float, float], ...]]],
+    ] = defaultdict(list)
     for edge, route in bound_routes.items():
         if not route.points:
             raise FanRouteInvariantError(
                 f"{context} emitted an empty final route for {edge!r}"
             )
         points = tuple(apply_route_offsets(route, station_offsets))
-        endpoints[(edge.source, edge.line_id)].append((edge, points[0]))
-        endpoints[(edge.target, edge.line_id)].append((edge, points[-1]))
+        endpoints[(edge.source, edge.line_id)].append((edge, points[0], points))
+        endpoints[(edge.target, edge.line_id)].append((edge, points[-1], points))
 
     uses_one_boundary_frame = not (
         plan.appearance_policy is FanAppearancePolicy.STRAIGHT
@@ -2376,7 +2445,7 @@ def _validate_fan_runtime_frame(
                 )
                 if any(
                     abs(point[secondary_axis] - expected) > COORD_TOLERANCE_FINE
-                    for _edge, point in incident
+                    for _edge, point, _points in incident
                 ):
                     raise FanRouteInvariantError(
                         f"{context} drifted from its planned boundary frame at "
@@ -2392,10 +2461,20 @@ def _validate_fan_runtime_frame(
             if station_id == plan.fork_station_id and plan.frame is not None
             else (0, 1)
         )
+        # A branch leaving a junction can open with a lead-in seated back along
+        # the run that feeds it, so its end stands short of the station while
+        # drawing over a sibling's stroke rather than away from it.
         if any(
-            abs(point[axis] - reference[axis]) > COORD_TOLERANCE_FINE
-            for _edge, point in incident[1:]
-            for axis in axes
+            any(
+                abs(point[axis] - reference[axis]) > COORD_TOLERANCE_FINE
+                for axis in axes
+            )
+            and all(
+                point_to_polyline_distance(point, other) > COORD_TOLERANCE_FINE
+                for _other_edge, _other_point, other in incident
+                if other is not points
+            )
+            for _edge, point, points in incident[1:]
         ):
             raise FanRouteInvariantError(
                 f"{context} has a final route frame discontinuity at "
@@ -2423,7 +2502,7 @@ def _validate_fan_runtime_frame(
         (line_id, point)
         for (station_id, line_id), incident in endpoints.items()
         if station_id == plan.fork_station_id
-        for _edge, point in incident
+        for _edge, point, _points in incident
     )
     if carrier is None:
         for line_id, point in fork_endpoints:
@@ -2457,8 +2536,15 @@ def validate_fan_route_emissions(
     station_offsets: Mapping[tuple[str, str], float] | None = None,
     *,
     planned_system_ids: frozenset[RouteSystemId] | None = None,
+    covered_edges: frozenset[ResolvedEdge] = frozenset(),
 ) -> None:
-    """Bind every planned fan member and exclusive emitter exactly once."""
+    """Bind every planned fan member and exclusive emitter exactly once.
+
+    A leg in *covered_edges* is one another member draws end to end, so it
+    carries no geometry of its own: a fan whose path runs over it reads it
+    rather than emitting it, and binding it to its carrier would state the
+    carrier's far endpoint at this leg's own.
+    """
 
     def emitted_plan(plan: FanPlan) -> bool:
         return plan.owns_geometry and (
@@ -2479,6 +2565,8 @@ def validate_fan_route_emissions(
         bound_routes: dict[ResolvedEdge, RoutedPath] = {}
         for edge in _fan_runtime_edges(plan):
             bound = routes_by_edge.get(edge, ())
+            if not bound and edge in covered_edges:
+                continue
             if len(bound) != 1:
                 raise RuntimeError(
                     f"planned fan {plan.id!s} in route system {plan.system_id!s} "

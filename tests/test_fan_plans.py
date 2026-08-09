@@ -22,6 +22,7 @@ from nf_metro.layout.fan_plans import (
     FanPlanQuery,
     FanTopologyQuery,
     build_fan_plan_execution,
+    claimed_station_ids,
     fan_appearance_lane_sign,
     install_fan_plan_execution,
     validate_fan_route_emissions,
@@ -1091,7 +1092,15 @@ def test_off_track_member_falls_back_as_one_complete_group() -> None:
     assert execution.query.planned_for_fork("fork") is None
 
 
-def test_overlapping_fans_are_both_rejected() -> None:
+def test_a_fan_that_states_no_geometry_does_not_veto_the_one_that_does() -> None:
+    """Only a fan that claims a coordinate can contend for it.
+
+    Two chained fans pass through each other's stations, but a fan that
+    declines states no frame, lanes or carriers, so it holds nothing to contend
+    with; and the stations both merely travel through carry no claim either.
+    The downstream fan is planned, and the reason the upstream one declined is
+    its own rather than the contest.
+    """
     facts = [
         _fact("outer", "a", "one", 0),
         _fact("outer", "b", "two", 1),
@@ -1109,15 +1118,15 @@ def test_overlapping_fans_are_both_rejected() -> None:
         minimum_runway=20.0,
     )
 
-    assert len(execution.plans) == 2
-    assert {plan.authored_source_id for plan in execution.plans} == {"outer", "shared"}
-    assert all(
-        plan.disposition is FanPlanDisposition.LEGACY
-        and plan.legacy_reason == "overlapping-fan-ownership"
-        for plan in execution.plans
+    by_source = {plan.authored_source_id: plan for plan in execution.plans}
+    assert set(by_source) == {"outer", "shared"}
+    assert by_source["outer"].disposition is FanPlanDisposition.LEGACY
+    assert by_source["outer"].legacy_reason == "straight-diamond-layout-owns-geometry"
+    assert by_source["shared"].disposition is FanPlanDisposition.PLANNED
+    assert set(by_source["outer"].owned_station_ids) & set(
+        by_source["shared"].owned_station_ids
     )
-    assert execution.query.planned_for_fork("outer") is None
-    assert execution.query.planned_for_fork("shared") is None
+    assert not claimed_station_ids(by_source["shared"]) & {"a", "b"}
 
 
 def test_install_publishes_matching_immutable_query() -> None:

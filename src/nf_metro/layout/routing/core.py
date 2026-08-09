@@ -147,6 +147,7 @@ from nf_metro.parser.model import (
     LineSpread,
     MetroGraph,
 )
+from nf_metro.parser.route_topology import ResolvedEdge
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import (
@@ -562,6 +563,13 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "covered merge-hop removal")
     if observer is not None:
         observer.record_covered_merge_hops(covered_merge_hops)
+    covered_edges = frozenset(
+        ResolvedEdge(*covered_key) for covered_key, _carrier in covered_merge_hops
+    ) | (
+        system_execution.covered_edges()
+        if system_execution is not None
+        else frozenset()
+    )
 
     if system_execution is not None:
         from nf_metro.layout.routing.system_emission import (
@@ -585,6 +593,7 @@ def _route_edges(  # noqa: C901
         routes,
         ctx.station_offsets if validate_final_route_frames else None,
         planned_system_ids=planned_system_ids,
+        covered_edges=covered_edges,
     )
     from nf_metro.layout.routing.convergences import validate_convergence_plans
 

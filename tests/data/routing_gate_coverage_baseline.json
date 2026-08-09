@@ -651,7 +651,6 @@
   "normalize.py::if validate_planned_axes:::#1",
   "normalize.py::or abs(p1[0] - p2[0]) > COORD_TOLERANCE::#1",
   "normalize.py::or abs(p2[1] - p3[1]) > COORD_TOLERANCE::#1",
-  "offsets.py::and abs(owned - assignments[line_id]) > _OFFSET_EQ_TOLERANCE::#1",
   "offsets.py::elif feeding_exit != edge.source:::#1",
   "offsets.py::for _ in range(len(graph.stations) + 1):::#1",
   "offsets.py::for _ in range(len(seed_lines)):::#1",

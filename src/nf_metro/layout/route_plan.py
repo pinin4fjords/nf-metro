@@ -475,6 +475,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "off-track-layout-owns-fan-geometry",
                     "rail-layout-owns-fan-geometry",
                     "same-line-open-fan-layout-owns-geometry",
+                    "section-entry-trunk-has-foreign-head",
                     "straight-diamond-layout-owns-geometry",
                 ),
                 _reasons(
