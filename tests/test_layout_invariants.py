@@ -484,6 +484,18 @@ def _section_lr_port_ys(graph: MetroGraph, section) -> list[float]:
     return [st.y for _pid, st in _iter_lr_ports(graph, section)]
 
 
+def _first_lr_port_marker_cy(
+    graph: MetroGraph,
+    section,
+    offsets: dict[tuple[str, str], float],
+) -> float | None:
+    """Drawn centre of the first LR port's bundle, or ``None`` without one."""
+    for pid, st in _iter_lr_ports(graph, section):
+        line_offs = [offsets.get((pid, lid), 0.0) for lid in graph.station_lines(pid)]
+        return st.y + (min(line_offs) + max(line_offs)) / 2 if line_offs else st.y
+    return None
+
+
 def _first_lr_port(graph: MetroGraph, section) -> tuple[str, float] | None:
     """``(id, y)`` of the section's first LR port -- the trunk anchor
     :func:`_section_lr_port_ys` returns first -- or ``None``."""
@@ -1540,10 +1552,12 @@ def test_symfan_pairs_share_y(fixture):
         cols = _section_fan_columns(graph, sec)
         # A symmetric fork fed straight from the entry port leaves the trunk
         # row empty (its dead-end continuations are drawn onto the branch
-        # tracks), so the trunk is the LR port Y, not a station's cy.
+        # tracks), so the trunk is the LR port's own marker cy rather than a
+        # station's.  It must be a cy and not the raw port Y: a multi-line port
+        # carries the same bundle the pair does, and the gaps compared below
+        # are measured between drawn centres.
         if _section_has_symmetric_entry_fork(graph, sec):
-            port_ys = _section_lr_port_ys(graph, sec)
-            trunk_cy = port_ys[0] if port_ys else None
+            trunk_cy = _first_lr_port_marker_cy(graph, sec, offsets)
         else:
             trunk_cy = _section_trunk_marker_cy(graph, sec, offsets)
         if trunk_cy is None:
