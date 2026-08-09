@@ -1095,7 +1095,14 @@ class ExitLaneTransition:
 
 @dataclass(frozen=True, slots=True)
 class ExitTurnAxis:
-    """One shared turn axis assigned to every arm of one source lane."""
+    """One turn axis, shared by the arms of one source lane on one ladder.
+
+    ``pinning_group_id`` names the destination whose structure fixes this axis
+    where several destinations pin the same heading, and is ``None`` on the one
+    free ladder a heading otherwise carries. Axes ladder at the plan spacing
+    only against their own ladder-mates: separately pinned axes answer to their
+    destinations, not to each other.
+    """
 
     id: ExitTurnAxisId
     line_id: str
@@ -1106,6 +1113,7 @@ class ExitTurnAxis:
     fixed_anchor_id: str | None
     fixed_anchor_coordinate: float | None
     fixed_anchor_offset: float | None
+    pinning_group_id: EndpointGroupId | None
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
 
     def __post_init__(self) -> None:
@@ -3728,13 +3736,28 @@ def _validate_planned_exit_turn_resources(
     turning_assignments = tuple(
         item for item in exit_turn_plan.assignments if item.axis_id is not None
     )
-    cohort_ranks: dict[tuple[Direction, Direction], set[int]] = defaultdict(set)
+    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
+    turning_axis: dict[EmissionMemberId, ExitTurnAxis] = {}
+    for assignment in turning_assignments:
+        named = (
+            axis_by_id.get(assignment.axis_id)
+            if assignment.axis_id is not None
+            else None
+        )
+        if named is None:
+            raise ValueError("exit-turn assignment names an unknown axis")
+        turning_axis[assignment.member_id] = named
+    cohort_ranks: dict[
+        tuple[Direction, Direction, EndpointGroupId | None], set[int]
+    ] = defaultdict(set)
     for assignment in turning_assignments:
         if assignment.run_direction is None or assignment.turn_direction is None:
             raise ValueError("exit-turn assignment has incomplete directions")
-        cohort_ranks[assignment.run_direction, assignment.turn_direction].add(
-            assignment.source_lane_rank
-        )
+        cohort_ranks[
+            assignment.run_direction,
+            assignment.turn_direction,
+            turning_axis[assignment.member_id].pinning_group_id,
+        ].add(assignment.source_lane_rank)
     ordered_turn_span = max(
         ((len(ranks) - 1) * exit_turn_plan.spacing for ranks in cohort_ranks.values()),
         default=0.0,
@@ -3773,6 +3796,7 @@ def _validate_planned_exit_turn_resources(
                 assignment.run_direction,
                 assignment.turn_direction,
                 assignment.source_lane_rank,
+                turning_axis[assignment.member_id].pinning_group_id,
             )
             for assignment in turning_assignments
         }
@@ -3790,14 +3814,17 @@ def _validate_planned_exit_turn_resources(
         )
     ):
         raise ValueError("exit-turn source lanes do not preserve travel order")
-    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
-    for (run_direction, turn_direction), _ranks in cohort_ranks.items():
+    for (
+        run_direction,
+        turn_direction,
+        pinning_group_id,
+    ), _ranks in cohort_ranks.items():
         cohort_axes = tuple(
-            axis_by_id[assignment.axis_id]
+            turning_axis[assignment.member_id]
             for assignment in turning_assignments
             if assignment.run_direction is run_direction
             and assignment.turn_direction is turn_direction
-            and assignment.axis_id is not None
+            and turning_axis[assignment.member_id].pinning_group_id == pinning_group_id
         )
         unique_axes = tuple(dict.fromkeys(cohort_axes))
         unique_axes = tuple(sorted(unique_axes, key=lambda axis: axis.rank))
