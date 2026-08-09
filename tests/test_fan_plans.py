@@ -1189,22 +1189,122 @@ def test_two_fans_landing_on_one_port_both_state_it() -> None:
 def test_a_seat_read_from_a_declined_fan_goes_back_to_its_reader() -> None:
     """A fan cannot read a seat from a fan that ends up declining it.
 
-    One fan reads two boundary stations from a neighbour that loses its own
-    contest elsewhere.  A declined fan states nothing, so there is no seat to
-    read: the reader takes both stations back, and having them back puts it in
-    contention with that same neighbour.
+    Two fans forking at one junction both reach the exit port feeding it, and
+    the earlier of them would keep the seat.  It loses its own contest over the
+    ports its branches land on, and a declined fan states nothing: the reader
+    takes the port back, and having it back puts both fans in contention.
+    """
+    path = ROOT / "examples" / "topologies" / "paired_input_fan_branch_tree.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
+    reader, declined = by_source["convert_b"], by_source["convert_a"]
+
+    shared = "input_sec__exit_right_0"
+    assert declined.legacy_reason == "overlapping-fan-ownership"
+    assert reader.ceded_station_ids == ()
+    assert shared in claimed_station_ids(reader)
+    assert reader.legacy_reason == "overlapping-fan-ownership"
+
+
+def test_a_fan_declines_when_its_anchor_disagrees_with_the_lane_it_reads() -> None:
+    """A centreline stated in two places is no centreline at all.
+
+    The fan anchors its centreline on the exit port its trunk branch runs to,
+    and the lane order seats that branch a pitch off the centreline: the two
+    readings of where the centreline lies disagree, so the fan states no frame
+    and the layout that seats the peel-offs either side of the trunk keeps them.
+    """
+    path = ROOT / "examples" / "topologies" / "paired_input_fan_branch_tree.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    plan = next(item for item in graph.fan_plans if item.fork_station_id == "pairs_in")
+
+    assert plan.legacy_reason == "centreline-anchor-off-its-branch-lane"
+    trunk_y = graph.stations["stage_a1"].y
+    assert graph.stations["convert_a"].y < trunk_y < graph.stations["convert_b"].y
+
+
+def test_a_fan_hands_a_seam_edge_to_the_neighbour_that_draws_it() -> None:
+    """A seam edge one fan draws as a leg is handed off by the fan that reads it.
+
+    The upstream fan carries the exit trunk on a branch, and the junction fan
+    downstream reaches that same edge as its entry seam.  The fan that draws the
+    edge keeps the route on it; the reader records the hand-off, holds the edge
+    on its membership as a bound of its frame, and expects no emission member of
+    its own there.  Both fans hold their frames.
     """
     path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
-    by_source = {plan.authored_source_id: plan for plan in graph.fan_plans}
-    reader, declined = by_source["t"], by_source["a"]
+    by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
+    owner, reader = by_fork["a"], by_fork["__junction_4"]
 
-    shared = {"src__exit_right_0", "top_sec__entry_left_1"}
-    assert declined.legacy_reason == "overlapping-fan-ownership"
-    assert reader.ceded_station_ids == ()
-    assert shared.issubset(claimed_station_ids(reader))
-    assert reader.legacy_reason == "overlapping-fan-ownership"
+    seam = next(
+        edge
+        for edge in reader.resolved_member_edges
+        if edge.source == "src__exit_right_0" and edge.target == "__junction_4"
+    )
+    assert reader.ceded_member_edges == (seam,)
+    assert seam in fan_plans.drawn_member_edges(owner)
+    assert seam not in fan_plans.drawn_member_edges(reader)
+    assert seam not in fan_plans.claimed_member_edges(reader)
+    assert seam in fan_plans.claimed_member_edges(owner)
+    assert seam in reader.resolved_seam_edges
+    owned = {
+        expectation.edge: expectation.member_id
+        for expectation in owner.route_expectations
+    }
+    read = {
+        expectation.edge: expectation.member_id
+        for expectation in reader.route_expectations
+    }
+    assert owned[seam] is not None
+    assert read[seam] is None
+    assert owned[seam] in owner.member_ids
+    assert owned[seam] not in reader.member_ids
+    assert owner.disposition is FanPlanDisposition.PLANNED
+    assert reader.disposition is FanPlanDisposition.PLANNED
+
+
+def test_a_fan_may_only_hand_off_a_seam_it_does_not_draw() -> None:
+    """The hand-off is declared: a ceded edge is a seam, and it sheds its member.
+
+    Ceding a leg would hand off geometry the fan draws itself, and keeping an
+    emission member on a ceded seam would leave two fans routing one edge.  Both
+    are rejected by name.
+    """
+    path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    reader = next(
+        plan for plan in graph.fan_plans if plan.fork_station_id == "__junction_4"
+    )
+    leg = next(
+        edge
+        for edge in reader.resolved_member_edges
+        if edge not in reader.resolved_seam_edges
+    )
+
+    with pytest.raises(ValueError, match="cedes an edge it draws rather than a seam"):
+        replace(reader, ceded_member_edges=(*reader.ceded_member_edges, leg))
+
+    ceded = reader.ceded_member_edges[0]
+    borrowed = next(
+        expectation.member_id
+        for expectation in reader.route_expectations
+        if expectation.member_id is not None
+    )
+    with pytest.raises(ValueError, match="expects a route it hands off"):
+        replace(
+            reader,
+            route_expectations=tuple(
+                replace(expectation, member_id=borrowed)
+                if expectation.edge == ceded
+                else expectation
+                for expectation in reader.route_expectations
+            ),
+        )
 
 
 def test_install_publishes_matching_immutable_query() -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from itertools import pairwise
 from types import MappingProxyType
@@ -128,6 +129,32 @@ def claimed_station_ids(plan: FanPlan) -> set[str]:
     return (stated_station_ids(plan) | _fan_boundary_station_ids(plan)) - set(
         plan.ceded_station_ids
     )
+
+
+def drawn_member_edges(plan: FanPlan) -> set[ResolvedEdge]:
+    """The member edges *plan* draws a route on itself.
+
+    A fan draws the legs of its branches.  The seams either side of them are
+    edges it reaches to see where its geometry meets its neighbours', and a
+    neighbouring fan may draw the very same edge as one of its legs.
+    """
+    return {
+        edge
+        for branch in plan.branches
+        for path in branch.resolved_paths
+        for edge in path
+    }
+
+
+def claimed_member_edges(plan: FanPlan) -> set[ResolvedEdge]:
+    """The member edges *plan* answers for the route on.
+
+    Every leg it draws, plus the seams it has not handed to the fan that draws
+    them.  A ceded seam bounds the fan's frame like any other member, but its
+    route belongs to its owner, so two fans holding one such edge are not
+    rivals for it.
+    """
+    return set(plan.resolved_member_edges) - set(plan.ceded_member_edges)
 
 
 def _entry_trunk_has_foreign_head(
@@ -486,7 +513,10 @@ class FanPlanQuery:
                 if edge_id in by_authored_edge:
                     raise ValueError("two planned fans own one authored edge")
                 by_authored_edge[edge_id] = plan
+            ceded_edges = set(plan.ceded_member_edges)
             for edge in plan.resolved_member_edges:
+                if edge in ceded_edges:
+                    continue
                 if edge in structural_by_resolved_edge:
                     raise ValueError("two planned fans own one resolved edge")
                 structural_by_resolved_edge[edge] = plan
@@ -1474,6 +1504,37 @@ def _centreline_port_ids(
             continue
         result.append(port_id)
     return tuple(dict.fromkeys(result))
+
+
+def _centreline_anchor_reason(
+    anchor: FanCentrelineAnchor | None,
+    branches: tuple[FanBranchPlan, ...],
+) -> str | None:
+    """Why the fan cannot state a centreline from *anchor*, if it cannot.
+
+    The anchor reads the centreline off one station's settled coordinate.  Where
+    that station rides a single branch, that branch's lane says where the
+    centreline lies too, so an anchor offset that disagrees with the lane is one
+    frame stated twice in two places.
+    """
+    if anchor is None:
+        return "missing-centreline-anchor"
+    riding = [
+        branch
+        for branch in branches
+        if any(
+            anchor.station_id in (edge.source, edge.target)
+            for path in branch.resolved_paths
+            for edge in path
+        )
+    ]
+    if (
+        len(riding) == 1
+        and riding[0].lane_offset is not None
+        and riding[0].lane_offset != anchor.lane_offset
+    ):
+        return "centreline-anchor-off-its-branch-lane"
+    return None
 
 
 def _centreline_anchor(
@@ -2498,12 +2559,10 @@ def _build_candidate(
         if reason is None and needs_centreline_anchor
         else None
     )
-    if (
-        reason is None
-        and needs_centreline_anchor
-        and candidate_centreline_anchor is None
-    ):
-        reason = "missing-centreline-anchor"
+    if reason is None and needs_centreline_anchor:
+        reason = _centreline_anchor_reason(
+            candidate_centreline_anchor, tuple(branch_plans)
+        )
     planned = reason is None
     if not planned:
         route_emissions = ()
@@ -2635,16 +2694,70 @@ def _cede_read_claims(
     return dict(read_from)
 
 
+def _cede_read_edges(
+    plans: tuple[FanPlan, ...],
+) -> dict[FanPlanId, dict[ResolvedEdge, FanPlanId]]:
+    """Name, per plan, the seam edges it reads and the fan that draws them.
+
+    A seam is an edge a fan reaches to meet its neighbours, not one it draws, so
+    a fan holding an edge as a seam states no route another fan carrying it on a
+    branch has not already stated: that fan draws it and every reader hands the
+    route off.  Two fans drawing one edge state it independently and are left to
+    contend.
+    """
+    drawn = {plan.id: drawn_member_edges(plan) for plan in plans}
+    holders: defaultdict[ResolvedEdge, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        for edge in claimed_member_edges(plan):
+            holders[edge].append(plan)
+    read_from: defaultdict[FanPlanId, dict[ResolvedEdge, FanPlanId]] = defaultdict(dict)
+    for edge, contesting in holders.items():
+        if len(contesting) < 2:
+            continue
+        drawers = [plan for plan in contesting if edge in drawn[plan.id]]
+        if len(drawers) != 1:
+            continue
+        owner = drawers[0]
+        for plan in contesting:
+            if plan.id != owner.id:
+                read_from[plan.id][edge] = owner.id
+    return dict(read_from)
+
+
 def _seat_cessions(
-    plan: FanPlan, read_from: Mapping[FanPlanId, Mapping[str, FanPlanId]]
+    plan: FanPlan,
+    read_from: Mapping[FanPlanId, Mapping[str, FanPlanId]],
+    edge_read_from: Mapping[FanPlanId, Mapping[ResolvedEdge, FanPlanId]],
 ) -> FanPlan:
-    """Record on *plan* the seats it reads rather than states."""
+    """Record on *plan* the seats and seam routes it reads rather than states."""
     ceded = read_from.get(plan.id)
-    if not ceded:
+    ceded_edges = edge_read_from.get(plan.id)
+    if not ceded and not ceded_edges:
         return plan
     return replace(
-        plan, ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *ceded}))
+        plan,
+        ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *(ceded or ())})),
+        ceded_member_edges=tuple(
+            edge
+            for edge in plan.resolved_member_edges
+            if edge in plan.ceded_member_edges or edge in (ceded_edges or ())
+        ),
     )
+
+
+def _kept_cessions(
+    cessions: Mapping[FanPlanId, Mapping[_T, FanPlanId]],
+    declined: AbstractSet[FanPlanId],
+) -> dict[FanPlanId, dict[_T, FanPlanId]]:
+    """Drop every cession made to a plan in *declined*."""
+    return {
+        plan_id: {
+            item: owner_id
+            for item, owner_id in ceded.items()
+            if owner_id not in declined
+        }
+        for plan_id, ceded in cessions.items()
+    }
 
 
 def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> set[FanPlanId]:
@@ -2652,12 +2765,12 @@ def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> set[FanPlanId]:
     conflicts: set[FanPlanId] = set()
     for index, left in enumerate(contenders):
         left_authored = set(left.authored_edge_ids)
-        left_resolved = set(left.resolved_member_edges)
+        left_resolved = claimed_member_edges(left)
         left_stations = claimed_station_ids(left)
         for right in contenders[index + 1 :]:
             if (
                 left_authored.intersection(right.authored_edge_ids)
-                or left_resolved.intersection(right.resolved_member_edges)
+                or left_resolved.intersection(claimed_member_edges(right))
                 or left_stations.intersection(claimed_station_ids(right))
             ):
                 conflicts.update((left.id, right.id))
@@ -2686,31 +2799,21 @@ def _reject_overlaps(
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
     candidates = tuple(plan for plan in plans if plan.legacy_reason is None)
     read_from = _cede_read_claims(candidates, ranks)
-    # A seat can only be read from a fan that goes on to state it, so a cession
-    # to a plan that itself ends up declined is void and its reader takes the
-    # station back.  Taking one back only ever adds contention, so the declined
-    # set grows with each round and the loop settles.
+    edge_read_from = _cede_read_edges(candidates)
+    # A seat or a seam route can only be read from a fan that goes on to state
+    # it, so a cession to a plan that itself ends up declined is void and its
+    # reader takes the station or edge back.  Taking one back only ever adds
+    # contention, so the declined set grows with each round and the loop settles.
     while True:
-        contenders = tuple(_seat_cessions(plan, read_from) for plan in candidates)
+        contenders = tuple(
+            _seat_cessions(plan, read_from, edge_read_from) for plan in candidates
+        )
         conflicts = _claim_conflicts(contenders)
-        void = {
-            plan_id: {
-                station_id
-                for station_id, owner_id in ceded.items()
-                if owner_id in conflicts
-            }
-            for plan_id, ceded in read_from.items()
-        }
-        if not any(void.values()):
+        kept_stations = _kept_cessions(read_from, conflicts)
+        kept_edges = _kept_cessions(edge_read_from, conflicts)
+        if kept_stations == read_from and kept_edges == edge_read_from:
             break
-        read_from = {
-            plan_id: {
-                station_id: owner_id
-                for station_id, owner_id in ceded.items()
-                if station_id not in void[plan_id]
-            }
-            for plan_id, ceded in read_from.items()
-        }
+        read_from, edge_read_from = kept_stations, kept_edges
     seated = {plan.id: plan for plan in contenders}
     return tuple(
         _legacy(seated.get(plan.id, plan), "overlapping-fan-ownership")
@@ -2763,7 +2866,10 @@ def _bind_semantic_ownership(
         )
         for branch in plan.branches
     )
-    member_ids = member_ids_for_edges(plan.resolved_member_edges)
+    ceded_edges = set(plan.ceded_member_edges)
+    member_ids = member_ids_for_edges(
+        edge for edge in plan.resolved_member_edges if edge not in ceded_edges
+    )
     reference_id: SharedReferenceId | None = None
     demand_ids: tuple[DemandId, ...] = ()
     if plan.owns_geometry and system_id is not None:
@@ -2784,7 +2890,11 @@ def _bind_semantic_ownership(
         tuple(
             replace(
                 expectation,
-                member_id=scaffold.member_id_by_edge.get(expectation.edge),
+                member_id=(
+                    None
+                    if expectation.edge in ceded_edges
+                    else scaffold.member_id_by_edge.get(expectation.edge)
+                ),
             )
             for expectation in plan.route_expectations
         )

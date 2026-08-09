@@ -394,7 +394,8 @@ _OVERLAPPING_FAN_OWNERSHIP = CompatibilityFamily(
 )
 _NO_PLANNED_FRAME_FOR_FAN_SHAPE = CompatibilityFamily(
     "The fan is completely resolved, and the planner has no frame for the shape "
-    "it takes: this direction, or this line transition across a branch.",
+    "it takes: this direction, this line transition across a branch, or a lane "
+    "order that seats the centreline away from the trunk it is anchored to.",
     _ISSUE.format(1711),
 )
 _CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
@@ -535,6 +536,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(
                     _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
+                    "centreline-anchor-off-its-branch-lane",
                     "unsupported-fan-direction",
                 ),
             ),
@@ -1461,6 +1463,8 @@ class FanPlan:
     legacy_reason: str | None
     ceded_station_ids: tuple[str, ...] = ()
     """Stations another fan states the seat of, which this plan only reads."""
+    ceded_member_edges: tuple[ResolvedEdge, ...] = ()
+    """Seam edges another fan draws the route on, which this plan only reads."""
 
     def __post_init__(self) -> None:
         planned = self.disposition is FanPlanDisposition.PLANNED
@@ -1533,28 +1537,6 @@ class FanPlan:
         )
         if self.resolved_member_edges != expected_member_edges:
             raise ValueError("fan resolved edge membership is not canonical")
-        expectation_edges = tuple(item.edge for item in self.route_expectations)
-        if self.disposition is FanPlanDisposition.PLANNED:
-            if expectation_edges != self.resolved_member_edges:
-                raise ValueError("planned fan route expectations are incomplete")
-        elif self.route_expectations:
-            raise ValueError("legacy fan owns route expectations")
-        expectation_member_ids = tuple(
-            item.member_id
-            for item in self.route_expectations
-            if item.member_id is not None
-        )
-        if (
-            self.disposition is FanPlanDisposition.PLANNED
-            and expectation_member_ids != self.member_ids
-        ):
-            raise ValueError("fan route expectations disagree with emission members")
-        branch_ids = {branch.id for branch in self.branches}
-        if any(
-            not set(item.branch_ids).issubset(branch_ids)
-            for item in self.route_expectations
-        ):
-            raise ValueError("fan route expectation names an unknown branch")
         expected_seam_edges = tuple(
             dict.fromkeys(
                 edge
@@ -1564,6 +1546,50 @@ class FanPlan:
         )
         if self.resolved_seam_edges != expected_seam_edges:
             raise ValueError("fan resolved seam membership is not canonical")
+        drawn_edges = {
+            edge
+            for branch in self.branches
+            for path in branch.resolved_paths
+            for edge in path
+        }
+        ceded_edges = set(self.ceded_member_edges)
+        if len(ceded_edges) != len(self.ceded_member_edges):
+            raise ValueError("fan plan repeats a ceded seam edge")
+        if (
+            not ceded_edges.issubset(self.resolved_seam_edges)
+            or ceded_edges & drawn_edges
+        ):
+            raise ValueError("fan cedes an edge it draws rather than a seam it reads")
+        expectation_edges = tuple(item.edge for item in self.route_expectations)
+        if self.disposition is FanPlanDisposition.PLANNED:
+            if expectation_edges != self.resolved_member_edges:
+                raise ValueError("planned fan route expectations are incomplete")
+        elif self.route_expectations:
+            raise ValueError("legacy fan owns route expectations")
+        if any(
+            item.edge in ceded_edges and item.member_id is not None
+            for item in self.route_expectations
+        ):
+            raise ValueError("fan expects a route it hands off on a ceded seam edge")
+        expectation_member_ids = tuple(
+            item.member_id
+            for item in self.route_expectations
+            if item.member_id is not None
+        )
+        if (
+            self.disposition is FanPlanDisposition.PLANNED
+            and expectation_member_ids != self.member_ids
+        ):
+            raise ValueError(
+                "fan route expectations disagree with emission members "
+                "(a ceded seam edge keeps its expectation but sheds its member)"
+            )
+        branch_ids = {branch.id for branch in self.branches}
+        if any(
+            not set(item.branch_ids).issubset(branch_ids)
+            for item in self.route_expectations
+        ):
+            raise ValueError("fan route expectation names an unknown branch")
         if len({item.edge for item in self.route_emissions}) != len(
             self.route_emissions
         ):
@@ -1574,6 +1600,8 @@ class FanPlan:
             item.edge not in self.resolved_member_edges for item in self.route_emissions
         ):
             raise ValueError("fan route emission lies outside complete membership")
+        if any(item.edge in ceded_edges for item in self.route_emissions):
+            raise ValueError("fan emits a route on a seam edge it hands off")
         if any(
             item.edge.source != self.fork_station_id for item in self.route_emissions
         ):
