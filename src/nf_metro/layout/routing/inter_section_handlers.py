@@ -83,6 +83,7 @@ from nf_metro.layout.routing.common import (
     row_bottom_edge,
     row_top_edge,
     section_header_top,
+    segment_direction,
     symmetric_bundle_midpoint,
     trailing_perp_side,
     vertical_direction,
@@ -242,7 +243,7 @@ class _InterFacts:
         that column between the source and the target -- a convergence sink
         folded below its branches, fed through a TOP entry -- the drop crosses
         their boxes away from any port.  Such a feeder diverts through a clear
-        inter-column gap instead (:func:`_route_tb_bottom_exit_around_stack`).
+        inter-column gap instead (:func:`_route_around_stack`).
         """
         if not self.is_tb_bottom_exit:
             return False
@@ -1475,7 +1476,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         "TB bottom exit around stack",
         lambda f: f.tb_bottom_exit_drops_through_stack,
-        lambda f: _route_tb_bottom_exit_around_stack(f),
+        lambda f: _route_around_stack(f),
     ),
     _Rule(
         RouteFamilyId.TB_BOTTOM_EXIT,
@@ -1924,18 +1925,24 @@ def _around_stack_channel_x(f: _InterFacts) -> float:
 
 
 @dataclass(frozen=True, slots=True)
-class _TbBottomExitAroundStackGeometry:
+class _AroundStackGeometry:
     points: tuple[tuple[float, float], ...]
     lane_offset: float
     bundle_offsets: tuple[float, ...]
     channel_x: float
     channel_y_lo: float
     channel_y_hi: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+    cross_lo: float
+    cross_hi: float
 
 
-def _tb_bottom_exit_around_stack_geometry(
+def _around_stack_geometry(
     f: _InterFacts,
-) -> _TbBottomExitAroundStackGeometry:
+) -> _AroundStackGeometry:
     """Resolve the stack-bypass channel shared by planning and emission.
 
     The flow-direction drop would plough the branch boxes stacked between this
@@ -1978,7 +1985,10 @@ def _tb_bottom_exit_around_stack_geometry(
         return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
 
     # The bundle fan lifts the jog's innermost line toward the source box, so
-    # seat its corridor a fan width below the bottom edge to hold the clearance.
+    # seat the corridor a fan width below the clearance that innermost lane owes
+    # the bottom edge.  That clearance is the one the row-gap reservation is
+    # measured against, and a planned turn axis is frozen against the settlement
+    # that would otherwise push the ladder onto it, so it is stated here.
     src_bottom = src_sec.bbox_y + src_sec.bbox_h
     fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
     cy_down = max(
@@ -1990,7 +2000,7 @@ def _tb_bottom_exit_around_stack_geometry(
             default=sy,
             col=f.src_col,
         ),
-        src_bottom + fan_clearance + ctx.curve_radius,
+        src_bottom + fan_clearance,
     )
     cy_entry = header_corridor_y(
         graph, tgt_sec.grid_row, below=False, base_radius=ctx.curve_radius, default=ty
@@ -2000,26 +2010,40 @@ def _tb_bottom_exit_around_stack_geometry(
     own_offset = lane_offset(edge.line_id)
     channel_y_start = cy_down - own_offset
     channel_y_end = cy_entry + own_offset
-    return _TbBottomExitAroundStackGeometry(
-        (
-            (sx, sy),
-            (sx, cy_down),
-            (vx, cy_down),
-            (vx, cy_entry),
-            (tx, cy_entry),
-            (tx, ty),
-        ),
+    points = (
+        (sx, sy),
+        (sx, cy_down),
+        (vx, cy_down),
+        (vx, cy_entry),
+        (tx, cy_entry),
+        (tx, ty),
+    )
+    # Both legs the jog joins descend, so the jog's ends and the jog itself take
+    # their shift from the same right-hand normal (``bundle._right_normal``): one
+    # lateral off the exit X, off the channel X, and off the corridor Y.
+    channel_x = vx - own_offset
+    run_direction = segment_direction(points[0], points[1])
+    turn_direction = segment_direction(points[1], points[2])
+    assert run_direction is not None and turn_direction is not None
+    return _AroundStackGeometry(
+        points,
         own_offset,
         tuple(lane_offset(line_id) for line_id in line_ids),
-        vx - own_offset,
+        channel_x,
         min(channel_y_start, channel_y_end),
         max(channel_y_start, channel_y_end),
+        run_direction,
+        turn_direction,
+        sy,
+        cy_down + own_offset * turn_direction.sign,
+        min(sx - own_offset, channel_x),
+        max(sx - own_offset, channel_x),
     )
 
 
-def _route_tb_bottom_exit_around_stack(f: _InterFacts) -> RoutedPath | None:
+def _route_around_stack(f: _InterFacts) -> RoutedPath | None:
     """Route a TB bottom-exit feeder around sections stacked below it."""
-    geometry = _tb_bottom_exit_around_stack_geometry(f)
+    geometry = _around_stack_geometry(f)
     edge, ctx = f.edge, f.ctx
 
     route = route_along(
@@ -3205,21 +3229,22 @@ def _perp_exit_record(
     whose turn leg has collapsed to a point states no turn: the emitted member
     is one straight vertical.
     """
-    run_direction = vertical_direction(points[1][1] - points[0][1])
-    turns = len(points) >= 4 and abs(points[2][0] - points[1][0]) > COORD_TOLERANCE
+    run_direction = segment_direction(points[0], points[1])
+    assert run_direction is not None
     turn_direction = (
-        horizontal_direction(points[2][0] - points[1][0]) if turns else None
+        segment_direction(points[1], points[2]) if len(points) >= 4 else None
     )
     if len(points) < 4:
         cross_lo = cross_hi = points[0][0]
     else:
         # The turn leg is horizontal, so each of its ends takes its X shift from
         # the vertical leg that meets it there (``bundle._right_normal``).
+        second_run = segment_direction(points[2], points[3])
+        assert second_run is not None
         cross_lo, cross_hi = sorted(
             (
                 points[1][0] - member_offset * run_direction.sign,
-                points[2][0]
-                - member_offset * vertical_direction(points[3][1] - points[2][1]).sign,
+                points[2][0] - member_offset * second_run.sign,
             )
         )
     return _PerpExitGeometry(
