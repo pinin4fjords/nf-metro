@@ -345,6 +345,12 @@ _STATES_NO_GEOMETRY = CompatibilityFamily(
     "order and no shared axis to plan. It is recorded for attribution and never "
     "escalates a system, so there is nothing to retire."
 )
+_RAIL_EMISSION_OWNS_THE_ROUTE = CompatibilityFamily(
+    "Rail mode draws every inter-section edge from its own emitter, on a route "
+    "system frozen with no exit-turn plan at all. There is no source geometry "
+    "left for an exit-turn plan to claim a part of, so the rail frame is the "
+    "emitter's whole output and support is permanent."
+)
 _LAYOUT_OWNS_THE_FAN_FRAME = CompatibilityFamily(
     "The section allocator, the rail emitter or an overlapping local layout "
     "owns this fan's frame. Claiming part of a fan whose frame another owner "
@@ -408,7 +414,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:merge-trunk",
                     "unsupported-family:near-vertical-same-col-junction",
                     "unsupported-family:perp-exit-far-side-entry-wrap",
-                    "unsupported-family:rail-inter-section",
                     "unsupported-family:right-entry-plough-bypass",
                     "unsupported-family:right-entry-wrap",
                     "unsupported-family:same-x-vertical-drop",
@@ -466,6 +471,10 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "source-lane-transition-has-no-runway",
                 ),
                 _reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                _reasons(
+                    _RAIL_EMISSION_OWNS_THE_ROUTE,
+                    "unsupported-family:rail-inter-section",
+                ),
             ),
             "fan-plan": _registry(
                 _reasons(
