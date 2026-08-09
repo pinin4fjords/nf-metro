@@ -62,7 +62,6 @@ REPORTED = [
 # separation pass is what puts them back on it.  Read off the corpus by routing
 # it with the pass disabled and collecting the fixtures the checker reports.
 FUSED_WITHOUT_THE_PASS = [
-    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd",
     EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd",
     REGRESSIONS / "entry_trunk_row_bow.mmd",
 ]
