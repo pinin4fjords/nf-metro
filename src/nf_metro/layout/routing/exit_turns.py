@@ -66,6 +66,9 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
+    _left_entry_route_kind,
+    _left_entry_wrap_geometry,
+    _LeftEntryRoute,
     _merge_branch_lead_x,
     _merge_entry_route_kind,
     _MergeEntryRoute,
@@ -109,6 +112,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
         RouteFamilyId.TB_BOTTOM_EXIT,
         RouteFamilyId.PERP_EXIT,
+        RouteFamilyId.LEFT_ENTRY_WRAP,
     }
 )
 
@@ -721,6 +725,35 @@ def _source_turn_requirement(
             src.x,
             ctx.curve_radius,
             axis,
+        )
+    if family_id is RouteFamilyId.LEFT_ENTRY_WRAP:
+        if source_run_direction not in {Direction.R, Direction.L}:
+            return _SourceTurnRequirement(
+                None,
+                None,
+                None,
+                None,
+                None,
+                "unsupported-subshape:nonhorizontal-left-entry-wrap",
+            )
+        facts = _build_inter_facts(edge, src, tgt, ctx)
+        wrap_kind = _left_entry_route_kind(facts)
+        if wrap_kind is not _LeftEntryRoute.WRAP:
+            return _SourceTurnRequirement(
+                None,
+                None,
+                None,
+                None,
+                None,
+                f"unsupported-subshape:left-entry-{wrap_kind.value}",
+            )
+        wrap_geometry = _left_entry_wrap_geometry(ctx, edge, src, tgt, facts.i, facts.n)
+        return _SourceTurnRequirement(
+            wrap_geometry.run_direction,
+            wrap_geometry.turn_direction,
+            wrap_geometry.launch_coordinate,
+            abs(wrap_geometry.axis_coordinate - wrap_geometry.launch_coordinate),
+            wrap_geometry.axis_coordinate,
         )
     if family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP:
         facts = _build_inter_facts(edge, src, tgt, ctx)
@@ -2661,9 +2694,15 @@ def snapshot_exit_turn_segments(
             rank = route.exit_turn_segment_rank
             if rank is None:
                 continue
-            landing_point_settled_later = (
-                route.exit_turn_family_id == RouteFamilyId.MERGE_BRANCH.value
-            )
+            # A branch's landing on its trunk, and an entry wrap's landing in
+            # the inter-row band it traverses, are both settled by a later pass
+            # against geometry the plan does not state: the plan fixes where the
+            # turn leg launches and the axis it turns onto, not how far along
+            # that axis the leg runs.
+            landing_point_settled_later = route.exit_turn_family_id in {
+                RouteFamilyId.MERGE_BRANCH.value,
+                RouteFamilyId.LEFT_ENTRY_WRAP.value,
+            }
             radii = None
             if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
                 radii = ((rank - 1, route.curve_radii[rank - 1]),)

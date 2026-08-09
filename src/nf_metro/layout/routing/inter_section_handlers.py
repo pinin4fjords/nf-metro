@@ -1039,21 +1039,37 @@ def _route_right_entry_cross_row(f: _InterFacts) -> RoutedPath | None:
     return _route_right_entry_around_below(edge, src, tgt, tgt, f.i, f.n, ctx)
 
 
-def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
-    """Cross-row feed into a LEFT entry from a source on its right.
+class _LeftEntryRoute(Enum):
+    """Which shape :func:`_route_left_entry_family` builds for a LEFT-entry feed."""
 
-    A standard L-shape would cut through the target interior to reach the
-    left-side port.  Wrap leftward through the inter-row gap; when that gap
-    horizontal lands inside an intervening section, descend the clear corridor
-    if one exists, else loop around below the target.
+    LEFT_EXIT_DROP = "left_exit_drop"
+    CORRIDOR = "corridor"
+    GAP_ABOVE = "gap_above"
+    BAND_HOP = "band_hop"
+    AROUND_BELOW = "around_below"
+    WRAP = "wrap"
+
+
+def _left_entry_route_kind(f: _InterFacts) -> _LeftEntryRoute:
+    """Classify a cross-row LEFT-entry feed without building the route.
+
+    A LEFT-side exit already faces outward toward the LEFT entry, so it takes
+    the ``LEFT_EXIT_DROP`` straight down a channel clear of both boxes; the
+    rightward-lead-out ``WRAP`` would claw its leftward channel run back across
+    a tall source box (a folded TB bridge feeding a sink below and to the left).
+
+    Everything else wraps leftward through the inter-row gap.  When that gap
+    horizontal lands inside an intervening section, the feed descends the clear
+    ``CORRIDOR`` if one exists.  Failing that, a source a row (or more) ABOVE
+    the target reaches its port through the clear band abutting the target row
+    (``GAP_ABOVE``), or, where the source-adjacent band is blocked by a packed
+    cell-mate boxing in a fan junction, peels off through a clear descent column
+    between the two bands (``BAND_HOP``).  The remaining feeds dive
+    ``AROUND_BELOW`` the whole target row and run the full width back.
     """
-    edge, src, tgt, ctx, graph = f.edge, f.src, f.tgt, f.ctx, f.graph
-    # A LEFT-side exit already faces outward toward the LEFT entry: lead it out
-    # leftward and drop straight down a channel clear of both boxes, never the
-    # rightward-lead-out wrap, whose leftward channel run would claw back across
-    # a tall source box (a folded TB bridge feeding a sink below and to the left).
+    src, tgt, ctx, graph = f.src, f.tgt, f.ctx, f.graph
     if f.is_left_exit:
-        return _route_left_exit_left_entry_drop(edge, src, tgt, ctx)
+        return _LeftEntryRoute.LEFT_EXIT_DROP
     wrap_hy = inter_row_channel_y(
         graph,
         src,
@@ -1065,24 +1081,37 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
         reserved=ctx.reserved_bands.rows,
     )
     exclude = {src.section_id} if src.section_id else set[str]()
-    if _h_segment_crosses_other_section(graph, f.sx, f.tx, wrap_hy, exclude):
-        if _corridor_is_viable(ctx, src, tgt):
-            return _route_inter_row_gap_corridor(edge, src, tgt, tgt, f.i, f.n, ctx)
-        # A source a row (or more) ABOVE the target reaches its LEFT port via the
-        # clear band abutting the target row -- a short left-approach mirroring
-        # the RIGHT-entry gap-above path -- rather than diving to the canvas
-        # bottom and running the full width back.
-        if f.src_row is not None and f.tgt_row is not None and f.src_row < f.tgt_row:
-            if _left_entry_gap_above_is_clear(f):
-                return _route_left_entry_via_gap_above(
-                    edge, src, tgt, f.i, f.n, ctx, f.tgt_row
-                )
-            # The source-adjacent band is blocked (a fan junction boxed in by a
-            # packed cell-mate).  Peel the branch off to the left through a clear
-            # descent column between the two bands rather than diving to the
-            # canvas bottom.
-            if _left_entry_band_hop_is_clear(f):
-                return _route_left_entry_via_band_hop(f)
+    if not _h_segment_crosses_other_section(graph, f.sx, f.tx, wrap_hy, exclude):
+        return _LeftEntryRoute.WRAP
+    if _corridor_is_viable(ctx, src, tgt):
+        return _LeftEntryRoute.CORRIDOR
+    if f.src_row is not None and f.tgt_row is not None and f.src_row < f.tgt_row:
+        if _left_entry_gap_above_is_clear(f):
+            return _LeftEntryRoute.GAP_ABOVE
+        if _left_entry_band_hop_is_clear(f):
+            return _LeftEntryRoute.BAND_HOP
+    return _LeftEntryRoute.AROUND_BELOW
+
+
+def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
+    """Cross-row feed into a LEFT entry from a source on its right.
+
+    A standard L-shape would cut through the target interior to reach the
+    left-side port.  Each shape the family can take is named by
+    :func:`_left_entry_route_kind`, which chooses between them.
+    """
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    kind = _left_entry_route_kind(f)
+    if kind is _LeftEntryRoute.LEFT_EXIT_DROP:
+        return _route_left_exit_left_entry_drop(edge, src, tgt, ctx)
+    if kind is _LeftEntryRoute.CORRIDOR:
+        return _route_inter_row_gap_corridor(edge, src, tgt, tgt, f.i, f.n, ctx)
+    if kind is _LeftEntryRoute.GAP_ABOVE:
+        assert f.tgt_row is not None
+        return _route_left_entry_via_gap_above(edge, src, tgt, f.i, f.n, ctx, f.tgt_row)
+    if kind is _LeftEntryRoute.BAND_HOP:
+        return _route_left_entry_via_band_hop(f)
+    if kind is _LeftEntryRoute.AROUND_BELOW:
         return _route_around_section_below(edge, src, tgt, tgt, f.i, f.n, ctx)
     return _route_left_entry_wrap(edge, src, tgt, f.i, f.n, ctx)
 
@@ -4682,28 +4711,59 @@ def _route_entry_wrap(
     return route
 
 
-def _route_left_entry_wrap(
-    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
-) -> RoutedPath:
-    """Route to a LEFT entry port by wrapping around the left side.
+@dataclass(frozen=True, slots=True)
+class _LeftEntryWrapGeometry:
+    pos_n: int
+    delta: float
+    corner_x: float
+    channel_y: float
+    descent_x: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
 
-    When the source is to the RIGHT of a LEFT entry port AND the sections
-    are stacked vertically (so the standard L-shape would cut horizontally
-    through the target section's interior to reach the left-side entry),
-    drop straight down from the source, run leftward in the inter-row gap
-    past the target section's left edge, then drop down and into the LEFT
-    entry port::
 
-        (sx,sy) -> (sx, hy) -> (vx, hy) -> (vx, ty) -> (tx, ty)
+def _left_entry_wrap_record(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    src: Station,
+    *,
+    pos_n: int,
+    delta: float,
+    corner_x: float,
+    channel_y: float,
+    descent_x: float,
+) -> _LeftEntryWrapGeometry:
+    """Complete a left-entry-wrap record from the channels its leaf resolved.
 
-    This mirrors :func:`_route_right_entry_wrap` and avoids the
-    "cut through intervening section" anti-pattern.
+    The loop leaves the source horizontally at the line's own station lateral
+    and turns into the corner column, so ``launch_coordinate`` is the source X.
+    ``corner_x`` places the bundle's centreline; the member draws its turn one
+    stagger off that on the turn leg's normal, which is the column
+    ``axis_coordinate`` names.
+    """
+    src_off = _get_offset(ctx, edge.source, edge.line_id)
+    turn_direction = vertical_direction(channel_y - (src.y + src_off + delta))
+    return _LeftEntryWrapGeometry(
+        pos_n,
+        delta,
+        corner_x,
+        channel_y,
+        descent_x,
+        horizontal_direction(corner_x - src.x),
+        turn_direction,
+        src.x,
+        corner_x - delta * right_normal_axis_sign(turn_direction),
+    )
 
-    Built via :func:`route_along` from the bundle's centreline: the loop is
-    described once at the bundle centre, this line sits ``delta`` off it, and
-    its siblings sit at their own ranks against the same centreline, so
-    :func:`build_concentric_bundle` nests every corner concentrically and the
-    R-D-L-D-R loop cannot flip.
+
+def _left_entry_wrap_geometry(
+    ctx: _RoutingCtx, edge: Edge, src: Station, tgt: Station, i: int, n: int
+) -> _LeftEntryWrapGeometry:
+    """Resolve the seam shared by left-entry-wrap planning and emission.
+
+    See :func:`_route_left_entry_wrap` for the shape this describes.
     """
     sy, ty = src.y, tgt.y
     dy = ty - sy
@@ -4786,20 +4846,66 @@ def _route_left_entry_wrap(
             if shared_vx is not None:
                 vx = shared_vx
 
-    route = _route_entry_wrap(
+    return _left_entry_wrap_record(
+        ctx,
         edge,
         src,
-        tgt,
-        ctx,
         pos_n=pos_n,
         delta=delta,
         corner_x=corner_x,
         channel_y=hy,
         descent_x=vx,
+    )
+
+
+def _route_left_entry_wrap(
+    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+) -> RoutedPath:
+    """Route to a LEFT entry port by wrapping around the left side.
+
+    When the source is to the RIGHT of a LEFT entry port AND the sections
+    are stacked vertically (so the standard L-shape would cut horizontally
+    through the target section's interior to reach the left-side entry),
+    drop straight down from the source, run leftward in the inter-row gap
+    past the target section's left edge, then drop down and into the LEFT
+    entry port::
+
+        (sx,sy) -> (sx, hy) -> (vx, hy) -> (vx, ty) -> (tx, ty)
+
+    This mirrors :func:`_route_right_entry_wrap` and avoids the
+    "cut through intervening section" anti-pattern.
+
+    Built via :func:`route_along` from the bundle's centreline: the loop is
+    described once at the bundle centre, this line sits ``delta`` off it, and
+    its siblings sit at their own ranks against the same centreline, so
+    :func:`build_concentric_bundle` nests every corner concentrically and the
+    R-D-L-D-R loop cannot flip.
+    """
+    geometry = _left_entry_wrap_geometry(ctx, edge, src, tgt, i, n)
+    route = _route_entry_wrap(
+        edge,
+        src,
+        tgt,
+        ctx,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
         entry_side=PortSide.LEFT,
     )
-    _declare_channel(route, ctx, vx, vertical_direction(ty - hy))
-    _declare_channel(route, ctx, corner_x, vertical_direction(hy - sy))
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(tgt.y - geometry.channel_y),
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.corner_x,
+        vertical_direction(geometry.channel_y - src.y),
+    )
     return route
 
 
