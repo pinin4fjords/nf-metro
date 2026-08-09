@@ -357,6 +357,15 @@ class _ClassifiedMember:
 
 
 @dataclass(frozen=True, slots=True)
+class _LadderPin:
+    """One turning seed's claim on a column, as its ladder states it."""
+
+    group_id: EndpointGroupId
+    lane_rank: int
+    column: float
+
+
+@dataclass(frozen=True, slots=True)
 class _AssignmentClassification:
     seeds: tuple[_AssignmentSeed, ...]
     unclassified_member_ids: tuple[EmissionMemberId, ...]
@@ -1505,9 +1514,7 @@ def _classify_assignment_seeds(
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
 
 
-def _pinned_ladders_clear_each_other(
-    columns_by_group: Mapping[EndpointGroupId, frozenset[float]],
-) -> bool:
+def _pinned_ladders_clear_each_other(pins: Iterable[_LadderPin]) -> bool:
     """Whether separately pinned ladders of one heading can share a corridor.
 
     Two ladders draw two strokes down one corridor, so the columns they pin
@@ -1515,16 +1522,34 @@ def _pinned_ladders_clear_each_other(
     one contradictory ladder rather than two, and the corridor's settlement
     moves one of them off the column its ladder fixed.
     """
-    columns = tuple(
-        (group_id, column)
-        for group_id, group_columns in columns_by_group.items()
-        for column in group_columns
-    )
+    pinned = tuple(pins)
     return all(
-        first_group == second_group
-        or abs(first - second) >= OFFSET_STEP - COORD_TOLERANCE
-        for first_group, first in columns
-        for second_group, second in columns
+        first.group_id == second.group_id
+        or abs(first.column - second.column) >= OFFSET_STEP - COORD_TOLERANCE
+        for first in pinned
+        for second in pinned
+    )
+
+
+def _pinned_ladders_keep_bundle_order(
+    pins: Iterable[_LadderPin], turn_direction: Direction
+) -> bool:
+    """Whether separately pinned ladders of one heading nest without crossing.
+
+    Lanes leave the shared run in their bundle's lateral order and carry that
+    order round the bend: the lane on the outside of the turn runs on furthest
+    before it can leave, so it turns last.  One ladder seats its own lanes that
+    way by construction; across two ladders only the pins say so, and pins that
+    step the other way draw strokes that swap sides inside the arc.
+    """
+    progression = lateral_order_sign(turn_direction)
+    pinned = tuple(pins)
+    return all(
+        first.group_id == second.group_id
+        or second.lane_rank <= first.lane_rank
+        or (second.column - first.column) * progression >= -COORD_TOLERANCE
+        for first in pinned
+        for second in pinned
     )
 
 
@@ -1537,25 +1562,19 @@ def _turn_cohort_key_by_member(
         for seed in seeds
         if seed.run_direction is not None and seed.turn_direction is not None
     )
-    pinned_columns: dict[
-        tuple[Direction, Direction], dict[EndpointGroupId, set[float]]
-    ] = defaultdict(lambda: defaultdict(set))
+    pinned: dict[tuple[Direction, Direction], set[_LadderPin]] = defaultdict(set)
     for seed in turning:
         assert seed.run_direction is not None and seed.turn_direction is not None
         if seed.fixed_axis is not None:
-            pinned_columns[seed.run_direction, seed.turn_direction][
-                seed.entry_group_id
-            ].add(seed.fixed_axis)
+            pinned[seed.run_direction, seed.turn_direction].add(
+                _LadderPin(seed.entry_group_id, seed.lane_rank, seed.fixed_axis)
+            )
     laddered_headings = frozenset(
-        heading
-        for heading, columns_by_group in pinned_columns.items()
-        if len(columns_by_group) > 1
-        and _pinned_ladders_clear_each_other(
-            {
-                group_id: frozenset(columns)
-                for group_id, columns in columns_by_group.items()
-            }
-        )
+        (run_direction, turn_direction)
+        for (run_direction, turn_direction), pins in pinned.items()
+        if len({pin.group_id for pin in pins}) > 1
+        and _pinned_ladders_clear_each_other(pins)
+        and _pinned_ladders_keep_bundle_order(pins, turn_direction)
     )
     keys: dict[EmissionMemberId, _TurnCohortKey] = {}
     for seed in turning:
@@ -2965,6 +2984,7 @@ def snapshot_exit_turn_segments(
             landing_point_settled_later = route.exit_turn_family_id in {
                 RouteFamilyId.MERGE_BRANCH.value,
                 RouteFamilyId.LEFT_ENTRY_WRAP.value,
+                RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP.value,
                 RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BYPASS_FAMILY.value,
