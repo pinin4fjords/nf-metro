@@ -67,10 +67,6 @@
   "note": "Non-cross_row bypass guard: the endpoints list always includes the source and target sections (both in src_row), so it is never empty; the default-clearance arm only guards a degenerate empty endpoint set.",
   "status": "defensive"
  },
- "common.py::if feeder is None:::#1": {
-  "note": "The feeder-found continuation of perp_peeloff_off_horizontal_junction needs a fan-out junction that both takes a horizontal feed (a feeder on the junction's own Y, off its column) and is left by a bare-vertical drop. The corpus's bare drops hang off bottom-exit junctions whose only feeder sits directly above on the junction column (dx=0), so they return here; the horizontally-fed junctions (riboseq_fold_two_dir_entry, and every hand-built fan of the same shape) leave with a lead-in the fan emitter already builds, so they return at the bare-vertical check above. Reachable only where a horizontally-fed fan-out junction's drop still arrives bare.",
-  "status": "needs-review"
- },
  "common.py::if len({round(value, 6) for value in port_ys}) != n:::#1": {
   "note": "A complete entry port assigns every distinct line a unique station-offset slot. Duplicate port-Y values therefore require a malformed route set that bypassed station offset allocation; test_invalid_opposing_candidate_is_rejected[duplicate-port-slot] exercises the rejection directly.",
   "status": "defensive"
@@ -424,8 +420,8 @@
   "status": "defensive"
  },
  "exit_turns.py::if not _lane_arms_read_as_one_stroke(::#1": {
-  "note": "The reject that declines an axis plan when a lane's arms would turn less than one curve radius apart, drawing as two near-parallel tracks instead of one stroke forking late. Reachable when an unpinned cohort lands its turn axis within a radius of a coordinate a pinned cohort already claimed at the same lane rank; no corpus fixture crowds two same-rank claims that closely, so the reject is un-entered while the accept arm runs on 144 fixtures.",
-  "status": "needs-review"
+  "note": "The reject protects a planner seed set where an unpinned cohort lands within one curve radius of a same-rank axis already claimed by a pinned cohort. Production topology planning pins or separates those cohorts before this check. test_free_lane_arm_overlapping_a_pinned_corner_uses_legacy constructs the incomplete seed set directly and covers the fallback reason.",
+  "status": "defensive"
  },
  "exit_turns.py::if not mismatched:::#1": {
   "note": "The lane hand-off path of _source_lane_ownership, entered when a station feeding the exit port along the run axis carries a different lane offset for the line than the lane the plan seats at the port. Every corpus exit group agrees on its lane from the last station through to the port, so the ownership walk returns the stations unchanged. Reachable, and the fixture that closes it also closes centrelines.py::if place_at_source:::#1, whose TARGET placement only this branch produces.",
@@ -928,7 +924,7 @@
   "status": "defensive"
  },
  "normalize.py::if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:::#1": {
-  "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, but _round_junction_perp_peeloff prepends one for any route whose source doubles as a fan-out junction, which a merge feeder's junction source can be; and the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
+  "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, while an alternate attached-source construction or a malformed hand-built route can add points; the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
   "status": "defensive"
  },
  "normalize.py::if k < len(rp.curve_radii) and k + 2 < len(pts):::#1": {
@@ -983,10 +979,6 @@
   "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
   "status": "defensive"
  },
- "normalize.py::if peeloff is None:::#1": {
-  "note": "The lead-in prepend of the junction peel-off pass, entered only for a fan-out junction drop that perp_peeloff_off_horizontal_junction accepts. Every corpus drop is rejected there -- common.py::if feeder is None:::#1 records which condition each shape fails -- so the pass matches nothing and only its skip arm runs.",
-  "status": "needs-review"
- },
  "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
   "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
@@ -1012,7 +1004,7 @@
   "status": "defensive"
  },
  "normalize.py::if rp.curve_radii is not None:::#1": {
-  "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates curve_radii, but _round_junction_perp_peeloff clears it to None for the fan-out-junction routes described above, so the field cannot be treated as always present (#1597).",
+  "note": "Truncating the tail in _land_feeder_on_run keeps curve_radii aligned with the shortened waypoint list when metadata is present. Hand-built and compatibility routes may omit that metadata, so the field cannot be treated as always present (#1597).",
   "status": "defensive"
  },
  "normalize.py::if run is None:::#1": {

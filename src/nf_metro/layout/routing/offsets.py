@@ -3133,6 +3133,15 @@ def _order_top_descent_over_left_entry(ctx: _OffsetCtx) -> None:
         if _convergence_feeders(graph, port_id) is not None:
             continue
         section = graph.sections[port.section_id]
+        line_feeder = _section_line_feeders(ctx, section)
+        feeder_ids = set(line_feeder.values())
+        if len(feeder_ids) == 1:
+            seam = _feeder_seam_ports(ctx, section.id, next(iter(feeder_ids)))
+            if (
+                seam is not None
+                and seam_orientation(graph, *seam) is SeamOrientation.REVERSE
+            ):
+                continue
         line_row = _left_entry_feeder_rows(ctx, port_id, section.grid_col)
         if line_row is None or len(line_row) < 2:
             continue

@@ -2044,6 +2044,21 @@ gallery:
       through its `entry: top` port. The leg carries the full width past the
       box's right side, rises above it, and returns over the top into the port
       without ever entering the interior."
+  - id: stacked_multiline_left_exit_drop
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "Two lines leave a reversed source through its LEFT exit and enter the LEFT
+      side of the section stacked below. The shared route leads into the outer
+      margin, descends beside both boxes, and turns back into the target as a
+      concentric two-line bundle."
+  - id: stacked_split_left_entry_drop
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A reversed two-line source drops into two branches of one section through
+      its LEFT entry. The shared outward channel keeps the bundle clear of both
+      boxes before each line continues to its own target station."
   - id: offtrack_output_peel_before_successor
     source_dir: examples/topologies
     category: Feature Showcase

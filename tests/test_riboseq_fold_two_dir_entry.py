@@ -21,6 +21,7 @@ from pathlib import Path
 from nf_metro.api import prepare_graph, render_string
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.routing import compute_station_offsets
 from nf_metro.layout.routing.common import drop_coincident_points
 from nf_metro.layout.routing.core import route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -142,7 +143,7 @@ def test_hinted_aligned_drop_departs_with_a_curve() -> None:
         warnings.simplefilter("ignore")
         graph = prepare_graph(open(HINTED).read())
     compute_layout(graph)
-    routes = route_edges(graph)
+    routes = route_edges(graph, station_offsets=compute_station_offsets(graph))
 
     junction = graph.stations["__junction_10"]
     psite_feed = next(

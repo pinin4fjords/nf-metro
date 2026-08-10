@@ -423,16 +423,17 @@ _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
 )
 _DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE = CompatibilityFamily(
     "A LEFT exit dropping into a LEFT entry stacked below it leads out into the "
-    "margin beside its own column and turns down it.  The column is no longer "
-    "what withholds the plan: the drop takes its corridor seat where it is "
+    "margin beside its own column and turns down it. The column is not what "
+    "withholds the plan: the drop takes its corridor seat where it is "
     "built (``_left_exit_left_entry_drop_channel_x``), so the axis a plan would "
-    "name and the one the map is drawn on are one coordinate.  What is left is "
-    "that neither reading of the drop is a leaf that states a turn -- the "
+    "name and the one the map is drawn on are one coordinate. Neither reading "
+    "of the drop is a leaf that states a turn: the "
     "left-entry cascade names the subshape and stops, and the serpentine "
     "dispatch rule reaches the same builder outside that cascade and outside "
-    "``PLANNED_EXIT_FAMILIES`` -- and no map in the corpus produces either "
-    "verdict, so a leaf authored for them would go unexercised.  A fixture "
-    "reaching one of these rules is what the leaf needs first.",
+    "``PLANNED_EXIT_FAMILIES``. The stacked multiline and split-entry topology "
+    "fixtures exercise those two classifications and require their tapered "
+    "half-turns to preserve the destination seam. Support remains permanent "
+    "while the established handler owns that complete cascade.",
     _ISSUE.format(1441),
 )
 _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(

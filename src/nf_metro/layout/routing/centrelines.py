@@ -410,6 +410,11 @@ def route_hvh_tapered(
         (channel_x, ty_c),
         (tgt.x, ty_c),
     ]
+    if (channel_x - src.x) * (tgt.x - channel_x) < 0:
+        members = [
+            (member_edge, line_id, source_offset, -target_offset)
+            for member_edge, line_id, source_offset, target_offset in members
+        ]
     reversed_route = horizontal_direction(tgt.x - src.x) is Direction.L
     transition_leg = 1
     if reversed_route:

@@ -80,7 +80,6 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
-    perp_peeloff_off_horizontal_junction,
     resolve_section,
     tail_on_slot,
     trunk_segments_cross,
@@ -810,12 +809,10 @@ def _fanout_route_maps(
     the routing pass that closes it consume these maps, so the keying is
     defined once.
 
-    The handoff representative must be a branch that leaves *at* the
-    junction, not one whose lead-in is back-extended along the trunk to
-    round a departure (a perpendicular drop rounded by
-    :func:`_round_junction_perp_peeloff` starts a lead-in to the feed
-    side).  A back-extended start would read as an along-trunk gap the
-    apex check falsely flags, so the downstream nearest the junction wins.
+    The handoff representative must be a branch that leaves at the junction,
+    not one whose lead-in is back-extended along the trunk. A back-extended
+    start would read as an along-trunk gap the apex check falsely flags, so the
+    downstream nearest the junction wins.
     """
     upstream: dict[tuple[str, str], RoutedPath] = {}
     downstream: dict[tuple[str, str], RoutedPath] = {}
@@ -882,10 +879,9 @@ def check_fanout_tail_join(
         # travel direction.  A positive component means the downstream starts
         # PAST the junction along the incoming travel -- the branch stops short
         # of its own bend, the visible apex notch.  A negative one means it
-        # starts BEHIND, its lead-in back-extended over the incoming trunk (a
-        # perpendicular drop rounded by :func:`_round_junction_perp_peeloff`):
-        # that overlaps the trunk rather than gapping it, so only the forward
-        # component is a notch.
+        # starts BEHIND with its lead-in over the incoming trunk. That overlaps
+        # the trunk rather than gapping it, so only the forward component is a
+        # notch.
         tangent_gap = ((dx - ux) * tx + (dy - uy) * ty) / seg_len
         if tangent_gap > _TAIL_JOIN_TANGENT_TOLERANCE:
             gaps.append(
@@ -900,70 +896,6 @@ def check_fanout_tail_join(
                 )
             )
     return gaps
-
-
-@dataclass(frozen=True)
-class JunctionPeeloffCorner:
-    """A perpendicular branch peeling off a horizontal junction trunk unrounded.
-
-    ``junction_id`` fans ``line_id`` from a horizontally-run trunk; the branch
-    to ``downstream_target`` drops perpendicular directly off the junction with
-    a bare vertical first segment (no lead-in), so its departure renders as a
-    hard 90 degrees instead of the standard corner curve.
-    """
-
-    junction_id: str
-    line_id: str
-    downstream_target: str
-    corner: tuple[float, float]
-
-    def message(self) -> str:
-        cx, cy = self.corner
-        return (
-            f"fan-out junction {self.junction_id!r} line {self.line_id!r}: branch "
-            f"to {self.downstream_target!r} peels off the horizontal trunk at "
-            f"({cx:.1f},{cy:.1f}) as a bare vertical drop -- a hard 90 degrees, "
-            f"not a rounded corner. Give the departure a horizontal lead-in."
-        )
-
-
-def check_junction_peeloff_rounded(
-    graph: MetroGraph,
-    routes: list[RoutedPath],
-) -> list[JunctionPeeloffCorner]:
-    """Flag perpendicular fan-out branches that leave a horizontal trunk at 90.
-
-    A fan-out junction whose trunk runs horizontally (a feed arriving along one
-    side and a sibling branch continuing along the other) may drop one line into
-    a TOP/BOTTOM entry directly below/above it.  When that drop opens as a bare
-    vertical off the junction, the horizontal-to-vertical turn sits on the
-    junction where the incoming trunk and the drop are two separate routes: it
-    owns no within-path corner, so it draws as a hard right angle.
-
-    This is the junction-peel-off corner the per-route curve checks are blind
-    to (they only see corners *within* one path).  A rounded departure opens
-    with a horizontal lead-in into the turn, which this permits.
-    """
-    fanouts = fanout_junctions(graph)
-    if not fanouts:
-        return []
-    violations: list[JunctionPeeloffCorner] = []
-    for rp in routes:
-        if not rp.is_inter_section or rp.edge.source not in fanouts:
-            continue
-        peeloff = perp_peeloff_off_horizontal_junction(graph, routes, rp)
-        if peeloff is None:
-            continue
-        junction, _feeder, pts = peeloff
-        violations.append(
-            JunctionPeeloffCorner(
-                junction_id=junction.id,
-                line_id=rp.line_id,
-                downstream_target=rp.edge.target,
-                corner=pts[0],
-            )
-        )
-    return violations
 
 
 # Minimum effective radius an orthogonal inter-section turn must reach unless it
@@ -6138,10 +6070,6 @@ def assert_render_curve_invariants(
             "opposing feeder confluence changes lane order",
             check_opposing_entry_confluence_order(graph, routes),
         ),
-        (
-            "junction peel-off leaves horizontal trunk at a hard 90",
-            check_junction_peeloff_rounded(graph, routes),
-        ),
         ("fan opening geometry", check_fan_opening_geometry(graph, routes, offsets)),
         (
             "planned fan landing curve compressed despite clear runway",
@@ -6264,7 +6192,6 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_opposing_entry_confluence_order, "A"),
-    _check_spec(check_junction_peeloff_rounded, "A"),
     _check_spec(check_fan_opening_geometry, "A"),
     _check_spec(check_planned_fan_landing_radius, "A"),
     _check_spec(check_orthogonal_turns_form_curves, "A"),
@@ -6377,7 +6304,6 @@ __all__ = [
     "FanoutTailGap",
     "FusedCotravellingLanes",
     "HangingRoute",
-    "JunctionPeeloffCorner",
     "MergeBranchHang",
     "MergeFeederOffTrunk",
     "MergePortApproachViolation",
@@ -6427,7 +6353,6 @@ __all__ = [
     "check_packed_cell_same_line_handoff",
     "check_no_riser_hugs_section_edge",
     "check_stacked_right_ports_bow_out",
-    "check_junction_peeloff_rounded",
     "check_orthogonal_turns_form_curves",
     "check_peeloff_concentric",
     "check_port_corner_within_bbox",

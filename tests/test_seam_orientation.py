@@ -77,6 +77,30 @@ def _machinery_is_over_top_right_entry(
     return False
 
 
+def _machinery_is_stacked_left_exit_left_entry(
+    graph: MetroGraph, entry_port: Port
+) -> bool:
+    """Whether a direct LEFT exit reaches a LEFT entry across grid rows."""
+    if not (entry_port.is_entry and entry_port.side is PortSide.LEFT):
+        return False
+    consumer = graph.section_for_port(entry_port)
+    for edge in graph.edges_to(entry_port.id):
+        exit_port = graph.ports.get(edge.source)
+        if (
+            exit_port is None
+            or exit_port.is_entry
+            or exit_port.side is not PortSide.LEFT
+        ):
+            continue
+        feeder = graph.section_for_port(exit_port)
+        if (
+            feeder.grid_row != consumer.grid_row
+            and consumer.grid_col <= feeder.grid_col
+        ):
+            return True
+    return False
+
+
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
 
@@ -102,11 +126,6 @@ EXPECTED_RESIDUALS = frozenset(
         # the same +x side as the drop, but the classifier sees a vertical→vertical
         # continuation and correctly says PRESERVE (no bundle-order flip).
         ("tb_right_entry_stack", "upper", "lower", "B->T"),
-        # left_exit_sink_below: a TB bridge's LEFT exit drops into a LEFT-entry
-        # sink below and to the left.  The section-absolute flag marks the sink
-        # reversed, but the seam is a single-line L->L drop with no bundle order
-        # to flip, so the classifier preserves it.
-        ("left_exit_sink_below", "bridge", "sink", "L->L"),
         ("fold_double", "annotation", "interpretation", "L->R"),
         ("fold_double", "hard_filter", "annotation", "L->R"),
         ("fold_double", "interpretation", "integration", "L->R"),
@@ -193,6 +212,7 @@ def _machinery_reverses(graph, entry_port, sec_id, tb_sections, reversed_secs) -
     return (
         sec_id in reversed_secs
         or _machinery_is_over_top_right_entry(graph, entry_port, tb_sections)
+        or _machinery_is_stacked_left_exit_left_entry(graph, entry_port)
         or is_far_side_around_below_left_entry(graph, entry_port)
         or is_near_vertical_junction_right_entry(graph, entry_port)
     )
