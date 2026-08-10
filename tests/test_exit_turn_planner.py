@@ -2823,6 +2823,97 @@ def test_merge_families_use_their_source_side_geometry_direction() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("path", "source_id", "expected_family"),
+    (
+        (
+            TOPOLOGIES / "bottom_exit_stacked_right_entry_fan.mmd",
+            "__junction_3",
+            RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+        ),
+        (
+            TOPOLOGIES / "bottom_exit_junction_offset_target.mmd",
+            "__junction_3",
+            RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
+        ),
+        (
+            ROOT / "examples" / "genomic_pipeline.mmd",
+            "__junction_8",
+            RouteFamilyId.MERGE_ENTRY_CORRIDOR,
+        ),
+        (
+            TOPOLOGIES / "merge_around_below_leftmost.mmd",
+            "__junction_5",
+            RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
+        ),
+    ),
+    ids=(
+        "bottom-exit-right-landings",
+        "bottom-exit-via-gap",
+        "merge-entry-corridor",
+        "merge-trunk-around-below",
+    ),
+)
+def test_promoted_subcascade_leaf_is_force_planned(
+    path: Path,
+    source_id: str,
+    expected_family: RouteFamilyId,
+) -> None:
+    graph, offsets, observation = _observe(path)
+    plan = _plan_for_source(observation, source_id)
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert expected_family in {
+        assignment.planned_family_id for assignment in plan.assignments
+    }
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+def test_merge_entry_perpendicular_leaf_is_force_planned() -> None:
+    graph = prepare_graph(
+        """\
+%%metro line: a | A | #f00
+%%metro grid: one | 0,0
+%%metro grid: two | 1,0
+%%metro grid: extra | 2,0
+%%metro grid: target | 1,1
+graph LR
+    subgraph one [One]
+        x1[X1]
+        s1[S1]
+        x1 -->|a| s1
+    end
+    subgraph two [Two]
+        x2[X2]
+        s2[S2]
+        x2 -->|a| s2
+    end
+    subgraph extra [Extra]
+        e[E]
+    end
+    subgraph target [Target]
+        %%metro entry: top | a
+        t[T]
+        u[U]
+        t -->|a| u
+    end
+    s1 -->|a| t
+    s1 -->|a| e
+    s2 -->|a| t
+    s2 -->|a| e
+"""
+    )
+    offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=offsets)
+    plan = _plan_for_source(observation, "__junction_5")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert RouteFamilyId.MERGE_ENTRY_PERPENDICULAR in {
+        assignment.planned_family_id for assignment in plan.assignments
+    }
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
 def test_opposed_merge_branch_keeps_whole_exit_group_on_legacy_geometry() -> None:
     graph, _offsets, observation = _observe(
         TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd"

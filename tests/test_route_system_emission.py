@@ -25,7 +25,6 @@ from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.core import observe_route_edges
 from nf_metro.layout.routing.exit_turns import (
     PLANNED_EXIT_FAMILIES,
-    _MergeEntryRoute,
 )
 from nf_metro.layout.routing.inter_section_handlers import (
     CLASSIFIABLE_INTER_SECTION_FAMILIES,
@@ -496,11 +495,7 @@ def test_every_reason_a_planner_can_generate_is_registered() -> None:
     generated = {
         f"unsupported-family:{family.value}"
         for family in CLASSIFIABLE_INTER_SECTION_FAMILIES - PLANNED_EXIT_FAMILIES
-    } | {
-        f"unsupported-subshape:merge-entry-{kind.value}"
-        for kind in _MergeEntryRoute
-        if kind is not _MergeEntryRoute.L_SHAPE
-    }
+    } | {"unsupported-subshape:merge-entry-straight"}
 
     namespaced = {
         reason
@@ -511,6 +506,21 @@ def test_every_reason_a_planner_can_generate_is_registered() -> None:
     }
 
     assert namespaced == generated
+
+
+def test_promoted_subcascade_reasons_are_retired() -> None:
+    registered = ROUTE_SYSTEM_COMPATIBILITY_REASONS["exit-turn-plan"]
+    retired = {
+        "unsupported-subshape:bottom-exit-junction-right-landings",
+        "unsupported-subshape:bottom-exit-junction-via-gap",
+        "unsupported-subshape:left-entry-corridor",
+        "unsupported-subshape:merge-entry-around_below",
+        "unsupported-subshape:merge-entry-corridor",
+        "unsupported-subshape:merge-entry-perpendicular_entry",
+        "unsupported-subshape:merge-trunk-around-below",
+    }
+
+    assert not retired & registered.keys()
 
 
 def test_a_retained_family_names_its_follow_up_or_states_why_it_is_permanent() -> None:

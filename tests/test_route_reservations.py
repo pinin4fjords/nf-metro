@@ -162,7 +162,7 @@ def _report_reservation(plan):
         reservation
         for reservation in plan.reservations
         if reservation.kind is CorridorKind.DIRECT_INTER_ROW_BAND
-        and reservation.route_family_ids == (RouteFamilyId.MERGE_TRUNK,)
+        and reservation.route_family_ids == (RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,)
         and isinstance(reservation.region, RowGapRegion)
     )
     assert len(matches) == 1
@@ -431,7 +431,7 @@ def test_canvas_left_merge_risers_do_not_claim_a_nearest_column_gap(
     _graph, _routes, plan = _observe(TOPOLOGIES / name)
 
     assert any(
-        item.route_family_ids == (RouteFamilyId.MERGE_TRUNK,)
+        item.route_family_ids == (RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,)
         and item.region == CanvasRegion(CanvasSide.LEFT)
         and item.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
         for item in plan.reservations
@@ -441,7 +441,7 @@ def test_canvas_left_merge_risers_do_not_claim_a_nearest_column_gap(
         realised_by_id[item.id].negative_side_slack >= 0
         and realised_by_id[item.id].positive_side_slack >= 0
         for item in plan.reservations
-        if item.route_family_ids == (RouteFamilyId.MERGE_TRUNK,)
+        if item.route_family_ids == (RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,)
         and isinstance(item.region, ColumnGapRegion)
         and item.measurement_scope is CorridorMeasurementScope.TOPOLOGY_SPAN
     )

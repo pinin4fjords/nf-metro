@@ -347,50 +347,69 @@ _CASES = [
     ),
     pytest.param(
         dict(merge_ep=SimpleNamespace(id="ep", x=0.0, y=0.0, section_id="m")),
-        "merge entry family",
+        "merge entry straight",
         id="merge-entry",
     ),
 ]
 
 
 @pytest.mark.parametrize("overrides, expected", _CASES)
-def test_rule_selection(overrides: dict[str, object], expected: str) -> None:
+def test_rule_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: dict[str, object],
+    expected: str,
+) -> None:
+    if expected == "bottom-exit junction":
+        monkeypatch.setattr(
+            H,
+            "_bottom_exit_junction_route_kind",
+            lambda _facts: H._BottomExitJunctionRoute.PLAIN,
+        )
+    if expected == "merge trunk":
+        monkeypatch.setattr(
+            H,
+            "_merge_trunk_shape",
+            lambda _facts: SimpleNamespace(around_below=False),
+        )
+    if expected == "LEFT entry wrap family":
+        monkeypatch.setattr(
+            H,
+            "_left_entry_route_kind",
+            lambda _facts: H._LeftEntryRoute.WRAP,
+        )
+    if expected == "merge entry straight":
+        monkeypatch.setattr(
+            H,
+            "_merge_entry_route_kind",
+            lambda _facts: H._MergeEntryRoute.STRAIGHT,
+        )
     assert _selected(**overrides) == expected
 
 
-def test_merge_entry_family_route_is_in_table() -> None:
-    """``_would_route_around_section_below`` keys off the merge-entry route fn.
-
-    It matches the dispatcher by callable identity; if that builder were dropped
-    from the table the helper would silently never match, so sibling detection
-    would always abstain.
-    """
-    assert H._route_merge_entry_family in {r.route for r in H._INTER_SECTION_RULES}
+def test_merge_entry_around_below_route_is_in_table() -> None:
+    assert H._route_merge_entry_around_below in {
+        rule.route for rule in H._INTER_SECTION_RULES
+    }
 
 
 # ``_would_route_around_section_below`` must claim a sibling only when the
-# dispatch table routes it through the merge-entry family AND that family's
-# classifier picks the around-below loop.  These cases stub the three
-# collaborators so the combining logic is pinned without graph geometry (the
-# around-below arm is defensive - no corpus fixture reaches it).
-_AROUND = H._MergeEntryRoute.AROUND_BELOW
-_L_SHAPE = H._MergeEntryRoute.L_SHAPE
-_OTHER_ROUTE = H._route_bypass_family
+# dispatch table routes it through the named merge-entry around-below leaf.
 _SIBLING_CASES = [
-    pytest.param(H._route_merge_entry_family, _AROUND, True, id="merge-family-around"),
     pytest.param(
-        H._route_merge_entry_family, _L_SHAPE, False, id="merge-family-l-shape"
+        RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
+        True,
+        id="merge-entry-around-below",
     ),
-    pytest.param(_OTHER_ROUTE, _AROUND, False, id="shadowed-by-earlier-rule"),
-    pytest.param(None, _AROUND, False, id="no-rule-claims-it"),
+    pytest.param(RouteFamilyId.MERGE_ENTRY, False, id="merge-entry-l-shape"),
+    pytest.param(RouteFamilyId.BYPASS_FAMILY, False, id="other-family"),
+    pytest.param(None, False, id="no-rule-claims-it"),
 ]
 
 
-@pytest.mark.parametrize("route, kind, expected", _SIBLING_CASES)
+@pytest.mark.parametrize("family_id, expected", _SIBLING_CASES)
 def test_would_route_around_section_below(
     monkeypatch: pytest.MonkeyPatch,
-    route: object,
-    kind: H._MergeEntryRoute,
+    family_id: RouteFamilyId | None,
     expected: bool,
 ) -> None:
     edge = SimpleNamespace(source="s", target="t", line_id="L")
@@ -401,11 +420,10 @@ def test_would_route_around_section_below(
         )
     )
     sentinel = object()
-    matched = None if route is None else SimpleNamespace(route=route)
+    matched = None if family_id is None else SimpleNamespace(family_id=family_id)
 
     monkeypatch.setattr(H, "_build_inter_facts", lambda *a: sentinel)
     monkeypatch.setattr(H, "_match_inter_section_rule", lambda f: matched)
-    monkeypatch.setattr(H, "_merge_entry_route_kind", lambda f: kind)
 
     assert H._would_route_around_section_below(edge, ctx) is expected  # type: ignore[arg-type]
 
@@ -477,11 +495,15 @@ _CORPUS_COVERED = {
     "same-Y straight",
     "TB bottom exit",
     "TOP entry L-shape",
+    "bottom-exit junction right landings",
+    "bottom-exit junction via gap",
     "bottom-exit junction",
+    "merge trunk around below",
     "bypass family",
     "near-vertical same-col junction",
     "RIGHT entry wrap",
     "LEFT entry wrap family",
+    "merge entry corridor",
     "merge entry family",
     "RIGHT entry plough -> bypass",
 }

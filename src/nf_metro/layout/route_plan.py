@@ -329,23 +329,6 @@ _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "one, and a reading whose geometry collapses or contradicts itself has no "
     "turn to state whichever system draws it, so support is permanent."
 )
-_LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY = CompatibilityFamily(
-    "A production family is a first-match dispatch rule rather than one shape: "
-    "its builder hides a sub-cascade, and an exit-turn plan states the turn "
-    "arrangement of the leaf the rule is named for -- one run out of the port, "
-    "one turn, one axis, one runway. This member is claimed by that rule and "
-    "drawn by another leaf of it: a fan plan's own landing route, a detour "
-    "around a box the direct leg would cross, a corridor descended beside the "
-    "target column, a loop under the target, or a straight. Stating one "
-    "arrangement under another's name is what the plan refuses, so the leaf "
-    "needs a family of its own before it can be planned. Promoting these "
-    "hidden sub-cascades to first-class families is the dispatch-consolidation "
-    "programme, after which the leaf is planned like any other family and this "
-    "reason has no producer. Until then every such verdict on the corpus is "
-    "superseded by the convergence or fan plan that decides its system rather "
-    "than deciding one itself.",
-    _ISSUE.format(1441),
-)
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "Two owners claim the same anchor, axis, lane or station frame, and the "
     "precedence between inter-section owners is not yet stated, so neither "
@@ -502,17 +485,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
         {
             "exit-turn-plan": _registry(
                 _reasons(
-                    _LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY,
-                    "unsupported-subshape:bottom-exit-junction-right-landings",
-                    "unsupported-subshape:bottom-exit-junction-via-gap",
-                    "unsupported-subshape:left-entry-corridor",
-                    "unsupported-subshape:merge-entry-around_below",
-                    "unsupported-subshape:merge-entry-corridor",
-                    "unsupported-subshape:merge-entry-perpendicular_entry",
-                    "unsupported-subshape:merge-entry-straight",
-                    "unsupported-subshape:merge-trunk-around-below",
-                ),
-                _reasons(
                     _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
                     "invalid-source-turn-requirement",
                     "multiple-destinations",
@@ -524,6 +496,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-subshape:nonvertical-perp-exit",
                     "unsupported-subshape:nonvertical-tb-exit",
                     "unsupported-subshape:opposed-straight",
+                    "unsupported-subshape:merge-entry-straight",
                     "unsupported-subshape:straight-across-its-run-axis",
                 ),
                 _reasons(
@@ -2747,6 +2720,12 @@ def _member_roles(
         family
         in {
             RouteFamilyId.BYPASS_FAMILY,
+            RouteFamilyId.BYPASS_L_SHAPE,
+            RouteFamilyId.BYPASS_LEFT_ENTRY,
+            RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
+            RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
+            RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
+            RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
             RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
         }
         or is_bypass_v(edge.source)
