@@ -22,7 +22,6 @@ from nf_metro.api import prepare_graph, render_string
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets
-from nf_metro.layout.routing.common import drop_coincident_points
 from nf_metro.layout.routing.core import route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -32,6 +31,19 @@ from layout_validator import check_section_overlap  # noqa: E402
 
 HINTLESS = "examples/topologies/riboseq_fold_two_dir_entry_hintless.mmd"
 HINTED = "examples/topologies/riboseq_fold_two_dir_entry.mmd"
+
+
+def _drop_coincident_points(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    out = [points[0]]
+    for point in points[1:]:
+        if (
+            abs(point[0] - out[-1][0]) > COORD_TOLERANCE
+            or abs(point[1] - out[-1][1]) > COORD_TOLERANCE
+        ):
+            out.append(point)
+    return out
 
 
 def _layout(path: str, *, validate: bool, strict: bool = False) -> MetroGraph:
@@ -92,7 +104,7 @@ def test_hinted_side_fan_branch_traverses_before_dropping() -> None:
         warnings.simplefilter("ignore")
         graph = prepare_graph(open(HINTED).read())
     compute_layout(graph)
-    routes = route_edges(graph)
+    routes = route_edges(graph, station_offsets=compute_station_offsets(graph))
 
     orf_port = graph.stations["orf_calling__entry_top_7"]
     psite_port = graph.stations["psite_id__entry_top_8"]
@@ -152,7 +164,7 @@ def test_hinted_aligned_drop_departs_with_a_curve() -> None:
         if r.edge.target == "psite_id__entry_top_8"
         and r.edge.source in graph.junction_ids
     )
-    pts = drop_coincident_points(psite_feed.points)
+    pts = _drop_coincident_points(psite_feed.points)
 
     assert len(pts) >= 3, (
         f"psite fan-out drop is a bare peel-off {pts}; it leaves the junction "
