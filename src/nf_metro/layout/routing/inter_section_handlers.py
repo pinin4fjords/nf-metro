@@ -1835,6 +1835,19 @@ _INDEXED_INTER_SECTION_RULES = _INTER_SECTION_RULES
 _INTER_SECTION_RULE_BY_FAMILY = MappingProxyType(
     {rule.family_id: rule for rule in _INDEXED_INTER_SECTION_RULES}
 )
+
+CLASSIFIABLE_INTER_SECTION_FAMILIES = frozenset(_INTER_SECTION_RULE_BY_FAMILY) | {
+    RouteFamilyId.STANDARD_L_SHAPE
+}
+"""Every family :func:`classify_inter_section_family` can name before emission.
+
+A dispatch rule's own family, or the standard L-shape the classifier falls to
+when no rule claims the edge.  The fallback handlers in
+:mod:`~nf_metro.layout.routing.dispatch` label a route only once
+``_route_inter_section`` has already declined it, and rail mode fixes its
+families from its own route table, so neither is a family any caller can be
+handed ahead of the emitter.
+"""
 if len(_INTER_SECTION_RULE_BY_FAMILY) != len(_INDEXED_INTER_SECTION_RULES):
     raise RuntimeError("inter-section route families are not unique")
 
@@ -5676,16 +5689,29 @@ def _route_left_entry_wrap(
     return route
 
 
-def _route_perp_exit_farside_entry_wrap(f: _InterFacts) -> RoutedPath | None:
-    """Wrap a trailing perp (BOTTOM/TOP) exit into a far-side LEFT/RIGHT entry.
+@dataclass(frozen=True, slots=True)
+class _PerpExitFarSideWrapLoop:
+    """The loop a trailing perp exit draws to a far-side side entry.
 
-    Mirrors :func:`_route_left_entry_wrap` / :func:`_route_right_entry_wrap` but
-    leaves the source straight along the flow (``source_leads_down``): the perp
-    exit sits on the section's trailing edge, so the loop opens with the vertical
-    drop down the exit column into the inter-row gap, then wraps across to a
-    channel clear of the target box and approaches the port horizontally from its
-    own outward side.
+    ``run_direction``/``turn_direction``/``launch_coordinate``/
+    ``axis_coordinate`` are the source seam: the drop down the exit column and
+    the inter-row channel it turns onto.
     """
+
+    entry_side: PortSide
+    pos_n: int
+    delta: float
+    corner_x: float
+    channel_y: float
+    descent_x: float
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    axis_coordinate: float
+
+
+def perp_exit_farside_entry_wrap_geometry(f: _InterFacts) -> _PerpExitFarSideWrapLoop:
+    """Resolve the loop shared by far-side perp-exit planning and emission."""
     edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
     entry_side = f.entry_side
     assert entry_side in (PortSide.LEFT, PortSide.RIGHT)
@@ -5720,20 +5746,48 @@ def _route_perp_exit_farside_entry_wrap(f: _InterFacts) -> RoutedPath | None:
         vx = _left_entry_descent_x(ctx, tgt.x, pos_n)
     else:
         vx = _right_entry_descent_x(ctx, tgt.x, pos_n)
+    return _PerpExitFarSideWrapLoop(
+        entry_side,
+        pos_n,
+        delta,
+        corner_x,
+        hy,
+        vx,
+        vertical_direction(dy),
+        horizontal_direction(vx - corner_x),
+        sy,
+        hy,
+    )
+
+
+def _route_perp_exit_farside_entry_wrap(f: _InterFacts) -> RoutedPath | None:
+    """Wrap a trailing perp (BOTTOM/TOP) exit into a far-side LEFT/RIGHT entry.
+
+    Mirrors :func:`_route_left_entry_wrap` / :func:`_route_right_entry_wrap` but
+    leaves the source straight along the flow (``source_leads_down``): the perp
+    exit sits on the section's trailing edge, so the loop opens with the vertical
+    drop down the exit column into the inter-row gap, then wraps across to a
+    channel clear of the target box and approaches the port horizontally from its
+    own outward side.
+    """
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    geometry = perp_exit_farside_entry_wrap_geometry(f)
     route = _route_entry_wrap(
         edge,
         src,
         tgt,
         ctx,
-        pos_n=pos_n,
-        delta=delta,
-        corner_x=corner_x,
-        channel_y=hy,
-        descent_x=vx,
-        entry_side=entry_side,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
+        entry_side=geometry.entry_side,
         source_leads_down=True,
     )
-    _declare_channel(route, ctx, vx, vertical_direction(ty - hy))
+    _declare_channel(
+        route, ctx, geometry.descent_x, vertical_direction(tgt.y - geometry.channel_y)
+    )
     return route
 
 

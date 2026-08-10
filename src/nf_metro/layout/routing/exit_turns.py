@@ -100,6 +100,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     classify_inter_section_family,
     left_exit_around_below_geometry,
     packed_cell_handoff_carrier,
+    perp_exit_farside_entry_wrap_geometry,
     seated_bypass_descent,
     seated_left_exit_under_target_descent,
     u_bypass_descent_geometry,
@@ -149,12 +150,20 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.RIGHT_ENTRY_WRAP,
         RouteFamilyId.MERGE_TRUNK,
         RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
+        RouteFamilyId.SAME_X_VERTICAL_DROP,
+        RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
+        RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
     }
 )
 
 # Families whose source seam is a perpendicular-exit centreline.
 _PERPENDICULAR_EXIT_FAMILIES = frozenset(
     {RouteFamilyId.PERP_EXIT, RouteFamilyId.TB_PERP_EXIT_OVER}
+)
+
+# Families the straight-connector builder draws, one per run axis.
+_STRAIGHT_CONNECTOR_FAMILIES = frozenset(
+    {RouteFamilyId.SAME_Y_STRAIGHT, RouteFamilyId.SAME_X_VERTICAL_DROP}
 )
 
 _EdgeKey = tuple[str, str, str]
@@ -768,6 +777,43 @@ def _right_entry_cross_row_turn_requirement(
     )
 
 
+def _straight_connector_turn_requirement(
+    family_id: RouteFamilyId,
+    source_run_direction: Direction,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The run a straight connector states, on whichever axis it is drawn on.
+
+    One builder draws both straights, so the two families differ only in the
+    axis their run and their separation are measured along.
+    """
+    horizontal = family_id is RouteFamilyId.SAME_Y_STRAIGHT
+    run_axis = {Direction.R, Direction.L} if horizontal else {Direction.U, Direction.D}
+    if source_run_direction not in run_axis:
+        return _SourceTurnRequirement(
+            None,
+            None,
+            None,
+            None,
+            None,
+            "unsupported-subshape:straight-across-its-run-axis",
+        )
+    delta = (tgt.x - src.x) if horizontal else (tgt.y - src.y)
+    if abs(delta) <= COORD_TOLERANCE:
+        return _SourceTurnRequirement(
+            None, None, None, None, None, "unsupported-subshape:degenerate-straight"
+        )
+    actual_run = (
+        horizontal_direction(delta) if horizontal else vertical_direction(delta)
+    )
+    if actual_run is not source_run_direction:
+        return _SourceTurnRequirement(
+            None, None, None, None, None, "unsupported-subshape:opposed-straight"
+        )
+    return _SourceTurnRequirement(actual_run, None, None, None, None)
+
+
 def _source_turn_requirement(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -838,41 +884,9 @@ def _source_turn_requirement(
             abs(stack_geometry.axis_coordinate - stack_geometry.launch_coordinate),
             stack_geometry.axis_coordinate,
         )
-    if family_id is RouteFamilyId.SAME_Y_STRAIGHT:
-        if source_run_direction not in {Direction.R, Direction.L}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:vertical-source-horizontal-straight",
-            )
-        if abs(tgt.x - src.x) <= COORD_TOLERANCE:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:degenerate-horizontal-straight",
-            )
-        actual_run = horizontal_direction(tgt.x - src.x)
-        if actual_run is not source_run_direction:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:opposed-horizontal-straight",
-            )
-        return _SourceTurnRequirement(
-            actual_run,
-            None,
-            None,
-            None,
-            None,
+    if family_id in _STRAIGHT_CONNECTOR_FAMILIES:
+        return _straight_connector_turn_requirement(
+            family_id, source_run_direction, src, tgt
         )
     if family_id in {
         RouteFamilyId.TOP_ENTRY_L_SHAPE,
@@ -1024,6 +1038,21 @@ def _source_turn_requirement(
         return _merge_trunk_turn_requirement(edge, ctx)
     if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
         return _bottom_exit_junction_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP:
+        # The dispatch rule claims the single-hop reading of the loop the
+        # bypass family draws for the multi-hop one, from the same builder.
+        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+    if family_id is RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP:
+        perp_wrap = perp_exit_farside_entry_wrap_geometry(
+            _build_inter_facts(edge, src, tgt, ctx)
+        )
+        return _SourceTurnRequirement(
+            perp_wrap.run_direction,
+            perp_wrap.turn_direction,
+            perp_wrap.launch_coordinate,
+            abs(perp_wrap.axis_coordinate - perp_wrap.launch_coordinate),
+            perp_wrap.axis_coordinate,
+        )
     return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
 
 

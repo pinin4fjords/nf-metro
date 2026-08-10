@@ -1173,10 +1173,91 @@ def test_straight_requirement_rejects_a_perpendicular_source_run(
         Direction.D,
         horizontal_ctx,
     )
+    vertical = exit_turns._source_turn_requirement(
+        horizontal_edge,
+        RouteFamilyId.SAME_X_VERTICAL_DROP,
+        Direction.R,
+        horizontal_ctx,
+    )
 
     assert horizontal.legacy_reason == (
-        "unsupported-subshape:vertical-source-horizontal-straight"
+        "unsupported-subshape:straight-across-its-run-axis"
     )
+    assert vertical.legacy_reason == "unsupported-subshape:straight-across-its-run-axis"
+
+
+@pytest.mark.parametrize(
+    ("path", "edge_key", "family_id", "run_direction", "axis_is_the_drawn_corner"),
+    [
+        (
+            TOPOLOGIES / "lr_perpendicular_ports_overflow.mmd",
+            ("annotation__exit_bottom_1", "downstream__entry_left_3", "l1"),
+            RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+            Direction.D,
+            True,
+        ),
+        (
+            FIXTURES / "tb_exit_terminal_on_carrier.mmd",
+            ("psite_id__exit_bottom_2", "te__entry_left_7", "riboseq"),
+            RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+            Direction.D,
+            True,
+        ),
+        (
+            TOPOLOGIES / "samerow_left_exit_far_left_entry.mmd",
+            ("psite_id__exit_left_4", "te__entry_left_9", "ribo"),
+            RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
+            Direction.L,
+            False,
+        ),
+    ],
+    ids=["perp-far-side-wrap", "perp-far-side-wrap-carrier", "left-exit-far-side-wrap"],
+)
+def test_wrap_family_requirement_states_the_corner_its_emitter_draws(
+    path: Path,
+    edge_key: tuple[str, str, str],
+    family_id: RouteFamilyId,
+    run_direction: Direction,
+    axis_is_the_drawn_corner: bool,
+) -> None:
+    """Each planned wrap reads its seam from the helper its emitter builds from.
+
+    The requirement and the drawn route therefore open on one run: the launch
+    coordinate is the port the run leaves.  Where the loop's column is a
+    reservation seat the plan takes at binding time -- the far-side wrap, which
+    reads it through ``seated_left_exit_under_target_descent`` -- the drawn
+    column is the pre-seat one, so only the run is common.
+    """
+    graph, offsets, observation = _observe(path)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, dict(offsets))
+    edge = next(
+        item
+        for item in graph.edges
+        if (item.source, item.target, item.line_id) == edge_key
+    )
+    route = next(
+        item
+        for item in observation.routes
+        if (item.edge.source, item.edge.target, item.edge.line_id) == edge_key
+    )
+    corner = route.points[1]
+
+    requirement = exit_turns._source_turn_requirement(
+        edge, family_id, run_direction, ctx, edge_key[0]
+    )
+
+    assert requirement.legacy_reason is None
+    assert requirement.run_direction is run_direction
+    assert requirement.turn_direction is not None
+    launch, axis = (
+        (route.points[0][1], corner[1])
+        if run_direction in {Direction.U, Direction.D}
+        else (route.points[0][0], corner[0])
+    )
+    assert requirement.launch_coordinate == pytest.approx(launch)
+    if axis_is_the_drawn_corner:
+        assert requirement.fixed_axis == pytest.approx(axis)
+        assert requirement.minimum_runway == pytest.approx(abs(axis - launch))
 
 
 def test_vertical_bottom_exit_owns_ordered_turn_rows() -> None:
@@ -1588,7 +1669,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
             and ctx.station_offsets is not None
             and ctx.station_offsets[(edge.source, edge.line_id)] == pytest.approx(8.0)
         ):
-            return RouteFamilyId.SAME_X_VERTICAL_DROP
+            return RouteFamilyId.NEAR_VERTICAL_JUNCTION
         return family
 
     monkeypatch.setattr(exit_turns, "classify_inter_section_family", classify)
@@ -1596,7 +1677,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
     plan = _plan_for_source(observation, "__junction_37")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "unsupported-family:same-x-vertical-drop"
+    assert plan.legacy_reason == "unsupported-family:near-vertical-same-col-junction"
     assert plan.axes == ()
     assert plan.lane_transitions == ()
     assert all(lane.station_ids == () for lane in plan.source_lanes)

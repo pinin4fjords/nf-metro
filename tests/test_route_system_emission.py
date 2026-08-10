@@ -27,7 +27,9 @@ from nf_metro.layout.routing.exit_turns import (
     PLANNED_EXIT_FAMILIES,
     _MergeEntryRoute,
 )
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.inter_section_handlers import (
+    CLASSIFIABLE_INTER_SECTION_FAMILIES,
+)
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
@@ -487,12 +489,14 @@ def test_every_reason_a_planner_can_generate_is_registered() -> None:
     two enums can produce. A member missing from it is a route that raises on an
     unattributable reason instead of falling back; a reason present without a
     member is a family carrying a justification nothing can reach.
+
+    The families it can read are the ones classification hands it, which is the
+    dispatch table plus the L-shape default -- not every family the enum names.
     """
     registered = set(ROUTE_SYSTEM_COMPATIBILITY_REASONS["exit-turn-plan"])
     generated = {
         f"unsupported-family:{family.value}"
-        for family in RouteFamilyId
-        if family not in PLANNED_EXIT_FAMILIES
+        for family in CLASSIFIABLE_INTER_SECTION_FAMILIES - PLANNED_EXIT_FAMILIES
     } | {
         f"unsupported-subshape:merge-entry-{kind.value}"
         for kind in _MergeEntryRoute

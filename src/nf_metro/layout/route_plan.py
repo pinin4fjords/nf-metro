@@ -301,27 +301,32 @@ def _registry(
     return MappingProxyType(merged)
 
 
-_NO_PLANNED_TURN_FOR_FAMILY = CompatibilityFamily(
-    "The exit-turn planner has no turn sequence, lane order or runway rule for "
-    "this inter-section production family, so it can claim no part of the "
-    "system's source geometry and the established dispatcher emits all of it.",
-    _ISSUE.format(1710),
-)
-_NO_PLANNED_TURN_FOR_SUBSHAPE = CompatibilityFamily(
-    "The production family is planned, but this degenerate or reversed variant "
-    "of it has no planned turn: the source run and the entry it leads to do not "
-    "meet in the arrangement the family's turn sequence describes.",
-    _ISSUE.format(1710),
-)
 _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
     "The requirement derived for this exit group states a turn the group cannot "
-    "take: a run opposed to its own transition, a member whose connectors point "
-    "at more than one destination, or a seam whose descent collapses to zero "
-    "depth so the only derivable statement is a straight the member does not "
-    "draw. No planner rule can choose between contradictory readings without "
-    "inventing one, and the established templates already draw each degenerate "
-    "shape correctly, so they are the defined behaviour for these readings and "
-    "support is permanent."
+    "take: a run opposed to its own transition, a member whose run axis is not "
+    "the one its group leaves the port on, a member whose connectors point at "
+    "more than one destination, or a seam whose descent collapses to zero depth "
+    "so the only derivable statement is a straight the member does not draw. No "
+    "planner rule can choose between contradictory readings without inventing "
+    "one, and a reading whose geometry collapses or contradicts itself has no "
+    "turn to state whichever system draws it, so support is permanent."
+)
+_LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY = CompatibilityFamily(
+    "A production family is a first-match dispatch rule rather than one shape: "
+    "its builder hides a sub-cascade, and an exit-turn plan states the turn "
+    "arrangement of the leaf the rule is named for -- one run out of the port, "
+    "one turn, one axis, one runway. This member is claimed by that rule and "
+    "drawn by another leaf of it: a fan plan's own landing route, a detour "
+    "around a box the direct leg would cross, a corridor descended beside the "
+    "target column, a loop under the target, or a straight. Stating one "
+    "arrangement under another's name is what the plan refuses, so the leaf "
+    "needs a family of its own before it can be planned. Promoting these "
+    "hidden sub-cascades to first-class families is the dispatch-consolidation "
+    "programme, after which the leaf is planned like any other family and this "
+    "reason has no producer. Until then every such verdict on the corpus is "
+    "superseded by the convergence or fan plan that decides its system rather "
+    "than deciding one itself.",
+    _ISSUE.format(1441),
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "Two owners claim the same anchor, axis, lane or station frame, and the "
@@ -348,12 +353,6 @@ _STATES_NO_GEOMETRY = CompatibilityFamily(
     "order and no shared axis to plan. It is recorded for attribution and never "
     "escalates a system, so there is nothing to retire."
 )
-_RAIL_EMISSION_OWNS_THE_ROUTE = CompatibilityFamily(
-    "Rail mode draws every inter-section edge from its own emitter, on a route "
-    "system frozen with no exit-turn plan at all. There is no source geometry "
-    "left for an exit-turn plan to claim a part of, so the rail frame is the "
-    "emitter's whole output and support is permanent."
-)
 _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
     "A junction dropping almost straight into a same-column entry does turn, "
     "and the column it turns onto is a slot in an inter-column gap rather than "
@@ -366,6 +365,19 @@ _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
     "turn and runway but not its column, and a plan that states the guess "
     "fuses the drop onto a gap-mate's stroke, so the allocator owns the column "
     "and support is permanent."
+)
+_UNBOUND_DROP_COLUMN_SETTLES_AFTER_EMISSION = CompatibilityFamily(
+    "A LEFT exit dropping into a LEFT entry stacked below it leads out into the "
+    "margin beside its own column and turns down it. The handler places that "
+    "column from the two boxes' left edges, and because no plan binds the "
+    "member the settlement passes then move it: on "
+    "``examples/topologies/stacked_left_exit_drop.mmd`` the drop is built one "
+    "offset step further out than the column the map ends with. A plan states "
+    "the axis its member is finally drawn on, so this drop can be planned only "
+    "once it takes its seat at binding time the way the far-side loop takes its "
+    "own through ``seated_left_exit_under_target_descent``, which is the "
+    "dispatch-consolidation programme's work on this family.",
+    _ISSUE.format(1441),
 )
 _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
     "The station-offset allocator seats the exit port's lane order and the "
@@ -388,18 +400,24 @@ _INCOMPLETE_RESOLVED_FAN = CompatibilityFamily(
     "inputs, so support for emitting them through the established templates is "
     "permanent."
 )
-_OVERLAPPING_FAN_OWNERSHIP = CompatibilityFamily(
-    "Two fan or branch-lane owners claim geometry that overlaps, and the "
-    "planner has no rule for which of them takes the shared part, so it claims "
-    "neither. The membership is fully resolved and the frame is the fan's, so "
-    "what is missing is the precedence rule rather than the plan.",
-    _ISSUE.format(1711),
+_LAYOUT_SEATS_WHAT_TWO_READINGS_STATE = CompatibilityFamily(
+    "One station carries two statements of where it sits: a pair of fans "
+    "reaching it from forks whose siblings' rules -- one fork, one aligned "
+    "trunk, one landing port -- name no owner between them, or a single fan "
+    "whose own branch lanes both run through it and so seat it twice. The "
+    "coordinate itself comes from the section allocator, which every such "
+    "reading reads back rather than writes, so letting either statement stand "
+    "moves a station layout settled and puts its section's content outside the "
+    "box the allocator sized. The seat belongs to the allocator whichever "
+    "reading asks for it, so support is permanent."
 )
-_NO_PLANNED_FRAME_FOR_FAN_SHAPE = CompatibilityFamily(
-    "The fan is completely resolved, and the planner has no frame for the shape "
-    "it takes: this direction, this line transition across a branch, or a lane "
-    "order that seats the centreline away from the trunk it is anchored to.",
-    _ISSUE.format(1711),
+_FAN_HAS_NO_SECTION_FRAME = CompatibilityFamily(
+    "A fan orders its lanes along the flow direction of the section its fork "
+    "stands in, and this fork stands in none: a sectionless graph, or a section "
+    "whose direction is not a flow axis. There is no frame to lay lanes on "
+    "rather than a frame the planner declines to read, and sectionless input is "
+    "a valid routing input, so the established templates draw these fans and "
+    "support is permanent."
 )
 _CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
     "The convergence plan is semantically complete, and the canonical template "
@@ -427,32 +445,15 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
         {
             "exit-turn-plan": _registry(
                 _reasons(
-                    _NO_PLANNED_TURN_FOR_FAMILY,
-                    "unsupported-family:entry-runway-fallback",
-                    "unsupported-family:intra-section-fallback",
-                    "unsupported-family:left-exit-far-side-left-entry-wrap",
-                    "unsupported-family:perp-exit-far-side-entry-wrap",
-                    "unsupported-family:same-x-vertical-drop",
-                    "unsupported-family:serpentine-left-exit-left-entry",
-                    "unsupported-family:tb-section-fallback",
-                ),
-                _reasons(
-                    _NO_PLANNED_TURN_FOR_SUBSHAPE,
+                    _LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY,
                     "unsupported-subshape:bottom-exit-junction-right-landings",
                     "unsupported-subshape:bottom-exit-junction-via-gap",
-                    "unsupported-subshape:degenerate-horizontal-straight",
                     "unsupported-subshape:left-entry-corridor",
-                    "unsupported-subshape:left-entry-left_exit_drop",
-                    "unsupported-subshape:left-exit-right-entry-step",
                     "unsupported-subshape:merge-entry-around_below",
                     "unsupported-subshape:merge-entry-corridor",
                     "unsupported-subshape:merge-entry-perpendicular_entry",
                     "unsupported-subshape:merge-entry-straight",
                     "unsupported-subshape:merge-trunk-around-below",
-                    "unsupported-subshape:nonhorizontal-left-entry-wrap",
-                    "unsupported-subshape:nonvertical-tb-exit",
-                    "unsupported-subshape:opposed-horizontal-straight",
-                    "unsupported-subshape:vertical-source-horizontal-straight",
                 ),
                 _reasons(
                     _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
@@ -460,6 +461,13 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "multiple-destinations",
                     "opposed-source-run",
                     "unresolved-perpendicular-entry-seam",
+                    "unsupported-subshape:degenerate-straight",
+                    "unsupported-subshape:left-exit-right-entry-step",
+                    "unsupported-subshape:nonhorizontal-left-entry-wrap",
+                    "unsupported-subshape:nonvertical-perp-exit",
+                    "unsupported-subshape:nonvertical-tb-exit",
+                    "unsupported-subshape:opposed-straight",
+                    "unsupported-subshape:straight-across-its-run-axis",
                 ),
                 _reasons(
                     _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
@@ -494,16 +502,17 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 ),
                 _reasons(_STATES_NO_GEOMETRY, "single-member-group"),
                 _reasons(
-                    _RAIL_EMISSION_OWNS_THE_ROUTE,
-                    "unsupported-family:rail-inter-section",
-                ),
-                _reasons(
                     _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
                     "lane-transition-order-inversion",
                 ),
                 _reasons(
                     _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN,
                     "unsupported-family:near-vertical-same-col-junction",
+                ),
+                _reasons(
+                    _UNBOUND_DROP_COLUMN_SETTLES_AFTER_EMISSION,
+                    "unsupported-family:serpentine-left-exit-left-entry",
+                    "unsupported-subshape:left-entry-left_exit_drop",
                 ),
             ),
             "fan-plan": _registry(
@@ -512,6 +521,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "chained-trunk-layout-owns-geometry",
                     "line-split-fork-layout-owns-geometry",
                     "local-layout-has-foreign-owner",
+                    "centreline-anchor-off-its-branch-lane",
                     "shared-landing-port-allocator-owns-the-seat",
                     "symmetric-diamond-layout-owns-the-anchor",
                     "off-track-layout-owns-fan-geometry",
@@ -533,15 +543,11 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "missing-resolved-member-path",
                 ),
                 _reasons(
-                    _OVERLAPPING_FAN_OWNERSHIP,
+                    _LAYOUT_SEATS_WHAT_TWO_READINGS_STATE,
                     "overlapping-branch-lane-ownership",
                     "overlapping-fan-ownership",
                 ),
-                _reasons(
-                    _NO_PLANNED_FRAME_FOR_FAN_SHAPE,
-                    "centreline-anchor-off-its-branch-lane",
-                    "unsupported-fan-direction",
-                ),
+                _reasons(_FAN_HAS_NO_SECTION_FRAME, "unsupported-fan-direction"),
             ),
             "convergence-plan": _registry(
                 _reasons(
