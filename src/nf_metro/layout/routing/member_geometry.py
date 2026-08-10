@@ -136,7 +136,6 @@ class MemberGeometryExecution:
     plans: tuple[RouteMemberGeometryPlan, ...]
     failure_reasons: Mapping[RouteSystemId, str]
     _by_edge: Mapping[ResolvedEdge, RouteMemberGeometryPlan]
-    _by_system: Mapping[RouteSystemId, tuple[RouteMemberGeometryPlan, ...]]
 
     def plan_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -161,9 +160,7 @@ class MemberGeometryExecution:
 
 
 def empty_member_geometry_execution() -> MemberGeometryExecution:
-    return MemberGeometryExecution(
-        (), MappingProxyType({}), MappingProxyType({}), MappingProxyType({})
-    )
+    return MemberGeometryExecution((), MappingProxyType({}), MappingProxyType({}))
 
 
 def _convergence_member_edges(
@@ -1046,14 +1043,10 @@ def build_member_geometry_execution(
     finally:
         del ctx.built_routes[built_start:]
 
-    by_system: dict[RouteSystemId, list[RouteMemberGeometryPlan]] = defaultdict(list)
-    for plan in plans:
-        by_system[plan.system_id].append(plan)
     return MemberGeometryExecution(
         plans,
         MappingProxyType(failures),
         MappingProxyType({plan.edge: plan for plan in plans}),
-        MappingProxyType({key: tuple(value) for key, value in by_system.items()}),
     )
 
 

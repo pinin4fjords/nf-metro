@@ -51,24 +51,22 @@ class RouteSystemEmission:
     disposition: RouteSystemDisposition
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
     plan_ids: tuple[str, ...]
-    reservation_ids: tuple[str, ...] = ()
     superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
     def __post_init__(self) -> None:
         compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
         if compatible != bool(self.compatibility_reasons):
             raise ValueError("route-system disposition and compatibility disagree")
-        member_reservation_ids = tuple(
+
+    @property
+    def reservation_ids(self) -> tuple[str, ...]:
+        return tuple(
             dict.fromkeys(
                 reservation_id
                 for member in self.members
                 for reservation_id in member.reservation_ids
             )
         )
-        if member_reservation_ids != self.reservation_ids:
-            raise ValueError(
-                "route-system reservation union disagrees with member claimants"
-            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,13 +121,7 @@ class RouteSystemEmissionExecution:
 
 
 def _compatibility_reason(owner: str, reason: str) -> RouteSystemCompatibilityReason:
-    family = compatibility_family(owner, reason)
-    return RouteSystemCompatibilityReason(
-        owner=owner,
-        reason=reason,
-        justification=family.justification,
-        follow_up=family.follow_up,
-    )
+    return RouteSystemCompatibilityReason(owner=owner, reason=reason)
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,17 +378,6 @@ def build_route_system_emission_execution(
                 replace(member, geometry_plan=None, reservation_ids=())
                 for member in system_members
             )
-        system_reservation_ids = (
-            tuple(
-                dict.fromkeys(
-                    reservation_id
-                    for member in system_members
-                    for reservation_id in member.reservation_ids
-                )
-            )
-            if disposition is RouteSystemDisposition.PLANNED
-            else ()
-        )
         systems.append(
             RouteSystemEmission(
                 system_id,
@@ -431,7 +412,6 @@ def build_route_system_emission_execution(
                     if disposition is RouteSystemDisposition.PLANNED
                     else ()
                 ),
-                system_reservation_ids,
                 decision.superseded_verdicts,
             )
         )

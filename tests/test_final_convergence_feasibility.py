@@ -532,7 +532,7 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         settle_global_convergence_execution(
             execution,
             graph,
-            SimpleNamespace(curve_radius=8.0),
+            SimpleNamespace(curve_radius=8.0, prior_exit_turn_dispositions=None),
             exit_turn_plans=(),
             member_geometry=empty_member_geometry_execution(),
             planned_system_ids=frozenset({system_id}),

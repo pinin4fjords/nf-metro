@@ -521,7 +521,6 @@ def test_one_segment_can_own_distinct_gap_row_claims() -> None:
         (plan,),
         MappingProxyType({}),
         MappingProxyType({plan.edge: plan}),
-        MappingProxyType({plan.system_id: (plan,)}),
     )
     route.points[0] = (-10.0, 10.0)
     member_geometry.validate_member_geometry_emission([route], execution)

@@ -2293,16 +2293,17 @@ class RouteSystemCompatibilityReason:
 
     owner: str
     reason: str
-    justification: str
-    follow_up: str | None
 
     def __post_init__(self) -> None:
-        family = compatibility_family(self.owner, self.reason)
-        if (self.justification, self.follow_up) != (
-            family.justification,
-            family.follow_up,
-        ):
-            raise ValueError("route-system compatibility metadata is not canonical")
+        compatibility_family(self.owner, self.reason)
+
+    @property
+    def justification(self) -> str:
+        return compatibility_family(self.owner, self.reason).justification
+
+    @property
+    def follow_up(self) -> str | None:
+        return compatibility_family(self.owner, self.reason).follow_up
 
 
 @dataclass(frozen=True, slots=True)

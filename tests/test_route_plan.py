@@ -36,6 +36,7 @@ from nf_metro.layout.route_plan import (
     RouteSystemDisposition,
     SharedReferenceKind,
     build_route_plan_query,
+    compatibility_family,
     serialize_route_plan,
 )
 from nf_metro.layout.routing import (
@@ -480,16 +481,16 @@ def test_route_system_compatibility_reason_registry_is_public_schema() -> None:
         RouteSystemCompatibilityReason(
             owner="member-geometry-plan",
             reason="arbitrary-private-fallback",
-            justification="not registered",
-            follow_up="not applicable",
         )
-    with pytest.raises(ValueError, match="metadata is not canonical"):
-        RouteSystemCompatibilityReason(
-            owner="member-geometry-plan",
-            reason="missing-emission-edge",
-            justification="custom explanation",
-            follow_up="custom follow-up",
-        )
+    registered = RouteSystemCompatibilityReason(
+        owner="member-geometry-plan",
+        reason="missing-emission-edge",
+    )
+    family = compatibility_family("member-geometry-plan", "missing-emission-edge")
+    assert (registered.justification, registered.follow_up) == (
+        family.justification,
+        family.follow_up,
+    )
 
 
 def test_route_families_and_roles_come_from_production_dispatch() -> None:

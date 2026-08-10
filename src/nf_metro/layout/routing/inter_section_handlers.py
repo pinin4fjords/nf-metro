@@ -5605,6 +5605,41 @@ def _left_entry_wrap_geometry(
     )
 
 
+def _emit_left_entry_wrap(
+    edge: Edge,
+    src: Station,
+    entry: Station,
+    ctx: _RoutingCtx,
+    geometry: _EntryWrapGeometry,
+) -> RoutedPath:
+    """Draw one resolved LEFT-entry wrap loop and declare its two channels."""
+    route = _route_entry_wrap(
+        edge,
+        src,
+        entry,
+        ctx,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=geometry.corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
+        entry_side=PortSide.LEFT,
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.descent_x,
+        vertical_direction(entry.y - geometry.channel_y),
+    )
+    _declare_channel(
+        route,
+        ctx,
+        geometry.corner_x,
+        vertical_direction(geometry.channel_y - src.y),
+    )
+    return route
+
+
 def _route_left_entry_wrap(
     edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -5629,31 +5664,7 @@ def _route_left_entry_wrap(
     R-D-L-D-R loop cannot flip.
     """
     geometry = _left_entry_wrap_geometry(ctx, edge, src, tgt, i, n)
-    route = _route_entry_wrap(
-        edge,
-        src,
-        tgt,
-        ctx,
-        pos_n=geometry.pos_n,
-        delta=geometry.delta,
-        corner_x=geometry.corner_x,
-        channel_y=geometry.channel_y,
-        descent_x=geometry.descent_x,
-        entry_side=PortSide.LEFT,
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.descent_x,
-        vertical_direction(tgt.y - geometry.channel_y),
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.corner_x,
-        vertical_direction(geometry.channel_y - src.y),
-    )
-    return route
+    return _emit_left_entry_wrap(edge, src, tgt, ctx, geometry)
 
 
 @dataclass(frozen=True, slots=True)
@@ -6206,31 +6217,7 @@ def _route_around_section_below(
     geometry = _around_section_below_geometry(
         ctx, edge, src, entry_port, i, n, channel_y
     )
-    route = _route_entry_wrap(
-        edge,
-        src,
-        entry_port,
-        ctx,
-        pos_n=geometry.pos_n,
-        delta=geometry.delta,
-        corner_x=geometry.corner_x,
-        channel_y=geometry.channel_y,
-        descent_x=geometry.descent_x,
-        entry_side=PortSide.LEFT,
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.descent_x,
-        vertical_direction(entry_port.y - geometry.channel_y),
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.corner_x,
-        vertical_direction(geometry.channel_y - src.y),
-    )
-    return route
+    return _emit_left_entry_wrap(edge, src, entry_port, ctx, geometry)
 
 
 def _wrap_lane_coordinates(
@@ -6898,31 +6885,7 @@ def _route_left_entry_via_gap_above(
     (guaranteed by :func:`_left_entry_gap_above_is_clear` at the call site).
     """
     geometry = _left_entry_gap_above_geometry(ctx, edge, src, tgt, i, n, tgt_row)
-    route = _route_entry_wrap(
-        edge,
-        src,
-        tgt,
-        ctx,
-        pos_n=geometry.pos_n,
-        delta=geometry.delta,
-        corner_x=geometry.corner_x,
-        channel_y=geometry.channel_y,
-        descent_x=geometry.descent_x,
-        entry_side=PortSide.LEFT,
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.descent_x,
-        vertical_direction(tgt.y - geometry.channel_y),
-    )
-    _declare_channel(
-        route,
-        ctx,
-        geometry.corner_x,
-        vertical_direction(geometry.channel_y - src.y),
-    )
-    return route
+    return _emit_left_entry_wrap(edge, src, tgt, ctx, geometry)
 
 
 def _source_is_boxed_fanout_junction(f: _InterFacts) -> bool:

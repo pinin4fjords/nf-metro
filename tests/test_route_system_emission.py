@@ -61,7 +61,6 @@ def _atomic_execution():
         RouteSystemDisposition.PLANNED,
         (),
         (),
-        ("carrier-reservation", "covered-reservation"),
     )
     execution = system_emission.RouteSystemEmissionExecution(
         (system,),

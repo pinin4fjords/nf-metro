@@ -3964,7 +3964,7 @@ def build_convergence_plan_execution(
                 ),
                 (
                     _fixed_exit_axis_channels(upstream_exit_plans)
-                    if getattr(ctx, "prior_exit_turn_dispositions", None) is not None
+                    if ctx.prior_exit_turn_dispositions is not None
                     else frozenset()
                 ),
             )
@@ -4025,7 +4025,7 @@ def _settle_convergence_geometry(
         fixed_channels,
         (
             _fixed_exit_axis_channels(exit_turn_plans)
-            if getattr(ctx, "prior_exit_turn_dispositions", None) is not None
+            if ctx.prior_exit_turn_dispositions is not None
             else frozenset()
         ),
     )
