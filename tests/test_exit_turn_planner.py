@@ -15,6 +15,7 @@ import pytest
 
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
+import nf_metro.layout.routing.normalize as normalize
 import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.api import prepare_graph, render_string, resolve_theme
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
@@ -2092,10 +2093,6 @@ def test_post_pass_snapshot_owns_family_direction_and_endpoints() -> None:
 def test_post_pass_snapshot_leaves_corner_radius_to_unifier(path: Path) -> None:
     _graph, _offsets, observation = _observe(path)
     routes = copy.deepcopy(observation.routes)
-    snapshot = snapshot_exit_turn_segments(
-        routes,
-        observation.plan.exit_turn_plans,
-    )
     route = next(
         item
         for item in routes
@@ -2106,15 +2103,27 @@ def test_post_pass_snapshot_leaves_corner_radius_to_unifier(path: Path) -> None:
     rank = route.exit_turn_segment_rank
     radius_index = rank - 1
     points = route.points[radius_index : radius_index + 3]
-    old_radius = route.curve_radii[radius_index]
-    candidates = (
-        concentric_corner_radius_at(*points, -OFFSET_STEP),
-        concentric_corner_radius_at(*points, OFFSET_STEP),
+    narrow_radius, wide_radius = sorted(
+        {
+            concentric_corner_radius_at(*points, -OFFSET_STEP),
+            concentric_corner_radius_at(*points, OFFSET_STEP),
+        }
     )
-    route.curve_radii[radius_index] = next(
-        radius for radius in candidates if radius != old_radius
+    route.curve_radii[radius_index] = narrow_radius
+    coincident_peer = copy.deepcopy(route)
+    coincident_peer.exit_turn_axis_id = None
+    coincident_peer.exit_turn_segment_rank = None
+    assert coincident_peer.curve_radii is not None
+    coincident_peer.curve_radii[radius_index] = wide_radius
+    routes.append(coincident_peer)
+    snapshot = snapshot_exit_turn_segments(
+        routes,
+        observation.plan.exit_turn_plans,
     )
 
+    normalize._unify_coincident_corner_radii(routes)
+
+    assert route.curve_radii[radius_index] == wide_radius
     assert_exit_turn_snapshot(routes, snapshot, "corner-radius unification")
 
 
