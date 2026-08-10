@@ -52,6 +52,7 @@ from nf_metro.layout.routing.normalize import (
     _reseat_concentric_flanking,
     _segment_claim_band,
     _separate_opposing_inter_row_trunks,
+    _set_vchannel_x,
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
@@ -250,9 +251,8 @@ def _append_compatibility_context(
 def _typed_id(factory: Callable[[str], _IdT], value: str | None) -> _IdT | None:
     """*value* read into its own id space, leaving an absent id absent.
 
-    A route carries the ids it was stamped with as bare strings; a plan record
-    names the space each belongs to, so the crossing is stated once here rather
-    than at every field.
+    A route carries its ids as bare strings while a plan record names the space
+    each belongs to, so one conversion serves every crossing between the two.
     """
     return None if value is None else factory(value)
 
@@ -450,8 +450,6 @@ def _seat_channel(channel: _VChannel, coordinate: float) -> None:
     coordinate off the record rather than locating the leg again, so the record
     and the route it describes have to state one coordinate.
     """
-    from nf_metro.layout.routing.normalize import _set_vchannel_x
-
     _set_vchannel_x(channel, coordinate)
     channel.x = coordinate
 
