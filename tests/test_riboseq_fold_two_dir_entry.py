@@ -18,10 +18,11 @@ import sys
 import warnings
 from pathlib import Path
 
-from nf_metro.api import prepare_graph, render_string
+from nf_metro.api import render_string
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing.common import drop_coincident_points
+from nf_metro.layout.routing import compute_station_offsets
+from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.core import route_edges
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, PortSide
@@ -40,6 +41,34 @@ def _layout(path: str, *, validate: bool, strict: bool = False) -> MetroGraph:
     graph.strict = strict
     compute_layout(graph, validate=validate)
     return graph
+
+
+def _drawn_routes(graph: MetroGraph) -> list[RoutedPath]:
+    """The routes the render draws: routing reads the settled station offsets.
+
+    Routing without them produces a different geometry from the shipped SVG, so
+    an assertion about what a reader sees has to supply them.
+    """
+    return route_edges(graph, station_offsets=compute_station_offsets(graph))
+
+
+def _drop_coincident_points(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Collapse consecutive within-tolerance-identical waypoints.
+
+    A same-line coincidence fusion that snaps a lead-in onto its port column
+    leaves duplicated waypoints (a zero-length leg); reading the route's true
+    shape means seeing the geometry those duplicates hide.
+    """
+    out = [points[0]]
+    for p in points[1:]:
+        if (
+            abs(p[0] - out[-1][0]) > COORD_TOLERANCE
+            or abs(p[1] - out[-1][1]) > COORD_TOLERANCE
+        ):
+            out.append(p)
+    return out
 
 
 def test_hintless_lays_out_under_strict() -> None:
@@ -87,11 +116,8 @@ def test_hinted_side_fan_branch_traverses_before_dropping() -> None:
     only vertical descent sits at the port X, not in a fan lane beside the
     ``quantification -> psite_id`` descent one column to the left.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        graph = prepare_graph(open(HINTED).read())
-    compute_layout(graph)
-    routes = route_edges(graph)
+    graph = _layout(HINTED, validate=False)
+    routes = _drawn_routes(graph)
 
     orf_port = graph.stations["orf_calling__entry_top_7"]
     psite_port = graph.stations["psite_id__entry_top_8"]
@@ -138,11 +164,8 @@ def test_hinted_aligned_drop_departs_with_a_curve() -> None:
     not peel off at a hard 90 degrees.  A bare vertical first segment starting
     at the junction is the un-rounded departure this guards against.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        graph = prepare_graph(open(HINTED).read())
-    compute_layout(graph)
-    routes = route_edges(graph)
+    graph = _layout(HINTED, validate=False)
+    routes = _drawn_routes(graph)
 
     junction = graph.stations["__junction_10"]
     psite_feed = next(
@@ -151,7 +174,7 @@ def test_hinted_aligned_drop_departs_with_a_curve() -> None:
         if r.edge.target == "psite_id__entry_top_8"
         and r.edge.source in graph.junction_ids
     )
-    pts = drop_coincident_points(psite_feed.points)
+    pts = _drop_coincident_points(psite_feed.points)
 
     assert len(pts) >= 3, (
         f"psite fan-out drop is a bare peel-off {pts}; it leaves the junction "

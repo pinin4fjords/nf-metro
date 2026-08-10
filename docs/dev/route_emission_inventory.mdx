@@ -104,10 +104,9 @@ to [#1441](https://github.com/seqeralabs/nf-metro/issues/1441):
   single router as their builders are factored.
 - **consume `_InterFacts`** and make the dispatch rules disjoint, so handlers
   stop re-deriving facts the snapshot already resolved.
-- **delete the passes the plan owners displaced** — the junction peel-off pass
-  in `normalize.py` is already corpus-inert and carries a needs-review triage
-  verdict; each promoted seat turns another settlement pass into a no-op that
-  can be removed with corpus evidence.
+- **delete the passes the plan owners displaced** — each promoted seat turns
+  another settlement pass into a no-op that can be removed with corpus
+  evidence.
 
 When those land, the compatibility disposition survives only as attribution —
 "no plan claims this geometry" over permanent, input-class readings — drawn by
@@ -168,16 +167,15 @@ recovering semantic ownership from the paths.
 | 11  | `_coincide_fanout_opening_descents`        | Seats same-source opening descents on the source-nearest track and nests distinct lines. Planned channels are fixed anchors.                                                      |
 | 12  | `_coincide_same_line_fanout_traverses`     | Fuses same-source, same-line fan-out traverses onto one settled final-geometry reference. Planned channels are fixed anchors.                                                     |
 | 13  | `_bundle_divergent_distinct_traverses`     | Keeps distinct fan-out traverses at bundle spacing until peel-off.                                                                                                                |
-| 14  | `_round_junction_perp_peeloff`             | Adds curve runway to a perpendicular branch leaving a junction trunk.                                                                                                             |
-| 15  | `_stagger_convergent_distinct_lines`       | Separates distinct unowned final descents that share one channel.                                                                                                                 |
-| 16  | `_nest_bypass_above_over_top_wrap`         | Nests a long-haul bypass above a local over-top wrap in the same gap.                                                                                                             |
-| 17  | `_clear_bypass_v_label_strikes`            | Moves an unowned bypass riser clear of label ink.                                                                                                                                 |
-| 18  | `_clear_merge_trunk_opposite_arm`          | Separates an unowned down-trunk from an opposite merge arm over their shared span.                                                                                                |
-| 19  | `_separate_fused_cotravelling_runs`        | Restores lane clearance between movable tracks occupying one reserved band.                                                                                                       |
-| 20  | `_land_merge_feeders_on_trunk`             | Compatibility-only merge repair. It lands feeders after every pass that can move their channels. Planned convergence joins are excluded.                                          |
-| 21  | `_hold_runs_in_corridor_clearance`         | Holds each claimed segment inside its own realised reservation band; unclaimed runs use measured gap clearance.                                                                   |
-| 22  | `_unify_coincident_corner_radii`           | Gives coincident same-line turns one drawn arc radius.                                                                                                                            |
-| 23  | `_drop_covered_merge_entry_hops`           | Compatibility-only suppression. It removes a redundant emitted entry hop and records its exact carrier. Planned continuations are suppressed before dispatch.                     |
+| 14  | `_stagger_convergent_distinct_lines`       | Separates distinct unowned final descents that share one channel.                                                                                                                 |
+| 15  | `_nest_bypass_above_over_top_wrap`         | Nests a long-haul bypass above a local over-top wrap in the same gap.                                                                                                             |
+| 16  | `_clear_bypass_v_label_strikes`            | Moves an unowned bypass riser clear of label ink.                                                                                                                                 |
+| 17  | `_clear_merge_trunk_opposite_arm`          | Separates an unowned down-trunk from an opposite merge arm over their shared span.                                                                                                |
+| 18  | `_separate_fused_cotravelling_runs`        | Restores lane clearance between movable tracks occupying one reserved band.                                                                                                       |
+| 19  | `_land_merge_feeders_on_trunk`             | Compatibility-only merge repair. It lands feeders after every pass that can move their channels. Planned convergence joins are excluded.                                          |
+| 20  | `_hold_runs_in_corridor_clearance`         | Holds each claimed segment inside its own realised reservation band; unclaimed runs use measured gap clearance.                                                                   |
+| 21  | `_unify_coincident_corner_radii`           | Gives coincident same-line turns one drawn arc radius.                                                                                                                            |
+| 22  | `_drop_covered_merge_entry_hops`           | Compatibility-only suppression. It removes a redundant emitted entry hop and records its exact carrier. Planned continuations are suppressed before dispatch.                     |
 
 The exit-turn snapshot ratchet runs after every stage above and rejects any
 change to planner-owned source segments. Convergence and fan ownership helpers

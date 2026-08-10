@@ -67,10 +67,6 @@
   "note": "Non-cross_row bypass guard: the endpoints list always includes the source and target sections (both in src_row), so it is never empty; the default-clearance arm only guards a degenerate empty endpoint set.",
   "status": "defensive"
  },
- "common.py::if feeder is None:::#1": {
-  "note": "The feeder-found continuation of perp_peeloff_off_horizontal_junction needs a fan-out junction that both takes a horizontal feed (a feeder on the junction's own Y, off its column) and is left by a bare-vertical drop. The corpus's bare drops hang off bottom-exit junctions whose only feeder sits directly above on the junction column (dx=0), so they return here; the horizontally-fed junctions (riboseq_fold_two_dir_entry, and every hand-built fan of the same shape) leave with a lead-in the fan emitter already builds, so they return at the bare-vertical check above. Reachable only where a horizontally-fed fan-out junction's drop still arrives bare.",
-  "status": "needs-review"
- },
  "common.py::if len({round(value, 6) for value in port_ys}) != n:::#1": {
   "note": "A complete entry port assigns every distinct line a unique station-offset slot. Duplicate port-Y values therefore require a malformed route set that bypassed station offset allocation; test_invalid_opposing_candidate_is_rejected[duplicate-port-slot] exercises the rejection directly.",
   "status": "defensive"
@@ -928,7 +924,7 @@
   "status": "defensive"
  },
  "normalize.py::if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:::#1": {
-  "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, but _round_junction_perp_peeloff prepends one for any route whose source doubles as a fan-out junction, which a merge feeder's junction source can be; and the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
+  "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, so the first half rejects a feeder whose waypoint list was reshaped by an earlier post-pass; the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
   "status": "defensive"
  },
  "normalize.py::if k < len(rp.curve_radii) and k + 2 < len(pts):::#1": {
@@ -983,10 +979,6 @@
   "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
   "status": "defensive"
  },
- "normalize.py::if peeloff is None:::#1": {
-  "note": "The lead-in prepend of the junction peel-off pass, entered only for a fan-out junction drop that perp_peeloff_off_horizontal_junction accepts. Every corpus drop is rejected there -- common.py::if feeder is None:::#1 records which condition each shape fails -- so the pass matches nothing and only its skip arm runs.",
-  "status": "needs-review"
- },
  "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
   "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
@@ -1012,7 +1004,7 @@
   "status": "defensive"
  },
  "normalize.py::if rp.curve_radii is not None:::#1": {
-  "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates curve_radii, but _round_junction_perp_peeloff clears it to None for the fan-out-junction routes described above, so the field cannot be treated as always present (#1597).",
+  "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates it, but the field's declared default is None, so a route built outside route_along carries None and it cannot be treated as always present (#1597).",
   "status": "defensive"
  },
  "normalize.py::if run is None:::#1": {
