@@ -1534,6 +1534,109 @@ def test_unclassifiable_member_has_an_explicit_whole_group_fallback(
     assert len(plan.unclassified_member_ids) == 1
 
 
+def test_a_left_exit_drop_is_built_on_the_column_it_is_drawn_on() -> None:
+    """The drop's descent takes its corridor seat where the route is built.
+
+    An axis a plan states has to be the one the map ends with, and the column
+    derived from the two boxes' left edges is not: the corridor-clearance pass
+    travels it inward afterwards.  Seating it at build is what lets the turn be
+    stated, so the built column and the drawn column are one coordinate and the
+    system carries no compatibility verdict.
+    """
+    path = TOPOLOGIES / "stacked_left_exit_drop.mmd"
+    built: list[list[tuple[float, float]]] = []
+    original = inter_handlers._route_left_exit_left_entry_drop
+
+    def record(edge, src, tgt, ctx):
+        route = original(edge, src, tgt, ctx)
+        if route is not None:
+            built.append([(x, y) for x, y in route.points])
+        return route
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(inter_handlers, "_route_left_exit_left_entry_drop", record)
+        _graph, _offsets, observation = _observe(path)
+
+    drawn = [
+        [(x, y) for x, y in route.points]
+        for route in observation.routes
+        if route.edge.source == "sec1__exit_left_0"
+    ]
+    assert built and drawn == built[-1:]
+    assert all(
+        system.disposition is RouteSystemDisposition.PLANNED
+        for system in observation.plan.systems
+    )
+
+
+def test_a_chained_trunk_descent_is_seated_off_the_column_it_is_built_on() -> None:
+    """The chained-trunk decline rests on a column the gap allocator moves.
+
+    Both U-bypass descents are built one offset step outboard of where the map
+    draws them: the gap they stand in also carries a third line's rise, and the
+    allocator centres that whole population.  Freezing either descent would take
+    it out of that population, which is what the verdict on this system names.
+    """
+    path = TOPOLOGIES / "disjoint_sameline_trunks.mmd"
+    built: dict[str, float] = {}
+    original = inter_handlers._route_bypass
+
+    def record(edge, *args, **kwargs):
+        route = original(edge, *args, **kwargs)
+        if route is not None and route.edge.source == "secC__exit_right_2":
+            built[route.line_id] = route.points[1][0]
+        return route
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(inter_handlers, "_route_bypass", record)
+        _graph, _offsets, observation = _observe(path)
+
+    drawn = {
+        route.line_id: route.points[1][0]
+        for route in observation.routes
+        if route.edge.source == "secC__exit_right_2"
+    }
+    assert built == {"a": 560.0, "b": 556.0}
+    assert drawn == {"a": 556.0, "b": 552.0}
+
+
+def test_a_gap_seated_axis_is_declined_on_its_pre_seating_coordinate() -> None:
+    """The declined overlap is with a guess the gap allocator moves clear of.
+
+    The fan's axes are derived from the grid edges its handler has to hand;
+    ``normalize._materialize_gap_slots`` then seats the whole gap at once and
+    lands each line on the column the exempt around-stack handler owns for it.
+    Pinning both coordinates keeps the family's justification measurable: the
+    plan declines on the pre-seating guess, and the seat it would have to state
+    instead is the one every line is finally drawn on.
+    """
+    _graph, _offsets, observation = _observe(
+        FIXTURES / "planned_compatibility_channel_collision.mmd"
+    )
+    plan = _plan_for_source(observation, "__junction_8")
+    assert plan.legacy_reason == "planned-axis-overlaps-compatibility-channel"
+
+    def descent_x(source: str, line_id: str) -> float:
+        (route,) = [
+            route
+            for route in observation.routes
+            if route.edge.source == source
+            and route.line_id == line_id
+            and route.edge.target == "branch_b__entry_left_5"
+        ]
+        return route.points[1][0]
+
+    around_stack = {
+        route.line_id: route.points[2][0]
+        for route in observation.routes
+        if route.edge.source == "branch_a__exit_bottom_1"
+    }
+    assert around_stack == {"alpha": 226.0, "beta": 222.0, "gamma": 218.0}
+    assert {
+        line_id: descent_x("__junction_8", line_id) for line_id in around_stack
+    } == around_stack
+
+
 def test_planned_turn_falls_back_before_a_compatibility_channel_collision() -> None:
     graph, offsets, observation = _observe(
         FIXTURES / "planned_compatibility_channel_collision.mmd"

@@ -334,6 +334,26 @@ _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "claim can be taken as the one that holds.",
     _ISSUE.format(1441),
 )
+_GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION = CompatibilityFamily(
+    "The axis this plan would state is the coordinate its handler derives from "
+    "the grid edges it has to hand, and ``normalize._materialize_gap_slots`` "
+    "then seats the whole gap at once -- a population wider than the plan's own "
+    "bundle, so the seated column does not follow from the bundle's claims. On "
+    "``tests/fixtures/planned_compatibility_channel_collision.mmd`` the fan's "
+    "three axes are seated from 219/215/211 onto 226/222/218, the columns an "
+    "exempt around-stack handler owns in that gap for those same three lines; "
+    "the overlap the plan declines on is between the pre-seating guess and a "
+    "channel the seating moves it clear of. On "
+    "``examples/topologies/disjoint_sameline_trunks.mmd`` the two descents the "
+    "plan would freeze at 556 and 560 are seated at 552 and 556 by the centring "
+    "that also holds a third line's counter-running rise in that gap, and the "
+    "X spans that move is what re-packs the inter-row trunk band the one line's "
+    "two chained trunks share. The plan-time proxy for that seating, "
+    "``seat_bundle_in_claimed_bands``, reads no band over either bundle's "
+    "segment and so returns no travel: the reservation ledger has to declare "
+    "these corridors before a plan can state the column the gap settles on.",
+    _ISSUE.format(1441),
+)
 _INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
     "The routing API accepts explicit graphs and offset maps with no complete "
     "semantic ordering, and this group is one: its source order, outbound "
@@ -366,17 +386,18 @@ _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
     "fuses the drop onto a gap-mate's stroke, so the allocator owns the column "
     "and support is permanent."
 )
-_UNBOUND_DROP_COLUMN_SETTLES_AFTER_EMISSION = CompatibilityFamily(
+_DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE = CompatibilityFamily(
     "A LEFT exit dropping into a LEFT entry stacked below it leads out into the "
-    "margin beside its own column and turns down it. The handler places that "
-    "column from the two boxes' left edges, and because no plan binds the "
-    "member the settlement passes then move it: on "
-    "``examples/topologies/stacked_left_exit_drop.mmd`` the drop is built one "
-    "offset step further out than the column the map ends with. A plan states "
-    "the axis its member is finally drawn on, so this drop can be planned only "
-    "once it takes its seat at binding time the way the far-side loop takes its "
-    "own through ``seated_left_exit_under_target_descent``, which is the "
-    "dispatch-consolidation programme's work on this family.",
+    "margin beside its own column and turns down it.  The column is no longer "
+    "what withholds the plan: the drop takes its corridor seat where it is "
+    "built (``_left_exit_left_entry_drop_channel_x``), so the axis a plan would "
+    "name and the one the map is drawn on are one coordinate.  What is left is "
+    "that neither reading of the drop is a leaf that states a turn -- the "
+    "left-entry cascade names the subshape and stops, and the serpentine "
+    "dispatch rule reaches the same builder outside that cascade and outside "
+    "``PLANNED_EXIT_FAMILIES`` -- and no map in the corpus produces either "
+    "verdict, so a leaf authored for them would go unexercised.  A fixture "
+    "reaching one of these rules is what the leaf needs first.",
     _ISSUE.format(1441),
 )
 _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
@@ -478,10 +499,13 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "linear-entry-frame-ownership-conflict",
                     "merge-branch-shares-the-descent-corner",
                     "overlapping-planned-turn-axes",
-                    "planned-axis-overlaps-compatibility-channel",
                     "seating-group-owns-the-descent-column",
                     "shared-source-ownership-conflict",
                     "shared-station-lane-collision",
+                ),
+                _reasons(
+                    _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION,
+                    "planned-axis-overlaps-compatibility-channel",
                     "trunk-band-owns-the-chained-same-line-trunk",
                 ),
                 _reasons(
@@ -510,7 +534,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "unsupported-family:near-vertical-same-col-junction",
                 ),
                 _reasons(
-                    _UNBOUND_DROP_COLUMN_SETTLES_AFTER_EMISSION,
+                    _DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE,
                     "unsupported-family:serpentine-left-exit-left-entry",
                     "unsupported-subshape:left-entry-left_exit_drop",
                 ),

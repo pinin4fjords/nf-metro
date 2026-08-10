@@ -3492,13 +3492,15 @@ def bypass_line_draws_a_chained_trunk(edge: Edge, ctx: _RoutingCtx) -> bool:
     """Whether this line reaches its own source section on a second U-bypass.
 
     Two U-bypasses chained through one section leave that line with two trunks
-    that share a below-row channel but no X extent.  :func:`_group_channel_trunks`
-    gathers a channel by transitive X-overlap, so the two land in separate
-    groups, and :func:`_pack_band_tracks` then offers the track one of them
-    occupies to a sibling of the other group.  A freeze makes that packed rank
-    permanent and the two strokes fuse onto one track, so the descent's plan
-    cannot stand while the trunk band still has that to settle.  Read from the
-    graph rather than from trunk Ys so both routing passes answer alike.
+    that share a below-row channel.  Freezing either descent hands its column to
+    the plan and takes it out of the movable population
+    :func:`~nf_metro.layout.routing.normalize._materialize_gap_slots` centres,
+    which seats the rest of the gap one step over; the descent columns that move
+    are the X extents :func:`_group_channel_trunks` gathers a channel by, so the
+    two chained trunks fall into separate groups and
+    :func:`_pack_band_tracks` offers the track one holds to a sibling of the
+    other.  Read from the graph rather than from trunk Ys so both routing passes
+    answer alike.
     """
     section = ctx.graph.stations[edge.source].section_id
     return any(
@@ -5191,6 +5193,38 @@ def _route_bottom_entry_l_shape(
     return _perp_entry_finish_route(edge, geometry, ctx)
 
 
+def _left_exit_left_entry_drop_channel_x(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> float:
+    """The descent column a LEFT-exit-to-LEFT-entry drop finally stands on.
+
+    The column is derived from the leftmost of the two boxes' left edges, which
+    over-states what the corridor crossing that margin actually charges, and
+    :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
+    then travels the drop onto the band its own reservation realises.  Reading
+    that travel here is what lets a plan naming this axis and the drawn descent
+    stand on one column, the way
+    :func:`seated_left_exit_under_target_descent` does for the far-side loop.
+    """
+    src_col = _resolve_section_col(ctx.graph, src)
+    tgt_col = _resolve_section_col(ctx.graph, tgt)
+    left_edge = min(
+        col_left_edge(ctx.graph, src_col, default=src.x),
+        col_left_edge(ctx.graph, tgt_col, default=tgt.x),
+    )
+    channel_x = min(left_edge, src.x, tgt.x) - ctx.curve_radius - ctx.offset_step
+    members, _src_center, _tgt_center = gather_tapered_bundle(ctx, edge)
+    sign = right_normal_axis_sign(vertical_direction(tgt.y - src.y))
+    return channel_x + seat_bundle_in_corridor_clearance(
+        ctx.graph,
+        axis=0,
+        section_ids=section_ids_of_stations(ctx.graph, src, tgt),
+        lanes=[channel_x + offset * sign for _e, _lid, _so, offset in members],
+        run_start=min(src.y, tgt.y),
+        run_end=max(src.y, tgt.y),
+    )
+
+
 def _route_left_exit_left_entry_drop(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath | None:
@@ -5207,13 +5241,7 @@ def _route_left_exit_left_entry_drop(
     particular it never claws back across the source box to reach a target that
     sits below and to the left (a folded TB bridge feeding a convergence sink).
     """
-    src_col = _resolve_section_col(ctx.graph, src)
-    tgt_col = _resolve_section_col(ctx.graph, tgt)
-    left_edge = min(
-        col_left_edge(ctx.graph, src_col, default=src.x),
-        col_left_edge(ctx.graph, tgt_col, default=tgt.x),
-    )
-    channel_x = min(left_edge, src.x, tgt.x) - ctx.curve_radius - ctx.offset_step
+    channel_x = _left_exit_left_entry_drop_channel_x(edge, src, tgt, ctx)
 
     route = route_hvh_tapered(
         ctx, edge, src, tgt, channel_x, base_radius=ctx.curve_radius

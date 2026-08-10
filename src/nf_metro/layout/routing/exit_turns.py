@@ -1169,9 +1169,10 @@ def _u_bypass_source_turn(
             "seating-group-owns-the-descent-column",
         )
     if bypass_line_draws_a_chained_trunk(edge, ctx):
-        # This line's two chained trunks are ranked in separate channel groups,
-        # and which of them keeps the packed track is settled after a plan would
-        # freeze this descent: the trunk axis has an owner of its own.
+        # Freezing this descent takes it out of the gap's movable population,
+        # and the gap allocator then seats the rest of that population one step
+        # over.  The X spans that move re-pack the inter-row band this line's
+        # two chained trunks share, onto tracks that fuse two of its strokes.
         return _SourceTurnRequirement(
             None,
             None,
