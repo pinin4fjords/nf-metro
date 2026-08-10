@@ -542,8 +542,8 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
                 (0.0, 0.0),
                 (12.0, 0.0),
                 (12.0, 20.0),
-                (30.0, 20.0),
-                (30.0, 40.0),
+                (28.0, 20.0),
+                (28.0, 40.0),
                 (40.0, 40.0),
             ],
             1,
@@ -562,8 +562,8 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
                 (0.0, 0.0),
                 (0.0, 12.0),
                 (20.0, 12.0),
-                (20.0, 30.0),
-                (40.0, 30.0),
+                (20.0, 28.0),
+                (40.0, 28.0),
                 (40.0, 40.0),
             ],
             1,
@@ -602,6 +602,52 @@ def test_trunk_flank_settlement_rederives_curve_radii(
             )
         )
         assert route.curve_radii[radius_rank] != 99.0
+
+
+def test_trunk_flank_settlement_keeps_radii_of_an_unmoved_flank() -> None:
+    """A flank already on its planned column keeps the radii it was emitted with.
+
+    The lane band a plan nests its flanks in spans only the lines converging on
+    it, while the flank's own bundle spans every line it physically travels
+    with.  Where the plan names the column the flank is already on it states no
+    displacement the emitted geometry does not have, so its corners must keep
+    the radii the bundle builder derived -- a lane band of one would otherwise
+    flatten an outer line's corner onto the inner line's radius.
+    """
+    axis = ConvergenceTrunkAxis(
+        DemandAxis.X,
+        20.0,
+        10.0,
+        30.0,
+        Direction.R,
+        0.0,
+        40.0,
+    )
+    route = RoutedPath(
+        Edge("source", "target", "line"),
+        "line",
+        [
+            (0.0, 0.0),
+            (12.0, 0.0),
+            (12.0, 20.0),
+            (30.0, 20.0),
+            (30.0, 40.0),
+            (40.0, 40.0),
+        ],
+        is_inter_section=True,
+        curve_radii=[99.0] * 4,
+        offset_regime=OffsetRegime.BAKED,
+    )
+
+    _seat_route_on_trunk_flanks(route, axis, MetroGraph(), lane_offset=2.0)
+
+    assert route.points[3] == (30.0, 20.0)
+    assert route.points[4] == (30.0, 40.0)
+    assert route.curve_radii is not None
+    assert route.curve_radii[0] != 99.0
+    assert route.curve_radii[1] != 99.0
+    assert route.curve_radii[2] == 99.0
+    assert route.curve_radii[3] == 99.0
 
 
 def test_perpendicular_entry_convergences_plan_one_trunk_per_crossing_column() -> None:
