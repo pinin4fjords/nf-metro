@@ -1609,6 +1609,35 @@ class ExitBundleOrderViolation:
         )
 
 
+def _lines_reaching_exit(
+    graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
+    reference_id: str,
+    exit_port_id: str,
+    lines: set[str],
+) -> set[str]:
+    """The lines whose run carries on from *reference_id* to *exit_port_id*.
+
+    An inherited slot binds a stroke that travels the section end to end.  A
+    line whose run stops inside the section and whose name reappears on a
+    separate run leaving it shares the name only: no stroke spans the section
+    for the exit slot to keep, so the two ends are free to differ.
+    """
+    reaching: set[str] = set()
+    for line_id in lines:
+        seen = {reference_id}
+        queue = [reference_id]
+        while queue:
+            current_id = queue.pop()
+            if current_id == exit_port_id:
+                reaching.add(line_id)
+                break
+            for edge in graph.edges_from(current_id):
+                if edge.line_id == line_id and edge.target not in seen:
+                    seen.add(edge.target)
+                    queue.append(edge.target)
+    return reaching
+
+
 def _entry_order_reference(
     graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
     entry_id: str,
@@ -1641,6 +1670,10 @@ def check_exit_inherits_entry_bundle_order(
     that terminates inside the section without reaching this port. TB
     sections are exempt: their exit reverses offsets for concentric arcs.
 
+    Only the lines whose run reaches the exit from the entry are held to that
+    order (:func:`_lines_reaching_exit`); a name shared by two disjoint runs
+    inside the section has no stroke spanning it to keep on one slot.
+
     The order an exit inherits comes from :func:`_entry_order_reference`, which
     for a perpendicular entry is the trunk rather than the port itself.
     """
@@ -1669,16 +1702,17 @@ def check_exit_inherits_entry_bundle_order(
             continue
         if partial_flat_continuation_lines(graph, port_id, exit_lines):
             continue
-        entry_order = _order(reference_id, exit_lines)
-        exit_order = _order(port_id, exit_lines)
-        if entry_order != exit_order:
+        through_lines = _lines_reaching_exit(graph, reference_id, port_id, exit_lines)
+        through_entry_order = _order(reference_id, through_lines)
+        through_exit_order = _order(port_id, through_lines)
+        if through_entry_order != through_exit_order:
             violations.append(
                 ExitBundleOrderViolation(
                     section_id=section.id,
                     entry_port=entry_id,
                     exit_port=port_id,
-                    entry_order=entry_order,
-                    exit_order=exit_order,
+                    entry_order=through_entry_order,
+                    exit_order=through_exit_order,
                 )
             )
             continue
@@ -1692,7 +1726,7 @@ def check_exit_inherits_entry_bundle_order(
                     section_id=section.id,
                     entry_port=entry_id,
                     exit_port=port_id,
-                    entry_order=entry_order,
+                    entry_order=_order(reference_id, exit_lines),
                     gap=gap,
                 )
             )

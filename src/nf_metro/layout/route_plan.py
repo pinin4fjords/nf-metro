@@ -14,7 +14,7 @@ import dataclasses
 import json
 import math
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -23,7 +23,13 @@ from typing import TYPE_CHECKING, NewType, TypeAlias, TypeVar
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.fan_geometry import fan_lane_offsets
 from nf_metro.layout.geometry import AxisFrame
-from nf_metro.layout.routing.common import Direction, right_normal_axis_sign
+from nf_metro.layout.routing.common import (
+    Direction,
+    GapSlot,
+    OffsetRegime,
+    TrunkSlot,
+    right_normal_axis_sign,
+)
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.options import LineOrder
 from nf_metro.parser.commitments import FlowDirection
@@ -60,6 +66,7 @@ if TYPE_CHECKING:
     )
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.layout.routing.context import _EdgeKey, _RoutingCtx
+    from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
 
 
 RouteSystemId = NewType("RouteSystemId", str)
@@ -74,6 +81,7 @@ ExitTurnAxisId = NewType("ExitTurnAxisId", str)
 FanPlanId = NewType("FanPlanId", str)
 FanBranchPlanId = NewType("FanBranchPlanId", str)
 ConvergencePlanId = NewType("ConvergencePlanId", str)
+RouteMemberGeometryPlanId = NewType("RouteMemberGeometryPlanId", str)
 _T = TypeVar("_T")
 
 
@@ -98,6 +106,115 @@ class CoordinateRegime(str, Enum):
     SETTLED_GRID = "settled-grid"
     LAYOUT_CANVAS = "layout-canvas"
     RELATIVE_FRAME = "relative-frame"
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMemberGapChannel:
+    """One immutable inter-column leg owned by a member geometry plan."""
+
+    segment_rank: int
+    start: tuple[float, float]
+    end: tuple[float, float]
+    gap_lo_col: int
+    row: int | None
+    direction: Direction
+
+    def __post_init__(self) -> None:
+        if self.segment_rank < 0:
+            raise ValueError("member gap channel rank must be non-negative")
+        if (
+            not all(
+                math.isfinite(value)
+                for point in (self.start, self.end)
+                for value in point
+            )
+            or abs(self.start[0] - self.end[0]) > COORD_TOLERANCE
+            or abs(self.start[1] - self.end[1]) <= COORD_TOLERANCE
+        ):
+            raise ValueError("member gap channel must be a finite vertical segment")
+        expected = Direction.D if self.end[1] > self.start[1] else Direction.U
+        if self.direction is not expected:
+            raise ValueError("member gap channel direction disagrees with its segment")
+
+
+@dataclass(frozen=True, slots=True)
+class RouteMemberGeometryPlan:
+    """Pre-normalization template with immutable declared channel ownership.
+
+    ``points`` and ``curve_radii`` seed production emission. Downstream global
+    normalization may adjust geometry outside :attr:`owned_segment_ranks`.
+    ``gap_channels`` are the exact geometry this plan owns through those passes.
+    """
+
+    id: RouteMemberGeometryPlanId
+    system_id: RouteSystemId
+    member_id: EmissionMemberId
+    edge: ResolvedEdge
+    connector_ids: tuple[ConnectorId, ...]
+    family_id: RouteFamilyId
+    points: tuple[tuple[float, float], ...]
+    curve_radii: tuple[float, ...] | None
+    offset_regime: OffsetRegime
+    normalize_exempt: bool
+    gap_slots: tuple[GapSlot, ...]
+    trunk_slot: TrunkSlot | None
+    gap_channels: tuple[RouteMemberGapChannel, ...]
+    exit_turn_plan_id: ExitTurnPlanId | None = None
+    exit_turn_member_id: EmissionMemberId | None = None
+    exit_turn_family_id: str | None = None
+    exit_turn_axis_id: ExitTurnAxisId | None = None
+    exit_turn_segment_rank: int | None = None
+    exit_lane_transition_plan_id: ExitTurnPlanId | None = None
+    fan_plan_id: FanPlanId | None = None
+    fan_route_emitter: str | None = None
+    consumed_reservation_ids: tuple[str, ...] = ()
+    coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+
+    def __post_init__(self) -> None:
+        if not self.connector_ids or len(set(self.connector_ids)) != len(
+            self.connector_ids
+        ):
+            raise ValueError("member geometry plan connector ownership is incomplete")
+        if len(self.points) < 2 or not all(
+            math.isfinite(value) for point in self.points for value in point
+        ):
+            raise ValueError("member geometry plan requires finite path geometry")
+        claims = tuple(
+            (
+                channel.segment_rank,
+                channel.gap_lo_col,
+                channel.row,
+                channel.direction,
+            )
+            for channel in self.gap_channels
+        )
+        if len(set(claims)) != len(claims):
+            raise ValueError("member geometry plan repeats a symbolic gap claim")
+        if any(
+            channel.segment_rank >= len(self.points) - 1
+            for channel in self.gap_channels
+        ):
+            raise ValueError("member geometry plan channel exceeds its path segments")
+        if any(
+            any(
+                abs(actual - expected) > COORD_TOLERANCE
+                for actual, expected in zip(
+                    (*channel.start, *channel.end),
+                    (
+                        *self.points[channel.segment_rank],
+                        *self.points[channel.segment_rank + 1],
+                    ),
+                    strict=True,
+                )
+            )
+            for channel in self.gap_channels
+        ):
+            raise ValueError("member geometry plan channel disagrees with its segment")
+
+    @property
+    def owned_segment_ranks(self) -> tuple[int, ...]:
+        """Physical segments whose coordinates remain immutable after emission."""
+        return tuple(dict.fromkeys(item.segment_rank for item in self.gap_channels))
 
 
 class EmissionRole(str, Enum):
@@ -130,6 +247,415 @@ class ConvergenceDisposition(str, Enum):
     LEGACY = "legacy"
 
 
+class RouteSystemDisposition(str, Enum):
+    """Whether emission consumes every available plan for one route system."""
+
+    PLANNED = "planned"
+    COMPATIBILITY = "compatibility"
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityFamily:
+    """Why one named family emits through compatibility, and who closes it.
+
+    ``follow_up`` names the issue that retires the family.  ``None`` states
+    permanent support, which ``justification`` then has to earn: the limit is a
+    property of the input or of a frame another owner holds, not a planner the
+    pipeline has yet to teach.
+
+    ``constrains_geometry`` is ``False`` where the verdict names nothing a plan
+    could have owned, so no system escalates to compatibility emission on it and
+    no system is mixed by it; :func:`_inert_reasons` assigns those.
+    """
+
+    justification: str
+    follow_up: str | None = None
+    constrains_geometry: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.justification:
+            raise ValueError("a compatibility family states why it is retained")
+        if self.follow_up is not None and not self.follow_up:
+            raise ValueError("a compatibility family's follow-up names an issue")
+
+
+_ISSUE = "https://github.com/seqeralabs/nf-metro/issues/{}"
+
+
+def _reasons(
+    family: CompatibilityFamily, *reasons: str
+) -> dict[str, CompatibilityFamily]:
+    """Assign *family* to each of *reasons*, which share one cause."""
+    return dict.fromkeys(reasons, family)
+
+
+def _inert_reasons(
+    family: CompatibilityFamily, *reasons: str
+) -> dict[str, CompatibilityFamily]:
+    """Assign *family* to *reasons* whose verdicts constrain no geometry.
+
+    A single-member exit group has no lane order and no shared axis to plan, and
+    a layout-owned fan states that the section allocator decides that frame.
+    Neither says the planner is unable to own the system's members, so a system
+    carrying one of these verdicts is neither escalated nor mixed by it.
+    """
+    return _reasons(dataclasses.replace(family, constrains_geometry=False), *reasons)
+
+
+def _registry(
+    *groups: dict[str, CompatibilityFamily],
+) -> Mapping[str, CompatibilityFamily]:
+    """Merge reason groups, refusing a reason two families both claim.
+
+    Splatting the groups would keep whichever came last, so one owner's reason
+    could silently change family on an edit that never mentioned it.
+    """
+    merged: dict[str, CompatibilityFamily] = {}
+    for group in groups:
+        for reason in group:
+            if reason in merged:
+                raise ValueError(f"compatibility reason {reason} has two families")
+        merged.update(group)
+    return MappingProxyType(merged)
+
+
+_TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
+    "The requirement derived for this exit group states a turn the group cannot "
+    "take: a run opposed to its own transition, a member whose run axis is not "
+    "the one its group leaves the port on, a member whose connectors point at "
+    "more than one destination, or a seam whose descent collapses to zero depth "
+    "so the only derivable statement is a straight the member does not draw. No "
+    "planner rule can choose between contradictory readings without inventing "
+    "one, and a reading whose geometry collapses or contradicts itself has no "
+    "turn to state whichever system draws it, so support is permanent."
+)
+_LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY = CompatibilityFamily(
+    "A production family is a first-match dispatch rule rather than one shape: "
+    "its builder hides a sub-cascade, and an exit-turn plan states the turn "
+    "arrangement of the leaf the rule is named for -- one run out of the port, "
+    "one turn, one axis, one runway. This member is claimed by that rule and "
+    "drawn by another leaf of it: a fan plan's own landing route, a detour "
+    "around a box the direct leg would cross, a corridor descended beside the "
+    "target column, a loop under the target, or a straight. Stating one "
+    "arrangement under another's name is what the plan refuses, so the leaf "
+    "needs a family of its own before it can be planned. Promoting these "
+    "hidden sub-cascades to first-class families is the dispatch-consolidation "
+    "programme, after which the leaf is planned like any other family and this "
+    "reason has no producer. Until then every such verdict on the corpus is "
+    "superseded by the convergence or fan plan that decides its system rather "
+    "than deciding one itself.",
+    _ISSUE.format(1441),
+)
+_ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
+    "Two owners claim the same anchor, axis, lane or station frame, and the "
+    "precedence between inter-section owners is not yet stated, so neither "
+    "claim can be taken as the one that holds.",
+    _ISSUE.format(1441),
+)
+_GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION = CompatibilityFamily(
+    "The axis this plan would state is the coordinate its handler derives from "
+    "the grid edges it has to hand, and ``normalize._materialize_gap_slots`` "
+    "then seats the whole gap at once -- a population wider than the plan's own "
+    "bundle, so the seated column does not follow from the bundle's claims. On "
+    "``tests/fixtures/planned_compatibility_channel_collision.mmd`` the fan's "
+    "three axes are seated from 219/215/211 onto 226/222/218, the columns an "
+    "exempt around-stack handler owns in that gap for those same three lines; "
+    "the overlap the plan declines on is between the pre-seating guess and a "
+    "channel the seating moves it clear of. On "
+    "``examples/topologies/disjoint_sameline_trunks.mmd`` the two descents the "
+    "plan would freeze at 556 and 560 are seated at 552 and 556 by the centring "
+    "that also holds a third line's counter-running rise in that gap, and the "
+    "X spans that move is what re-packs the inter-row trunk band the one line's "
+    "two chained trunks share. The plan-time proxy for that seating, "
+    "``seat_bundle_in_claimed_bands``, reads no band over either bundle's "
+    "segment and so returns no travel. Recording the seated column for a later "
+    "pass to read back does not state it either, because the seating runs "
+    "twice over two different populations: the member-geometry freeze "
+    "materializes each gap over the planned candidates and their convergence "
+    "context alone, while the post-emission chain materializes it over every "
+    "emitted route, compatibility systems included. The two allocations answer "
+    "differently, so no single recorded column satisfies both, and the axis "
+    "ratchet turns each disagreement into an abort: handing the U-bypass "
+    "source-turn reading the column either pass produced retains 12 of the 26 "
+    "corpus verdicts and aborts 37 maps that render today. "
+    "The same seating owns the fixed-axis conflicts and the descent seating "
+    "groups: across the 76 members whose family pins disagree, 30 final "
+    "columns are produced by the gap centring and its successor passes rather "
+    "than by any builder (measured per member, deltas 1 to 138 px), and "
+    "widening a seated group to the gap's declared population still leaves "
+    "the handler's column wrong on every one of the eight systems it decides. "
+    "Stating any of these axes at plan time requires the two populations to be "
+    "one, so that the allocation a plan reads is the allocation emission "
+    "draws.",
+    _ISSUE.format(1441),
+)
+_INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
+    "The routing API accepts explicit graphs and offset maps with no complete "
+    "semantic ordering, and this group is one: its source order, outbound "
+    "member or production family is absent or ambiguous in the input rather "
+    "than undecided by the planner. Base offsets and the established templates "
+    "are the defined behaviour for those inputs, so support is permanent."
+)
+_TURN_HAS_NO_RUNWAY = CompatibilityFamily(
+    "Layout leaves the planned turn less room than one curve radius, so the "
+    "turn the plan would state cannot be drawn where it stands. The shortfall "
+    "is section placement capacity rather than a decision the plan or "
+    "reservation pipeline declines to make, and support is permanent for as "
+    "long as a placement can be tighter than a radius."
+)
+_STATES_NO_GEOMETRY = CompatibilityFamily(
+    "The verdict constrains no geometry: a single-member exit group has no lane "
+    "order and no shared axis to plan. It is recorded for attribution and never "
+    "escalates a system, so there is nothing to retire."
+)
+_GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
+    "A junction dropping almost straight into a same-column entry does turn, "
+    "and the column it turns onto is a slot in an inter-column gap rather than "
+    "a lane the exit group ladders: the handler places it one radius and one "
+    "step outward as a starting guess, and "
+    "``normalize._materialize_gap_slots`` then ranks it against every other "
+    "leg descending that gap -- a population drawn from other exit groups and "
+    "other route systems, which is why it needs every leg in the gap at once "
+    "and a single group cannot do it. An exit group can state this drop's run, "
+    "turn and runway but not its column, and a plan that states the guess "
+    "fuses the drop onto a gap-mate's stroke, so the allocator owns the column "
+    "and support is permanent."
+)
+_DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE = CompatibilityFamily(
+    "A LEFT exit dropping into a LEFT entry stacked below it leads out into the "
+    "margin beside its own column and turns down it.  The column is no longer "
+    "what withholds the plan: the drop takes its corridor seat where it is "
+    "built (``_left_exit_left_entry_drop_channel_x``), so the axis a plan would "
+    "name and the one the map is drawn on are one coordinate.  What is left is "
+    "that neither reading of the drop is a leaf that states a turn -- the "
+    "left-entry cascade names the subshape and stops, and the serpentine "
+    "dispatch rule reaches the same builder outside that cascade and outside "
+    "``PLANNED_EXIT_FAMILIES`` -- and no map in the corpus produces either "
+    "verdict, so a leaf authored for them would go unexercised.  A fixture "
+    "reaching one of these rules is what the leaf needs first.",
+    _ISSUE.format(1441),
+)
+_LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
+    "The station-offset allocator seats the exit port's lane order and the "
+    "destination's lane order in separate phases, and here the two disagree: a "
+    "pair of lanes swaps lateral order between the ends of one run. An exit "
+    "group owns the source end alone, so the crossing is already in the offsets "
+    "it reads rather than an ordering it declines to state, and support is "
+    "permanent."
+)
+_LAYOUT_OWNS_THE_FAN_FRAME = CompatibilityFamily(
+    "The section allocator, the rail emitter or an overlapping local layout "
+    "owns this fan's frame. Claiming part of a fan whose frame another owner "
+    "fixes would state geometry the emitter does not draw, so established "
+    "layout and routing own the whole fan and support is permanent."
+)
+_INCOMPLETE_RESOLVED_FAN = CompatibilityFamily(
+    "The fan's resolved membership is incomplete in the input: a missing or "
+    "empty member path, an unanchored centreline, or a fork, join or branch "
+    "tail with more than one reading. Hand-built graphs are valid routing "
+    "inputs, so support for emitting them through the established templates is "
+    "permanent."
+)
+_LAYOUT_SEATS_WHAT_TWO_READINGS_STATE = CompatibilityFamily(
+    "One station carries two statements of where it sits: a pair of fans "
+    "reaching it from forks whose siblings' rules -- one fork, one aligned "
+    "trunk, one landing port -- name no owner between them, or a single fan "
+    "whose own branch lanes both run through it and so seat it twice. The "
+    "coordinate itself comes from the section allocator, which every such "
+    "reading reads back rather than writes, so letting either statement stand "
+    "moves a station layout settled and puts its section's content outside the "
+    "box the allocator sized. The seat belongs to the allocator whichever "
+    "reading asks for it, so support is permanent."
+)
+_FAN_HAS_NO_SECTION_FRAME = CompatibilityFamily(
+    "A fan orders its lanes along the flow direction of the section its fork "
+    "stands in, and this fork stands in none: a sectionless graph, or a section "
+    "whose direction is not a flow axis. There is no frame to lay lanes on "
+    "rather than a frame the planner declines to read, and sectionless input is "
+    "a valid routing input, so the established templates draw these fans and "
+    "support is permanent."
+)
+_CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
+    "The convergence plan is semantically complete, and the canonical template "
+    "it asks for one member declined to build it or built no drawable run. The "
+    "failure is in the construction step beneath a stated plan, so it is the "
+    "template's gap or the plan's overreach rather than a property of the "
+    "input.",
+    _ISSUE.format(1713),
+)
+_UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME = CompatibilityFamily(
+    "An upstream exit turn already fixes the axis or landing this convergence "
+    "would state, and the precedence between the two owners is not yet stated.",
+    _ISSUE.format(1441),
+)
+_MEMBER_HAS_NO_COMPLETE_SEED = CompatibilityFamily(
+    "A non-convergence member of the system has no complete production seed, so "
+    "no immutable channel ownership can be frozen for it and the system cannot "
+    "be planned as a whole. The established first-match dispatcher emits the "
+    "complete system instead, which is the defined behaviour for an input "
+    "carrying a member the emission graph does not describe."
+)
+
+ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamily]] = (
+    MappingProxyType(
+        {
+            "exit-turn-plan": _registry(
+                _reasons(
+                    _LEAF_IS_A_SUB_CASCADE_OF_ITS_FAMILY,
+                    "unsupported-subshape:bottom-exit-junction-right-landings",
+                    "unsupported-subshape:bottom-exit-junction-via-gap",
+                    "unsupported-subshape:left-entry-corridor",
+                    "unsupported-subshape:merge-entry-around_below",
+                    "unsupported-subshape:merge-entry-corridor",
+                    "unsupported-subshape:merge-entry-perpendicular_entry",
+                    "unsupported-subshape:merge-entry-straight",
+                    "unsupported-subshape:merge-trunk-around-below",
+                ),
+                _reasons(
+                    _TURN_REQUIREMENT_CONTRADICTS_ITSELF,
+                    "invalid-source-turn-requirement",
+                    "multiple-destinations",
+                    "opposed-source-run",
+                    "unresolved-perpendicular-entry-seam",
+                    "unsupported-subshape:degenerate-straight",
+                    "unsupported-subshape:left-exit-right-entry-step",
+                    "unsupported-subshape:nonhorizontal-left-entry-wrap",
+                    "unsupported-subshape:nonvertical-perp-exit",
+                    "unsupported-subshape:nonvertical-tb-exit",
+                    "unsupported-subshape:opposed-straight",
+                    "unsupported-subshape:straight-across-its-run-axis",
+                ),
+                _reasons(
+                    _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
+                    "fixed-anchor-owned-by-another-plan",
+                    "entry-bundle-owns-the-shared-seam-lanes",
+                    "lane-arms-pinned-to-overlapping-corners",
+                    "linear-entry-frame-ownership-conflict",
+                    "merge-branch-shares-the-descent-corner",
+                    "overlapping-planned-turn-axes",
+                    "shared-source-ownership-conflict",
+                    "shared-station-lane-collision",
+                ),
+                _reasons(
+                    _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION,
+                    "fixed-axis-conflict",
+                    "seating-group-owns-the-descent-column",
+                    "planned-axis-overlaps-compatibility-channel",
+                    "trunk-band-owns-the-chained-same-line-trunk",
+                ),
+                _reasons(
+                    _INCOMPLETE_AUTHORED_EXIT_GROUP,
+                    "ambiguous-source-lane-boundary",
+                    "family-changed-after-lane-compaction",
+                    "missing-or-ambiguous-source-order",
+                    "missing-outbound-member",
+                    "missing-production-family",
+                    "missing-source-turn",
+                ),
+                _reasons(
+                    _TURN_HAS_NO_RUNWAY,
+                    "continuation-transition-has-no-runway",
+                    "insufficient-fixed-runway",
+                    "insufficient-structural-runway",
+                    "source-lane-transition-has-no-runway",
+                ),
+                _inert_reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                _reasons(
+                    _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
+                    "lane-transition-order-inversion",
+                ),
+                _reasons(
+                    _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN,
+                    "unsupported-family:near-vertical-same-col-junction",
+                ),
+                _reasons(
+                    _DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE,
+                    "unsupported-family:serpentine-left-exit-left-entry",
+                    "unsupported-subshape:left-entry-left_exit_drop",
+                ),
+            ),
+            "fan-plan": _registry(
+                _reasons(
+                    _LAYOUT_OWNS_THE_FAN_FRAME,
+                    "chained-trunk-layout-owns-geometry",
+                    "line-split-fork-layout-owns-geometry",
+                    "local-layout-has-foreign-owner",
+                    "centreline-anchor-off-its-branch-lane",
+                    "shared-landing-port-allocator-owns-the-seat",
+                    "symmetric-diamond-layout-owns-the-anchor",
+                    "section-entry-trunk-has-foreign-head",
+                ),
+                _inert_reasons(
+                    _LAYOUT_OWNS_THE_FAN_FRAME,
+                    "off-track-layout-owns-fan-geometry",
+                    "rail-layout-owns-fan-geometry",
+                    "same-line-open-fan-layout-owns-geometry",
+                    "straight-diamond-layout-owns-geometry",
+                ),
+                _reasons(
+                    _INCOMPLETE_RESOLVED_FAN,
+                    "ambiguous-branch-to-join",
+                    "ambiguous-resolved-branch-tail",
+                    "ambiguous-resolved-fork",
+                    "ambiguous-resolved-join",
+                    "empty-resolved-member-path",
+                    "fan-route-system-has-no-emission-member",
+                    "missing-centreline-anchor",
+                    "missing-resolved-extra-output-path",
+                    "missing-resolved-member-path",
+                ),
+                _reasons(
+                    _LAYOUT_SEATS_WHAT_TWO_READINGS_STATE,
+                    "overlapping-branch-lane-ownership",
+                    "overlapping-fan-ownership",
+                ),
+                _reasons(_FAN_HAS_NO_SECTION_FRAME, "unsupported-fan-direction"),
+            ),
+            "convergence-plan": _registry(
+                _reasons(
+                    _CONVERGENCE_TEMPLATE_DECLINED,
+                    "convergence landing has no approach",
+                    "convergence template declined its member",
+                    "covered continuation is absent from its carrier",
+                    "direct convergence has no emitted terminal approach",
+                    "feeder template declined its member",
+                    "planned convergence member has no routing family",
+                    "planned trunk has no drawable segment",
+                    "primary trunk template declined its member",
+                    "primary trunk template emitted no shared run",
+                    "unsupported convergence shape",
+                ),
+                _reasons(
+                    _UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME,
+                    "convergence alignment conflicts with an upstream exit turn",
+                    "convergence landing conflicts with an upstream exit turn",
+                ),
+            ),
+            "member-geometry-plan": _registry(
+                _reasons(
+                    _MEMBER_HAS_NO_COMPLETE_SEED,
+                    "canonical-template-declined-member",
+                    "missing-emission-edge",
+                    "missing-production-family",
+                )
+            ),
+        }
+    )
+)
+
+
+def compatibility_family(owner: str, reason: str) -> CompatibilityFamily:
+    """The retained family *reason* belongs to under *owner*.
+
+    The registry is closed: a reason no owner registers has no justification and
+    no follow-up, so it cannot be attributed and is rejected.
+    """
+    family = ROUTE_SYSTEM_COMPATIBILITY_REASONS.get(owner, {}).get(reason)
+    if family is None:
+        raise ValueError(f"unregistered compatibility reason {owner}:{reason}")
+    return family
+
+
 class ConvergenceTrunkReason(str, Enum):
     """Structural evidence selecting a convergence's primary trunk member."""
 
@@ -138,68 +664,24 @@ class ConvergenceTrunkReason(str, Enum):
     SHARED_TERMINAL_APPROACH = "shared-terminal-approach"
 
 
-class ConflictRelief(str, Enum):
-    """What would resolve a convergence conflict, in terms of distance."""
-
-    SHARED_CHANNEL = "shared-channel"
-    """The two runs need to become one channel, side, or owner.  A larger
-    distance between them is the wrong direction."""
-
-    CLEARANCE = "clearance"
-    """The two runs need to stand further apart than the planner could put
-    them."""
-
-
 class ConvergenceConflictKind(Enum):
-    """The class of decision one convergence system could not make.
+    """One pair of runs a convergence system's settlement could not seat apart.
 
-    Each member carries the reason the planner records, the direction relief
-    would have to come from, and the decision the system is short of, so all
-    three follow from the check that fired.  Deriving the reason from the kind
-    rather than classifying a reason string keeps the wording a presentation
-    detail of one structural fact.
+    Each is a feasibility condition rather than a compatibility family: the
+    settlement passes decide the channel, the opening and the approach room
+    these name, from the pair rather than from whichever run arrived last.  A
+    system reaching one of them has no seat for either run that keeps both their
+    corner radii, which is room the map does not have rather than a decision the
+    planner declined, so it is refused after every movable decision is frozen
+    instead of being emitted through a second path that has the same room.
     """
 
-    SHARED_TRUNK_CHANNEL = (
-        "planned convergence trunks require one shared channel decision",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven shared-channel emission (#1658)",
-    )
-    SHARED_APPROACH_CHANNEL = (
-        "planned convergence feeder approaches require one shared channel decision",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven shared-channel emission (#1658)",
-    )
-    OPPOSING_OPENING_CHANNEL = (
-        "planned fan arms require opposing opening channels",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven opposing-opening emission (#1658)",
-    )
+    SHARED_TRUNK_CHANNEL = "convergence trunks have no separable channel"
+    SHARED_APPROACH_CHANNEL = "convergence feeder approaches have no separable channel"
+    OPPOSING_OPENING_CHANNEL = "opposing fan arms have no separable opening channel"
     NO_APPROACH_SETTLEMENT_ROOM = (
-        "planned convergence approaches and trunks have no settlement room",
-        ConflictRelief.CLEARANCE,
-        "plan-driven chained-convergence emission (#1658)",
+        "a convergence approach and trunk flank have no settlement room"
     )
-    CHAINED_SAME_LINE = (
-        "chained same-line convergences require one shared system settlement",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven chained-convergence emission (#1658)",
-    )
-    UNOWNED_MEMBER_CORRIDOR = (
-        "planned convergence corridor conflicts with unowned route-system member",
-        ConflictRelief.CLEARANCE,
-        "plan-driven whole-system emission (#1658)",
-    )
-    UNOWNED_MEMBER_GROUP = (
-        "planned convergence corridor conflicts with unowned route-system members",
-        ConflictRelief.SHARED_CHANNEL,
-        "plan-driven whole-system emission (#1658)",
-    )
-
-    def __init__(self, reason: str, relief: ConflictRelief, owner: str) -> None:
-        self.reason = reason
-        self.relief = relief
-        self.owner = owner
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +724,7 @@ class ConvergenceConflict:
         first, second = self.sites
         lines = ", ".join(self.line_ids)
         return (
-            f"{self.kind.reason} for line(s) {lines}, measured "
+            f"{self.kind.value} for line(s) {lines}, measured "
             f"{self.separation:.2f}px apart along {self.axis.value} between "
             f"{_site_text(first)} and {_site_text(second)}"
         )
@@ -517,6 +999,8 @@ class SectionDecisionFacts:
 @dataclass(frozen=True, slots=True)
 class ConnectorDecisionFacts:
     connector_id: ConnectorId
+    line_id: str
+    bundle_id: BundleId
     exit_side: EffectiveDecision[PortSide] | None
     entry_side: EffectiveDecision[PortSide] | None
 
@@ -721,7 +1205,14 @@ class ExitLaneTransition:
 
 @dataclass(frozen=True, slots=True)
 class ExitTurnAxis:
-    """One shared turn axis assigned to every arm of one source lane."""
+    """One turn axis, shared by the arms of one source lane on one ladder.
+
+    ``pinning_group_id`` names the destination whose structure fixes this axis
+    where several destinations pin the same heading, and is ``None`` on the one
+    free ladder a heading otherwise carries. Axes ladder at the plan spacing
+    only against their own ladder-mates: separately pinned axes answer to their
+    destinations, not to each other.
+    """
 
     id: ExitTurnAxisId
     line_id: str
@@ -732,6 +1223,7 @@ class ExitTurnAxis:
     fixed_anchor_id: str | None
     fixed_anchor_coordinate: float | None
     fixed_anchor_offset: float | None
+    pinning_group_id: EndpointGroupId | None
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
 
     def __post_init__(self) -> None:
@@ -970,6 +1462,38 @@ class FanCentrelineAnchor:
         return frame.secondary.get(station) - lane_sign * self.lane_offset
 
 
+def fan_has_vacant_trunk(
+    appearance_policy: FanAppearancePolicy,
+    authored_join_station_id: str | None,
+    branches: Iterable[FanBranchPlan],
+) -> bool:
+    """Whether a straight reconvergence reserves an unoccupied centreline."""
+    return (
+        appearance_policy is FanAppearancePolicy.STRAIGHT
+        and authored_join_station_id is not None
+        and sum(branch.is_trunk_continuation for branch in branches) > 1
+    )
+
+
+def fan_lane_seat_keys(branches: Sequence[FanBranchPlan]) -> tuple[int, ...]:
+    """Rank the seat each branch takes in its fan's lane band.
+
+    Branches that leave the fork through the same station run together for as
+    long as they are inside the fan's section, so they stand on one seat: a
+    shared station has one row, and numbering the branches separately would ask
+    it to take two.  The seats are ordered by where the branches land, so the
+    branch whose landing sits nearest the trunk keeps the nearest lane and the
+    band stacks in the order the sections do.
+    """
+    nearest: dict[str, int] = {}
+    for branch in branches:
+        held = nearest.get(branch.root_station_id)
+        nearest[branch.root_station_id] = (
+            branch.landing_rank if held is None else min(held, branch.landing_rank)
+        )
+    return tuple(nearest[branch.root_station_id] for branch in branches)
+
+
 @dataclass(frozen=True, slots=True)
 class FanPlan:
     """Complete immutable decision for one authored fan or diamond.
@@ -1024,6 +1548,10 @@ class FanPlan:
     frame: AxisFrame | None
     disposition: FanPlanDisposition
     legacy_reason: str | None
+    ceded_station_ids: tuple[str, ...] = ()
+    """Stations another fan states the seat of, which this plan only reads."""
+    ceded_member_edges: tuple[ResolvedEdge, ...] = ()
+    """Seam edges another fan draws the route on, which this plan only reads."""
 
     def __post_init__(self) -> None:
         planned = self.disposition is FanPlanDisposition.PLANNED
@@ -1096,28 +1624,6 @@ class FanPlan:
         )
         if self.resolved_member_edges != expected_member_edges:
             raise ValueError("fan resolved edge membership is not canonical")
-        expectation_edges = tuple(item.edge for item in self.route_expectations)
-        if self.disposition is FanPlanDisposition.PLANNED:
-            if expectation_edges != self.resolved_member_edges:
-                raise ValueError("planned fan route expectations are incomplete")
-        elif self.route_expectations:
-            raise ValueError("legacy fan owns route expectations")
-        expectation_member_ids = tuple(
-            item.member_id
-            for item in self.route_expectations
-            if item.member_id is not None
-        )
-        if (
-            self.disposition is FanPlanDisposition.PLANNED
-            and expectation_member_ids != self.member_ids
-        ):
-            raise ValueError("fan route expectations disagree with emission members")
-        branch_ids = {branch.id for branch in self.branches}
-        if any(
-            not set(item.branch_ids).issubset(branch_ids)
-            for item in self.route_expectations
-        ):
-            raise ValueError("fan route expectation names an unknown branch")
         expected_seam_edges = tuple(
             dict.fromkeys(
                 edge
@@ -1127,6 +1633,50 @@ class FanPlan:
         )
         if self.resolved_seam_edges != expected_seam_edges:
             raise ValueError("fan resolved seam membership is not canonical")
+        drawn_edges = {
+            edge
+            for branch in self.branches
+            for path in branch.resolved_paths
+            for edge in path
+        }
+        ceded_edges = set(self.ceded_member_edges)
+        if len(ceded_edges) != len(self.ceded_member_edges):
+            raise ValueError("fan plan repeats a ceded seam edge")
+        if (
+            not ceded_edges.issubset(self.resolved_seam_edges)
+            or ceded_edges & drawn_edges
+        ):
+            raise ValueError("fan cedes an edge it draws rather than a seam it reads")
+        expectation_edges = tuple(item.edge for item in self.route_expectations)
+        if self.disposition is FanPlanDisposition.PLANNED:
+            if expectation_edges != self.resolved_member_edges:
+                raise ValueError("planned fan route expectations are incomplete")
+        elif self.route_expectations:
+            raise ValueError("legacy fan owns route expectations")
+        if any(
+            item.edge in ceded_edges and item.member_id is not None
+            for item in self.route_expectations
+        ):
+            raise ValueError("fan expects a route it hands off on a ceded seam edge")
+        expectation_member_ids = tuple(
+            item.member_id
+            for item in self.route_expectations
+            if item.member_id is not None
+        )
+        if (
+            self.disposition is FanPlanDisposition.PLANNED
+            and expectation_member_ids != self.member_ids
+        ):
+            raise ValueError(
+                "fan route expectations disagree with emission members "
+                "(a ceded seam edge keeps its expectation but sheds its member)"
+            )
+        branch_ids = {branch.id for branch in self.branches}
+        if any(
+            not set(item.branch_ids).issubset(branch_ids)
+            for item in self.route_expectations
+        ):
+            raise ValueError("fan route expectation names an unknown branch")
         if len({item.edge for item in self.route_emissions}) != len(
             self.route_emissions
         ):
@@ -1137,6 +1687,8 @@ class FanPlan:
             item.edge not in self.resolved_member_edges for item in self.route_emissions
         ):
             raise ValueError("fan route emission lies outside complete membership")
+        if any(item.edge in ceded_edges for item in self.route_emissions):
+            raise ValueError("fan emits a route on a seam edge it hands off")
         if any(
             item.edge.source != self.fork_station_id for item in self.route_emissions
         ):
@@ -1159,13 +1711,19 @@ class FanPlan:
             raise ValueError("straight-diamond geometry requires established layout")
         local_frame_owned = bool(self.layout_station_ids)
         has_appearance_centreline = self.appearance_centreline_branch_id is not None
+        has_vacant_trunk = fan_has_vacant_trunk(
+            self.appearance_policy,
+            self.authored_join_station_id,
+            self.branches,
+        )
         if (
             planned
             and self.appearance_policy is FanAppearancePolicy.STRAIGHT
-            and local_frame_owned != has_appearance_centreline
+            and has_appearance_centreline
+            != (local_frame_owned and not has_vacant_trunk)
         ):
             raise ValueError(
-                "straight local fan requires one appearance centreline branch"
+                "straight local fan requires one centreline branch or a vacant trunk"
             )
         if (
             self.appearance_policy is FanAppearancePolicy.SYMMETRIC
@@ -1214,6 +1772,7 @@ class FanPlan:
                 tuple(branch.id for branch in self.branches),
                 self.appearance_lane_pitch,
                 self.appearance_centreline_branch_id,
+                fan_lane_seat_keys(self.branches),
             )
             if any(
                 actual is None or abs(actual - expected) > 1e-9
@@ -1376,6 +1935,15 @@ class FanPlan:
     def owns_geometry(self) -> bool:
         """Whether this complete fan uses its immutable geometry plan."""
         return self.disposition is FanPlanDisposition.PLANNED
+
+    @property
+    def has_vacant_trunk(self) -> bool:
+        """Whether a straight reconvergence reserves an unoccupied centreline."""
+        return fan_has_vacant_trunk(
+            self.appearance_policy,
+            self.authored_join_station_id,
+            self.branches,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1564,15 +2132,9 @@ class ConvergencePlan:
     foreign_reference_ids: tuple[SharedReferenceId, ...]
     disposition: ConvergenceDisposition
     legacy_reason: str | None
-    conflict: ConvergenceConflict | None = None
 
     def __post_init__(self) -> None:
         planned = self.disposition is ConvergenceDisposition.PLANNED
-        if (
-            self.conflict is not None
-            and self.conflict.kind.reason != self.legacy_reason
-        ):
-            raise ValueError("convergence conflict does not explain its own reason")
         unique_fields = (
             self.convergence_ids,
             self.entry_group_ids,
@@ -1704,9 +2266,71 @@ class RouteSystem:
     exit_turn_plan_ids: tuple[ExitTurnPlanId, ...]
     fan_plan_ids: tuple[FanPlanId, ...]
     convergence_plan_ids: tuple[ConvergencePlanId, ...]
+    member_geometry_plan_ids: tuple[RouteMemberGeometryPlanId, ...]
     shared_reference_ids: tuple[SharedReferenceId, ...]
     demand_ids: tuple[DemandId, ...]
     reservation_ids: tuple[RouteReservationId, ...]
+    disposition: RouteSystemDisposition
+    compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+    superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
+
+    def __post_init__(self) -> None:
+        compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
+        if compatible != bool(self.compatibility_reasons):
+            raise ValueError("route-system disposition and compatibility disagree")
+        if len(set(self.compatibility_reasons)) != len(self.compatibility_reasons):
+            raise ValueError("route-system compatibility reasons are not unique")
+        if len(set(self.superseded_verdicts)) != len(self.superseded_verdicts):
+            raise ValueError("route-system superseded verdicts are not unique")
+        decisive = {reason.owner for reason in self.compatibility_reasons}
+        if any(verdict.owner in decisive for verdict in self.superseded_verdicts):
+            raise ValueError("route-system owner both decides and is superseded")
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSystemCompatibilityReason:
+    """One deterministic reason a complete system uses compatibility emission."""
+
+    owner: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        compatibility_family(self.owner, self.reason)
+
+    @property
+    def justification(self) -> str:
+        return compatibility_family(self.owner, self.reason).justification
+
+    @property
+    def follow_up(self) -> str | None:
+        return compatibility_family(self.owner, self.reason).follow_up
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSystemSupersededVerdict:
+    """One owner verdict another owner's decision overrides on a route system.
+
+    A system's disposition follows the owner that decides it.  Where one does,
+    every member of the system already holds exactly one geometry decision,
+    from a planned convergence plan or from a member-geometry plan, so a verdict
+    belonging to an owner outside that decision constrains no member and cannot
+    move the system's geometry.  Recording the overridden verdict keeps the
+    decision auditable: a reader can tell a verdict that was weighed and
+    superseded from one that was never consulted.
+    """
+
+    owner: str
+    reason: str
+    superseded_by: str
+
+    def __post_init__(self) -> None:
+        if not all((self.owner, self.reason, self.superseded_by)):
+            raise ValueError("route-system superseded verdict is incomplete")
+        if self.owner == self.superseded_by:
+            raise ValueError("route-system verdict cannot supersede its own owner")
+        compatibility_family(self.owner, self.reason)
+        if self.superseded_by not in ROUTE_SYSTEM_COMPATIBILITY_REASONS:
+            raise ValueError(f"unregistered compatibility owner {self.superseded_by}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1772,6 +2396,7 @@ class RoutePlan:
     exit_turn_plans: tuple[ExitTurnPlan, ...]
     fan_plans: tuple[FanPlan, ...]
     convergence_plans: tuple[ConvergencePlan, ...]
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...]
     shared_references: tuple[SharedReference, ...]
     demands: tuple[SymbolicDemand, ...]
     reservations: tuple[RouteReservation, ...]
@@ -1780,6 +2405,12 @@ class RoutePlan:
     bindings: tuple[EmissionBinding, ...]
     provenance: RoutePlanProvenance
     diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
+    """Every exit-turn plan's frozen verdict, keyed by plan id.
+
+    Carries the verdicts of plans whose record ``exit_turn_plans`` omits, so a
+    settlement re-route replays the frozen decision instead of re-deriving one
+    from moved geometry."""
 
 
 @dataclass(slots=True)
@@ -1913,6 +2544,8 @@ def _plan_provenance(
     connector_facts = tuple(
         ConnectorDecisionFacts(
             connector.id,
+            connector.line_id,
+            connector.bundle_id,
             provenance.endpoint_decision(
                 provenance.endpoint_key(connector.id, ConnectorEndpointRole.EXIT)
             ),
@@ -2017,6 +2650,7 @@ class RoutePlanObserver:
     graph: MetroGraph
     context: _RoutingCtx | None
     scaffold: RouteSemanticScaffold | None = None
+    route_systems: RouteSystemEmissionExecution | None = None
     exit_turn_plans: tuple[ExitTurnPlan, ...] = ()
     exit_turn_references: tuple[SharedReference, ...] = ()
     exit_turn_demands: tuple[SymbolicDemand, ...] = ()
@@ -2025,6 +2659,8 @@ class RoutePlanObserver:
     convergence_references: tuple[SharedReference, ...] = ()
     convergence_demands: tuple[SymbolicDemand, ...] = ()
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
     _covered_hops: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
@@ -2069,6 +2705,7 @@ def build_route_plan_observer(
     context: _RoutingCtx | None,
     *,
     scaffold: RouteSemanticScaffold | None = None,
+    route_systems: RouteSystemEmissionExecution | None = None,
     exit_turn_plans: tuple[ExitTurnPlan, ...] = (),
     exit_turn_references: tuple[SharedReference, ...] = (),
     exit_turn_demands: tuple[SymbolicDemand, ...] = (),
@@ -2077,12 +2714,15 @@ def build_route_plan_observer(
     convergence_references: tuple[SharedReference, ...] = (),
     convergence_demands: tuple[SymbolicDemand, ...] = (),
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
+    member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
+    exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = (),
 ) -> RoutePlanObserver:
     """Create one transient observer after settled routing context construction."""
     return RoutePlanObserver(
         graph=graph,
         context=context,
         scaffold=scaffold,
+        route_systems=route_systems,
         exit_turn_plans=exit_turn_plans,
         exit_turn_references=exit_turn_references,
         exit_turn_demands=exit_turn_demands,
@@ -2091,6 +2731,8 @@ def build_route_plan_observer(
         convergence_references=convergence_references,
         convergence_demands=convergence_demands,
         convergence_diagnostics=convergence_diagnostics,
+        member_geometry_plans=member_geometry_plans,
+        exit_turn_dispositions=exit_turn_dispositions,
     )
 
 
@@ -2274,6 +2916,10 @@ class RouteSemanticScaffold:
     resolution: _ResolutionRecords
     member_id_by_edge: Mapping[ResolvedEdge, EmissionMemberId]
 
+    def connector_ids_for_edge(self, edge: ResolvedEdge) -> tuple[ConnectorId, ...]:
+        """Return the edge's connectors in canonical topology order."""
+        return _ordered_unique(ref.connector_id for ref in self.refs_by_edge[edge])
+
     def system_for(self, connector_ids: tuple[ConnectorId, ...]) -> RouteSystemId:
         if not connector_ids:
             raise ValueError("route-plan ownership record has no connectors")
@@ -2283,6 +2929,10 @@ class RouteSemanticScaffold:
         ):
             raise ValueError("one topology record spans multiple route systems")
         return system_id
+
+    def system_for_edge(self, edge: ResolvedEdge) -> RouteSystemId:
+        """Return the canonical route system containing *edge*."""
+        return self.system_for(self.connector_ids_for_edge(edge))
 
 
 def build_route_semantic_scaffold(
@@ -2574,6 +3224,7 @@ def _build_route_plan(
             exit_turn_plans=(),
             fan_plans=fan_plans,
             convergence_plans=(),
+            member_geometry_plans=(),
             shared_references=(),
             demands=(),
             reservations=(),
@@ -2614,9 +3265,9 @@ def _build_route_plan(
     endpoint_facts: dict[str, EndpointFact] = {}
     for edge in edge_order:
         leg_refs = tuple(refs_by_edge[edge])
-        connector_ids = _ordered_unique(ref.connector_id for ref in leg_refs)
+        connector_ids = scaffold.connector_ids_for_edge(edge)
         connectors = tuple(query.connector(item) for item in connector_ids)
-        system_id = system_for(connector_ids)
+        system_id = scaffold.system_for_edge(edge)
         member_id = member_id_by_edge[edge]
         family = observer._family_by_edge.get(edge)
         ranks = route_ranks.get(edge, [])
@@ -2753,11 +3404,31 @@ def _build_route_plan(
             convergence_plan.id
         )
 
+    system_emission = observer.route_systems
+    if system_emission is None and observer.context is not None:
+        system_emission = observer.context.route_systems
+    if system_emission is None:
+        from nf_metro.layout.routing.system_emission import (
+            build_route_system_emission_execution,
+        )
+
+        system_emission = build_route_system_emission_execution(
+            scaffold,
+            exit_turn_plans=observer.exit_turn_plans,
+            fan_plans=route_fan_plans,
+            convergence_plans=observer.convergence_plans,
+        )
+    emission_by_system = {item.system_id: item for item in system_emission.systems}
+    planned_system_ids = {
+        item.system_id
+        for item in system_emission.systems
+        if item.disposition is RouteSystemDisposition.PLANNED
+    }
     provenance = _plan_provenance(graph, topology.connectors)
     fan_references, fan_demands = _build_fan_plan_resources(
         graph,
         provenance,
-        route_fan_plans,
+        tuple(plan for plan in route_fan_plans if plan.system_id in planned_system_ids),
     )
     shared_references = (
         *observer.exit_turn_references,
@@ -2769,6 +3440,14 @@ def _build_route_plan(
         *fan_demands,
         *observer.convergence_demands,
     )
+    member_geometry_plans = tuple(
+        plan
+        for plan in observer.member_geometry_plans
+        if plan.system_id in planned_system_ids
+    )
+    member_geometry_plan_ids_by_system: dict[
+        RouteSystemId, list[RouteMemberGeometryPlanId]
+    ] = defaultdict(list)
     reference_ids_by_system: dict[RouteSystemId, list[SharedReferenceId]] = defaultdict(
         list
     )
@@ -2777,9 +3456,14 @@ def _build_route_plan(
         reference_ids_by_system[reference.system_id].append(reference.id)
     for demand in demands:
         demand_ids_by_system[demand.system_id].append(demand.id)
+    for member_geometry_plan in member_geometry_plans:
+        member_geometry_plan_ids_by_system[member_geometry_plan.system_id].append(
+            member_geometry_plan.id
+        )
 
     systems: list[RouteSystem] = []
     for system_id, connector_ids in zip(ordered_system_ids, components, strict=True):
+        emission = emission_by_system[system_id]
         systems.append(
             RouteSystem(
                 system_id,
@@ -2799,9 +3483,13 @@ def _build_route_plan(
                 tuple(exit_turn_ids_by_system[system_id]),
                 tuple(fan_ids_by_system[system_id]),
                 tuple(convergence_plan_ids_by_system[system_id]),
+                tuple(member_geometry_plan_ids_by_system[system_id]),
                 tuple(reference_ids_by_system[system_id]),
                 tuple(demand_ids_by_system[system_id]),
                 (),
+                emission.disposition,
+                emission.compatibility_reasons,
+                emission.superseded_verdicts,
             )
         )
 
@@ -2814,8 +3502,10 @@ def _build_route_plan(
         branches=tuple(branches),
         feeders=tuple(feeders),
         exit_turn_plans=observer.exit_turn_plans,
+        exit_turn_dispositions=observer.exit_turn_dispositions,
         fan_plans=fan_plans,
         convergence_plans=observer.convergence_plans,
+        member_geometry_plans=member_geometry_plans,
         shared_references=shared_references,
         demands=demands,
         reservations=(),
@@ -3142,6 +3832,35 @@ def _validate_exit_turn_demands(
             raise ValueError("exit-turn lane-transition demand is inconsistent")
 
 
+def _expected_source_lane_gaps(
+    plan: RoutePlan, exit_turn_plan: ExitTurnPlan
+) -> tuple[float, ...]:
+    """The offset each adjacent source-lane pair must span, in lane order.
+
+    Lanes normally compact to one ``spacing`` step per rank.  Where a planned
+    fan states the offsets of this exit source, its frame decides the pitch
+    instead: a fan holds one slot per line identity it carries anywhere in its
+    system, so a slot whose line is absent at this station is reserved rather
+    than forgotten, and the pair straddling it spans as many steps as the
+    fan's own slots are apart.
+    """
+    slots = {
+        assignment.line_id: assignment.slot
+        for fan_plan in plan.fan_plans
+        if fan_plan.owns_geometry
+        for carrier in fan_plan.offset_carriers
+        if carrier.station_id == exit_turn_plan.source_id
+        for assignment in carrier.assignments
+    }
+    lines = tuple(lane.line_id for lane in exit_turn_plan.source_lanes)
+    if any(line_id not in slots for line_id in lines):
+        return tuple(exit_turn_plan.spacing for _line in lines[1:])
+    return tuple(
+        abs(slots[right] - slots[left]) * exit_turn_plan.spacing
+        for left, right in zip(lines, lines[1:])
+    )
+
+
 def _validate_planned_exit_turn_resources(
     plan: RoutePlan,
     exit_turn_plan: ExitTurnPlan,
@@ -3175,9 +3894,10 @@ def _validate_planned_exit_turn_resources(
     ):
         raise ValueError("exit-turn plan has inconsistent provenance")
     offsets = tuple(lane.planned_offset for lane in exit_turn_plan.source_lanes)
+    expected_gaps = _expected_source_lane_gaps(plan, exit_turn_plan)
     if any(
-        abs(abs(right - left) - exit_turn_plan.spacing) > 1e-6
-        for left, right in zip(offsets, offsets[1:])
+        abs(abs(right - left) - gap) > 1e-6
+        for (left, right), gap in zip(zip(offsets, offsets[1:]), expected_gaps)
     ):
         raise ValueError("planned exit-turn source lanes are not compact")
     turning_assignment_ids = tuple(
@@ -3205,13 +3925,28 @@ def _validate_planned_exit_turn_resources(
     turning_assignments = tuple(
         item for item in exit_turn_plan.assignments if item.axis_id is not None
     )
-    cohort_ranks: dict[tuple[Direction, Direction], set[int]] = defaultdict(set)
+    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
+    turning_axis: dict[EmissionMemberId, ExitTurnAxis] = {}
+    for assignment in turning_assignments:
+        named = (
+            axis_by_id.get(assignment.axis_id)
+            if assignment.axis_id is not None
+            else None
+        )
+        if named is None:
+            raise ValueError("exit-turn assignment names an unknown axis")
+        turning_axis[assignment.member_id] = named
+    cohort_ranks: dict[
+        tuple[Direction, Direction, EndpointGroupId | None], set[int]
+    ] = defaultdict(set)
     for assignment in turning_assignments:
         if assignment.run_direction is None or assignment.turn_direction is None:
             raise ValueError("exit-turn assignment has incomplete directions")
-        cohort_ranks[assignment.run_direction, assignment.turn_direction].add(
-            assignment.source_lane_rank
-        )
+        cohort_ranks[
+            assignment.run_direction,
+            assignment.turn_direction,
+            turning_axis[assignment.member_id].pinning_group_id,
+        ].add(assignment.source_lane_rank)
     ordered_turn_span = max(
         ((len(ranks) - 1) * exit_turn_plan.spacing for ranks in cohort_ranks.values()),
         default=0.0,
@@ -3250,6 +3985,7 @@ def _validate_planned_exit_turn_resources(
                 assignment.run_direction,
                 assignment.turn_direction,
                 assignment.source_lane_rank,
+                turning_axis[assignment.member_id].pinning_group_id,
             )
             for assignment in turning_assignments
         }
@@ -3259,22 +3995,27 @@ def _validate_planned_exit_turn_resources(
         (right.input_offset - left.input_offset)
         * (right.planned_offset - left.planned_offset)
         <= 0
-        or abs(abs(right.planned_offset - left.planned_offset) - exit_turn_plan.spacing)
-        > 1e-6
-        for left, right in zip(
-            exit_turn_plan.source_lanes,
-            exit_turn_plan.source_lanes[1:],
+        or abs(abs(right.planned_offset - left.planned_offset) - gap) > 1e-6
+        for (left, right), gap in zip(
+            zip(
+                exit_turn_plan.source_lanes,
+                exit_turn_plan.source_lanes[1:],
+            ),
+            expected_gaps,
         )
     ):
         raise ValueError("exit-turn source lanes do not preserve travel order")
-    axis_by_id = {axis.id: axis for axis in exit_turn_plan.axes}
-    for (run_direction, turn_direction), _ranks in cohort_ranks.items():
+    for (
+        run_direction,
+        turn_direction,
+        pinning_group_id,
+    ), _ranks in cohort_ranks.items():
         cohort_axes = tuple(
-            axis_by_id[assignment.axis_id]
+            turning_axis[assignment.member_id]
             for assignment in turning_assignments
             if assignment.run_direction is run_direction
             and assignment.turn_direction is turn_direction
-            and assignment.axis_id is not None
+            and turning_axis[assignment.member_id].pinning_group_id == pinning_group_id
         )
         unique_axes = tuple(dict.fromkeys(cohort_axes))
         unique_axes = tuple(sorted(unique_axes, key=lambda axis: axis.rank))
@@ -3728,7 +4469,11 @@ def _validate_fan_records(
                 or member_bindings[0].kind is BindingKind.UNROUTED
             ):
                 raise ValueError("planned fan member has no final emission binding")
-        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+        owns_emission_resources = (
+            fan_plan.disposition is FanPlanDisposition.PLANNED
+            and system.disposition is RouteSystemDisposition.PLANNED
+        )
+        if owns_emission_resources:
             reference_id = fan_plan.centreline_reference_id
             reference = (
                 references.get(reference_id) if reference_id is not None else None
@@ -3746,7 +4491,7 @@ def _validate_fan_records(
             ):
                 raise ValueError("planned fan resources have inconsistent ownership")
         by_system[system_id].append(fan_plan)
-        if fan_plan.disposition is FanPlanDisposition.PLANNED:
+        if owns_emission_resources:
             for member_id in fan_plan.member_ids:
                 by_member[member_id].append(fan_plan)
 
@@ -4048,6 +4793,236 @@ def _validate_convergence_records(
     return plans, by_system, by_convergence, by_connector, by_member, by_path
 
 
+def _validate_member_geometry_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> None:
+    """Cross-check immutable member templates against canonical membership."""
+    records = {item.id: item for item in plan.member_geometry_plans}
+    if len(records) != len(plan.member_geometry_plans):
+        raise ValueError("route plan contains duplicate member geometry plan ids")
+    member_ids = tuple(item.member_id for item in plan.member_geometry_plans)
+    if len(set(member_ids)) != len(member_ids):
+        raise ValueError("emission member has more than one member geometry plan")
+    systems = {system.id: system for system in plan.systems}
+    by_system: defaultdict[RouteSystemId, list[RouteMemberGeometryPlan]] = defaultdict(
+        list
+    )
+    for record in plan.member_geometry_plans:
+        system = systems.get(record.system_id)
+        member = members.get(record.member_id)
+        if system is None or system.disposition is not RouteSystemDisposition.PLANNED:
+            raise ValueError("member geometry plan names a non-planned route system")
+        if (
+            member is None
+            or member.system_id != record.system_id
+            or member.id not in system.member_ids
+            or member.family_id is None
+            or bindings[member.id][0].kind is not BindingKind.EMITTED
+        ):
+            raise ValueError("member geometry plan names a non-planned emission member")
+        if member.family_id is RouteFamilyId.RAIL_INTER_SECTION:
+            raise ValueError("rail emitter cannot have a member geometry plan")
+        if (
+            record.edge != member.edge
+            or record.family_id != member.family_id
+            or record.connector_ids != member.connector_ids
+        ):
+            raise ValueError("member geometry plan identity disagrees with its member")
+        by_system[record.system_id].append(record)
+    for system in plan.systems:
+        expected = tuple(item.id for item in by_system.get(system.id, ()))
+        if system.member_geometry_plan_ids != expected:
+            raise ValueError("route system member-geometry index is inconsistent")
+
+
+def _validate_final_geometry_ownership(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+    bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
+) -> None:
+    """Require one complete geometry owner for every planned emitted member."""
+    systems = {system.id: system for system in plan.systems}
+    expected = {
+        member.id
+        for member in members.values()
+        if systems[member.system_id].disposition is RouteSystemDisposition.PLANNED
+        and bindings[member.id][0].kind is BindingKind.EMITTED
+    }
+    owners = Counter(item.member_id for item in plan.member_geometry_plans)
+    owners.update(
+        ownership.member_id
+        for convergence in plan.convergence_plans
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for ownership in convergence.endpoint_ownership
+        if bindings[ownership.member_id][0].kind is BindingKind.EMITTED
+    )
+    owners.update(
+        member.id
+        for member in members.values()
+        if member.family_id is RouteFamilyId.RAIL_INTER_SECTION
+        and systems[member.system_id].disposition is RouteSystemDisposition.PLANNED
+        and bindings[member.id][0].kind is BindingKind.EMITTED
+    )
+    if set(owners) != expected or any(count != 1 for count in owners.values()):
+        raise ValueError("planned emitted member geometry ownership is incomplete")
+
+
+def _validate_route_system_indexes(
+    plan: RoutePlan,
+    connector_owner: Mapping[ConnectorId, RouteSystemId],
+) -> None:
+    provenance_connector_ids = tuple(
+        connector.connector_id for connector in plan.provenance.connectors
+    )
+    if set(provenance_connector_ids) != set(connector_owner):
+        raise ValueError("route-system connector index disagrees with provenance")
+    expected_system_order = _ordered_unique(
+        connector_owner[connector_id] for connector_id in provenance_connector_ids
+    )
+    if tuple(system.id for system in plan.systems) != expected_system_order:
+        raise ValueError("route systems are not in canonical connector order")
+
+    def record_ids_for(
+        records: Iterable[
+            ResolvedEndpointGroup
+            | RouteDivergence
+            | RouteConvergence
+            | RouteBranch
+            | RouteFeeder
+        ],
+        system_id: RouteSystemId,
+    ) -> tuple[object, ...]:
+        return tuple(record.id for record in records if record.system_id == system_id)
+
+    for system in plan.systems:
+        connector_facts = tuple(
+            connector
+            for connector in plan.provenance.connectors
+            if connector_owner[connector.connector_id] == system.id
+        )
+        if system.connector_ids != tuple(
+            connector.connector_id for connector in connector_facts
+        ):
+            raise ValueError("route-system connector index is not canonical")
+        if system.line_ids != _ordered_unique(
+            connector.line_id for connector in connector_facts
+        ):
+            raise ValueError("route-system line index disagrees with records")
+        if system.bundle_ids != _ordered_unique(
+            connector.bundle_id for connector in connector_facts
+        ):
+            raise ValueError("route-system bundle index disagrees with records")
+        expected_indexes = (
+            record_ids_for(
+                (
+                    record
+                    for record in plan.endpoint_groups
+                    if record.role is ConnectorEndpointRole.EXIT
+                ),
+                system.id,
+            ),
+            record_ids_for(
+                (
+                    record
+                    for record in plan.endpoint_groups
+                    if record.role is ConnectorEndpointRole.ENTRY
+                ),
+                system.id,
+            ),
+            record_ids_for(plan.divergences, system.id),
+            record_ids_for(plan.convergences, system.id),
+            record_ids_for(plan.branches, system.id),
+            record_ids_for(plan.feeders, system.id),
+        )
+        actual_indexes = (
+            system.exit_group_ids,
+            system.entry_group_ids,
+            system.divergence_ids,
+            system.convergence_ids,
+            system.branch_ids,
+            system.feeder_ids,
+        )
+        if actual_indexes != expected_indexes:
+            raise ValueError("route-system ownership indexes disagree with records")
+
+
+def _validate_route_system_records(
+    plan: RoutePlan,
+    members: Mapping[EmissionMemberId, EmissionMember],
+) -> None:
+    systems = {system.id: system for system in plan.systems}
+    if len(systems) != len(plan.systems):
+        raise ValueError("route plan contains duplicate route-system ids")
+    for label, records in (("branch", plan.branches), ("feeder", plan.feeders)):
+        if len({record.id for record in records}) != len(records):
+            raise ValueError(f"route plan contains duplicate route {label} ids")
+
+    connector_owner: dict[ConnectorId, RouteSystemId] = {}
+    member_owner: dict[EmissionMemberId, RouteSystemId] = {}
+    for system in plan.systems:
+        if len(set(system.connector_ids)) != len(system.connector_ids):
+            raise ValueError(f"route system {system.id} repeats a connector id")
+        if len(set(system.member_ids)) != len(system.member_ids):
+            raise ValueError(f"route system {system.id} repeats an emission member id")
+        for connector_id in system.connector_ids:
+            prior = connector_owner.setdefault(connector_id, system.id)
+            if prior != system.id:
+                raise ValueError("one connector belongs to multiple route systems")
+        for member_id in system.member_ids:
+            prior = member_owner.setdefault(member_id, system.id)
+            if prior != system.id:
+                raise ValueError(
+                    "one emission member belongs to multiple route systems"
+                )
+
+    if set(member_owner) != set(members):
+        raise ValueError("route-system emission-member partition is incomplete")
+    members_by_system: dict[RouteSystemId, list[EmissionMemberId]] = defaultdict(list)
+    referenced_connectors: set[ConnectorId] = set()
+    for member in plan.members:
+        if member.system_id not in systems:
+            raise ValueError(f"emission member {member.id} has an unknown route system")
+        if member_owner[member.id] != member.system_id:
+            raise ValueError("route-system emission-member ownership disagrees")
+        members_by_system[member.system_id].append(member.id)
+        for connector_id in member.connector_ids:
+            if connector_owner.get(connector_id) != member.system_id:
+                raise ValueError("emission member connector ownership disagrees")
+            referenced_connectors.add(connector_id)
+    for system in plan.systems:
+        if tuple(members_by_system[system.id]) != system.member_ids:
+            raise ValueError(
+                "route-system emission-member index disagrees with records"
+            )
+
+    ownership_records: tuple[
+        ResolvedEndpointGroup
+        | RouteDivergence
+        | RouteConvergence
+        | RouteBranch
+        | RouteFeeder,
+        ...,
+    ] = (
+        *plan.endpoint_groups,
+        *plan.divergences,
+        *plan.convergences,
+        *plan.branches,
+        *plan.feeders,
+    )
+    for record in ownership_records:
+        if record.system_id not in systems:
+            raise ValueError("route ownership record has an unknown route system")
+        for connector_id in record.connector_ids:
+            if connector_owner.get(connector_id) != record.system_id:
+                raise ValueError("route ownership record connector ownership disagrees")
+            referenced_connectors.add(connector_id)
+    if referenced_connectors != set(connector_owner):
+        raise ValueError("route-system connector partition is incomplete")
+    _validate_route_system_indexes(plan, connector_owner)
+
+
 def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -4062,6 +5037,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
             raise ValueError(f"route plan contains duplicate {label} ids")
     if len(members) != len(plan.members):
         raise ValueError("route plan contains duplicate emission member ids")
+    _validate_route_system_records(plan, members)
     exit_turn_plans, exit_turns_by_source, exit_turns_by_member = (
         _validate_exit_turn_records(plan, members)
     )
@@ -4101,6 +5077,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         if carrier_binding.kind is not BindingKind.EMITTED:
             raise ValueError("covered members require an emitted carrier")
 
+    _validate_member_geometry_records(plan, members, bindings)
     fan_plans, fan_plans_by_system, fan_plans_by_member = _validate_fan_records(
         plan,
         members,
@@ -4114,6 +5091,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         convergence_plans_by_member,
         convergence_plans_by_path,
     ) = _validate_convergence_records(plan, members, bindings)
+    _validate_final_geometry_ownership(plan, members, bindings)
 
     from nf_metro.layout.route_reservations import build_reservation_query_indexes
 

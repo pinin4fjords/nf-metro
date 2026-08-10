@@ -1346,6 +1346,16 @@ def check_single_segment_diagonals(
     return violations
 
 
+def _is_planned_fan_arm(graph: MetroGraph, source: str, target: str) -> bool:
+    """Whether a planned fan forks at *source* and lanes *target* on an arm."""
+    return any(
+        plan.owns_geometry
+        and plan.fork_station_id == source
+        and any(target in branch.lane_station_ids for branch in plan.branches)
+        for plan in graph.fan_plans
+    )
+
+
 def check_intra_section_chain_alignment(
     graph: MetroGraph, tolerance: float = 2.0
 ) -> list[Violation]:
@@ -1418,6 +1428,11 @@ def check_intra_section_chain_alignment(
             # A hidden bypass V dips off the trunk to route a line around a
             # station marker, so an edge into or out of it is diagonal by
             # design, not a chain misalignment.
+            continue
+        if _is_planned_fan_arm(graph, edge.source, edge.target):
+            # A planned fan seats an arm on its own lane, so the step from the
+            # fork to that arm is geometry the engine states rather than a
+            # chain that failed to align.
             continue
         if src.is_terminus or tgt.is_terminus:
             continue

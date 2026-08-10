@@ -570,7 +570,10 @@ def _distribute_stacked_rows_in_rowspan_band(graph: MetroGraph) -> None:
             cursor += section.bbox_h + gap
 
 
-def _top_align_row_bboxes_only(graph: MetroGraph, rows: set[int] | None = None) -> None:
+def _top_align_row_bboxes_only(
+    graph: MetroGraph,
+    rows: set[int] | None = None,
+) -> None:
     """Align bbox tops within each row by growing bboxes upward.
 
     Unlike ``_top_align_row_sections`` (which shifts stations together

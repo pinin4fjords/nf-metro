@@ -1084,6 +1084,7 @@ def _reserve_row_gap_for_top_padding(
     graph: MetroGraph,
     section_y_padding: float,
     section_y_gap: float,
+    section_ids: set[str] | None = None,
 ) -> None:
     """Push a stacked row down when the row above blocks its top padding.
 
@@ -1103,6 +1104,11 @@ def _reserve_row_gap_for_top_padding(
     against the box top.  The full-band target and its row-above ceiling both come
     from :func:`_section_fit_top` (``fit_top - hug`` is the shortfall the ceiling
     imposed), so the ceiling formula lives in one place.
+
+    ``section_ids`` narrows which sections may raise a deficit, so a caller
+    downstream of a scoped late placement widens a row only for the content
+    that placement owns.  The shift stays whole-row either way: the widened gap
+    belongs to the row boundary, not to one box.
     """
     from nf_metro.layout.routing import compute_station_offsets
 
@@ -1115,6 +1121,8 @@ def _reserve_row_gap_for_top_padding(
         deficit = 0.0
         for sec in graph.sections.values():
             if sec.grid_row != r or sec.bbox_h <= 0:
+                continue
+            if section_ids is not None and sec.id not in section_ids:
                 continue
             port_ids = set(sec.entry_ports) | set(sec.exit_ports)
             marker_ys = [
@@ -1218,6 +1226,44 @@ def refit_empty_section_tops_to_content(
         hug = _section_content_hug_top(graph, section, section_y_padding, offsets)
         if hug is not None and hug > section.bbox_y + SAME_COORD_TOLERANCE:
             move_section_bbox_min_edge(graph, section, "y", hug)
+
+
+def grow_section_bands_to_content(
+    graph: MetroGraph,
+    section_ids: set[str],
+    section_y_padding: float,
+    section_y_gap: float,
+    offsets: dict[tuple[str, str], float] | None = None,
+) -> None:
+    """Restore the padding band of sections a late content placement resized.
+
+    The corpus-wide top fit and bottom shrink size each box around where the
+    content stood when they ran.  A later owner that re-seats content inside a
+    named section leaves the box stating the old band, so the marker it moved
+    outward crowds an edge.  Growing each named box back to the same two
+    targets the padding contract is written in -- the row-bounded content top
+    and the pill-aware content bottom -- restores the band without moving
+    anything the placement decided.
+    """
+    if offsets is None:
+        from nf_metro.layout.routing import compute_station_offsets
+
+        offsets = compute_station_offsets(graph)
+
+    for section_id in section_ids:
+        section = graph.sections.get(section_id)
+        if section is None or section.bbox_h <= 0:
+            continue
+        top = _section_fit_top(
+            graph, section, section_y_padding, section_y_gap, offsets
+        )
+        if top is not None:
+            grow_section_bbox_min_edge(graph, section, "y", top)
+        bottom = _predict_section_content_bottom(
+            graph, section, section_y_padding, offsets
+        )
+        if bottom is not None:
+            grow_section_bbox_max_edge(graph, section, "y", bottom)
 
 
 def refit_tops_after_entry_resnap(

@@ -10,6 +10,8 @@ section's internal handlers run.
 
 from __future__ import annotations
 
+import math
+
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
@@ -619,6 +621,56 @@ def prefers_join_bias(ctx: _RoutingCtx, edge: Edge) -> bool:
     return join_degree > fork_degree
 
 
+def _fan_plan_seats_the_fork(ctx: _RoutingCtx, fork_id: str) -> bool:
+    """Whether a live fan plan states the lanes the legs of *fork_id* open into."""
+    execution = ctx.graph.fan_plan_execution
+    return execution is not None and any(
+        plan.fork_station_id == fork_id and plan.legacy_reason is None
+        for plan in execution.plans
+    )
+
+
+def _fused_opening_legs(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> int:
+    """How many legs of a planned fan open beyond *edge* on a heading it fuses with.
+
+    Legs peeling off one fork toward the same side turn at one column, so they
+    leave it as rays from a single point: by the end of their corner curves two
+    of them stand ``curve_radius * sin(heading difference)`` apart, which is
+    under a bundle step wherever the headings are close and draws the pair as one
+    stroke for the length of the opening.  Counting the legs a leg fuses with
+    lets the deepest peel first and holds each shallower one back a step, so the
+    openings nest in the order the fan seats them rather than stacking on one
+    point.
+
+    A port fork is excluded: it is the boundary a section's trunk arrives at
+    rather than a station a fan opens from, and the entry machinery seats the
+    spread of the legs it feeds.
+    """
+    drop = tgt.y - src.y
+    if abs(drop) <= COORD_TOLERANCE_FINE or edge.source not in ctx.fork_stations:
+        return 0
+    if src.is_port or not _fan_plan_seats_the_fork(ctx, edge.source):
+        return 0
+    heading = math.atan2(abs(drop), ctx.diagonal_run)
+    fused = 0
+    for sibling_id in ctx.fork_targets.get(edge.source, ()):
+        sibling = ctx.graph.stations.get(sibling_id)
+        if sibling is None:
+            continue
+        sibling_drop = sibling.y - src.y
+        if (
+            sibling_drop * drop <= 0.0
+            or abs(sibling_drop) <= abs(drop) + COORD_TOLERANCE_FINE
+        ):
+            continue
+        sibling_heading = math.atan2(abs(sibling_drop), ctx.diagonal_run)
+        if ctx.curve_radius * math.sin(sibling_heading - heading) < ctx.offset_step:
+            fused += 1
+    return fused
+
+
 def _route_diagonal(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -672,6 +724,9 @@ def _route_diagonal(
     ):
         drop_label_clearance = label_text_width(src.label) / 2 + LABEL_BBOX_MARGIN
         src_min = max(src_min, drop_label_clearance)
+    peel_delay = _fused_opening_legs(edge, src, tgt, ctx) * ctx.offset_step
+    if src_min + peel_delay + tgt_min + ctx.diagonal_run <= abs(dx):
+        src_min += peel_delay
     if src_min + tgt_min + ctx.diagonal_run > abs(dx):
         src_min = max(min_straight, drop_label_clearance)
         tgt_min = min_straight

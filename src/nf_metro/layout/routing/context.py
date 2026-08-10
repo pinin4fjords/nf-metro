@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import ExitTurnPlanId
     from nf_metro.layout.routing.convergences import ConvergencePlanExecutionQuery
     from nf_metro.layout.routing.exit_turns import ExitTurnPlanQuery
+    from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
 
 _EdgeKey = tuple[str, str, str]
 
@@ -229,6 +230,7 @@ class _RoutingCtx:
     station_offsets: dict[tuple[str, str], float] | None
     diagonal_run: float
     curve_radius: float
+    validate_final_route_frames: bool = True
     reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
     prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None
     """Frozen exit-turn dispositions a settlement re-route must redraw.
@@ -240,6 +242,8 @@ class _RoutingCtx:
     is the one that decides."""
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
+    route_systems: RouteSystemEmissionExecution | None = None
+    compatibility_edges: frozenset[_EdgeKey] = frozenset()
     skip_edges: set[_EdgeKey] = field(default_factory=set)
     built_routes: list[RoutedPath] = field(default_factory=list)
     junction_fan_info: dict[_EdgeKey, tuple[int, int]] = field(default_factory=dict)
@@ -257,6 +261,10 @@ class _RoutingCtx:
             index_exclude=set(),
         )
     )
+
+    def is_compatibility_edge(self, edge: Edge) -> bool:
+        """Whether whole-system emission delegates *edge* to compatibility routing."""
+        return (edge.source, edge.target, edge.line_id) in self.compatibility_edges
 
 
 def _classify_merge_edges(
@@ -394,6 +402,7 @@ def _build_routing_context(
     offset_step: float | None = None,
     reserved_bands: ReservedCorridors | None = None,
     prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None,
+    validate_final_route_frames: bool = True,
 ) -> _RoutingCtx:
     """Pre-compute all shared state for edge routing."""
     bands = ReservedCorridors() if reserved_bands is None else reserved_bands
@@ -488,6 +497,7 @@ def _build_routing_context(
         prior_exit_turn_dispositions=prior_exit_turn_dispositions,
         diagonal_run=diagonal_run,
         curve_radius=curve_radius,
+        validate_final_route_frames=validate_final_route_frames,
         junction_fan_info=junction_fan_info,
         fan_corridors=fan_corridors,
         skip_edges=merge.skip_edges,
@@ -1136,6 +1146,7 @@ def _compute_junction_fan_info(
         has_lshape = False
         has_bypass = False
         has_wrap = False
+        has_perp_entry = False
         # Source-side channels anchored NEAR the junction (no resolvable
         # inter-column gap to centre in) keyed by their rounded X.  These are
         # NOT touched by ``_materialize_gap_slots`` (which only re-stacks
@@ -1180,10 +1191,26 @@ def _compute_junction_fan_info(
                     or (tgt_port.side == PortSide.LEFT and dx_edge < 0)
                 )
             )
+            # A TOP/BOTTOM entry reached from a different row travels the same
+            # inter-row gap band a LEFT/RIGHT wrap does (both are the
+            # gap-branches :func:`_fan_gap_branch_columns` measures together),
+            # so it is its own kind here too rather than falling into the
+            # generic L-shape bucket below.
+            is_perp_entry = (
+                tgt_port is not None
+                and tgt_port.is_entry
+                and not is_bypass
+                and src_row is not None
+                and tgt_row is not None
+                and src_row != tgt_row
+                and tgt_port.side in (PortSide.TOP, PortSide.BOTTOM)
+            )
             if is_bypass:
                 has_bypass = True
             elif is_wrap:
                 has_wrap = True
+            elif is_perp_entry:
+                has_perp_entry = True
             else:
                 has_lshape = True
             # A plain L-shape into an ADJACENT column gets a true inter-column
@@ -1210,6 +1237,8 @@ def _compute_junction_fan_info(
         # overlay distinct lines:
         #   * lshape + bypass: the legacy condition.
         #   * wrap + anything else: extends the same idea to wrap routes.
+        #   * perp-entry + anything else: a TOP/BOTTOM entry shares its
+        #     gap-branch band with the others, so it needs the same corner.
         #   * near_src_collision: distinct lines to distinct targets sharing
         #     one source-hugging channel that no gap-normalise pass reaches.
         # A junction whose source-side channels are all distinct (e.g. a pure
@@ -1218,6 +1247,7 @@ def _compute_junction_fan_info(
         needs_unified = (
             (has_lshape and has_bypass)
             or (has_wrap and (has_lshape or has_bypass))
+            or (has_perp_entry and (has_lshape or has_bypass or has_wrap))
             or near_src_collision
         )
         if not outgoing or not needs_unified:

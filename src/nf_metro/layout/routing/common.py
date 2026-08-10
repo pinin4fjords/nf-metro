@@ -93,6 +93,24 @@ def vertical_direction(dy: float) -> Direction:
     return Direction.D if dy > 0 else Direction.U
 
 
+def segment_direction(
+    start: tuple[float, float], end: tuple[float, float]
+) -> Direction | None:
+    """The direction the axis-aligned leg from *start* to *end* travels.
+
+    ``None`` when the leg is diagonal or has collapsed to a point: those carry
+    no single direction.  Reading the leg's own two endpoints is what keeps a
+    caller from having to know which axis it lies on before asking.
+    """
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
+        return Direction.R if dx > 0 else Direction.L
+    if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
+        return Direction.D if dy > 0 else Direction.U
+    return None
+
+
 def is_orthogonal_turn(
     p0: tuple[float, float], p1: tuple[float, float], p2: tuple[float, float]
 ) -> bool:
@@ -707,7 +725,7 @@ def bundle_width(n_lines: int, offset_step: float = OFFSET_STEP) -> float:
     return max(0, n_lines - 1) * offset_step
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GapSlot:
     """A symbolic position for a vertical channel run within a gap bundle.
 
@@ -735,7 +753,7 @@ class GapSlot:
     n_slots: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrunkSlot:
     """The inter-row gap a route's horizontal bypass trunk runs in.
 
@@ -798,12 +816,24 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
+    route_system_id: str | None = None
+    """Canonical semantic system that owns this inter-section emission."""
+    emission_member_id: str | None = None
+    """Canonical physical member represented by this route."""
+    route_system_disposition: str | None = None
+    """Whole-system planned or compatibility disposition used for emission."""
+    route_plan_ids: tuple[str, ...] = ()
+    """Immutable child plans contributing to the route-system decision."""
+    route_reservation_ids: tuple[str, ...] = ()
+    """Realised reservation records claimed by this emission member."""
     convergence_plan_id: str | None = None
     """Immutable convergence plan that owns this route's terminal geometry."""
     convergence_member_id: str | None = None
     """Semantic emission member bound to the planned convergence."""
     convergence_owned_segment_ranks: tuple[int, ...] = ()
     """Segments whose final geometry is owned by the convergence plan."""
+    route_system_owned_segment_ranks: tuple[int, ...] = ()
+    """Gap-channel segments frozen by the route-system member plan."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
     exit_lane_transition_plan_id: str | None = None
@@ -1833,6 +1863,23 @@ def section_header_safe_cap(section: Section) -> float:
     return section_header_top(section) - HEADER_CLEARANCE
 
 
+def section_ids_of_stations(graph: MetroGraph, *stations: Station) -> tuple[str, ...]:
+    """The placed sections *stations* belong to, in order.
+
+    A junction or free-standing endpoint belongs to no section and is dropped.
+    Stated once because a corridor's grid span is measured over exactly these
+    sections whether it is read from a route's endpoints after emission or from
+    the two stations a handler holds before it: a handler seating a run against
+    a span the settling pass would measure differently would seat it in the
+    wrong band.
+    """
+    return tuple(
+        station.section_id
+        for station in stations
+        if station.section_id in graph.sections
+    )
+
+
 def bypass_bottom_y(
     graph: MetroGraph,
     src_col: int,
@@ -2361,6 +2408,10 @@ def centre_inter_column_channel(
     return column_gap_midpoint(graph, col_a, col_b, row) + offset
 
 
+def _segment_set_owns_boundary(owned_ranks: Sequence[int], rank: int) -> bool:
+    return any(item in owned_ranks for item in (rank - 1, rank, rank + 1))
+
+
 def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     """Whether a convergence plan owns the boundary at or beside *rank*.
 
@@ -2368,10 +2419,19 @@ def convergence_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     either of the two segments meeting at it would contradict the plan the
     closing validators check the geometry against.
     """
-    return any(
-        item in route.convergence_owned_segment_ranks
-        for item in (rank - 1, rank, rank + 1)
-    )
+    return _segment_set_owns_boundary(route.convergence_owned_segment_ranks, rank)
+
+
+def member_plan_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a member geometry plan owns the segment at or beside *rank*."""
+    return _segment_set_owns_boundary(route.route_system_owned_segment_ranks, rank)
+
+
+def route_system_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether convergence or member geometry owns this segment boundary."""
+    return convergence_owns_segment_boundary(
+        route, rank
+    ) or member_plan_owns_segment_boundary(route, rank)
 
 
 def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
@@ -2389,6 +2449,7 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     return (
         convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
+        or rank in route.route_system_owned_segment_ranks
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )

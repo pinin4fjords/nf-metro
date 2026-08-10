@@ -54,6 +54,7 @@ from nf_metro.layout.route_plan import (
     ReservationDecisionRef,
     RoutePlan,
     RouteSystem,
+    RouteSystemDisposition,
     RouteSystemId,
     SharedReference,
     SharedReferenceId,
@@ -3415,16 +3416,24 @@ def build_reservation_query_indexes(
 
     exit_turn_reference_set = set(exit_turn_reference_ids)
     exit_turn_demand_set = set(exit_turn_demand_ids)
+    # Only a planned system's fans publish resources, so only those fans can
+    # account for a shared reference; the fan plans of a system the planner
+    # handed to compatibility own nothing the ledger has to link.
+    planned_fan_system_ids = {
+        system.id
+        for system in plan.systems
+        if system.disposition is RouteSystemDisposition.PLANNED
+    }
+    published_fan_plans = tuple(
+        item for item in plan.fan_plans if item.system_id in planned_fan_system_ids
+    )
     fan_reference_ids = tuple(
         item.centreline_reference_id
-        for item in plan.fan_plans
-        if item.system_id is not None and item.centreline_reference_id is not None
+        for item in published_fan_plans
+        if item.centreline_reference_id is not None
     )
     fan_demand_ids = tuple(
-        demand_id
-        for item in plan.fan_plans
-        if item.system_id is not None
-        for demand_id in item.demand_ids
+        demand_id for item in published_fan_plans for demand_id in item.demand_ids
     )
     convergence_reference_ids = tuple(
         reference_id
@@ -3749,6 +3758,33 @@ def _finalise_reservation_ledger(
     )
 
 
+def reservation_ids_by_claimant_member(
+    reservations: Iterable[RouteReservation],
+) -> dict[EmissionMemberId, tuple[str, ...]]:
+    """Index reservation IDs by claimant in their canonical ledger order."""
+    collected: defaultdict[EmissionMemberId, list[str]] = defaultdict(list)
+    for reservation in reservations:
+        for member_id in reservation.claimant_member_ids:
+            collected[member_id].append(str(reservation.id))
+    return {member_id: tuple(ids) for member_id, ids in collected.items()}
+
+
+def attach_reservation_ids_to_routes(
+    routes: Iterable[RoutedPath],
+    reservations: Iterable[RouteReservation],
+) -> None:
+    """Attach each claimant's reservation IDs in canonical ledger order."""
+    reservation_ids_by_member = reservation_ids_by_claimant_member(reservations)
+    for route in routes:
+        if route.emission_member_id is None:
+            continue
+        route.route_reservation_ids = tuple(
+            reservation_ids_by_member.get(
+                EmissionMemberId(route.emission_member_id), ()
+            )
+        )
+
+
 def attach_route_reservations(
     plan: RoutePlan,
     graph: MetroGraph,
@@ -3777,12 +3813,14 @@ def attach_route_reservations(
         demands=plan.demands + observed_demands,
         reservations=reservations,
     )
-    return _finalise_reservation_ledger(
+    finalised = _finalise_reservation_ledger(
         plan_with_corridors,
         graph,
         canvas_width=canvas_width,
         canvas_height=canvas_height,
     )
+    attach_reservation_ids_to_routes(routes, finalised.reservations)
+    return finalised
 
 
 def _project_shared_coordinate(

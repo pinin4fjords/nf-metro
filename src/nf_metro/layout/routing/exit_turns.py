@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
@@ -58,23 +58,57 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     apply_route_offsets,
     horizontal_direction,
+    segment_direction,
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
+    _around_section_below_geometry,
+    _around_stack_geometry,
+    _bottom_exit_junction_exit_port,
+    _bottom_exit_junction_geometry,
+    _bottom_exit_junction_is_right_landings,
     _build_inter_facts,
+    _bypass_geometry,
+    _bypass_route_kind,
+    _BypassGeometry,
+    _BypassRoute,
+    _InterFacts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
+    _left_entry_band_hop_source_seam,
+    _left_entry_gap_above_geometry,
+    _left_entry_over_top_geometry,
+    _left_entry_route_kind,
+    _left_entry_wrap_geometry,
+    _LeftEntryRoute,
     _merge_branch_lead_x,
     _merge_entry_route_kind,
     _MergeEntryRoute,
-    _tb_bottom_exit_around_stack_geometry,
+    _perp_entry_l_geometry,
+    _perp_exit_geometry,
+    _perp_exit_over_geometry,
+    _PerpExitGeometry,
+    _right_entry_over_top_geometry,
+    _right_entry_wrap_geometry,
+    _SourceSeam,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
+    bypass_line_draws_a_chained_trunk,
+    cellmate_gap_drop_column,
     classify_inter_section_family,
+    left_exit_around_below_geometry,
+    packed_cell_handoff_carrier,
+    perp_exit_farside_entry_wrap_geometry,
+    seated_bypass_descent,
+    seated_left_exit_under_target_descent,
+    u_bypass_descent_geometry,
 )
-from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
+from nf_metro.layout.routing.normalize import (
+    _h_segment_crosses_other_section,
+    _reseat_concentric_flanking,
+)
 from nf_metro.layout.routing.offsets import (
     LinearEntryFrameOwnership,
     capture_linear_entry_frame_ownership,
@@ -87,8 +121,8 @@ from nf_metro.layout.routing.orientation import (
     lateral_axis,
     lateral_order_sign,
 )
-from nf_metro.layout.routing.perp import _perp_entry_crossing_x
-from nf_metro.parser.model import Edge, MetroGraph, PortSide
+from nf_metro.layout.routing.perp import _perp_entry_crossing_x, _perp_riser_lateral
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import (
     ConnectorId,
     EndpointGroup,
@@ -107,10 +141,57 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TOP_ENTRY_L_SHAPE,
         RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
         RouteFamilyId.TB_BOTTOM_EXIT,
+        RouteFamilyId.PERP_EXIT,
+        RouteFamilyId.LEFT_ENTRY_WRAP,
+        RouteFamilyId.TB_PERP_EXIT_OVER,
+        RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
+        RouteFamilyId.BYPASS_FAMILY,
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION,
+        RouteFamilyId.RIGHT_ENTRY_WRAP,
+        RouteFamilyId.MERGE_TRUNK,
+        RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
+        RouteFamilyId.SAME_X_VERTICAL_DROP,
+        RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
+        RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+    }
+)
+
+# Families whose source seam is a perpendicular-exit centreline.
+_PERPENDICULAR_EXIT_FAMILIES = frozenset(
+    {RouteFamilyId.PERP_EXIT, RouteFamilyId.TB_PERP_EXIT_OVER}
+)
+
+# Families the straight-connector builder draws, one per run axis.
+_STRAIGHT_CONNECTOR_FAMILIES = frozenset(
+    {RouteFamilyId.SAME_Y_STRAIGHT, RouteFamilyId.SAME_X_VERTICAL_DROP}
+)
+
+# Families whose builder only ever leaves the source along the column, keyed to
+# the decline each states when asked for a run that leaves along the row.
+_OFF_COLUMN_RUN_DECLINES: Mapping[RouteFamilyId, str] = MappingProxyType(
+    {
+        RouteFamilyId.TB_BOTTOM_EXIT: "unsupported-subshape:nonvertical-tb-exit",
+        RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK: (
+            "unsupported-subshape:nonvertical-tb-exit"
+        ),
+        **dict.fromkeys(
+            _PERPENDICULAR_EXIT_FAMILIES, "unsupported-subshape:nonvertical-perp-exit"
+        ),
     }
 )
 
 _EdgeKey = tuple[str, str, str]
+
+_TurnCohortKey = tuple[Direction, Direction, EndpointGroupId | None]
+"""Source heading plus, where destinations contest it, the one that pins it.
+
+One ladder holds a heading's arms laterally apart from a single origin, and a
+structurally fixed axis anywhere on it pins that origin for every arm. Two
+destinations pinning the same heading to columns of their own choosing state
+an origin apiece, which no single arithmetic ladder can carry, so each takes
+its own. Everything else keeps the shared ladder: splitting a heading nothing
+contests would strip its arms of the only separation they have.
+"""
 
 
 class ExitTurnInvariantError(RuntimeError):
@@ -168,6 +249,28 @@ class ExitTurnPlanQuery:
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
 
+    def restrict_to_systems(
+        self, system_ids: frozenset[RouteSystemId]
+    ) -> ExitTurnPlanQuery:
+        plans = tuple(plan for plan in self.plans if plan.system_id in system_ids)
+        return ExitTurnPlanQuery(
+            plans,
+            MappingProxyType(
+                {
+                    key: membership
+                    for key, membership in self._by_edge.items()
+                    if membership.plan.system_id in system_ids
+                }
+            ),
+            MappingProxyType(
+                {
+                    key: membership
+                    for key, membership in self._transition_by_edge.items()
+                    if membership.plan.system_id in system_ids
+                }
+            ),
+        )
+
 
 def route_planned_lane_transition(
     edge: Edge,
@@ -199,6 +302,30 @@ def route_planned_lane_transition(
     return route
 
 
+def _owns_no_shared_resource(plan: ExitTurnPlan) -> bool:
+    """Whether *plan* can be published without publishing a shared resource.
+
+    A plan that claims no reference, demand, or turn axis is inert geometry-wise,
+    so the compatibility census can carry it even when its system emits through
+    the established templates and publishes no settlement resources of its own.
+    """
+    return (
+        plan.reference_id is None
+        and not plan.demand_ids
+        and not plan.foreign_reference_ids
+        and not plan.axes
+    )
+
+
+_PASS_LEVEL_DIAGNOSTIC_CODES = frozenset({"exit-turn-disposition-adopted"})
+"""Diagnostics describing the planning pass rather than a published plan.
+
+Narrowing the published record to one set of systems must not discard these:
+they are the only observable evidence that a frozen verdict was replayed, and a
+replay whose evidence is dropped cannot be told apart from one that never ran.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class ExitTurnExecution:
     """Immutable planning output shared by ordinary and observed routing."""
@@ -209,6 +336,38 @@ class ExitTurnExecution:
     demands: tuple[SymbolicDemand, ...]
     diagnostics: tuple[RoutePlanDiagnostic, ...]
     query: ExitTurnPlanQuery
+
+    def restrict_to_systems(
+        self, system_ids: frozenset[RouteSystemId]
+    ) -> ExitTurnExecution:
+        plans = tuple(
+            plan
+            for plan in self.plans
+            if plan.system_id in system_ids or _owns_no_shared_resource(plan)
+        )
+        owned = tuple(plan for plan in plans if plan.system_id in system_ids)
+        reference_ids = {
+            plan.reference_id for plan in owned if plan.reference_id is not None
+        }
+        demand_ids = {demand_id for plan in owned for demand_id in plan.demand_ids}
+        diagnostic_member_ids = {
+            plan.member_ids[0]
+            for plan in plans
+            if plan.member_ids and plan.legacy_reason is not None
+        }
+        return ExitTurnExecution(
+            self.scaffold,
+            plans,
+            tuple(item for item in self.references if item.id in reference_ids),
+            tuple(item for item in self.demands if item.id in demand_ids),
+            tuple(
+                item
+                for item in self.diagnostics
+                if item.member_id in diagnostic_member_ids
+                or item.code in _PASS_LEVEL_DIAGNOSTIC_CODES
+            ),
+            self.query.restrict_to_systems(system_ids),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +402,15 @@ class _ClassifiedMember:
 
 
 @dataclass(frozen=True, slots=True)
+class _LadderPin:
+    """One turning seed's claim on a column, as its ladder states it."""
+
+    group_id: EndpointGroupId
+    lane_rank: int
+    column: float
+
+
+@dataclass(frozen=True, slots=True)
 class _AssignmentClassification:
     seeds: tuple[_AssignmentSeed, ...]
     unclassified_member_ids: tuple[EmissionMemberId, ...]
@@ -267,6 +435,22 @@ class _SourceTurnRequirement:
     minimum_runway: float | None
     fixed_axis: float | None
     legacy_reason: str | None = None
+
+    @classmethod
+    def declined(cls, reason: str) -> _SourceTurnRequirement:
+        """No requirement at all: *reason* names who settles the turn instead."""
+        return cls(None, None, None, None, None, reason)
+
+    @classmethod
+    def from_seam(cls, seam: _SourceSeam) -> _SourceTurnRequirement:
+        """The requirement the seam a resolved centreline opens on already states."""
+        return cls(
+            seam.run_direction,
+            seam.turn_direction,
+            seam.launch_coordinate,
+            seam.minimum_runway,
+            seam.axis_coordinate,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +554,24 @@ def _source_lane_order(
 ) -> tuple[tuple[str, float], ...] | None:
     if ctx.station_offsets is None:
         return None
+    exit_port = ctx.graph.ports.get(exit_port_id)
+    # A TOP/BOTTOM exit off a horizontal-flow section leaves on the riser
+    # lateral, which reflects the per-line offset on a BOTTOM port; the
+    # vertical-flow section lane frame ranks those lanes the other way round.
+    perpendicular_exit = (
+        exit_port is not None
+        and exit_port.side in (PortSide.TOP, PortSide.BOTTOM)
+        and section_id not in ctx.tb_sections
+    )
+
+    def riser_lateral(line_id: str) -> float:
+        if perpendicular_exit:
+            assert exit_port is not None
+            return _perp_riser_lateral(
+                ctx, exit_port_id, line_id, exit_port.side, section_id
+            )
+        return _tb_x_offset(ctx, source_id, line_id, section_id)
+
     graph_rank = {line_id: rank for rank, line_id in enumerate(ctx.graph.lines)}
     values = []
     for line_id in line_ids:
@@ -385,8 +587,7 @@ def _source_lane_order(
         lateral_coordinate = (
             ctx.graph.stations[source_id].y + offset
             if run_direction in {Direction.R, Direction.L}
-            else ctx.graph.stations[source_id].x
-            + _tb_x_offset(ctx, source_id, line_id, section_id)
+            else ctx.graph.stations[source_id].x + riser_lateral(line_id)
         )
         values.append((line_id, offset, lateral_coordinate))
     if len({coordinate for _line, _offset, coordinate in values}) != len(values):
@@ -403,6 +604,191 @@ def _source_lane_order(
     )
 
 
+def _perp_exit_family_geometry(
+    edge: Edge,
+    family_id: RouteFamilyId,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> _PerpExitGeometry:
+    """The perpendicular-exit centreline *family_id* emits for *edge*.
+
+    A trailing perpendicular exit off a vertical-flow section always goes up and
+    over; a perpendicular exit off a horizontal-flow one may instead drop
+    straight, which its own resolver decides.
+    """
+    if family_id is RouteFamilyId.TB_PERP_EXIT_OVER:
+        return _perp_exit_over_geometry(edge, src, tgt, ctx)
+    geometry = _perp_exit_geometry(edge, src, tgt, ctx)
+    assert geometry is not None
+    return geometry
+
+
+def _perp_exit_turn_requirement(
+    geometry: _PerpExitGeometry,
+) -> _SourceTurnRequirement:
+    """The source turn a resolved perpendicular-exit centreline leaves on."""
+    if geometry.seam.turn_direction is None:
+        return _SourceTurnRequirement(
+            geometry.seam.run_direction, None, None, None, None
+        )
+    assert geometry.seam.minimum_runway is not None
+    return _SourceTurnRequirement.from_seam(geometry.seam)
+
+
+def _bottom_exit_junction_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a bottom-exit-junction group opens with, by the leaf that draws it.
+
+    The junction's emitter draws one of three shapes for a given member: a fan
+    plan's own right-landings route, an inter-section-crossing detour through
+    the header gap, or the plain vertical-drop-then-turn L. Only the plain
+    shape has a stated turn sequence; the other two decline so the
+    established first-match dispatcher draws them.
+    """
+    if _bottom_exit_junction_is_right_landings(edge, ctx):
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:bottom-exit-junction-right-landings"
+        )
+    exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
+
+    def exit_x_offset(line_id: str) -> float:
+        return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+
+    members, _source_center, tgt_center = gather_tapered_bundle(ctx, edge)
+    geometry = _bottom_exit_junction_geometry(
+        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+    )
+    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
+    if _h_segment_crosses_other_section(
+        ctx.graph, geometry.vx, tgt.x, geometry.hy, exclude
+    ):
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:bottom-exit-junction-via-gap"
+        )
+    return _SourceTurnRequirement.from_seam(geometry.seam)
+
+
+def _left_entry_wrap_turn_requirement(
+    edge: Edge,
+    source_run_direction: Direction,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a left-entry wrap opens with, by the leaf that draws it."""
+    if source_run_direction not in {Direction.R, Direction.L}:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:nonhorizontal-left-entry-wrap"
+        )
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    wrap_kind = _left_entry_route_kind(facts)
+    if wrap_kind is _LeftEntryRoute.WRAP:
+        wrap_geometry = _left_entry_wrap_geometry(ctx, edge, src, tgt, facts.i, facts.n)
+    elif wrap_kind is _LeftEntryRoute.GAP_ABOVE:
+        assert facts.tgt_row is not None
+        wrap_geometry = _left_entry_gap_above_geometry(
+            ctx, edge, src, tgt, facts.i, facts.n, facts.tgt_row
+        )
+    elif wrap_kind is _LeftEntryRoute.AROUND_BELOW:
+        wrap_geometry = _around_section_below_geometry(
+            ctx, edge, src, tgt, facts.i, facts.n
+        )
+    elif wrap_kind is _LeftEntryRoute.BAND_HOP:
+        wrap_geometry = _left_entry_band_hop_source_seam(facts)
+    else:
+        return _SourceTurnRequirement.declined(
+            f"unsupported-subshape:left-entry-{wrap_kind.value}"
+        )
+    return _SourceTurnRequirement.from_seam(wrap_geometry.seam)
+
+
+def _right_entry_wrap_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a RIGHT-entry wrap opens with, by the leaf that draws it.
+
+    Both leaves lead horizontally out of the source and turn into a column of
+    their own: the cross-row wrap into the lead-out gap beside the source, the
+    same-row loop into the channel over the target's top.
+    """
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    loop = (
+        _right_entry_wrap_geometry(facts).wrap
+        if facts.cross_row and facts.src_col is not None and facts.tgt_col is not None
+        else _right_entry_over_top_geometry(ctx, edge, src, tgt)
+    )
+    return _SourceTurnRequirement.from_seam(loop.seam)
+
+
+def _right_entry_cross_row_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a RIGHT entry fed from the left opens with, at its wrap column."""
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    if facts.is_left_exit:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:left-exit-right-entry-step"
+        )
+    turn = vertical_direction(tgt.y - src.y)
+    _fan, _size, _delta, axis = _wrap_fan_geometry(
+        ctx,
+        edge,
+        src,
+        facts.i,
+        facts.n,
+        turn,
+    )
+    return _SourceTurnRequirement(
+        horizontal_direction(axis - src.x),
+        turn,
+        src.x,
+        abs(axis - src.x),
+        axis,
+    )
+
+
+def _straight_connector_turn_requirement(
+    family_id: RouteFamilyId,
+    source_run_direction: Direction,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The run a straight connector states, on whichever axis it is drawn on.
+
+    One builder draws both straights, so the two families differ only in the
+    axis their run and their separation are measured along.
+    """
+    horizontal = family_id is RouteFamilyId.SAME_Y_STRAIGHT
+    run_axis = {Direction.R, Direction.L} if horizontal else {Direction.U, Direction.D}
+    if source_run_direction not in run_axis:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:straight-across-its-run-axis"
+        )
+    delta = (tgt.x - src.x) if horizontal else (tgt.y - src.y)
+    if abs(delta) <= COORD_TOLERANCE:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:degenerate-straight"
+        )
+    if horizontal:
+        actual_run = Direction.R if delta > 0 else Direction.L
+    else:
+        actual_run = Direction.D if delta > 0 else Direction.U
+    if actual_run is not source_run_direction:
+        return _SourceTurnRequirement.declined("unsupported-subshape:opposed-straight")
+    return _SourceTurnRequirement(actual_run, None, None, None, None)
+
+
 def _source_turn_requirement(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -412,71 +798,30 @@ def _source_turn_requirement(
 ) -> _SourceTurnRequirement:
     src = ctx.graph.stations[edge.source]
     tgt = ctx.graph.stations[edge.target]
+    off_column_decline = _OFF_COLUMN_RUN_DECLINES.get(family_id)
+    if off_column_decline is not None and source_run_direction not in {
+        Direction.U,
+        Direction.D,
+    }:
+        return _SourceTurnRequirement.declined(off_column_decline)
     if family_id is RouteFamilyId.TB_BOTTOM_EXIT:
-        if source_run_direction not in {Direction.U, Direction.D}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:nonvertical-tb-exit",
-            )
         geometry = _tb_bottom_exit_geometry(edge, src, tgt, ctx)
-        if geometry.turn_direction is None:
+        if geometry.seam.turn_direction is None:
             return _SourceTurnRequirement(
-                geometry.run_direction,
-                None,
-                None,
-                None,
-                None,
+                geometry.seam.run_direction, None, None, None, None
             )
-        assert (
-            geometry.launch_coordinate is not None
-            and geometry.axis_coordinate is not None
+        assert geometry.seam.minimum_runway is not None
+        return _SourceTurnRequirement.from_seam(geometry.seam)
+    if family_id in _PERPENDICULAR_EXIT_FAMILIES:
+        return _perp_exit_turn_requirement(
+            _perp_exit_family_geometry(edge, family_id, src, tgt, ctx)
         )
-        return _SourceTurnRequirement(
-            geometry.run_direction,
-            geometry.turn_direction,
-            geometry.launch_coordinate,
-            abs(geometry.axis_coordinate - geometry.launch_coordinate),
-            geometry.axis_coordinate,
-        )
-    if family_id is RouteFamilyId.SAME_Y_STRAIGHT:
-        if source_run_direction not in {Direction.R, Direction.L}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:vertical-source-horizontal-straight",
-            )
-        if abs(tgt.x - src.x) <= COORD_TOLERANCE:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:degenerate-horizontal-straight",
-            )
-        actual_run = horizontal_direction(tgt.x - src.x)
-        if actual_run is not source_run_direction:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:opposed-horizontal-straight",
-            )
-        return _SourceTurnRequirement(
-            actual_run,
-            None,
-            None,
-            None,
-            None,
+    if family_id is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK:
+        stack_geometry = _around_stack_geometry(_build_inter_facts(edge, src, tgt, ctx))
+        return _SourceTurnRequirement.from_seam(stack_geometry.seam)
+    if family_id in _STRAIGHT_CONNECTOR_FAMILIES:
+        return _straight_connector_turn_requirement(
+            family_id, source_run_direction, src, tgt
         )
     if family_id in {
         RouteFamilyId.TOP_ENTRY_L_SHAPE,
@@ -503,6 +848,15 @@ def _source_turn_requirement(
                 if exit_port_id is not None
                 else src.x
             )
+            if exit_port_id is not None and abs(axis - feeder_x) <= COORD_TOLERANCE:
+                # ``_perp_entry_junction_straight_drop`` prepends a lead-out
+                # only for a feeder standing off the turn column, so a feeder
+                # on the column is drawn as a bare vertical with no run to turn
+                # off.  That feeder column is the exit port's; a caller naming
+                # no port is asking only where the axis stands.
+                return _SourceTurnRequirement(
+                    vertical_direction(tgt.y - src.y), None, None, None, None
+                )
             run = horizontal_direction(axis - feeder_x)
             # The drop peels off the trunk one corner radius before the turn
             # column, or at the feeder itself when that is the nearer of the
@@ -517,14 +871,19 @@ def _source_turn_requirement(
                 ctx.curve_radius,
                 axis,
             )
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:unaligned-perpendicular-entry",
+        _bundle_index, bundle_size = ctx.bundle_info.get(
+            (edge.source, edge.target, edge.line_id), (0, 1)
         )
+        entry_geometry = _perp_entry_l_geometry(
+            edge, src, tgt, bundle_size, ctx, expected_side, planned=True
+        )
+        assert entry_geometry is not None
+        if entry_geometry.seam.turn_direction is None:
+            return _SourceTurnRequirement(
+                entry_geometry.seam.run_direction, None, None, None, None
+            )
+        assert entry_geometry.seam.minimum_runway is not None
+        return _SourceTurnRequirement.from_seam(entry_geometry.seam)
     if family_id is RouteFamilyId.MERGE_BRANCH:
         facts = _build_inter_facts(edge, src, tgt, ctx)
         assert facts.src_col is not None
@@ -548,22 +907,12 @@ def _source_turn_requirement(
         assert entry_port is not None
         kind = _merge_entry_route_kind(facts)
         if kind is _MergeEntryRoute.STRAIGHT:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:merge-entry-straight",
+            return _SourceTurnRequirement.declined(
+                "unsupported-subshape:merge-entry-straight"
             )
         if kind is not _MergeEntryRoute.L_SHAPE:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                f"unsupported-subshape:merge-entry-{kind.value}",
+            return _SourceTurnRequirement.declined(
+                f"unsupported-subshape:merge-entry-{kind.value}"
             )
         fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
         if fan is not None:
@@ -583,38 +932,46 @@ def _source_turn_requirement(
             ctx.curve_radius,
             axis,
         )
+    if family_id is RouteFamilyId.LEFT_ENTRY_WRAP:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
     if family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP:
-        facts = _build_inter_facts(edge, src, tgt, ctx)
-        if facts.is_left_exit:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:left-exit-right-entry-step",
-            )
-        turn = vertical_direction(tgt.y - src.y)
-        _fan, _size, _delta, axis = _wrap_fan_geometry(
-            ctx,
-            edge,
-            src,
-            facts.i,
-            facts.n,
-            turn,
+        return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.RIGHT_ENTRY_WRAP:
+        return _right_entry_wrap_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.BYPASS_FAMILY:
+        return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    if family_id is RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS:
+        # The plough draws its hop through the U-shaped bypass builder itself,
+        # so the shape it opens with is that family's, seated column and all.
+        return _u_bypass_turn_requirement(_build_inter_facts(edge, src, tgt, ctx))
+    if family_id is RouteFamilyId.MERGE_TRUNK:
+        return _merge_trunk_turn_requirement(edge, ctx)
+    if family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
+        return _bottom_exit_junction_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP:
+        # The dispatch rule claims the single-hop reading of the loop the
+        # bypass family draws for the multi-hop one, from the same builder.
+        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+    if family_id is RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP:
+        perp_wrap = perp_exit_farside_entry_wrap_geometry(
+            _build_inter_facts(edge, src, tgt, ctx)
         )
-        return _SourceTurnRequirement(
-            horizontal_direction(axis - src.x),
-            turn,
-            src.x,
-            abs(axis - src.x),
-            axis,
-        )
+        return _SourceTurnRequirement.from_seam(perp_wrap.seam)
+    return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
+
+
+def _standard_l_shape_turn_requirement(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+) -> _SourceTurnRequirement:
+    """The turn a plain L-shape opens with, at the column its bundle turns on."""
     turn_delta = tgt.y - src.y
     if abs(turn_delta) <= COORD_TOLERANCE:
-        return _SourceTurnRequirement(
-            None, None, None, None, None, "missing-source-turn"
-        )
+        return _SourceTurnRequirement.declined("missing-source-turn")
     fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
     if fan is not None:
         fan_geometry = _l_shape_fan_source_turn(edge, src, tgt, fan, ctx)
@@ -625,6 +982,24 @@ def _source_turn_requirement(
             abs(fan_geometry.axis_x - fan_geometry.launch_x),
             fan_geometry.axis_x,
         )
+    return _plain_l_shape_turn_requirement(edge, src, tgt, ctx, None)
+
+
+def _plain_l_shape_turn_requirement(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    ctx: _RoutingCtx,
+    centreline_axis: float | None,
+) -> _SourceTurnRequirement:
+    """The turn a tapered L-shape opens with on the channel it descends.
+
+    *centreline_axis* pins that channel; ``None`` reads the gap-centred default
+    the plain builder falls to.
+    """
+    turn_delta = tgt.y - src.y
+    if abs(turn_delta) <= COORD_TOLERANCE:
+        return _SourceTurnRequirement.declined("missing-source-turn")
     members, _source_center, _target_center = gather_tapered_bundle(ctx, edge)
     target_offset = next(
         target
@@ -632,7 +1007,8 @@ def _source_turn_requirement(
         if line_id == edge.line_id
     )
     turn_direction = vertical_direction(turn_delta)
-    centreline_axis = _l_shape_mid_x(edge, src, tgt, len(members), ctx)
+    if centreline_axis is None:
+        centreline_axis = _l_shape_mid_x(edge, src, tgt, len(members), ctx)
     emitted_axis = centreline_axis + lateral_order_sign(turn_direction) * target_offset
     return _SourceTurnRequirement(
         horizontal_direction(emitted_axis - src.x),
@@ -641,6 +1017,185 @@ def _source_turn_requirement(
         abs(emitted_axis - src.x),
         None,
     )
+
+
+def _seam_also_feeds_a_merge(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether a *sibling* off this edge's source feeds a merge junction.
+
+    The edge's own destinations are excluded: a trunk carrying the whole merge
+    reaches a junction by definition, and the corner at issue is one another
+    family turns off, not one the seam draws itself.
+    """
+    return any(
+        member.target != edge.target and member.target in ctx.merge.junctions
+        for member in ctx.graph.edges_from(edge.source)
+    )
+
+
+def _u_bypass_source_turn(
+    edge: Edge, geometry: _BypassGeometry, ctx: _RoutingCtx
+) -> _SourceTurnRequirement:
+    """The turn a built U-shaped bypass opens with, at the column it stands on.
+
+    Both the bypass family and a merge trunk open on this U, so the axes each
+    of them cannot speak for are the same three, each named for the owner that
+    settles it.
+    """
+    if _seam_also_feeds_a_merge(edge, ctx):
+        # A merge branch turns off the same corner the descent opens on, and the
+        # two families size that corner from different bundles: a plan naming
+        # the descent's column names a radius the merge branch owns too.
+        return _SourceTurnRequirement.declined("merge-branch-shares-the-descent-corner")
+    seated = seated_bypass_descent(edge, geometry, ctx)
+    if seated is None or seated.width != geometry.g1_n:
+        # The descent shares its channel with runs the reservation seats as one
+        # group.  Where this member is not stated in that group, or the group is
+        # narrower than the gap's own population of the channel, neither where
+        # the group lands nor the stagger the two flanking corners are sized
+        # from follows from the member's own claim.
+        return _SourceTurnRequirement.declined("seating-group-owns-the-descent-column")
+    if bypass_line_draws_a_chained_trunk(edge, ctx):
+        # Freezing this descent takes it out of the gap's movable population,
+        # and the gap allocator then seats the rest of that population one step
+        # over.  The X spans that move re-pack the inter-row band this line's
+        # two chained trunks share, onto tracks that fuse two of its strokes.
+        return _SourceTurnRequirement.declined(
+            "trunk-band-owns-the-chained-same-line-trunk"
+        )
+    if geometry.seam.turn_direction is None:
+        # The descent has no depth: the lead-out and the below-row traverse
+        # stand on one level, so the seam's whole source-side geometry is a
+        # single run and its first corner is the far gap's rise.  The only
+        # requirement derivable from that run is a straight continuation into
+        # the entry, which is not the shape the member goes on to draw.
+        return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
+    return _SourceTurnRequirement.from_seam(
+        replace(geometry.seam, axis_coordinate=seated.column)
+    )
+
+
+def _seam_carries_a_bundle_elsewhere(edge: Edge, ctx: _RoutingCtx) -> bool:
+    """Whether another destination off this seam takes several lines at once.
+
+    A destination reached by one line contests no lane order, so the seam's own
+    ladder is free to state it.  A destination reached by several has an order
+    of its own, settled where the bundle lands rather than where it leaves.
+    """
+    reached: Counter[str] = Counter(
+        member.target for member in ctx.graph.edges_from(edge.source)
+    )
+    return any(target != edge.target and n > 1 for target, n in reached.items())
+
+
+def _merge_trunk_turn_requirement(
+    edge: Edge,
+    ctx: _RoutingCtx,
+) -> _SourceTurnRequirement:
+    """The turn a merge trunk opens with, by the shape it draws to the entry port.
+
+    The trunk carries the whole merge to the entry port standing behind its
+    junction, and it does so on the same U the bypass family draws, so it states
+    its turn the same way.  The arm whose LEFT entry port has no channel on its
+    own side loops under the target instead -- a different shape, drawn by
+    :func:`~nf_metro.layout.routing.inter_section_handlers._route_around_section_below`,
+    which states no turn of its own.
+    """
+    if _seam_carries_a_bundle_elsewhere(edge, ctx):
+        # The trunk shares its seam with a bundle bound elsewhere, and a plan
+        # here is a plan for the whole seam: the lanes it would hand that bundle
+        # are the ones the port it lands on has already ordered.
+        return _SourceTurnRequirement.declined(
+            "entry-bundle-owns-the-shared-seam-lanes"
+        )
+    geometry = u_bypass_descent_geometry(edge, ctx)
+    if geometry is None:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:merge-trunk-around-below"
+        )
+    return _u_bypass_source_turn(edge, geometry, ctx)
+
+
+def _bypass_turn_requirement(
+    edge: Edge,
+    source_run_direction: Direction,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+) -> _SourceTurnRequirement:
+    """The turn a multi-column hop opens with, by the shape its leaf draws.
+
+    The hop is a family of shapes rather than one: the leaves that already have
+    a planned family of their own state their turn through that family's record,
+    and the U-shaped bypass states its own.  The leaves whose shape is settled
+    by whether a candidate route can be built at all ask the same viability
+    question the emitter does, and state the turn of whichever shape answers it.
+    """
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    kind = _bypass_route_kind(facts)
+    if kind is _BypassRoute.LEFT_ENTRY_FAMILY:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
+    if kind is _BypassRoute.RIGHT_ENTRY_CROSS_ROW:
+        return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if kind is _BypassRoute.L_SHAPE:
+        return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
+    if kind is _BypassRoute.CELLMATE_GAP_DROP:
+        column = cellmate_gap_drop_column(facts)
+        if column is None:
+            return _u_bypass_turn_requirement(facts)
+        return _plain_l_shape_turn_requirement(edge, src, tgt, ctx, column)
+    if kind is _BypassRoute.LEFT_EXIT_AROUND_BELOW:
+        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+    if kind is _BypassRoute.PACKED_CELL_SAME_ROW:
+        return _packed_cell_same_row_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt, facts
+        )
+    return _u_bypass_turn_requirement(facts)
+
+
+def _left_exit_around_below_turn_requirement(
+    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+) -> _SourceTurnRequirement:
+    """The turn a LEFT exit looping under a far-side LEFT entry opens with."""
+    geometry = left_exit_around_below_geometry(edge, src, tgt, ctx)
+    return _SourceTurnRequirement.from_seam(
+        replace(
+            geometry.seam,
+            axis_coordinate=seated_left_exit_under_target_descent(geometry, ctx),
+        )
+    )
+
+
+def _packed_cell_same_row_turn_requirement(
+    edge: Edge,
+    source_run_direction: Direction,
+    ctx: _RoutingCtx,
+    src: Station,
+    tgt: Station,
+    facts: _InterFacts,
+) -> _SourceTurnRequirement:
+    """The turn a hop boxed in by a same-row packed cell-mate opens with.
+
+    Three shapes reach the entry past the cell-mate, in the order the emitter
+    tries them: a hand-over that leaves on a packed sibling's descent, the
+    row-top corridor, and the left-entry wrap family.
+    """
+    handoff = packed_cell_handoff_carrier(facts)
+    if handoff is not None:
+        carrier, descent = handoff
+        return _u_bypass_source_turn(carrier, descent, ctx)
+    corridor = _left_entry_over_top_geometry(facts)
+    if corridor is None:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
+    return _SourceTurnRequirement.from_seam(corridor.seam)
+
+
+def _u_bypass_turn_requirement(facts: _InterFacts) -> _SourceTurnRequirement:
+    """The turn the U-shaped hop opens with, for every family that draws one."""
+    return _u_bypass_source_turn(facts.edge, _bypass_geometry(facts), facts.ctx)
 
 
 def _fixed_axis(
@@ -883,6 +1438,31 @@ def _continuation_lane_ownership(
             return (), (), "unresolved-perpendicular-entry-seam"
         return (), (), None
 
+    if family_id in _PERPENDICULAR_EXIT_FAMILIES:
+        source_offsets = dict(offsets)
+        source_offsets[source_id, line_id] = desired
+        seam_ctx = replace(ctx, station_offsets=source_offsets, built_routes=[])
+        resolved_edge = ResolvedEdge(source_id, entry_id, line_id)
+        edge = _graph_edge(ctx.edge_by_key, resolved_edge)
+        source, target = graph.edge_endpoints(edge)
+        geometry = _perp_exit_family_geometry(edge, family_id, source, target, seam_ctx)
+        # A column-aligned drop lands on the target trunk's own per-line X, which
+        # the crossing oracle does not describe; the generic in-section walk below
+        # is what owns that lane.
+        if not geometry.aligned_drop:
+            target_crossing = _perp_entry_crossing_x(
+                seam_ctx,
+                entry_id,
+                line_id,
+                target.x,
+            )
+            if (
+                target_crossing is None
+                or abs(geometry.cross_lo - target_crossing) > COORD_TOLERANCE
+            ):
+                return (), (), "unresolved-perpendicular-entry-seam"
+            return (), (), None
+
     stations = []
     transitions = []
     if not _slot_is_available(graph, offsets, entry_id, line_id, desired):
@@ -1022,13 +1602,8 @@ def _classify_assignment_seeds(
             continue
         if family_id not in PLANNED_EXIT_FAMILIES:
             reason = reason or f"unsupported-family:{family_id.value}"
-            requirement = _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                f"unsupported-family:{family_id.value}",
+            requirement = _SourceTurnRequirement.declined(
+                f"unsupported-family:{family_id.value}"
             )
         else:
             requirement = _source_turn_requirement(
@@ -1070,9 +1645,18 @@ def _classify_assignment_seeds(
                 requirement.fixed_axis,
             )
         )
-    if len({edge.target for edge in straight_edges}) > 1:
-        reason = reason or "ambiguous-continuation"
     straight_set = frozenset(straight_edges)
+    # A turn-less member states its lane's ray out of the shared source, and a
+    # lane's turn-less members all draw that one ray: they land at different
+    # depths along it.  What no ray can do is leave the source both ways, so a
+    # lane whose turn-less members disagree on the run direction states a run
+    # opposed to itself.
+    straight_runs_by_lane: defaultdict[str, set[Direction | None]] = defaultdict(set)
+    for item in classified:
+        if item.edge in straight_set:
+            straight_runs_by_lane[item.edge.line_id].add(item.run_direction)
+    if any(len(runs) > 1 for runs in straight_runs_by_lane.values()):
+        reason = reason or "opposed-source-run"
     seeds = tuple(
         _AssignmentSeed(
             item.edge,
@@ -1096,6 +1680,109 @@ def _classify_assignment_seeds(
         for item in classified
     )
     return _AssignmentClassification(seeds, tuple(unclassified), reason)
+
+
+def _pinned_ladders_clear_each_other(
+    pins: Iterable[_LadderPin], curve_radius: float
+) -> bool:
+    """Whether separately pinned ladders of one heading draw two corners.
+
+    Each corner takes a radius of the shared run before its turn column, so
+    ladders pinned less than a radius apart open corners that overlap on the
+    run: those arms leave one bundle at one corner, and a corner one bundle
+    turns is nested from a single origin at the plan's own spacing.  Splitting
+    such a heading per destination lets each pin size its arc from a centre of
+    its own, which draws the bundle opening out through the bend.  The pins are
+    honoured as two ladders only once their corners stand clear of each other,
+    where each really is a stroke of its own; otherwise the heading keeps its
+    single shared ladder and the fixed-origin agreement check speaks for it.
+    """
+    pinned = tuple(pins)
+    return all(
+        first.group_id == second.group_id
+        or abs(first.column - second.column) >= curve_radius - COORD_TOLERANCE
+        for first in pinned
+        for second in pinned
+    )
+
+
+def _pinned_ladders_keep_bundle_order(
+    pins: Iterable[_LadderPin], turn_direction: Direction
+) -> bool:
+    """Whether separately pinned ladders of one heading nest without crossing.
+
+    Lanes leave the shared run in their bundle's lateral order and carry that
+    order round the bend: the lane on the outside of the turn runs on furthest
+    before it can leave, so it turns last.  One ladder seats its own lanes that
+    way by construction; across two ladders only the pins say so, and pins that
+    step the other way draw strokes that swap sides inside the arc.
+    """
+    progression = lateral_order_sign(turn_direction)
+    pinned = tuple(pins)
+    return all(
+        first.group_id == second.group_id
+        or second.lane_rank <= first.lane_rank
+        or (second.column - first.column) * progression >= -COORD_TOLERANCE
+        for first in pinned
+        for second in pinned
+    )
+
+
+def _lane_arms_read_as_one_stroke(
+    known: Iterable[float], coordinate: float, curve_radius: float
+) -> bool:
+    """Whether an arm turning at *coordinate* keeps one stroke with *known*.
+
+    A corner takes one radius of the shared run before its turn column, so arms
+    a radius or more apart open corners that never overlap and the lane reads
+    as one stroke forking late; arms on one column are one corner.  Between the
+    two the corners share run, and the lane is drawn as two near-parallel
+    tracks instead of one.
+    """
+    return all(
+        abs(item - coordinate) <= COORD_TOLERANCE
+        or abs(item - coordinate) >= curve_radius - COORD_TOLERANCE
+        for item in known
+    )
+
+
+def _turn_cohort_key_by_member(
+    seeds: Iterable[_AssignmentSeed],
+    curve_radius: float,
+) -> dict[EmissionMemberId, _TurnCohortKey]:
+    """Place every turning seed on the ladder that will carry its turn axis."""
+    turning = tuple(
+        seed
+        for seed in seeds
+        if seed.run_direction is not None and seed.turn_direction is not None
+    )
+    pinned: dict[tuple[Direction, Direction], set[_LadderPin]] = defaultdict(set)
+    for seed in turning:
+        assert seed.run_direction is not None and seed.turn_direction is not None
+        if seed.fixed_axis is not None:
+            pinned[seed.run_direction, seed.turn_direction].add(
+                _LadderPin(seed.entry_group_id, seed.lane_rank, seed.fixed_axis)
+            )
+    laddered_headings = frozenset(
+        (run_direction, turn_direction)
+        for (run_direction, turn_direction), pins in pinned.items()
+        if len({pin.group_id for pin in pins}) > 1
+        and _pinned_ladders_clear_each_other(pins, curve_radius)
+        and _pinned_ladders_keep_bundle_order(pins, turn_direction)
+    )
+    keys: dict[EmissionMemberId, _TurnCohortKey] = {}
+    for seed in turning:
+        assert seed.run_direction is not None and seed.turn_direction is not None
+        contested = (
+            seed.fixed_axis is not None
+            and (seed.run_direction, seed.turn_direction) in laddered_headings
+        )
+        keys[seed.member_id] = (
+            seed.run_direction,
+            seed.turn_direction,
+            seed.entry_group_id if contested else None,
+        )
+    return keys
 
 
 def _plan_turn_axes(
@@ -1135,16 +1822,17 @@ def _plan_turn_axes(
             (), MappingProxyType({}), minimum_runway, "invalid-source-turn-requirement"
         )
 
-    cohorts: dict[tuple[Direction, Direction], list[_AssignmentSeed]] = defaultdict(
-        list
-    )
+    cohort_key = _turn_cohort_key_by_member(turning_seeds, ctx.curve_radius)
+    cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
     for seed in turning_seeds:
-        assert seed.run_direction is not None and seed.turn_direction is not None
-        cohorts[seed.run_direction, seed.turn_direction].append(seed)
+        cohorts[cohort_key[seed.member_id]].append(seed)
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
-    for (run_direction, turn_direction), cohort in cohorts.items():
+    lane_coordinates: dict[tuple[Direction, Direction, int], set[float]] = defaultdict(
+        set
+    )
+    for (run_direction, turn_direction, pinning_group_id), cohort in cohorts.items():
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
         cohort_rank = {rank: index for index, rank in enumerate(ranks)}
         progression = lateral_order_sign(turn_direction)
@@ -1204,6 +1892,18 @@ def _plan_turn_axes(
             )
             return _AxisPlan((), MappingProxyType({}), minimum_runway, reason)
         for rank in ranks:
+            known = lane_coordinates[run_direction, turn_direction, rank]
+            if not _lane_arms_read_as_one_stroke(
+                known, coordinates[rank], ctx.curve_radius
+            ):
+                return _AxisPlan(
+                    (),
+                    MappingProxyType({}),
+                    minimum_runway,
+                    "lane-arms-pinned-to-overlapping-corners",
+                )
+            known.add(coordinates[rank])
+        for rank in ranks:
             lane_line = ordered_lanes[rank][0]
             rank_seeds = tuple(seed for seed in cohort if seed.lane_rank == rank)
             claimant_ids = tuple(seed.member_id for seed in rank_seeds)
@@ -1219,6 +1919,7 @@ def _plan_turn_axes(
                     RouteFamilyId.MERGE_BRANCH,
                     RouteFamilyId.TOP_ENTRY_L_SHAPE,
                     RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
+                    RouteFamilyId.BOTTOM_EXIT_JUNCTION,
                 }
                 fixed_anchor_id = (
                     fixed_seed.edge.target
@@ -1246,6 +1947,7 @@ def _plan_turn_axes(
                         lane_line,
                         run_direction.value,
                         turn_direction.value,
+                        pinning_group_id,
                     )
                 ),
                 lane_line,
@@ -1256,6 +1958,7 @@ def _plan_turn_axes(
                 fixed_anchor_id,
                 fixed_anchor_coordinate,
                 fixed_anchor_offset,
+                pinning_group_id,
             )
             built_axes.append(axis)
             for seed in rank_seeds:
@@ -1332,6 +2035,20 @@ def _plan_lane_ownership(
         tuple(transitions),
         None,
     )
+
+
+def _fan_stated_offsets(
+    graph: MetroGraph, station_id: str, offset_step: float
+) -> dict[str, float]:
+    """Per-line offsets a planned fan states for *station_id*."""
+    return {
+        assignment.line_id: assignment.slot * offset_step
+        for plan in graph.fan_plans
+        if plan.owns_geometry
+        for carrier in plan.offset_carriers
+        if carrier.station_id == station_id
+        for assignment in carrier.assignments
+    }
 
 
 def _build_group_plan(
@@ -1443,6 +2160,19 @@ def _build_group_plan(
         * ctx.offset_step
         for rank, (line_id, _input_offset) in enumerate(ordered_lanes)
     }
+    stated_offsets = _fan_stated_offsets(graph, source_id, ctx.offset_step)
+    if all(
+        line_id in stated_offsets
+        and abs(stated_offsets[line_id] - input_offset) <= COORD_TOLERANCE
+        for line_id, input_offset in ordered_lanes
+    ):
+        # A fan reserves one slot per line identity it carries anywhere in the
+        # system, so a branch that retags its line across a leg leaves a slot
+        # here that no line occupies.  Ranking the lanes contiguously would
+        # close that gap and pull the siblings off the frame the fan stated.
+        planned_offsets = {
+            line_id: stated_offsets[line_id] for line_id, _input in ordered_lanes
+        }
     ownership = _LaneOwnership(MappingProxyType({}), (), None)
     if reason is None:
         ownership = _plan_lane_ownership(
@@ -1568,12 +2298,11 @@ def _build_group_plan(
         turning_claimants = tuple(
             seed.member_id for seed in seeds if seed.turn_direction is not None
         )
-        cohort_sizes = defaultdict(set)
+        cohort_key = _turn_cohort_key_by_member(seeds, ctx.curve_radius)
+        cohort_sizes: dict[_TurnCohortKey, set[int]] = defaultdict(set)
         for seed in seeds:
-            if seed.turn_direction is not None and seed.run_direction is not None:
-                cohort_sizes[seed.run_direction, seed.turn_direction].add(
-                    seed.lane_rank
-                )
+            if seed.member_id in cohort_key:
+                cohort_sizes[cohort_key[seed.member_id]].add(seed.lane_rank)
         ordered_turn_span = max(
             ((len(ranks) - 1) * ctx.offset_step for ranks in cohort_sizes.values()),
             default=0.0,
@@ -1886,8 +2615,68 @@ def _cross_plan_fallback_reasons(
             for second in plan.axes[rank + 1 :]
         ):
             reasons[plan.id] = "overlapping-planned-turn-axes"
+    _add_shared_axis_contention_fallbacks(
+        graph, ctx, plans, assignments_by_plan, reasons
+    )
     _add_station_lane_collision_fallbacks(graph, ctx, plans, reasons)
     return reasons
+
+
+def _add_shared_axis_contention_fallbacks(
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    plans: Iterable[ExitTurnPlan],
+    assignments_by_plan: Mapping[
+        ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
+    ],
+    reasons: dict[ExitTurnPlanId, str],
+) -> None:
+    """Refuse two plans that run one line down one column in both directions.
+
+    Groups that turn a line onto one column and travel it the same way share
+    one stroke, which is how branches gather onto a trunk.  Groups that travel
+    it opposite ways are two tracks in one column: the leaf builders lane one
+    of them aside, onto a column neither plan states.  Each plan reads its own
+    group, so neither can be taken as the one that keeps the column.
+    """
+    claims = tuple(
+        (
+            plan.id,
+            axis,
+            _planned_axis_cross_range(
+                graph, ctx, plan, axis, assignments_by_plan[plan.id]
+            ),
+            _axis_turn_directions(axis, assignments_by_plan[plan.id]),
+        )
+        for plan in plans
+        if plan.disposition is ExitTurnDisposition.PLANNED and plan.id not in reasons
+        for axis in plan.axes
+    )
+    for rank, (first_id, first, first_range, first_turns) in enumerate(claims):
+        for second_id, second, second_range, second_turns in claims[rank + 1 :]:
+            if (
+                first_id == second_id
+                or first.line_id != second.line_id
+                or first.axis is not second.axis
+                or abs(first.coordinate - second.coordinate) > COORD_TOLERANCE
+                or len(first_turns | second_turns) < 2
+                or not _ranges_overlap(*first_range, *second_range)
+            ):
+                continue
+            reasons.setdefault(first_id, "overlapping-planned-turn-axes")
+            reasons.setdefault(second_id, "overlapping-planned-turn-axes")
+
+
+def _axis_turn_directions(
+    axis: ExitTurnAxis, assignments: Mapping[ResolvedEdge, ExitTurnAssignment]
+) -> frozenset[Direction]:
+    """The ways the members claiming *axis* travel along it."""
+    turns = {item.member_id: item.turn_direction for item in assignments.values()}
+    return frozenset(
+        turn
+        for member_id in axis.claimant_member_ids
+        if (turn := turns.get(member_id)) is not None
+    )
 
 
 def _compatibility_channel_claims(
@@ -1898,10 +2687,14 @@ def _compatibility_channel_claims(
         ExitTurnPlanId, Mapping[ResolvedEdge, ExitTurnAssignment]
     ],
 ) -> tuple[_CompatibilityChannelClaim, ...]:
+    """Descent channels the leaf builders draw, whoever plans the source turn.
+
+    A stack-bypass feeder always descends its clear-gap channel: a plan owns
+    only the source turn, never the legs beyond it, so the channel is a hazard
+    to every other plan's turn axis regardless of this plan's disposition.
+    """
     claims: list[_CompatibilityChannelClaim] = []
     for plan in plans:
-        if plan.disposition is not ExitTurnDisposition.LEGACY:
-            continue
         for edge, assignment in assignments_by_plan[plan.id].items():
             if (
                 assignment.planned_family_id
@@ -1910,7 +2703,7 @@ def _compatibility_channel_claims(
                 continue
             graph_edge = _graph_edge(ctx.edge_by_key, edge)
             source, target = graph.edge_endpoints(graph_edge)
-            geometry = _tb_bottom_exit_around_stack_geometry(
+            geometry = _around_stack_geometry(
                 _build_inter_facts(graph_edge, source, target, ctx)
             )
             claims.append(
@@ -2016,6 +2809,56 @@ def _planned_axis_cross_range(
             source_offsets = dict(ctx.station_offsets or {})
             source_offsets[edge.source, edge.line_id] = lane.planned_offset
             tentative_ctx = replace(ctx, station_offsets=source_offsets)
+            if assignment.planned_family_id in _PERPENDICULAR_EXIT_FAMILIES:
+                perp_geometry = _perp_exit_family_geometry(
+                    _graph_edge(ctx.edge_by_key, edge),
+                    assignment.planned_family_id,
+                    source,
+                    target,
+                    tentative_ctx,
+                )
+                values.extend((perp_geometry.cross_lo, perp_geometry.cross_hi))
+                continue
+            if (
+                assignment.planned_family_id
+                is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK
+            ):
+                stack_geometry = _around_stack_geometry(
+                    _build_inter_facts(
+                        _graph_edge(ctx.edge_by_key, edge),
+                        source,
+                        target,
+                        tentative_ctx,
+                    )
+                )
+                values.extend((stack_geometry.cross_lo, stack_geometry.cross_hi))
+                continue
+            if assignment.planned_family_id is RouteFamilyId.BOTTOM_EXIT_JUNCTION:
+                graph_edge = _graph_edge(ctx.edge_by_key, edge)
+                exit_pid, exit_sec = _bottom_exit_junction_exit_port(
+                    tentative_ctx, edge.source
+                )
+
+                def bej_exit_x_offset(
+                    line_id: str, _pid: str = exit_pid, _sec: str = exit_sec
+                ) -> float:
+                    return _tb_x_offset(tentative_ctx, _pid, line_id, _sec)
+
+                bej_members, _bej_source_center, bej_tgt_center = gather_tapered_bundle(
+                    tentative_ctx, graph_edge
+                )
+                bej_geometry = _bottom_exit_junction_geometry(
+                    graph_edge,
+                    source,
+                    target,
+                    tentative_ctx,
+                    bej_exit_x_offset,
+                    bej_members,
+                    bej_tgt_center,
+                )
+                vertical_leg_x = bej_geometry.vx - bej_geometry.lane_offset
+                values.extend((vertical_leg_x, target.x))
+                continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
                 raise ExitTurnInvariantError(
                     _failure(plan, "vertical turn axis has no production geometry")
@@ -2235,18 +3078,6 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
     )
 
 
-def _segment_direction(
-    start: tuple[float, float], end: tuple[float, float]
-) -> Direction | None:
-    dx = end[0] - start[0]
-    dy = end[1] - start[1]
-    if abs(dy) <= COORD_TOLERANCE and abs(dx) > COORD_TOLERANCE:
-        return horizontal_direction(dx)
-    if abs(dx) <= COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
-        return vertical_direction(dy)
-    return None
-
-
 def _opening_turn_segment(
     route: RoutedPath, run_direction: Direction, turn_direction: Direction
 ) -> int | None:
@@ -2254,8 +3085,8 @@ def _opening_turn_segment(
     if len(points) >= 3:
         before, start, end = points[:3]
         if (
-            _segment_direction(before, start) is run_direction
-            and _segment_direction(start, end) is turn_direction
+            segment_direction(before, start) is run_direction
+            and segment_direction(start, end) is turn_direction
         ):
             return 1
     return None
@@ -2367,6 +3198,7 @@ def consume_exit_turn_route(
         )
         > COORD_TOLERANCE
     ):
+        axis_by_id = {axis.id: axis for axis in membership.plan.axes}
         turn_cohort = tuple(
             item
             for item in membership.plan.assignments
@@ -2374,6 +3206,22 @@ def consume_exit_turn_route(
             and item.turn_direction is turn
             and item.axis_id is not None
         )
+        # A heading more than one destination pins carries a ladder per pinning
+        # destination, and the nesting offset is measured within one ladder: a
+        # member read against a foreign ladder's reference reports the distance
+        # between two columns of the map as its own corner's offset.
+        pinning_group_ids = {
+            item.entry_group_id
+            for item in turn_cohort
+            if item.axis_id is not None
+            and axis_by_id[item.axis_id].fixed_anchor_id is not None
+        }
+        if len(pinning_group_ids) > 1:
+            turn_cohort = tuple(
+                item
+                for item in turn_cohort
+                if item.entry_group_id == assignment.entry_group_id
+            )
         cohort_axis_ids = {item.axis_id for item in turn_cohort}
         cohort_axes = tuple(
             axis for axis in membership.plan.axes if axis.id in cohort_axis_ids
@@ -2401,14 +3249,14 @@ def consume_exit_turn_route(
     if (
         abs(get_point_coordinate(lead, source_axis) - assignment.launch_coordinate)
         > COORD_TOLERANCE
-        or _segment_direction(lead, start) is not run
+        or segment_direction(lead, start) is not run
         or (
             get_point_coordinate(start, source_axis)
             - get_point_coordinate(lead, source_axis)
         )
         * run.sign
         < assignment.minimum_runway - COORD_TOLERANCE
-        or _segment_direction(start, end) is not turn
+        or segment_direction(start, end) is not turn
     ):
         raise ExitTurnInvariantError(
             _failure(membership.plan, "source turn changed during dispatch")
@@ -2439,9 +3287,19 @@ def snapshot_exit_turn_segments(
             rank = route.exit_turn_segment_rank
             if rank is None:
                 continue
-            landing_point_settled_later = (
-                route.exit_turn_family_id == RouteFamilyId.MERGE_BRANCH.value
-            )
+            # The turn leg of these families ends in a channel a later pass
+            # seats against geometry the plan does not state, so how far along
+            # the axis it runs is not the planner's to hold; the axis it stands
+            # on is, and :func:`validate_exit_turn_plans` holds that to the end.
+            landing_point_settled_later = route.exit_turn_family_id in {
+                RouteFamilyId.MERGE_BRANCH.value,
+                RouteFamilyId.LEFT_ENTRY_WRAP.value,
+                RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP.value,
+                RouteFamilyId.RIGHT_ENTRY_WRAP.value,
+                RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
+                RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
+                RouteFamilyId.BYPASS_FAMILY.value,
+            }
             radii = None
             if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
                 radii = ((rank - 1, route.curve_radii[rank - 1]),)
@@ -2685,7 +3543,7 @@ def validate_exit_turn_plans(
                     points = apply_route_offsets(route, station_offsets)
                     if (
                         assignment.run_direction is None
-                        or _segment_direction(points[0], points[-1])
+                        or segment_direction(points[0], points[-1])
                         is not assignment.run_direction
                         or abs(
                             get_point_coordinate(
@@ -2731,7 +3589,7 @@ def validate_exit_turn_plans(
                     - assignment.launch_coordinate
                 )
                 > COORD_TOLERANCE
-                or _segment_direction(lead_in, start) is not assignment.run_direction
+                or segment_direction(lead_in, start) is not assignment.run_direction
                 or (
                     get_point_coordinate(start, axis.axis)
                     - get_point_coordinate(lead_in, axis.axis)
@@ -2739,7 +3597,7 @@ def validate_exit_turn_plans(
                 * assignment.run_direction.sign
                 < assignment.minimum_runway - COORD_TOLERANCE
                 or assignment.turn_direction is None
-                or _segment_direction(start, end) is not assignment.turn_direction
+                or segment_direction(start, end) is not assignment.turn_direction
             ):
                 raise ExitTurnInvariantError(
                     _failure(

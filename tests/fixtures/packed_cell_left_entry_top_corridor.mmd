@@ -1,0 +1,21 @@
+%%metro title: Clear row-top corridor
+%%metro line: flow | Flow | #2db572
+%%metro grid: source, blocker | 0,1
+%%metro grid: target | 2,1
+
+graph LR
+    subgraph source [Source]
+        %%metro exit: right | flow
+        source_step[Source step]
+    end
+
+    subgraph blocker [Packed cell-mate]
+        blocker_step[Blocking step]
+    end
+
+    subgraph target [Target]
+        %%metro entry: left | flow
+        target_step[Target step]
+    end
+
+    source_step -->|flow| target_step

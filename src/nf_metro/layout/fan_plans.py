@@ -9,8 +9,9 @@ deterministic legacy disposition.
 from __future__ import annotations
 
 import math
-from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping, Sequence
+from collections import Counter, defaultdict, deque
+from collections.abc import Collection, Container, Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from itertools import pairwise
 from types import MappingProxyType
@@ -26,6 +27,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_x,
     lanes_run_along_y,
     perpendicular_port_sides,
+    point_to_polyline_distance,
     section_lane_sign,
 )
 from nf_metro.layout.labels import tb_left_label_marker_pitch
@@ -48,9 +50,11 @@ from nf_metro.layout.route_plan import (
     RouteSystemId,
     SharedReferenceId,
     build_route_semantic_scaffold,
+    fan_has_vacant_trunk,
+    fan_lane_seat_keys,
 )
 from nf_metro.parser.commitments import FlowDirection, is_flow_direction
-from nf_metro.parser.model import MetroGraph, PortSide
+from nf_metro.parser.model import LineSpread, MetroGraph, PortSide
 from nf_metro.parser.route_topology import (
     AuthoredEdgeFact,
     BundleId,
@@ -65,6 +69,10 @@ from nf_metro.parser.route_topology import (
 
 if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
+
+
+class FanRouteInvariantError(RuntimeError):
+    """A planned fan's emitted geometry drifted from its frozen frame."""
 
 
 @runtime_checkable
@@ -88,29 +96,179 @@ class FanTopologyQuery(Protocol):
     ) -> ResolvedConvergenceView | None: ...
 
 
+def _landing_port_ids(plan: FanPlan) -> set[str]:
+    """The section ports *plan*'s branches land on."""
+    return {port_id for branch in plan.branches for port_id in branch.landing_port_ids}
+
+
+def _laned_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* seats on a branch lane or a line-order carrier."""
+    return {
+        *(
+            station_id
+            for branch in plan.branches
+            for station_id in (*branch.lane_station_ids, *branch.landing_port_ids)
+        ),
+        *(carrier.station_id for carrier in plan.offset_carriers),
+    }
+
+
+def stated_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* puts a coordinate on itself.
+
+    These are the seats the fan derives: the stations on its centreline, the
+    stations its branches lane, the carriers it orders lines at, and the ports
+    its branches land on, which a branch seats on its own lane the way it seats
+    any other station along it.  Two fans stating one of these state it
+    independently, so only one of them may.
+    """
+    return {*plan.centreline_station_ids, *_laned_station_ids(plan)}
+
+
+def claimed_station_ids(plan: FanPlan) -> set[str]:
+    """The stations *plan* states a coordinate for.
+
+    A fan's ``owned_station_ids`` is the closure of everything its members pass
+    through, which includes junctions and interior path nodes it reads from
+    whoever placed them.  What it *claims* is narrower: the stations it states
+    (see :func:`stated_station_ids`) and the boundaries its frame is asserted
+    against once the routes are emitted.  Only those are coordinates two fans
+    could state differently, and a station another fan owns has been ceded, so
+    this plan reads that seat rather than claiming it.
+    """
+    return (stated_station_ids(plan) | _fan_boundary_station_ids(plan)) - set(
+        plan.ceded_station_ids
+    )
+
+
+def drawn_member_edges(plan: FanPlan) -> set[ResolvedEdge]:
+    """The member edges *plan* draws a route on itself.
+
+    A fan draws the legs of its branches.  The seams either side of them are
+    edges it reaches to see where its geometry meets its neighbours', and a
+    neighbouring fan may draw the very same edge as one of its legs.
+    """
+    return {
+        edge
+        for branch in plan.branches
+        for path in branch.resolved_paths
+        for edge in path
+    }
+
+
+def claimed_member_edges(plan: FanPlan) -> set[ResolvedEdge]:
+    """The member edges *plan* answers for the route on.
+
+    Every leg it draws, plus the seams it has not handed to the fan that draws
+    them.  A ceded seam bounds the fan's frame like any other member, but its
+    route belongs to its owner, so two fans holding one such edge are not
+    rivals for it.
+    """
+    return set(plan.resolved_member_edges) - set(plan.ceded_member_edges)
+
+
+def _entry_trunk_has_foreign_head(
+    graph: MetroGraph,
+    *,
+    fork_id: str,
+    layout_section_id: str | None,
+    entry_port_ids: Sequence[str],
+    layout_station_ids: Sequence[str],
+) -> bool:
+    """Whether the port feeding the fork also feeds a station the fan does not own.
+
+    A fan anchors its centreline on the trunk arriving at its section, which
+    states that the fork is where that trunk lands.  Where the same port feeds a
+    station outside the fan, the trunk splits before the fork and which of the
+    two heads keeps the trunk's row is the section allocator's decision, not the
+    fan's: asserting it would seat the fork on the sibling.
+    """
+    owned = {fork_id, *layout_station_ids}
+    return any(
+        target not in owned
+        and target not in graph.ports
+        and target not in graph.junction_ids
+        and graph.section_for_station(target) == layout_section_id
+        for port_id in entry_port_ids
+        if (port := graph.ports.get(port_id)) is not None
+        and port.section_id == layout_section_id
+        for target in (edge.target for edge in graph.edges_from(port_id))
+    )
+
+
+def _branch_riding_past_a_sibling(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+) -> FanBranchPlanId | None:
+    """The branch that only rides past stations a sibling branch stops at.
+
+    A hidden bypass helper names the station its line goes around, so a branch
+    laning nothing but helpers stops nowhere in the fan.  Where the stations
+    those helpers go around are a sibling's, the two branches are already
+    ordered: the rider keeps the track and the sibling steps off it.
+    """
+    lane_owner = {
+        station_id: branch.id
+        for branch in branches
+        for path in branch.resolved_paths
+        for edge in path
+        for station_id in (edge.source, edge.target)
+    }
+    riders = tuple(
+        branch
+        for branch in branches
+        if branch.lane_station_ids
+        and all(
+            (station := graph.stations.get(station_id)) is not None
+            and station.bypasses_station_id is not None
+            and lane_owner.get(station.bypasses_station_id) not in (None, branch.id)
+            for station_id in branch.lane_station_ids
+        )
+    )
+    return riders[0].id if len(riders) == 1 else None
+
+
 def _appearance_centreline_branch_id(
+    graph: MetroGraph,
     branches: Sequence[FanBranchPlan],
     appearance_policy: FanAppearancePolicy,
     structural_trunk_rank: int | None,
 ) -> FanBranchPlanId | None:
-    """Choose the branch that a straight local fan keeps on its main track."""
+    """Choose the branch that a straight local fan keeps on its main track.
+
+    A straight frame holds exactly one branch at lane zero, so the centreline
+    has to own its lane seat: branches that leave the fork through a shared
+    station stand on one seat and could not be told apart on the main track.
+    Each candidate is therefore passed over when it shares its seat, and the
+    choice falls through to the next one.
+    """
     if appearance_policy is not FanAppearancePolicy.STRAIGHT or not any(
         branch.lane_station_ids for branch in branches
     ):
         return None
+    seat_keys = fan_lane_seat_keys(branches)
+    seat_population = Counter(seat_keys)
+    owns_seat = {
+        branch.id: seat_population[seat_key] == 1
+        for branch, seat_key in zip(branches, seat_keys, strict=True)
+    }
     trunk_branches = tuple(
         branch for branch in branches if branch.is_trunk_continuation
     )
-    if len(trunk_branches) == 1:
+    if len(trunk_branches) == 1 and owns_seat[trunk_branches[0].id]:
         return trunk_branches[0].id
+    rider_id = _branch_riding_past_a_sibling(graph, branches)
+    if rider_id is not None and owns_seat[rider_id]:
+        return rider_id
     if structural_trunk_rank is not None:
         structural_trunk = next(
             (branch for branch in branches if branch.rank == structural_trunk_rank),
             None,
         )
-        if structural_trunk is not None:
+        if structural_trunk is not None and owns_seat[structural_trunk.id]:
             return structural_trunk.id
-    return min(branches, key=lambda branch: (branch.opening_rank, branch.rank)).id
+    seatable = tuple(branch for branch in branches if owns_seat[branch.id]) or branches
+    return min(seatable, key=lambda branch: (branch.opening_rank, branch.rank)).id
 
 
 def vertical_fan_label_lane_pitch(
@@ -186,6 +344,36 @@ def vertical_fan_label_lane_pitch(
     return pitch
 
 
+def fan_lane_sign(
+    graph: MetroGraph,
+    frame: AxisFrame,
+    layout_section_id: str | None,
+    source_station_id: str,
+    *,
+    branches: Sequence[FanBranchPlan],
+    tb_positive_fan: Collection[str],
+) -> float:
+    """The side a fan opens its branch lanes toward.
+
+    Branches carrying disjoint lines ride the fork's bundle up to the point
+    they peel apart, so the side the bundle stacks them on is the side they
+    must open toward: stating the other side orders the same two lines twice
+    and swaps them between the fork and their lanes, and they cross on the
+    way.  Branches that all carry the same lines are concentric and state no
+    such order, so there the fan is free to open away from its feeder.
+    """
+    section = graph.sections.get(layout_section_id or "")
+    line_sets = [set(branch.line_ids) for branch in branches]
+    partitions = any(
+        left.isdisjoint(right)
+        for index, left in enumerate(line_sets)
+        for right in line_sets[index + 1 :]
+    )
+    if section is not None and partitions:
+        return section_lane_sign(section, tb_positive_fan)
+    return fan_appearance_lane_sign(graph, frame, layout_section_id, source_station_id)
+
+
 def fan_appearance_lane_sign(
     graph: MetroGraph,
     frame: AxisFrame,
@@ -252,7 +440,32 @@ def fan_appearance_lane_sign(
         return 1.0
     if feeder_spans and all(low > section_high for low, _high in feeder_spans):
         return -1.0
+    if _feeder_reconverges_its_own_section(graph, section.id, source_station_id):
+        return -1.0
     return 1.0
+
+
+def _feeder_reconverges_its_own_section(
+    graph: MetroGraph, section_id: str, source_station_id: str
+) -> bool:
+    """True when a fan's feeder closes its own section's branches back together.
+
+    Such a feeder hands over on the track those branches closed around, so the
+    seam sits inside the row's band of tracks rather than at the origin the
+    band counts from.  A fan opening there reaches either way, and reaching
+    toward the origin is what keeps its section's content starting on the same
+    track as its row-mates'.
+    """
+    source = graph.stations.get(source_station_id)
+    if source is None or source.section_id in (None, section_id):
+        return False
+    section_mates = {
+        edge.source
+        for edge in graph.edges_to(source_station_id)
+        if (station := graph.stations.get(edge.source)) is not None
+        and station.section_id == source.section_id
+    }
+    return len(section_mates) >= 2
 
 
 def _fan_branch_solo_station_ids(
@@ -324,7 +537,10 @@ class FanPlanQuery:
                 if edge_id in by_authored_edge:
                     raise ValueError("two planned fans own one authored edge")
                 by_authored_edge[edge_id] = plan
+            ceded_edges = set(plan.ceded_member_edges)
             for edge in plan.resolved_member_edges:
+                if edge in ceded_edges:
+                    continue
                 if edge in structural_by_resolved_edge:
                     raise ValueError("two planned fans own one resolved edge")
                 structural_by_resolved_edge[edge] = plan
@@ -348,7 +564,7 @@ class FanPlanQuery:
                     branches_by_id[emission.branch_id],
                     emission,
                 )
-            for station_id in plan.owned_station_ids:
+            for station_id in sorted(claimed_station_ids(plan)):
                 if station_id in by_station:
                     raise ValueError("two planned fans own one station")
                 by_station[station_id] = plan
@@ -482,13 +698,22 @@ def _nearest_common_join(
     adjacency: Mapping[str, tuple[str, ...]],
     branch_roots: tuple[str, ...],
     ranks: Mapping[str, int],
+    *,
+    allow_root: bool = True,
 ) -> str | None:
+    """Nearest station every branch root reaches.
+
+    Under ``allow_root`` a branch root qualifies as the join when the other
+    roots reach it: a diamond whose short branch lands directly on the
+    convergence node joins at that node, not at whatever follows it.
+    """
     distances = tuple(_distances(adjacency, root) for root in branch_roots)
     common = set(distances[0]).intersection(*(set(item) for item in distances[1:]))
+    reaches = any if allow_root else all
     candidates = [
         station_id
         for station_id in common
-        if all(item[station_id] > 0 for item in distances)
+        if reaches(item[station_id] > 0 for item in distances)
     ]
     if not candidates:
         return None
@@ -614,18 +839,160 @@ def _facts_for_node_path(
     path: tuple[str, ...],
     bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
     line_ids: frozenset[str] | None = None,
-) -> tuple[AuthoredEdgeFact, ...] | None:
+) -> tuple[AuthoredEdgeFact, ...]:
+    """The authored edges a branch travels along *path*, leg by leg.
+
+    A branch keeps the lines it left the fork on for as long as they continue.
+    Where a leg carries none of them, the leg retags the branch: it takes the
+    lines that leg actually carries and follows those from there, so each leg
+    states its own line identity instead of the branch losing everything past
+    the change.
+    """
+    carried = line_ids
     result: list[AuthoredEdgeFact] = []
     for source, target in zip(path, path[1:]):
+        leg = bundles[(source, target)]
         matching = tuple(
-            fact
-            for fact in bundles[(source, target)]
-            if line_ids is None or fact.key.line_id in line_ids
+            fact for fact in leg if carried is None or fact.key.line_id in carried
         )
         if not matching:
-            return None
+            matching = leg
+            carried = frozenset(fact.key.line_id for fact in leg)
         result.extend(matching)
     return tuple(result)
+
+
+def _line_extent(
+    path: tuple[str, ...],
+    bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
+    incoming: Mapping[str, tuple[str, ...]],
+    line_ids: frozenset[str],
+) -> tuple[str, ...]:
+    """Trim *path* where the branch's lines end and another run carries on.
+
+    A leg carrying none of the lines the branch arrived on retags the branch,
+    which is how one run that changes line stays one branch (see
+    :func:`_facts_for_node_path`).  Where the lines that leg carries also reach
+    the station from another source, the leg is that source's run continuing,
+    not this branch retagged, so the branch ends at the station and the run it
+    would have swallowed stays with whoever brings those lines in.
+    """
+    carried = line_ids
+    for index, (source, target) in enumerate(zip(path, path[1:])):
+        leg = bundles[(source, target)]
+        leg_lines = frozenset(fact.key.line_id for fact in leg)
+        if leg_lines & carried:
+            continue
+        arrived_from = path[index - 1] if index else None
+        if any(
+            fact.key.line_id in leg_lines
+            for other in incoming.get(source, ())
+            if other != arrived_from
+            for fact in bundles[(other, source)]
+        ):
+            return path[: max(index + 1, 2)]
+        carried = leg_lines
+    return path
+
+
+def _leg_ordered_line_ids(
+    facts: Sequence[AuthoredEdgeFact],
+    line_priority: Mapping[str, int],
+) -> tuple[str, ...]:
+    """A branch's lines, priority-sorted within each leg, legs left in order.
+
+    ``facts`` is one branch's flattened, per-leg-concatenated fact sequence
+    (see :func:`_facts_for_node_path`): a leg boundary is a change in the
+    authored ``(source, target)`` edge. Two lines sharing a leg are
+    simultaneous and sort by declaration priority for a stable stack order;
+    two lines from different legs are never simultaneous (a leg transition
+    retags the branch, it does not add a sibling), so sorting across legs by
+    priority would place a later leg's line between an earlier leg's
+    co-present lines whenever declaration order disagrees with leg order,
+    splitting a bundle that travels together.
+    """
+    result: list[str] = []
+    current_key: tuple[str, str] | None = None
+    leg: list[str] = []
+
+    def flush() -> None:
+        result.extend(sorted(leg, key=lambda item: line_priority.get(item, 0)))
+
+    for fact in facts:
+        key = (fact.key.source, fact.key.target)
+        if key != current_key:
+            if leg:
+                flush()
+            leg = []
+            current_key = key
+        if fact.key.line_id not in leg:
+            leg.append(fact.key.line_id)
+    if leg:
+        flush()
+    return cast(tuple[str, ...], _ordered_unique(result))
+
+
+def _inherited_branch_order(
+    source_id: str,
+    branch_plans: Sequence[FanBranchPlan],
+    leg_ordered_lines_by_rank: Mapping[int, tuple[str, ...]],
+    bundles: Mapping[tuple[str, str], tuple[AuthoredEdgeFact, ...]],
+    incoming: Mapping[str, tuple[str, ...]],
+) -> dict[int, int] | None:
+    """Rank branches by a retagged ancestor bundle's own authored order.
+
+    A fork fed directly by the same lines it is about to split (an ordinary
+    diamond, one hop below its own shared entry) has no other order to
+    consult, so its authored (opening) order stands -- that is the common
+    case, and it is deliberately left alone. A fork some further hop below a
+    shared bundle -- reached only after a leg retagged every one of those
+    lines to a different identity and back -- has no entry edge of its own
+    naming them, yet every carrier between that distant bundle and here
+    already reads its comma-list order (see :func:`_leg_ordered_line_ids`);
+    matching it here is what keeps this fork's lanes stacked the same way
+    round as theirs. Returns ``None`` when no such distant edge exists.
+
+    Only a bundle this fork descends from can have fixed those slots, so a
+    candidate qualifies only when its target reaches *source_id* through the
+    authored graph -- which also excludes the fan's own entry edge, whose
+    target is *source_id* itself. Among qualifying bundles the nearest wins
+    -- fewest hops from its target down to *source_id*, then earliest
+    authored edge -- so the answer is a property of the graph rather than of
+    declaration or iteration order.
+    """
+    divergent = frozenset(
+        line_id for lines in leg_ordered_lines_by_rank.values() for line_id in lines
+    )
+    if len(divergent) < 2:
+        return None
+    hops_to_source = _distances(incoming, source_id)
+    candidates = [
+        (hops_to_source[target], min(fact.rank for fact in facts), facts)
+        for (_source, target), facts in bundles.items()
+        if target != source_id
+        and target in hops_to_source
+        and divergent.issubset({fact.key.line_id for fact in facts})
+    ]
+    if not candidates:
+        return None
+    ancestor = min(candidates, key=lambda candidate: candidate[:2])[2]
+    order = {
+        line_id: rank
+        for rank, line_id in enumerate(
+            dict.fromkeys(fact.key.line_id for fact in ancestor)
+        )
+    }
+    return {
+        branch.rank: min(
+            (
+                order[line_id]
+                for line_id in leg_ordered_lines_by_rank[branch.rank]
+                if line_id in order
+            ),
+            default=branch.opening_rank,
+        )
+        for branch in branch_plans
+    }
 
 
 def _extra_output_facts(
@@ -684,6 +1051,41 @@ def _port_ids(
     return tuple(entry), tuple(exit_)
 
 
+def _section_exit_ports_from(
+    graph: MetroGraph, station_id: str, section_id: str | None
+) -> frozenset[str]:
+    """Exit ports of *section_id* the run leaving *station_id* hands straight on to."""
+    return frozenset(
+        edge.target
+        for edge in graph.edges_from(station_id)
+        if (port := graph.ports.get(edge.target)) is not None
+        and not port.is_entry
+        and port.section_id == section_id
+    )
+
+
+def _carries_the_trunk_out(
+    graph: MetroGraph,
+    exit_port_ids: Iterable[str],
+    section_id: str | None,
+    sibling_exit_port_ids: AbstractSet[str],
+) -> bool:
+    """Whether an arm carries the fork's trunk out of *section_id* on its own.
+
+    An arm running out through the section's own exit port carries the trunk
+    the fork stands on past the fan.  Where a sibling arm's tail hands on to
+    that same port, the two arms meet again at the boundary: the run to the
+    port is the section's own chain through both of them, and neither arm
+    carries it alone.
+    """
+    return any(
+        (port := graph.ports.get(port_id)) is not None
+        and port.section_id == section_id
+        and port_id not in sibling_exit_port_ids
+        for port_id in exit_port_ids
+    )
+
+
 def _grid_position(graph: MetroGraph, section_id: str) -> tuple[int, int]:
     section = graph.sections[section_id]
     override = graph.grid_overrides.get(section_id)
@@ -699,30 +1101,122 @@ def _trunk_followers(
     approach_paths: Iterable[tuple[ResolvedEdge, ...]],
     departure_paths: Iterable[tuple[ResolvedEdge, ...]],
 ) -> tuple[str, ...]:
-    result: list[str] = []
-    for path in approach_paths:
-        nodes = _path_nodes(path)
-        if fork_id not in nodes:
-            continue
-        for station_id in reversed(nodes[: nodes.index(fork_id)]):
-            if station_id in graph.ports or station_id in graph.junction_ids:
+    """The stations the fan's trunk runs through either side of its span.
+
+    A follower is the one station the trunk continues from before the fork, or
+    continues to after the join, and it stands on the fan's centreline.  Where a
+    side reaches more than one station the trunk continues through none of them:
+    those are the arms of a convergence or of a second fan, and putting them all
+    on one centreline would draw them in a single row.
+    """
+
+    def _side(
+        node_id: str, paths: Iterable[tuple[ResolvedEdge, ...]], *, upstream: bool
+    ) -> tuple[str, ...]:
+        found: list[str] = []
+        for path in paths:
+            nodes = _path_nodes(path)
+            if node_id not in nodes:
                 continue
-            if station_id not in result:
-                result.append(station_id)
-            break
-    if join_id is None:
-        return tuple(result)
-    for path in departure_paths:
-        nodes = _path_nodes(path)
-        if join_id not in nodes:
-            continue
-        for station_id in nodes[nodes.index(join_id) + 1 :]:
-            if station_id in graph.ports or station_id in graph.junction_ids:
-                continue
-            if station_id not in result:
-                result.append(station_id)
-            break
-    return tuple(result)
+            index = nodes.index(node_id)
+            walk = reversed(nodes[:index]) if upstream else iter(nodes[index + 1 :])
+            for station_id in walk:
+                if station_id in graph.ports or station_id in graph.junction_ids:
+                    continue
+                if station_id not in found:
+                    found.append(station_id)
+                break
+        return tuple(found) if len(found) == 1 else ()
+
+    return (
+        *_side(fork_id, approach_paths, upstream=True),
+        *(() if join_id is None else _side(join_id, departure_paths, upstream=False)),
+    )
+
+
+def _carriers_within_the_fan(
+    graph: MetroGraph,
+    carriers: Sequence[FanOffsetCarrier],
+    owned_station_ids: Sequence[str],
+) -> tuple[FanOffsetCarrier, ...]:
+    """Drop every carrier slot where a carried run leaves the fan.
+
+    Carrier slots state how the fan's lines sit against each other along one
+    run.  Where that run carries the same line on into a station the fan
+    neither carries nor owns, the order at the two ends is decided twice: the
+    fan restates it here and whoever placed the neighbour keeps it there, so
+    the run steps sideways at the seam between them.  One such run makes the
+    whole chain's order contentious, since the fan's carriers are consistent
+    only with each other.
+    """
+    reachable = {carrier.station_id for carrier in carriers}.union(owned_station_ids)
+    leaves = any(
+        (edge.target if edge.source == carrier.station_id else edge.source)
+        not in reachable
+        for carrier in carriers
+        for edge in (
+            *graph.edges_from(carrier.station_id),
+            *graph.edges_to(carrier.station_id),
+        )
+        if edge.line_id in carrier.line_ids
+    )
+    return () if leaves else tuple(carriers)
+
+
+def _retags_its_line(graph: MetroGraph, station_id: str) -> bool:
+    """Whether one arrival hands the track over to a departure of another name.
+
+    Both names belong to *station_id*, so the fan seats both: they are
+    distinct lines and take the two adjacent lanes its frame gives them,
+    which is what makes the marker span the arriving and departing runs
+    instead of either run stepping across it.
+    """
+    incoming = tuple(graph.edges_to(station_id))
+    outgoing = tuple(graph.edges_from(station_id))
+    return (
+        len(incoming) == 1
+        and len(outgoing) == 1
+        and incoming[0].line_id != outgoing[0].line_id
+    )
+
+
+def _seats_a_retag(graph: MetroGraph, station_id: str) -> bool:
+    """Whether the fan gives a hand-over station a lane per name of its own.
+
+    Collapsed offsets seat every name a station carries on the one lane its
+    busiest side needs, and a hand-over station carries one line in and one
+    out, so both its names ride the track through it and the marker stays a
+    single-lane dot.  Only a map that spreads its lines gives the two names
+    the adjacent lanes the marker spans.
+    """
+    return not graph.compact_offsets and _retags_its_line(graph, station_id)
+
+
+def _contiguous_assignments(
+    offset_line_order: Sequence[str],
+    present: Container[str],
+    offset_sign: int,
+) -> tuple[FanOffsetAssignment, ...]:
+    """Seat the fan lines a station carries on one consecutive run of lanes.
+
+    A carrier occupies as many lanes as it has lines, never more: a line the
+    fan carries only elsewhere -- the far side of a leg transition that
+    retags it, above all -- runs down no lane here, so it opens none between
+    two lines that do, and the bundle stays a solid stack.
+
+    The run starts at the first frame lane this carrier reaches rather than
+    at lane zero, which is what separates the two sides of a retag by
+    exactly one lane. Both sides then draw straight, and the hand-over
+    station spans the two adjacent lanes its arriving and departing names
+    hold -- distinct lines, distinct offsets.
+    """
+    lanes = [
+        rank for rank, line_id in enumerate(offset_line_order) if line_id in present
+    ]
+    return tuple(
+        FanOffsetAssignment(offset_line_order[rank], (lanes[0] + index) * offset_sign)
+        for index, rank in enumerate(lanes)
+    )
 
 
 def _entry_offset_carriers(
@@ -780,13 +1274,69 @@ def _entry_offset_carriers(
     return tuple(
         FanOffsetCarrier(
             station_id=station_id,
-            assignments=tuple(
-                FanOffsetAssignment(line_id, rank * offset_sign)
-                for rank, line_id in enumerate(offset_line_order)
-                if line_id in carried_lines
+            assignments=_contiguous_assignments(
+                offset_line_order, carried_lines, offset_sign
             ),
         )
         for station_id, carried_lines in carriers.items()
+    )
+
+
+def _section_line_index(graph: MetroGraph) -> dict[str, frozenset[str]]:
+    """Every line the stations of each section carry, indexed in one walk."""
+    return {
+        section_id: frozenset(
+            line_id
+            for member_id in section.station_ids
+            for line_id in graph.station_lines(member_id)
+        )
+        for section_id, section in graph.sections.items()
+    }
+
+
+def _rides_foreign_line_corridor(
+    graph: MetroGraph,
+    station_id: str,
+    fan_lines: frozenset[str],
+    section_lines: dict[str, frozenset[str]] | None = None,
+) -> bool:
+    """Whether *station_id* only relays a corridor that carries a non-fan line.
+
+    *section_lines* is :func:`_section_line_index`, which a caller asking about
+    a whole carrier set builds once and shares; a lone question builds its own.
+
+    Scoped to ports, junctions and hand-over stations: a fork or join station
+    is the point a fan actively dispatches its own lines from, so it states
+    their order regardless of what else its section carries. A port, a
+    junction or a station that merely renames the one track running through
+    it, by contrast, only relays a corridor another station already lays out;
+    where that corridor's section also carries a line outside the fan, the
+    section's own line-priority ordering already reserves that line's slot,
+    so the fan's own numbering at the boundary would recentre the bundle away
+    from the position its section fixes upstream. A junction has no section
+    of its own, so it is classified by every section feeding it a fan line:
+    the corridor it relays is drawn as a continuation of all of them, and one
+    such section carrying a foreign line is enough to have fixed the bundle's
+    slots before the junction sees them.
+    """
+    if (
+        station_id not in graph.ports
+        and station_id not in graph.junction_ids
+        and not _retags_its_line(graph, station_id)
+    ):
+        return False
+    index = _section_line_index(graph) if section_lines is None else section_lines
+
+    def carries_foreign_line(section_id: str | None) -> bool:
+        return not index.get(section_id or "", frozenset()) <= fan_lines
+
+    own_section_id = graph.section_for_station(station_id)
+    if own_section_id is not None:
+        return carries_foreign_line(own_section_id)
+    return any(
+        carries_foreign_line(graph.section_for_station(edge.source))
+        for edge in graph.edges_to(station_id)
+        if edge.line_id in fan_lines
     )
 
 
@@ -835,23 +1385,23 @@ def _offset_carriers(
                 branch_incidence[edge.source][branch.rank].add(edge.line_id)
                 branch_incidence[edge.target][branch.rank].add(edge.line_id)
     for station_id, by_branch in branch_incidence.items():
-        if len(by_branch) < 2:
+        if len(by_branch) < 2 and not _seats_a_retag(graph, station_id):
             continue
         add_station(
             station_id,
             (line_id for lines in by_branch.values() for line_id in lines),
         )
 
+    if not carrier_lines:
+        return ()
+    section_lines = _section_line_index(graph)
     return tuple(
         FanOffsetCarrier(
             station_id=station_id,
-            assignments=tuple(
-                FanOffsetAssignment(line_id, rank * offset_sign)
-                for rank, line_id in enumerate(offset_line_order)
-                if line_id in lines
-            ),
+            assignments=_contiguous_assignments(offset_line_order, lines, offset_sign),
         )
         for station_id, lines in carrier_lines.items()
+        if not _rides_foreign_line_corridor(graph, station_id, fan_lines, section_lines)
     )
 
 
@@ -1051,8 +1601,48 @@ def _centreline_port_ids(
     direction: FlowDirection | None,
     layout_section_id: str | None,
     port_ids: Sequence[str],
+    branches: Sequence[FanBranchPlan],
 ) -> tuple[str, ...]:
-    """Freeze boundary ports that continue one fan's local centreline."""
+    """Freeze boundary ports that continue one fan's local centreline.
+
+    A port only continues the centreline when the fan's un-offset
+    (``lane_offset`` 0 or unset) branch runs through it: that is the branch
+    riding the trunk straight across the boundary. A port carrying only
+    laterally-offset branches carries lines the fan has already pulled off the
+    centreline to keep them visually separated near the crossing; forcing it
+    onto the raw centreline overrides whatever row its own section settles
+    those branches on downstream (#1711), and where the trunk ends inside the
+    fan it drags the whole peeled bundle back up to a row nothing runs along.
+
+    Where one branch does hold the centreline, read over every boundary port a
+    branch passes rather than only the ports it lands on: the port a fan's own
+    section hands off through is on the peeled branches' run just as much as
+    their landing is.  A fan with no branch on the centreline states nothing
+    about which port the trunk continues through, so there it is only the
+    landings that speak.
+    """
+    holds_the_centreline = any(branch.lane_offset in (None, 0.0) for branch in branches)
+    branch_port_ids = {
+        branch.id: frozenset(
+            port_id
+            for side in _port_ids(graph, branch.resolved_paths)
+            for port_id in side
+        )
+        if holds_the_centreline
+        else frozenset(branch.landing_port_ids)
+        for branch in branches
+    }
+    offset_only_port_ids = {
+        port_id
+        for branch in branches
+        if branch.lane_offset not in (None, 0.0)
+        for port_id in branch_port_ids[branch.id]
+    } - {
+        port_id
+        for branch in branches
+        if branch.lane_offset in (None, 0.0)
+        for port_id in branch_port_ids[branch.id]
+    }
     layout_section = graph.sections.get(layout_section_id or "")
     if direction is None or layout_section is None:
         return ()
@@ -1060,6 +1650,8 @@ def _centreline_port_ids(
     layout_column, layout_row = _grid_position(graph, layout_section.id)
     result: list[str] = []
     for port_id in port_ids:
+        if port_id in offset_only_port_ids:
+            continue
         port = graph.ports.get(port_id)
         section = graph.sections.get(port.section_id) if port is not None else None
         if port is None or section is None:
@@ -1092,6 +1684,52 @@ def _centreline_port_ids(
             continue
         result.append(port_id)
     return tuple(dict.fromkeys(result))
+
+
+def _centreline_anchor_reason(
+    anchor: FanCentrelineAnchor | None,
+    branches: tuple[FanBranchPlan, ...],
+    appearance_policy: FanAppearancePolicy,
+) -> str | None:
+    """Why the fan cannot state a centreline from *anchor*, if it cannot.
+
+    The anchor reads the centreline off one station's settled coordinate.  Where
+    that station rides a single branch, that branch's lane says where the
+    centreline lies too, so an anchor offset that disagrees with the lane is one
+    frame stated twice in two places.  Under the symmetric diamond the second
+    reading is not the fan's to take: the diamond seats its branches in slots
+    balanced about the trunk, so moving the centreline onto the riding branch's
+    lane pulls those stations off the slots layout settled.
+    """
+    if anchor is None:
+        return "missing-centreline-anchor"
+    riding = _branches_riding(anchor.station_id, branches)
+    if (
+        len(riding) == 1
+        and riding[0].lane_offset is not None
+        and riding[0].lane_offset != anchor.lane_offset
+    ):
+        return (
+            "symmetric-diamond-layout-owns-the-anchor"
+            if appearance_policy is FanAppearancePolicy.SYMMETRIC
+            else "centreline-anchor-off-its-branch-lane"
+        )
+    return None
+
+
+def _branches_riding(
+    station_id: str, branches: Sequence[FanBranchPlan]
+) -> list[FanBranchPlan]:
+    """The branches whose resolved runs pass through *station_id*."""
+    return [
+        branch
+        for branch in branches
+        if any(
+            station_id in (edge.source, edge.target)
+            for path in branch.resolved_paths
+            for edge in path
+        )
+    ]
 
 
 def _centreline_anchor(
@@ -1164,6 +1802,23 @@ def _centreline_anchor(
     return local_frame_anchor
 
 
+def _foreign_ridden_station_ids(
+    graph: MetroGraph, fan_lines: frozenset[str]
+) -> set[str]:
+    """Stations a bypass helper of some line outside *fan_lines* goes around.
+
+    Such a station stands in a column with that helper, and where the two sit
+    relative to one another is settled by whoever laid the helper out.  A fan
+    stating one of the two coordinates would ladder a column it only half owns.
+    """
+    return {
+        bypassed_id
+        for station in graph.stations.values()
+        if (bypassed_id := station.bypasses_station_id) is not None
+        and not fan_lines.issuperset(graph.station_lines(station.id))
+    }
+
+
 def _lane_station_ids(
     graph: MetroGraph,
     paths: Iterable[tuple[ResolvedEdge, ...]],
@@ -1171,6 +1826,7 @@ def _lane_station_ids(
     section_id: str | None,
     fork_id: str,
     join_id: str | None,
+    foreign_ridden_ids: Collection[str] = (),
 ) -> tuple[str, ...]:
     if section_id is None:
         return ()
@@ -1189,11 +1845,146 @@ def _lane_station_ids(
                 station_id != fork_id
                 and station_id not in graph.ports
                 and station_id not in graph.junction_ids
+                and station_id not in foreign_ridden_ids
                 and graph.section_for_station(station_id) == section_id
                 and station_id not in station_ids
             ):
                 station_ids.append(station_id)
     return tuple(station_ids)
+
+
+def _lanes_with_one_seat_holder(
+    branches: Sequence[FanBranchPlan],
+) -> tuple[FanBranchPlan, ...]:
+    """Give every lane seat a single holder.
+
+    A branch's lane is the row it holds, and every station along it takes that
+    row.  Where more than one branch runs through the same station -- a bypass
+    helper both their lines go around, say -- the row is stated once per branch
+    and whichever branch is materialised last wins silently.  Branches that
+    leave the fork through the same station share one seat, so they agree on
+    the row and the first of them states it for all; branches that only meet
+    further along hold different seats and neither may state it, and the fan
+    orders its lines there as a carrier instead.
+    """
+    holders: dict[str, FanBranchPlanId] = {}
+    contested: set[str] = set()
+    roots: dict[str, str] = {}
+    for branch in branches:
+        for station_id in branch.lane_station_ids:
+            if station_id not in holders:
+                holders[station_id] = branch.id
+                roots[station_id] = branch.root_station_id
+            elif roots[station_id] != branch.root_station_id:
+                contested.add(station_id)
+    return tuple(
+        replace(
+            branch,
+            lane_station_ids=tuple(
+                station_id
+                for station_id in branch.lane_station_ids
+                if station_id not in contested and holders[station_id] == branch.id
+            ),
+        )
+        for branch in branches
+    )
+
+
+def _trunk_ends_at_the_fork(
+    graph: MetroGraph,
+    branches: Sequence[FanBranchPlan],
+    local_terminal_ids: Sequence[FanBranchPlanId],
+    structural_trunk_rank: int | None,
+    direction: FlowDirection | None,
+) -> bool:
+    """Whether no leg of an open fan carries its trunk on past the fork.
+
+    A straight fan seats one leg on the trunk's own row because that leg
+    continues the trunk.  Where every leg is a single station that dead-ends
+    inside the fan's section, and they all carry the same bundle of two or more
+    lines, no leg continues anything: the trunk ends at the fork.  Seating one
+    leg there anyway makes every other leg cross it, because the leg that stays
+    holds the whole lane band the others have to leave through.
+
+    Read on the row band a horizontal fan opens into.  A vertical section
+    separates its lines along X, where the section allocator owns the columns
+    the legs stand in rather than the fan.
+    """
+    return (
+        direction is not None
+        and lanes_run_along_y(direction)
+        and len(local_terminal_ids) == len(branches) >= 2
+        and structural_trunk_rank is None
+        and not any(branch.is_trunk_continuation for branch in branches)
+        and all(branch.root_station_id == branch.tail_station_id for branch in branches)
+        and _branch_riding_past_a_sibling(graph, branches) is None
+        and len({frozenset(branch.line_ids) for branch in branches}) == 1
+        and len(branches[0].line_ids) >= 2
+    )
+
+
+def _trunk_reaches_its_terminus(
+    branches: Sequence[FanBranchPlan],
+    direction: FlowDirection | None,
+) -> bool:
+    """Whether one leg of an open fan carries the whole bundle to its last stop.
+
+    A symmetric fan mirrors its legs about a seat no leg occupies, which is
+    right while every leg peels part of the bundle away.  Where one leg instead
+    carries the bundle entire to a station that ends it inside the fan's own
+    section, that leg is the trunk reaching its terminus: it stands on the row
+    the trunk arrived on, and a mirrored frame lifts it off that row and bends
+    the trunk around a seat nothing sits in.  Such a fan has a centre seat, and
+    the legs that peel lines off take the slots beside it.
+
+    Read on the row band a horizontal fan opens into, for the same reason
+    :func:`_trunk_ends_at_the_fork` is.
+    """
+    if direction is None or not lanes_run_along_y(direction) or len(branches) < 3:
+        return False
+    bundle = {line_id for branch in branches for line_id in branch.line_ids}
+    return (
+        sum(
+            branch.is_trunk_continuation
+            and branch.terminal
+            and bool(branch.lane_station_ids)
+            and not branch.landing_port_ids
+            and set(branch.line_ids) == bundle
+            for branch in branches
+        )
+        == 1
+        and sum(branch.is_trunk_continuation for branch in branches) == 1
+        and all(
+            set(branch.line_ids) != bundle
+            for branch in branches
+            if not branch.is_trunk_continuation
+        )
+    )
+
+
+def _open_fan_appearance_policy(
+    graph: MetroGraph,
+    authored_policy: FanAppearancePolicy,
+    branches: Sequence[FanBranchPlan],
+    local_terminal_ids: Sequence[FanBranchPlanId],
+    structural_trunk_rank: int | None,
+    direction: FlowDirection | None,
+) -> FanAppearancePolicy:
+    """Settle which frame an open fan's legs are arranged in.
+
+    The authored policy states a preference over diamonds, which an open fan
+    only follows where its own shape leaves the choice open: whether a leg
+    holds the trunk's row decides it, and both answers are structural.
+    """
+    if _trunk_ends_at_the_fork(
+        graph, branches, local_terminal_ids, structural_trunk_rank, direction
+    ):
+        return FanAppearancePolicy.SYMMETRIC
+    if authored_policy is FanAppearancePolicy.SYMMETRIC and _trunk_reaches_its_terminus(
+        branches, direction
+    ):
+        return FanAppearancePolicy.STRAIGHT
+    return authored_policy
 
 
 def _uncontested_local_terminal_branch_ids(
@@ -1331,6 +2122,30 @@ class _RecognisedFan:
     join_id: str | None
 
 
+def _branch_node_paths(
+    ctx: _FanPlanningContext,
+    source_id: str,
+    branch_targets: tuple[str, ...],
+    join_id: str | None,
+) -> tuple[list[tuple[str, ...]], bool]:
+    """Each branch's authored node path to *join_id*, and whether any is plural."""
+    adjacency = ctx.adjacency
+    if join_id is None:
+        return [
+            (source_id, *_linear_path(adjacency, target)) for target in branch_targets
+        ], False
+    reaches_join = _reverse_reachable(ctx.incoming, join_id)
+    node_paths: list[tuple[str, ...]] = []
+    ambiguous = False
+    for target in branch_targets:
+        path = _unique_path_to_join(adjacency, target, join_id, reaches_join)
+        if path is None:
+            ambiguous = True
+            path = _linear_path(adjacency, target)
+        node_paths.append((source_id, *path))
+    return node_paths, ambiguous
+
+
 def _recognise_fan(
     ctx: _FanPlanningContext,
     source_id: str,
@@ -1355,19 +2170,30 @@ def _recognise_fan(
     )
 
     authored_join = _nearest_common_join(adjacency, branch_targets, ctx.ranks)
-    node_paths: list[tuple[str, ...]] = []
-    if authored_join is not None:
-        reaches_join = _reverse_reachable(ctx.incoming, authored_join)
-        for target in branch_targets:
-            path = _unique_path_to_join(adjacency, target, authored_join, reaches_join)
-            if path is None:
-                reason = reason or "ambiguous-branch-to-join"
-                path = _linear_path(adjacency, target)
-            node_paths.append((source_id, *path))
-    else:
-        node_paths = [
-            (source_id, *_linear_path(adjacency, target)) for target in branch_targets
-        ]
+    node_paths, ambiguous = _branch_node_paths(
+        ctx, source_id, branch_targets, authored_join
+    )
+    if ambiguous and authored_join in branch_targets:
+        # A branch root closes the fan only where every other branch reaches it
+        # one way.  Where they reach it through a web of alternatives it is a
+        # downstream sink the whole graph drains into, not this fan's join.
+        authored_join = _nearest_common_join(
+            adjacency, branch_targets, ctx.ranks, allow_root=False
+        )
+        node_paths, ambiguous = _branch_node_paths(
+            ctx, source_id, branch_targets, authored_join
+        )
+    if ambiguous:
+        reason = reason or "ambiguous-branch-to-join"
+    node_paths = [
+        _line_extent(
+            path,
+            bundles,
+            ctx.incoming,
+            frozenset(fact.key.line_id for fact in lead_facts),
+        )
+        for path, lead_facts in zip(node_paths, lead_fact_groups, strict=True)
+    ]
     extended_branch_ranks = tuple(
         rank for rank, path in enumerate(node_paths) if len(path) > 2
     )
@@ -1385,12 +2211,7 @@ def _recognise_fan(
         )
         for path, lead_facts in zip(node_paths, lead_fact_groups, strict=True)
     )
-    if any(facts is None for facts in selected_continuations):
-        reason = reason or "unsupported-branch-line-transition"
-    continuation_facts = tuple(
-        facts if facts is not None else _facts_for_node_path(path, bundles) or ()
-        for path, facts in zip(node_paths, selected_continuations, strict=True)
-    )
+    continuation_facts = selected_continuations
     extra_facts = tuple(
         _extra_output_facts(path[1:], adjacency, bundles)
         if authored_join is not None
@@ -1453,8 +2274,6 @@ def _build_candidate(
     suffix = recognised.suffix
     join_id = recognised.join_id
 
-    appearance_policy = FanAppearancePolicy(graph.diamond_style)
-
     direction = _direction_for_fork(graph, fork_id, source_id, lead_fact_groups[0])
     if direction is None:
         reason = reason or "unsupported-fan-direction"
@@ -1465,6 +2284,11 @@ def _build_candidate(
     )
     offsets = symmetric_lane_offsets(len(branch_targets), lane_pitch)
     layout_section_id = _layout_section_id(graph, fork_id)
+    appearance_policy = (
+        FanAppearancePolicy.SYMMETRIC
+        if graph.section_line_spread(layout_section_id) is LineSpread.CENTERED
+        else FanAppearancePolicy(graph.diamond_style)
+    )
     if layout_section_id is not None and any(
         station_id != authored_join
         and graph.section_for_station(station_id) == layout_section_id
@@ -1473,6 +2297,18 @@ def _build_candidate(
         for predecessor_id, station_id in zip(path, path[1:])
     ):
         reason = reason or "local-layout-has-foreign-owner"
+    foreign_ridden_ids = _foreign_ridden_station_ids(
+        graph,
+        frozenset(
+            fact.key.line_id
+            for facts in (*continuation_facts, *extra_facts)
+            for fact in facts
+        ),
+    )
+    tail_exit_port_ids = [
+        _section_exit_ports_from(graph, node_path[-1], layout_section_id)
+        for node_path in node_paths
+    ]
     branch_plans: list[FanBranchPlan] = []
     all_member_facts: list[AuthoredEdgeFact] = []
     all_raw_paths: list[tuple[ResolvedEdge, ...]] = []
@@ -1534,10 +2370,19 @@ def _build_candidate(
                     section_id=layout_section_id,
                     fork_id=fork_id,
                     join_id=join_id,
+                    foreign_ridden_ids=foreign_ridden_ids,
                 ),
-                is_trunk_continuation=any(
-                    graph.ports[port_id].section_id == layout_section_id
-                    for port_id in _port_ids(graph, raw_continuation)[1]
+                is_trunk_continuation=_carries_the_trunk_out(
+                    graph,
+                    _port_ids(graph, raw_continuation)[1],
+                    layout_section_id,
+                    frozenset().union(
+                        *(
+                            ports
+                            for other, ports in enumerate(tail_exit_port_ids)
+                            if other != rank
+                        )
+                    ),
                 )
                 or rank == structural_trunk_rank,
                 terminal=terminal,
@@ -1547,6 +2392,8 @@ def _build_candidate(
         )
         all_member_facts.extend((*facts, *outputs))
         all_raw_paths.extend((*raw_continuation, *raw_outputs))
+
+    branch_plans = list(_lanes_with_one_seat_holder(branch_plans))
 
     def landing_key(branch: FanBranchPlan) -> tuple[int, int, int]:
         positions = [
@@ -1618,15 +2465,37 @@ def _build_candidate(
             )
             for branch in branch_plans
         ]
-    appearance_centreline_branch_id = _appearance_centreline_branch_id(
-        branch_plans,
+    if authored_join is None:
+        appearance_policy = _open_fan_appearance_policy(
+            graph,
+            appearance_policy,
+            branch_plans,
+            local_terminal_ids,
+            structural_trunk_rank,
+            direction,
+        )
+    has_vacant_trunk = fan_has_vacant_trunk(
         appearance_policy,
-        structural_trunk_rank,
+        authored_join,
+        branch_plans,
+    )
+    if has_vacant_trunk:
+        lane_pitch *= 2.0
+    appearance_centreline_branch_id = (
+        None
+        if has_vacant_trunk
+        else _appearance_centreline_branch_id(
+            graph,
+            branch_plans,
+            appearance_policy,
+            structural_trunk_rank,
+        )
     )
     lane_offsets = fan_lane_offsets(
         tuple(branch.id for branch in branch_plans),
         lane_pitch,
         appearance_centreline_branch_id,
+        fan_lane_seat_keys(branch_plans),
     )
     branch_plans = [
         replace(
@@ -1647,7 +2516,14 @@ def _build_candidate(
         else None
     )
     appearance_lane_sign = (
-        fan_appearance_lane_sign(graph, frame, layout_section_id, source_id)
+        fan_lane_sign(
+            graph,
+            frame,
+            layout_section_id,
+            source_id,
+            branches=branch_plans,
+            tb_positive_fan=ctx.tb_positive_fan,
+        )
         if frame is not None and reason is None
         else None
     )
@@ -1693,6 +2569,20 @@ def _build_candidate(
     has_line_divergence = bool(set.union(*branch_line_sets) - all_shared_lines)
     has_layout_lanes = any(branch.lane_station_ids for branch in branch_plans)
     line_priority = {line_id: rank for rank, line_id in enumerate(graph.lines)}
+    leg_ordered_lines_by_rank = {
+        branch.rank: _leg_ordered_line_ids(
+            (*continuation_facts[branch.rank], *extra_facts[branch.rank]),
+            line_priority,
+        )
+        for branch in branch_plans
+    }
+    inherited_branch_order = _inherited_branch_order(
+        source_id,
+        branch_plans,
+        leg_ordered_lines_by_rank,
+        bundles,
+        incoming,
+    )
     offset_line_order = (
         cast(
             tuple[str, ...],
@@ -1703,12 +2593,14 @@ def _build_candidate(
                     key=lambda item: (
                         item.lane_offset
                         if has_layout_lanes and item.lane_offset is not None
-                        else item.opening_rank
+                        else (
+                            item.opening_rank
+                            if inherited_branch_order is None
+                            else inherited_branch_order[item.rank]
+                        )
                     ),
                 )
-                for line_id in sorted(
-                    branch.line_ids, key=lambda item: line_priority.get(item, 0)
-                )
+                for line_id in leg_ordered_lines_by_rank[branch.rank]
             ),
         )
         if has_line_divergence
@@ -1861,6 +2753,14 @@ def _build_candidate(
     )
     if len(set(layout_station_ids)) != len(layout_station_ids):
         reason = reason or "overlapping-branch-lane-ownership"
+    if _entry_trunk_has_foreign_head(
+        graph,
+        fork_id=fork_id,
+        layout_section_id=layout_section_id,
+        entry_port_ids=entry_ports,
+        layout_station_ids=layout_station_ids,
+    ):
+        reason = reason or "section-entry-trunk-has-foreign-head"
     if (
         layout_station_ids
         and appearance_lane_sign is not None
@@ -1904,17 +2804,18 @@ def _build_candidate(
         offset_carriers,
         line_priority,
     )
-    offset_carriers = _apply_solo_branch_offset_assignments(
+    offset_carriers = _carriers_within_the_fan(
         graph,
-        branch_plans,
-        fork_id,
-        offset_carriers,
+        _apply_solo_branch_offset_assignments(
+            graph,
+            branch_plans,
+            fork_id,
+            offset_carriers,
+        ),
+        owned_stations,
     )
-    if any(
-        set(graph.station_lines(carrier.station_id)) != set(carrier.line_ids)
-        for carrier in offset_carriers
-    ):
-        reason = reason or "offset-carrier-has-unowned-line"
+    # A straight-appearance diamond keeps its top branch on the main track, so
+    # its lane frame is the section allocator's symmetric one, not the fan's.
     if (
         reason is None
         and authored_join is not None
@@ -1962,6 +2863,7 @@ def _build_candidate(
             direction,
             layout_section_id,
             (*entry_ports, *exit_ports),
+            branch_plans,
         )
         if reason is None
         else ()
@@ -1982,12 +2884,10 @@ def _build_candidate(
         if reason is None and needs_centreline_anchor
         else None
     )
-    if (
-        reason is None
-        and needs_centreline_anchor
-        and candidate_centreline_anchor is None
-    ):
-        reason = "missing-centreline-anchor"
+    if reason is None and needs_centreline_anchor:
+        reason = _centreline_anchor_reason(
+            candidate_centreline_anchor, tuple(branch_plans), appearance_policy
+        )
     planned = reason is None
     if not planned:
         route_emissions = ()
@@ -2077,8 +2977,236 @@ def _build_candidate(
     return plan
 
 
+def _cede_read_claims(
+    plans: tuple[FanPlan, ...], ranks: Mapping[str, int]
+) -> dict[FanPlanId, dict[str, FanPlanId]]:
+    """Name, per plan, the station seats it reads and the fan it reads them from.
+
+    A boundary station is checked against its own settled coordinate, so a fan
+    bounded by one states nothing that a fan which lanes, centres, carries or
+    lands on it has not already stated: that fan keeps the seat outright.  Where
+    no fan states the station, every contender is reading a coordinate somebody
+    else settled, so which of them holds the seat decides no geometry and needs
+    only to be one choice rather than the right one: the earliest fork keeps it,
+    by the authored rank of the fork and then the plan id so the choice is total
+    and independent of iteration order.  A station every stater holds only on
+    its centreline is the trunk two forks hang off, and a trunk carries one run
+    however many fans fork from it, so those staters say the same thing about it
+    and the same earliest-first order picks which of them says it.  Two fans
+    that state one station any other way do state it differently and are left to
+    contend.
+    """
+    precedence = {
+        plan.id: (ranks.get(plan.fork_station_id, len(ranks)), str(plan.id))
+        for plan in plans
+    }
+    stated = {plan.id: stated_station_ids(plan) for plan in plans}
+    holders: defaultdict[str, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        for station_id in claimed_station_ids(plan):
+            holders[station_id].append(plan)
+    read_from: defaultdict[FanPlanId, dict[str, FanPlanId]] = defaultdict(dict)
+    for station_id, contesting in holders.items():
+        if len(contesting) < 2:
+            continue
+        staters = [plan for plan in contesting if station_id in stated[plan.id]]
+        if len(staters) > 1:
+            continue
+        owner = (
+            staters[0]
+            if staters
+            else min(contesting, key=lambda plan: precedence[plan.id])
+        )
+        for plan in contesting:
+            if plan.id != owner.id:
+                read_from[plan.id][station_id] = owner.id
+    return dict(read_from)
+
+
+def _cede_read_edges(
+    plans: tuple[FanPlan, ...],
+) -> dict[FanPlanId, dict[ResolvedEdge, FanPlanId]]:
+    """Name, per plan, the seam edges it reads and the fan that draws them.
+
+    A seam is an edge a fan reaches to meet its neighbours, not one it draws, so
+    a fan holding an edge as a seam states no route another fan carrying it on a
+    branch has not already stated: that fan draws it and every reader hands the
+    route off.  Two fans drawing one edge state it independently and are left to
+    contend.
+    """
+    drawn = {plan.id: drawn_member_edges(plan) for plan in plans}
+    holders: defaultdict[ResolvedEdge, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        for edge in claimed_member_edges(plan):
+            holders[edge].append(plan)
+    read_from: defaultdict[FanPlanId, dict[ResolvedEdge, FanPlanId]] = defaultdict(dict)
+    for edge, contesting in holders.items():
+        if len(contesting) < 2:
+            continue
+        drawers = [plan for plan in contesting if edge in drawn[plan.id]]
+        if len(drawers) != 1:
+            continue
+        owner = drawers[0]
+        for plan in contesting:
+            if plan.id != owner.id:
+                read_from[plan.id][edge] = owner.id
+    return dict(read_from)
+
+
+def _seat_cessions(
+    plan: FanPlan,
+    read_from: Mapping[FanPlanId, Mapping[str, FanPlanId]],
+    edge_read_from: Mapping[FanPlanId, Mapping[ResolvedEdge, FanPlanId]],
+) -> FanPlan:
+    """Record on *plan* the seats and seam routes it reads rather than states."""
+    ceded = read_from.get(plan.id)
+    ceded_edges = edge_read_from.get(plan.id)
+    if not ceded and not ceded_edges:
+        return plan
+    return replace(
+        plan,
+        ceded_station_ids=tuple(sorted({*plan.ceded_station_ids, *(ceded or ())})),
+        ceded_member_edges=tuple(
+            edge
+            for edge in plan.resolved_member_edges
+            if edge in plan.ceded_member_edges or edge in (ceded_edges or ())
+        ),
+    )
+
+
+def _kept_cessions(
+    cessions: Mapping[FanPlanId, Mapping[_T, FanPlanId]],
+    declined: AbstractSet[FanPlanId],
+) -> dict[FanPlanId, dict[_T, FanPlanId]]:
+    """Drop every cession made to a plan in *declined*."""
+    return {
+        plan_id: {
+            item: owner_id
+            for item, owner_id in ceded.items()
+            if owner_id not in declined
+        }
+        for plan_id, ceded in cessions.items()
+    }
+
+
+def _contention_reason(
+    left: FanPlan, right: FanPlan, shared_edges: bool, shared: set[str]
+) -> str | None:
+    """Which owner holds the part *left* and *right* both reach.
+
+    Two readings of one fork that split the lines between them are the two line
+    groups of one symmetric or straight fan, whose stations the diamond layout
+    seats: giving either reading the fork moves those stations off the seats
+    that layout settled, so it holds the whole fork.  A pair of chained fans
+    sharing only centreline stations is two forks on the trunk the row aligner
+    placed between them, and a fan claiming that trunk drags the aligned row
+    with it, so the local layout holds it.  A pair landing branches on one port
+    from two forks reaches a seat ``_align_entry_ports`` (``phases/ports.py``,
+    line 183) gives from the section frame and the runs arriving, which the fan
+    reads back rather than writes (``inter_section_handlers.py:2457``): letting
+    either fan state that seat puts its section's own content outside the box
+    the allocator sized for it, so the allocator holds the landing.  A pair
+    sharing no route and no seat
+    either states -- one fan's boundary against another's -- would have settled
+    by cession, and contends only because the fan it ceded to is contending:
+    ``None`` leaves it to take its reason from that fan.  Anything else is two
+    fans reaching the same geometry with no owner named for the shared part.
+    """
+    if left.fork_station_id == right.fork_station_id:
+        return "line-split-fork-layout-owns-geometry"
+    both_stated = shared & stated_station_ids(left) & stated_station_ids(right)
+    if both_stated:
+        if all(
+            station_id in plan.centreline_station_ids
+            and station_id not in _laned_station_ids(plan)
+            for station_id in both_stated
+            for plan in (left, right)
+        ):
+            return "chained-trunk-layout-owns-geometry"
+        if both_stated <= _landing_port_ids(left) & _landing_port_ids(right):
+            return "shared-landing-port-allocator-owns-the-seat"
+        return "overlapping-fan-ownership"
+    return "overlapping-fan-ownership" if shared_edges else None
+
+
+def _claim_conflicts(contenders: tuple[FanPlan, ...]) -> dict[FanPlanId, str]:
+    """Name, per plan, why it reaches an edge or station another plan holds."""
+    reasons: dict[FanPlanId, str] = {}
+    cascades: defaultdict[FanPlanId, list[FanPlanId]] = defaultdict(list)
+    for index, left in enumerate(contenders):
+        left_authored = set(left.authored_edge_ids)
+        left_resolved = claimed_member_edges(left)
+        left_stations = claimed_station_ids(left)
+        for right in contenders[index + 1 :]:
+            shared = left_stations.intersection(claimed_station_ids(right))
+            shared_edges = bool(
+                left_authored.intersection(right.authored_edge_ids)
+                or left_resolved.intersection(claimed_member_edges(right))
+            )
+            if not (shared_edges or shared):
+                continue
+            reason = _contention_reason(left, right, shared_edges, shared)
+            for plan, other in ((left, right), (right, left)):
+                if reason is None:
+                    cascades[plan.id].append(other.id)
+                elif reasons.get(plan.id) != "overlapping-fan-ownership":
+                    reasons[plan.id] = reason
+    for plan_id, partners in sorted(cascades.items(), key=lambda item: str(item[0])):
+        if plan_id in reasons:
+            continue
+        reasons[plan_id] = next(
+            (
+                reasons[partner]
+                for partner in sorted(partners, key=str)
+                if partner in reasons
+            ),
+            "overlapping-fan-ownership",
+        )
+    return reasons
+
+
+def _folded_fork_readings(
+    plans: tuple[FanPlan, ...], ranks: Mapping[str, int]
+) -> set[FanPlanId]:
+    """The candidates at a fork another candidate already reads the fan from.
+
+    A fork has one set of branches leaving it however many runs arrive at it,
+    and ``FanPlanQuery.build`` admits one planned fan per fork accordingly.
+    Candidates are built per authored source, so feeders that merge before the
+    fork each raise one: where those readings land the same branches on the same
+    lines they are one fan read twice, differing only in the lead each feeder
+    takes into it.  The earliest by the authored rank of the fork and then the
+    plan id is the fan; the rest are folded away and their leads route as
+    ordinary runs.  Readings that split the lines between them each carry a
+    branch set the others do not, so folding would drop a line's fan.
+    """
+    by_fork: defaultdict[str, list[FanPlan]] = defaultdict(list)
+    for plan in plans:
+        by_fork[plan.fork_station_id].append(plan)
+    folded: set[FanPlanId] = set()
+    for fork_id, readings in by_fork.items():
+        if len(readings) < 2:
+            continue
+        shapes = {
+            tuple(
+                (branch.landing_port_ids, branch.line_ids) for branch in plan.branches
+            )
+            for plan in readings
+        }
+        if len(shapes) > 1:
+            continue
+        keeper = min(
+            readings,
+            key=lambda plan: (ranks.get(fork_id, len(ranks)), str(plan.id)),
+        )
+        folded.update(plan.id for plan in readings if plan.id != keeper.id)
+    return folded
+
+
 def _reject_overlaps(
-    plans: tuple[FanPlan, ...], facts_by_id: Mapping[ConnectorId, AuthoredEdgeFact]
+    plans: tuple[FanPlan, ...],
+    facts_by_id: Mapping[ConnectorId, AuthoredEdgeFact],
+    ranks: Mapping[str, int],
 ) -> tuple[FanPlan, ...]:
     subsumed: set[FanPlanId] = set()
     for inner in plans:
@@ -2094,21 +3222,32 @@ def _reject_overlaps(
             if outer.id != inner.id
         ):
             subsumed.add(inner.id)
+    subsumed |= _folded_fork_readings(
+        tuple(plan for plan in plans if plan.id not in subsumed), ranks
+    )
     plans = tuple(plan for plan in plans if plan.id not in subsumed)
-    conflicts: set[FanPlanId] = set()
-    for index, left in enumerate(plans):
-        left_authored = set(left.authored_edge_ids)
-        left_resolved = set(left.resolved_member_edges)
-        left_stations = set(left.owned_station_ids)
-        for right in plans[index + 1 :]:
-            if (
-                left_authored.intersection(right.authored_edge_ids)
-                or left_resolved.intersection(right.resolved_member_edges)
-                or left_stations.intersection(right.owned_station_ids)
-            ):
-                conflicts.update((left.id, right.id))
+    candidates = tuple(plan for plan in plans if plan.legacy_reason is None)
+    read_from = _cede_read_claims(candidates, ranks)
+    edge_read_from = _cede_read_edges(candidates)
+    # A seat or a seam route can only be read from a fan that goes on to state
+    # it, so a cession to a plan that itself ends up declined is void and its
+    # reader takes the station or edge back.  Taking one back only ever adds
+    # contention, so the declined set grows with each round and the loop settles.
+    while True:
+        contenders = tuple(
+            _seat_cessions(plan, read_from, edge_read_from) for plan in candidates
+        )
+        conflicts = _claim_conflicts(contenders)
+        kept_stations = _kept_cessions(read_from, conflicts.keys())
+        kept_edges = _kept_cessions(edge_read_from, conflicts.keys())
+        if kept_stations == read_from and kept_edges == edge_read_from:
+            break
+        read_from, edge_read_from = kept_stations, kept_edges
+    seated = {plan.id: plan for plan in contenders}
     return tuple(
-        _legacy(plan, "overlapping-fan-ownership") if plan.id in conflicts else plan
+        _legacy(seated.get(plan.id, plan), reason)
+        if (reason := conflicts.get(plan.id)) is not None
+        else seated.get(plan.id, plan)
         for plan in plans
     )
 
@@ -2156,7 +3295,10 @@ def _bind_semantic_ownership(
         )
         for branch in plan.branches
     )
-    member_ids = member_ids_for_edges(plan.resolved_member_edges)
+    ceded_edges = set(plan.ceded_member_edges)
+    member_ids = member_ids_for_edges(
+        edge for edge in plan.resolved_member_edges if edge not in ceded_edges
+    )
     reference_id: SharedReferenceId | None = None
     demand_ids: tuple[DemandId, ...] = ()
     if plan.owns_geometry and system_id is not None:
@@ -2177,7 +3319,11 @@ def _bind_semantic_ownership(
         tuple(
             replace(
                 expectation,
-                member_id=scaffold.member_id_by_edge.get(expectation.edge),
+                member_id=(
+                    None
+                    if expectation.edge in ceded_edges
+                    else scaffold.member_id_by_edge.get(expectation.edge)
+                ),
             )
             for expectation in plan.route_expectations
         )
@@ -2233,7 +3379,7 @@ def build_fan_plan_execution(
         for source_id, targets in adjacency.items()
         if len(targets) >= 2
     )
-    plans = _reject_overlaps(plans, {fact.id: fact for fact in facts})
+    plans = _reject_overlaps(plans, {fact.id: fact for fact in facts}, ranks)
     semantic_scaffold = None
     if graph.route_topology is not None:
         connector_groups: list[tuple[ConnectorId, ...]] = []
@@ -2299,6 +3445,36 @@ def _fan_boundary_station_ids(plan: FanPlan) -> frozenset[str]:
     )
 
 
+def _boundary_spreads_on_axis(
+    graph: MetroGraph,
+    station_id: str,
+    *,
+    perpendicular_sides: Sequence[PortSide],
+    axis_name: str,
+) -> bool:
+    """Whether a boundary station separates its lines along *axis_name*.
+
+    A station holds its lane offset on the axis its own section spreads lines
+    across.  A boundary standing in a section that spreads them the other way
+    -- a hand-off inside a vertical-flow section feeding a horizontal fan --
+    spends the offset on the fan's flow axis, so the fan's lane coordinate
+    there is the station's own.  A port the bundle enters or leaves
+    perpendicular turns at the boundary and likewise carries no lane offset
+    across it.
+    """
+    port = graph.ports.get(station_id)
+    if port is not None:
+        return port.side not in perpendicular_sides
+    section = graph.sections.get(graph.section_for_station(station_id) or "")
+    if section is None:
+        return True
+    return (
+        lanes_run_along_x(section.direction)
+        if axis_name == "x"
+        else lanes_run_along_y(section.direction)
+    )
+
+
 def _validate_fan_runtime_frame(
     graph: MetroGraph,
     plan: FanPlan,
@@ -2309,17 +3485,28 @@ def _validate_fan_runtime_frame(
     from nf_metro.layout.routing.common import apply_route_offsets
 
     context = f"planned fan {plan.id!s} in route system {plan.system_id!s}"
-    endpoints: dict[tuple[str, str], list[tuple[ResolvedEdge, tuple[float, float]]]] = (
-        defaultdict(list)
-    )
+    endpoints: dict[
+        tuple[str, str],
+        list[tuple[ResolvedEdge, tuple[float, float], tuple[tuple[float, float], ...]]],
+    ] = defaultdict(list)
     for edge, route in bound_routes.items():
         if not route.points:
-            raise RuntimeError(f"{context} emitted an empty final route for {edge!r}")
+            raise FanRouteInvariantError(
+                f"{context} emitted an empty final route for {edge!r}"
+            )
         points = tuple(apply_route_offsets(route, station_offsets))
-        endpoints[(edge.source, edge.line_id)].append((edge, points[0]))
-        endpoints[(edge.target, edge.line_id)].append((edge, points[-1]))
+        endpoints[(edge.source, edge.line_id)].append((edge, points[0], points))
+        endpoints[(edge.target, edge.line_id)].append((edge, points[-1], points))
 
-    if plan.frame is not None and plan.direction is not None:
+    uses_one_boundary_frame = not (
+        plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+        and plan.authored_join_station_id is not None
+    )
+    if (
+        plan.frame is not None
+        and plan.direction is not None
+        and uses_one_boundary_frame
+    ):
         secondary_axis = 0 if plan.frame.secondary.name == "x" else 1
         perpendicular_sides = perpendicular_port_sides(plan.direction)
         for station_id in _fan_boundary_station_ids(plan):
@@ -2327,17 +3514,22 @@ def _validate_fan_runtime_frame(
                 continue
             station = graph.stations.get(station_id)
             if station is None:
-                raise RuntimeError(
+                raise FanRouteInvariantError(
                     f"{context} has no realised boundary station {station_id!r}"
                 )
-            port = graph.ports.get(station_id)
+            spreads_on_frame_axis = _boundary_spreads_on_axis(
+                graph,
+                station_id,
+                perpendicular_sides=perpendicular_sides,
+                axis_name=plan.frame.secondary.name,
+            )
             for (endpoint_id, line_id), incident in endpoints.items():
                 if endpoint_id != station_id:
                     continue
                 offset = (
-                    0.0
-                    if port is not None and port.side in perpendicular_sides
-                    else station_offsets.get((station_id, line_id), 0.0)
+                    station_offsets.get((station_id, line_id), 0.0)
+                    if spreads_on_frame_axis
+                    else 0.0
                 )
                 expected = (
                     plan.frame.secondary.get(station)
@@ -2345,9 +3537,9 @@ def _validate_fan_runtime_frame(
                 )
                 if any(
                     abs(point[secondary_axis] - expected) > COORD_TOLERANCE_FINE
-                    for _edge, point in incident
+                    for _edge, point, _points in incident
                 ):
-                    raise RuntimeError(
+                    raise FanRouteInvariantError(
                         f"{context} drifted from its planned boundary frame at "
                         f"{station_id!r} on {line_id!r}"
                     )
@@ -2361,12 +3553,22 @@ def _validate_fan_runtime_frame(
             if station_id == plan.fork_station_id and plan.frame is not None
             else (0, 1)
         )
+        # A branch leaving a junction can open with a lead-in seated back along
+        # the run that feeds it, so its end stands short of the station while
+        # drawing over a sibling's stroke rather than away from it.
         if any(
-            abs(point[axis] - reference[axis]) > COORD_TOLERANCE_FINE
-            for _edge, point in incident[1:]
-            for axis in axes
+            any(
+                abs(point[axis] - reference[axis]) > COORD_TOLERANCE_FINE
+                for axis in axes
+            )
+            and all(
+                point_to_polyline_distance(point, other) > COORD_TOLERANCE_FINE
+                for _other_edge, _other_point, other in incident
+                if other is not points
+            )
+            for _edge, point, points in incident[1:]
         ):
-            raise RuntimeError(
+            raise FanRouteInvariantError(
                 f"{context} has a final route frame discontinuity at "
                 f"{station_id!r} on {line_id!r}"
             )
@@ -2377,7 +3579,7 @@ def _validate_fan_runtime_frame(
         return
     fork = graph.stations.get(plan.fork_station_id)
     if fork is None:
-        raise RuntimeError(f"{context} has no realised fork station")
+        raise FanRouteInvariantError(f"{context} has no realised fork station")
     secondary_axis = 0 if plan.frame.secondary.name == "x" else 1
     planned_base = plan.frame.secondary.get(fork)
     carrier = next(
@@ -2392,7 +3594,7 @@ def _validate_fan_runtime_frame(
         (line_id, point)
         for (station_id, line_id), incident in endpoints.items()
         if station_id == plan.fork_station_id
-        for _edge, point in incident
+        for _edge, point, _points in incident
     )
     if carrier is None:
         for line_id, point in fork_endpoints:
@@ -2405,7 +3607,7 @@ def _validate_fan_runtime_frame(
                 abs(point[secondary_axis] - planned_base - external_offset)
                 > COORD_TOLERANCE_FINE
             ):
-                raise RuntimeError(
+                raise FanRouteInvariantError(
                     f"{context} drifted from its planned fork centreline"
                 )
         return
@@ -2417,15 +3619,32 @@ def _validate_fan_runtime_frame(
         if line_id in slots
     ]
     if any(abs(base - planned_base) > COORD_TOLERANCE_FINE for base in bases):
-        raise RuntimeError(f"{context} drifted from its planned fork frame")
+        raise FanRouteInvariantError(f"{context} drifted from its planned fork frame")
 
 
 def validate_fan_route_emissions(
     graph: MetroGraph,
     routes: Sequence[RoutedPath],
     station_offsets: Mapping[tuple[str, str], float] | None = None,
+    *,
+    planned_system_ids: frozenset[RouteSystemId] | None = None,
+    covered_edges: frozenset[ResolvedEdge] = frozenset(),
 ) -> None:
-    """Bind every planned fan member and exclusive emitter exactly once."""
+    """Bind every planned fan member and exclusive emitter exactly once.
+
+    A leg in *covered_edges* is one another member draws end to end, so it
+    carries no geometry of its own: a fan whose path runs over it reads it
+    rather than emitting it, and binding it to its carrier would state the
+    carrier's far endpoint at this leg's own.
+    """
+
+    def emitted_plan(plan: FanPlan) -> bool:
+        return plan.owns_geometry and (
+            planned_system_ids is None
+            or plan.system_id is None
+            or plan.system_id in planned_system_ids
+        )
+
     routes_by_edge: dict[ResolvedEdge, list[RoutedPath]] = defaultdict(list)
     for route in routes:
         routes_by_edge[
@@ -2433,11 +3652,13 @@ def validate_fan_route_emissions(
         ].append(route)
     bound_routes_by_plan: list[tuple[FanPlan, dict[ResolvedEdge, RoutedPath]]] = []
     for plan in graph.fan_plans:
-        if not plan.owns_geometry:
+        if not emitted_plan(plan):
             continue
         bound_routes: dict[ResolvedEdge, RoutedPath] = {}
         for edge in _fan_runtime_edges(plan):
             bound = routes_by_edge.get(edge, ())
+            if not bound and edge in covered_edges:
+                continue
             if len(bound) != 1:
                 raise RuntimeError(
                     f"planned fan {plan.id!s} in route system {plan.system_id!s} "
@@ -2450,7 +3671,7 @@ def validate_fan_route_emissions(
     expected = tuple(
         (plan, emission)
         for plan in graph.fan_plans
-        if plan.owns_geometry
+        if emitted_plan(plan)
         for emission in plan.route_emissions
     )
     query = graph.fan_plan_query
@@ -2466,6 +3687,11 @@ def validate_fan_route_emissions(
         if binding is None:
             raise RuntimeError(f"unclaimed fan route emission tagged {edge!r}")
         plan, _branch, emission = binding
+        if not emitted_plan(plan):
+            raise RuntimeError(
+                f"compatibility route system {plan.system_id!s} consumed planned "
+                f"fan emission {plan.id!s} for {edge!r}"
+            )
         if (
             route.fan_plan_id != plan.id
             or route.fan_route_emitter != emission.emitter.value

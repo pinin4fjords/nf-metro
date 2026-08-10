@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 import nf_metro.layout.routing.core as routing_core
+import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.invariants import (
@@ -67,9 +68,12 @@ def test_no_split_same_line_fanout_descents_in_gallery(path: Path) -> None:
 def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     """Disabling the fan-out fuse pass reproduces the split descents the
     invariant is meant to catch, proving the check is not vacuous."""
-    monkeypatch.setattr(
-        routing_core, "_coincide_fanout_opening_descents", lambda routes, ctx: None
-    )
+
+    def no_fuse(routes, ctx, *, settle_frozen_arcs: bool = False) -> None:
+        return None
+
+    monkeypatch.setattr(routing_core, "_coincide_fanout_opening_descents", no_fuse)
+    monkeypatch.setattr(member_geometry, "_coincide_fanout_opening_descents", no_fuse)
     graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "divergent_fanout_split.mmd")
     violations = check_no_split_same_line_fanout_descents(graph, routes, offsets)
     assert violations, "expected a split fan-out descent with the fuse pass off"
@@ -156,20 +160,37 @@ def test_same_line_fan_traverses_read_as_one_stroke() -> None:
 def test_distinct_line_fan_traverses_nest_as_one_bundle() -> None:
     """Distinct lines fanning from one source and sharing the corridor they turn
     onto nest their traverses one OFFSET_STEP apart -- a tight bundle -- rather
-    than running on independently-sized bands several px apart (issue #1409)."""
+    than running on independently-sized bands several px apart (issue #1409).
+
+    Legs are grouped from every opening fan-out descent, including those a route
+    system plans, so the nesting is read off the drawn corridor rather than off
+    whichever owner settled it.
+    """
     from collections import defaultdict
 
     from nf_metro.layout.constants import OFFSET_STEP
-    from nf_metro.layout.routing.normalize import _fanout_traverse_legs
+    from nf_metro.layout.routing.common import iter_horizontal_trunks
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
 
     path = EXAMPLE_TOPOLOGIES / "same_line_fan_distinct_descent.mmd"
     _graph, routes, _offsets = _route(path)
 
+    traverses: defaultdict[tuple[str, bool], defaultdict[str, list[float]]] = (
+        defaultdict(lambda: defaultdict(list))
+    )
+    for route in routes:
+        descent = _opening_fanout_descent(route)
+        if descent is None:
+            continue
+        for index, segment in iter_horizontal_trunks(route):
+            if index == descent.idx + 1:
+                traverses[(route.edge.source, descent.down)][route.line_id].append(
+                    segment.y
+                )
+                break
+
     nested = False
-    for legs in _fanout_traverse_legs(routes).values():
-        per_line = defaultdict(list)
-        for leg in legs:
-            per_line[leg.route.line_id].append(leg.seg.y)
+    for per_line in traverses.values():
         if len(per_line) < 2:
             continue
         band_ys = sorted(min(ys) for ys in per_line.values())

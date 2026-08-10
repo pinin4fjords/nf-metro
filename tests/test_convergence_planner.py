@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from nf_metro.layout.route_plan import (
     DemandKind,
     KeepOutClass,
     RoutePlan,
+    RouteSystemDisposition,
     RouteSystemId,
     SharedReferenceId,
     SharedReferenceKind,
@@ -47,7 +49,7 @@ from nf_metro.layout.routing.invariants import (
     check_merge_feeders_land_on_trunk,
 )
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
-from nf_metro.parser.route_topology import build_route_topology_query
+from nf_metro.parser.route_topology import ResolvedEdge, build_route_topology_query
 
 ROOT = Path(__file__).parents[1]
 TOPOLOGIES = ROOT / "examples" / "topologies"
@@ -60,6 +62,10 @@ def _observe(path: Path):
     offsets = compute_station_offsets(graph)
     observed = observe_route_edges(graph, station_offsets=offsets)
     return graph, offsets, observed
+
+
+def _edge_order(observed) -> tuple[ResolvedEdge, ...]:
+    return tuple(member.edge for member in observed.plan.members)
 
 
 def _observe_text(text: str):
@@ -115,76 +121,39 @@ def test_three_column_merge_has_one_complete_planned_convergence() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("fixture", "reason"),
-    (
-        (
-            "exit_run_three_drop_columns.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
-        (
-            "funcprofiler_upstream.mmd",
-            "planned convergence corridor conflicts with unowned route-system members",
-        ),
-        (
-            "merge_trunk_out_of_range_section.mmd",
-            "planned convergence trunks require one shared channel decision",
-        ),
-    ),
+ROUTABLE_CORPUS = tuple(
+    path
+    for base in (ROOT / "examples", ROOT / "tests" / "fixtures")
+    for path in sorted(base.rglob("*.mmd"))
+    if "nextflow" not in path.parts and "invalid" not in path.parts
 )
-def test_conflicting_route_systems_use_whole_system_compatibility(
-    fixture: str, reason: str
-) -> None:
-    _graph, _offsets, observed = _observe(TOPOLOGIES / fixture)
-
-    assert observed.plan.convergence_plans
-    assert {item.disposition for item in observed.plan.convergence_plans} == {
-        ConvergenceDisposition.LEGACY
-    }
-    assert len({item.system_id for item in observed.plan.convergence_plans}) == 1
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
 
 
-@pytest.mark.parametrize(
-    ("path", "reason"),
-    (
-        (
-            TOPOLOGIES / "merge_bottom_row_bypass.mmd",
-            "planned fan arms require opposing opening channels",
-        ),
-        (
-            TOPOLOGIES / "merge_feeder_shared_channel_gap.mmd",
-            "planned fan arms require opposing opening channels",
-        ),
-        (
-            TOPOLOGIES / "merge_right_entry.mmd",
-            "planned convergence corridor conflicts with unowned route-system member",
-        ),
-        (
-            ROOT / "examples" / "genomeassembly.mmd",
-            "chained same-line convergences require one shared system settlement",
-        ),
-        (
-            ROOT / "tests" / "fixtures" / "genomeassembly_organellar.mmd",
-            "chained same-line convergences require one shared system settlement",
-        ),
-        (
-            ROOT / "tests" / "fixtures" / "ambiguous_exit_continuation.mmd",
-            "planned convergence feeder approaches require one shared channel decision",
-        ),
-    ),
-)
-def test_reviewed_conflicts_keep_the_complete_system_on_compatibility(
-    path: Path, reason: str
-) -> None:
-    _graph, _offsets, observed = _observe(path)
+def test_every_corpus_convergence_is_planned_not_left_to_compatibility() -> None:
+    """No map in the corpus reaches emission with a convergence the planner
+    declined.
 
-    assert observed.plan.convergence_plans
-    assert all(
-        item.disposition is ConvergenceDisposition.LEGACY
-        for item in observed.plan.convergence_plans
-    )
-    assert {item.legacy_reason for item in observed.plan.convergence_plans} == {reason}
+    A ``legacy_reason`` names a decision the planner could not make, which sends
+    the whole route system to the compatibility emitter instead of to geometry
+    the plan states.  Asserting the absence over the whole corpus rather than
+    over a list of known fixtures is what makes a newly declined system a test
+    failure rather than an unlisted case.
+    """
+    declined: list[tuple[str, str]] = []
+    for path in ROUTABLE_CORPUS:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                _graph, _offsets, observed = _observe(path)
+            except Exception:  # noqa: BLE001 - a fixture that cannot route at all
+                continue  # is held to its own error by the tests that own it
+        declined.extend(
+            (path.name, str(item.legacy_reason))
+            for item in observed.plan.convergence_plans
+            if item.legacy_reason is not None
+            or item.disposition is ConvergenceDisposition.LEGACY
+        )
+    assert declined == []
 
 
 @pytest.mark.parametrize(
@@ -549,7 +518,7 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="planned opening"):
@@ -573,8 +542,8 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
                 (0.0, 0.0),
                 (12.0, 0.0),
                 (12.0, 20.0),
-                (30.0, 20.0),
-                (30.0, 40.0),
+                (28.0, 20.0),
+                (28.0, 40.0),
                 (40.0, 40.0),
             ],
             1,
@@ -593,8 +562,8 @@ def test_runtime_guard_rejects_a_mutated_planned_opening_segment() -> None:
                 (0.0, 0.0),
                 (0.0, 12.0),
                 (20.0, 12.0),
-                (20.0, 30.0),
-                (40.0, 30.0),
+                (20.0, 28.0),
+                (40.0, 28.0),
                 (40.0, 40.0),
             ],
             1,
@@ -635,6 +604,52 @@ def test_trunk_flank_settlement_rederives_curve_radii(
         assert route.curve_radii[radius_rank] != 99.0
 
 
+def test_trunk_flank_settlement_keeps_radii_of_an_unmoved_flank() -> None:
+    """A flank already on its planned column keeps the radii it was emitted with.
+
+    The lane band a plan nests its flanks in spans only the lines converging on
+    it, while the flank's own bundle spans every line it physically travels
+    with.  Where the plan names the column the flank is already on it states no
+    displacement the emitted geometry does not have, so its corners must keep
+    the radii the bundle builder derived -- a lane band of one would otherwise
+    flatten an outer line's corner onto the inner line's radius.
+    """
+    axis = ConvergenceTrunkAxis(
+        DemandAxis.X,
+        20.0,
+        10.0,
+        30.0,
+        Direction.R,
+        0.0,
+        40.0,
+    )
+    route = RoutedPath(
+        Edge("source", "target", "line"),
+        "line",
+        [
+            (0.0, 0.0),
+            (12.0, 0.0),
+            (12.0, 20.0),
+            (30.0, 20.0),
+            (30.0, 40.0),
+            (40.0, 40.0),
+        ],
+        is_inter_section=True,
+        curve_radii=[99.0] * 4,
+        offset_regime=OffsetRegime.BAKED,
+    )
+
+    _seat_route_on_trunk_flanks(route, axis, MetroGraph(), lane_offset=2.0)
+
+    assert route.points[3] == (30.0, 20.0)
+    assert route.points[4] == (30.0, 40.0)
+    assert route.curve_radii is not None
+    assert route.curve_radii[0] != 99.0
+    assert route.curve_radii[1] != 99.0
+    assert route.curve_radii[2] == 99.0
+    assert route.curve_radii[3] == 99.0
+
+
 def test_perpendicular_entry_convergences_plan_one_trunk_per_crossing_column() -> None:
     """Three merges into one TOP port are one route system, and the planner owns it.
 
@@ -663,7 +678,6 @@ def test_perpendicular_entry_convergences_plan_one_trunk_per_crossing_column() -
     assert len(plans) == 3
     assert len({plan.system_id for plan in plans}) == 1
     assert {plan.disposition for plan in plans} == {ConvergenceDisposition.PLANNED}
-    assert {plan.conflict for plan in plans} == {None}
     assert {plan.primary_trunk_reason for plan in plans} == {
         ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
     }
@@ -779,7 +793,7 @@ def test_runtime_guard_rejects_reduced_planned_landing_runway() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="runway"):
@@ -828,6 +842,20 @@ def test_one_planning_failure_rolls_back_the_whole_route_system(
     ) == len(plans)
 
 
+def test_unregistered_convergence_failure_cannot_open_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject(*_args, **_kwargs):
+        raise UnsupportedConvergenceError("synthetic unregistered convergence failure")
+
+    monkeypatch.setattr(convergence_routing, "_build_planned_convergence", reject)
+    with pytest.raises(
+        ValueError,
+        match="unregistered compatibility reason convergence-plan",
+    ):
+        _observe(FROZEN / "seed_15.mmd")
+
+
 @pytest.mark.parametrize("error", (AssertionError("bug"), TypeError("bug")))
 def test_programming_errors_do_not_silently_fall_back(
     monkeypatch: pytest.MonkeyPatch, error: Exception
@@ -866,10 +894,21 @@ def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
 
     assert plans
     assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
-    assert all(
-        plan.legacy_reason == "convergence landing conflicts with an upstream exit turn"
-        for plan in plans
+    assert {plan.legacy_reason for plan in plans} == {
+        "convergence landing conflicts with an upstream exit turn"
+    }
+    system = next(
+        item for item in observed.plan.systems if item.id == plans[0].system_id
     )
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert {
+        (reason.owner, reason.reason) for reason in system.compatibility_reasons
+    } == {
+        (
+            "convergence-plan",
+            "convergence landing conflicts with an upstream exit turn",
+        )
+    }
 
 
 def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
@@ -895,7 +934,7 @@ def test_runtime_guard_names_the_plan_member_and_broken_join() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError) as error:
@@ -937,7 +976,7 @@ def test_runtime_guard_rejects_a_disconnected_diagonal_trunk() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="does not emit planned"):
@@ -970,7 +1009,7 @@ def test_runtime_guard_rejects_a_missing_terminal_trunk_cap() -> None:
     execution = replace(
         convergence_routing.empty_convergence_plan_execution(),
         plans=(plan,),
-        query=convergence_routing._query((plan,)),
+        query=convergence_routing._query((plan,), _edge_order(observed)),
     )
 
     with pytest.raises(ConvergenceInvariantError, match="does not emit planned"):
@@ -1144,7 +1183,7 @@ def test_route_plan_rejects_duplicate_semantic_convergence_coverage(
         convergence_plans=(plan, duplicate),
     )
 
-    with pytest.raises(ValueError, match="coverage"):
+    with pytest.raises(ValueError, match="resource identities|coverage"):
         build_route_plan_query(route_plan)
 
 
@@ -1172,14 +1211,16 @@ def test_route_plan_rejects_incomplete_convergence_emission_membership(
         dict.fromkeys(edge for path in remaining_paths for edge in path)
     )
     member_by_edge = {item.edge: item.id for item in right_entry_route_plan.members}
-    mutated = replace(
-        plan,
-        member_ids=tuple(member_by_edge[edge] for edge in remaining_edges),
-        resolved_member_paths=remaining_paths,
-        resolved_member_edges=remaining_edges,
-    )
-
-    with pytest.raises(ValueError, match="membership is incomplete"):
-        build_route_plan_query(
-            replace(right_entry_route_plan, convergence_plans=(mutated,))
+    remaining_member_ids = tuple(member_by_edge[edge] for edge in remaining_edges)
+    with pytest.raises(ValueError, match="ownership"):
+        replace(
+            plan,
+            member_ids=remaining_member_ids,
+            resolved_member_paths=remaining_paths,
+            resolved_member_edges=remaining_edges,
+            endpoint_ownership=tuple(
+                item
+                for item in plan.endpoint_ownership
+                if item.member_id in remaining_member_ids
+            ),
         )

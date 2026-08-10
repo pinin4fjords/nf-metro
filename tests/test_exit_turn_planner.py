@@ -13,21 +13,23 @@ from types import MappingProxyType
 
 import pytest
 
-import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.api import prepare_graph, render_string, resolve_theme
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
+from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
+    EmissionRole,
     ExitLaneOrderSource,
     ExitTurnDisposition,
     RouteFamilyId,
+    RouteSystemDisposition,
+    RouteSystemId,
     SharedReferenceKind,
     build_route_plan_query,
 )
@@ -87,11 +89,17 @@ def _observe(path: Path):
     return graph, offsets, observation
 
 
-def _build_execution(path: Path):
+def _build_execution(path: Path, *, offset_step: float | None = None):
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    offsets = compute_station_offsets(graph)
+    offsets = compute_station_offsets(graph, offset_step=offset_step)
     original_offsets = dict(offsets)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+    ctx = _build_routing_context(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        offsets,
+        offset_step=offset_step,
+    )
     execution = exit_turns.build_exit_turn_execution(graph, ctx)
     return graph, offsets, original_offsets, execution
 
@@ -388,9 +396,17 @@ def test_merge_feeder_does_not_compress_a_terminal_landing_curve() -> None:
 
 def test_leftward_upturn_preserves_source_lane_order() -> None:
     graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
-    plan = _plan_for_source(observation, "s7__exit_left_5")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        FROZEN / "seed_72.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "s7__exit_left_5")
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert system.compatibility_reasons
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("l6", "l2")
     axes = {axis.line_id: axis.coordinate for axis in plan.axes}
     assert axes["l6"] < axes["l2"]
@@ -399,7 +415,14 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
         for route in observation.routes
         if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
     }
-    assert _turn_x(routes["l6"], offsets) < _turn_x(routes["l2"], offsets)
+    assert all(
+        route.route_system_disposition == "compatibility" for route in routes.values()
+    )
+    turn_x = {
+        line_id: apply_route_offsets(route, offsets)[1][0]
+        for line_id, route in routes.items()
+    }
+    assert turn_x["l6"] < turn_x["l2"]
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -407,7 +430,12 @@ def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
     graph, offsets, observation = _observe(
         TOPOLOGIES / "leftward_up_exit_turn_order.mmd"
     )
-    plan = _plan_for_source(observation, "source__exit_left_3")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "leftward_up_exit_turn_order.mmd"
+    )
+    plan = next(
+        item for item in execution.plans if item.source_id == "source__exit_left_3"
+    )
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("branch", "shared")
@@ -418,6 +446,11 @@ def test_compacted_leftward_source_stays_planned_as_a_straight_group() -> None:
         for assignment in plan.assignments
     )
     assert not plan.axes
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert system.compatibility_reasons == ()
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -595,13 +628,11 @@ def test_exit_plan_falls_back_before_changing_a_linear_entry_frame(
         return tuple(built)
 
     monkeypatch.setattr(exit_turns, "_build_group_plans", conflict)
-    _graph, offsets, observation = _observe(TOPOLOGIES / "target_lane_transition.mmd")
-    plan = _plan_for_source(observation, "__junction_7")
-    affected = [
-        item
-        for item in observation.plan.exit_turn_plans
-        if item.system_id == plan.system_id
-    ]
+    _graph, offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "target_lane_transition.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_7")
+    affected = [item for item in execution.plans if item.system_id == plan.system_id]
 
     assert all(item.disposition is ExitTurnDisposition.LEGACY for item in affected)
     assert all(
@@ -838,9 +869,12 @@ def test_compacted_straight_continuation_keeps_its_lane_across_the_seam() -> Non
     graph, offsets, observation = _observe(
         TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
     )
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
+    )
     plans = {
         plan.source_id: plan
-        for plan in observation.plan.exit_turn_plans
+        for plan in execution.plans
         if any(lane.line_id == "straight" for lane in plan.source_lanes)
     }
 
@@ -923,11 +957,6 @@ def test_lane_order_inversion_uses_whole_group_legacy() -> None:
     ("fixture", "source_id", "reason"),
     (
         (
-            "ambiguous_exit_continuation.mmd",
-            "__junction_4",
-            "ambiguous-continuation",
-        ),
-        (
             "compact_continuation_slot_conflict.mmd",
             "src__exit_right_0",
             "continuation-transition-has-no-runway",
@@ -939,11 +968,109 @@ def test_unsupported_continuations_use_whole_group_legacy(
     source_id: str,
     reason: str,
 ) -> None:
-    _graph, _offsets, observation = _observe(FIXTURES / fixture)
-    plan = _plan_for_source(observation, source_id)
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / fixture
+    )
+    plan = next(item for item in execution.plans if item.source_id == source_id)
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason == reason
+
+
+def test_lane_arms_a_corner_apart_fork_off_one_stroke() -> None:
+    """Arms of one lane on well-separated columns are a fork, not a doubling."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "riboseq_fold_two_dir_entry.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_10")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    columns = sorted(axis.coordinate for axis in plan.axes if axis.line_id == "ribo")
+    assert len(columns) == 2
+    assert columns[1] - columns[0] >= CURVE_RADIUS
+
+
+def test_lane_arms_inside_one_corner_are_not_one_stroke() -> None:
+    """Columns closer than a corner leave the lane drawn as two tracks."""
+    assert exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1075.0, CURVE_RADIUS)
+    assert exit_turns._lane_arms_read_as_one_stroke((536.0,), 692.0, CURVE_RADIUS)
+    assert not exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1079.0, CURVE_RADIUS)
+
+
+def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:
+    """Owners pinning columns inside one corner hold the whole group back.
+
+    Several families pin this source's turn columns within a single corner's
+    runway, each to a column of its own.  Columns that close together belong to
+    one bundle turning one corner, which nests from a single origin, so the
+    plan may not hand each owner a centre of its own; with no origin the pins
+    agree on, it declines wholesale and the emitter draws the nested corner.
+    """
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / "target_entry_runway_bypass.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_13")
+
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "fixed-axis-conflict"
+
+
+def test_several_turnless_members_each_state_their_own_landing() -> None:
+    """One lane's turn-less members land at different depths on one ray."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "tb_bottom_exit_fork_diamond.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_6")
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    continuations = tuple(
+        item
+        for item in plan.assignments
+        if EmissionRole.CONTINUATION in item.roles and item.turn_direction is None
+    )
+    assert len(continuations) == 2
+    assert len({item.entry_group_id for item in continuations}) == 2
+    assert {item.run_direction for item in continuations} == {Direction.D}
+
+
+def test_opposed_travel_on_one_column_uses_whole_group_legacy() -> None:
+    """Two groups running one line both ways down a column keep neither."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        FIXTURES / "ambiguous_exit_continuation.mmd"
+    )
+    contested = tuple(
+        item
+        for item in execution.plans
+        if item.source_id in {"__junction_4", "__junction_5"}
+    )
+
+    assert len(contested) == 2
+    for plan in contested:
+        assert plan.disposition is ExitTurnDisposition.LEGACY
+        assert plan.legacy_reason == "overlapping-planned-turn-axes"
+
+
+def test_branches_gathering_on_one_column_keep_their_plans() -> None:
+    """Groups travelling one column the same way share the one stroke."""
+    _graph, _offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "shared_sink_parallel.mmd"
+    )
+    gathering = tuple(
+        item
+        for item in execution.plans
+        if item.source_id in {"branch_b__exit_right_2", "branch_c__exit_right_3"}
+    )
+
+    assert len(gathering) == 2
+    for plan in gathering:
+        assert plan.disposition is ExitTurnDisposition.PLANNED
+    columns = {
+        axis.coordinate
+        for plan in gathering
+        for axis in plan.axes
+        if axis.line_id == "alpha"
+    }
+    assert len(columns) == 1
 
 
 def test_repeated_same_line_arms_share_one_lane_and_axis() -> None:
@@ -1046,10 +1173,91 @@ def test_straight_requirement_rejects_a_perpendicular_source_run(
         Direction.D,
         horizontal_ctx,
     )
+    vertical = exit_turns._source_turn_requirement(
+        horizontal_edge,
+        RouteFamilyId.SAME_X_VERTICAL_DROP,
+        Direction.R,
+        horizontal_ctx,
+    )
 
     assert horizontal.legacy_reason == (
-        "unsupported-subshape:vertical-source-horizontal-straight"
+        "unsupported-subshape:straight-across-its-run-axis"
     )
+    assert vertical.legacy_reason == "unsupported-subshape:straight-across-its-run-axis"
+
+
+@pytest.mark.parametrize(
+    ("path", "edge_key", "family_id", "run_direction", "axis_is_the_drawn_corner"),
+    [
+        (
+            TOPOLOGIES / "lr_perpendicular_ports_overflow.mmd",
+            ("annotation__exit_bottom_1", "downstream__entry_left_3", "l1"),
+            RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+            Direction.D,
+            True,
+        ),
+        (
+            FIXTURES / "tb_exit_terminal_on_carrier.mmd",
+            ("psite_id__exit_bottom_2", "te__entry_left_7", "riboseq"),
+            RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+            Direction.D,
+            True,
+        ),
+        (
+            TOPOLOGIES / "samerow_left_exit_far_left_entry.mmd",
+            ("psite_id__exit_left_4", "te__entry_left_9", "ribo"),
+            RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
+            Direction.L,
+            False,
+        ),
+    ],
+    ids=["perp-far-side-wrap", "perp-far-side-wrap-carrier", "left-exit-far-side-wrap"],
+)
+def test_wrap_family_requirement_states_the_corner_its_emitter_draws(
+    path: Path,
+    edge_key: tuple[str, str, str],
+    family_id: RouteFamilyId,
+    run_direction: Direction,
+    axis_is_the_drawn_corner: bool,
+) -> None:
+    """Each planned wrap reads its seam from the helper its emitter builds from.
+
+    The requirement and the drawn route therefore open on one run: the launch
+    coordinate is the port the run leaves.  Where the loop's column is a
+    reservation seat the plan takes at binding time -- the far-side wrap, which
+    reads it through ``seated_left_exit_under_target_descent`` -- the drawn
+    column is the pre-seat one, so only the run is common.
+    """
+    graph, offsets, observation = _observe(path)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, dict(offsets))
+    edge = next(
+        item
+        for item in graph.edges
+        if (item.source, item.target, item.line_id) == edge_key
+    )
+    route = next(
+        item
+        for item in observation.routes
+        if (item.edge.source, item.edge.target, item.edge.line_id) == edge_key
+    )
+    corner = route.points[1]
+
+    requirement = exit_turns._source_turn_requirement(
+        edge, family_id, run_direction, ctx, edge_key[0]
+    )
+
+    assert requirement.legacy_reason is None
+    assert requirement.run_direction is run_direction
+    assert requirement.turn_direction is not None
+    launch, axis = (
+        (route.points[0][1], corner[1])
+        if run_direction in {Direction.U, Direction.D}
+        else (route.points[0][0], corner[0])
+    )
+    assert requirement.launch_coordinate == pytest.approx(launch)
+    if axis_is_the_drawn_corner:
+        assert requirement.fixed_axis == pytest.approx(axis)
+        assert requirement.minimum_runway == pytest.approx(abs(axis - launch))
 
 
 def test_vertical_bottom_exit_owns_ordered_turn_rows() -> None:
@@ -1140,10 +1348,13 @@ def test_lane_transitions_stay_within_one_section_frame(path: Path) -> None:
 
 def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
     _graph, offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
-    plan = _plan_for_source(observation, "__junction_11")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "complex_multipath.mmd"
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_11")
     ordered_turns = next(
         item
-        for item in observation.plan.demands
+        for item in execution.demands
         if item.id in plan.demand_ids and item.kind is DemandKind.ORDERED_TURNS
     )
 
@@ -1155,11 +1366,15 @@ def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
     routes = {
         route.line_id: route
         for route in observation.routes
-        if route.exit_turn_plan_id == str(plan.id)
-        and route.exit_turn_axis_id is not None
+        if route.edge.source == plan.source_id
     }
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
     turn_gap = abs(
-        _turn_x(routes["standard"], offsets) - _turn_x(routes["legacy"], offsets)
+        apply_route_offsets(routes["standard"], offsets)[1][0]
+        - apply_route_offsets(routes["legacy"], offsets)[1][0]
     )
     assert turn_gap == pytest.approx(plan.spacing)
 
@@ -1257,10 +1472,10 @@ def test_one_unsupported_member_keeps_the_whole_group_on_legacy(
         "PLANNED_EXIT_FAMILIES",
         exit_turns.PLANNED_EXIT_FAMILIES - {RouteFamilyId.MERGE_BRANCH},
     )
-    _graph, _offsets, observation = _observe(
+    _graph, _offsets, _original_offsets, execution = _build_execution(
         TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     )
-    plan = _plan_for_source(observation, "__junction_9")
+    plan = next(item for item in execution.plans if item.source_id == "__junction_9")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason is not None
@@ -1268,14 +1483,13 @@ def test_one_unsupported_member_keeps_the_whole_group_on_legacy(
         len(
             [
                 diagnostic
-                for diagnostic in observation.plan.diagnostics
+                for diagnostic in execution.diagnostics
                 if diagnostic.code == "exit-turn-legacy"
                 and diagnostic.member_id in plan.member_ids
             ]
         )
         == 1
     )
-    assert not any(route.exit_turn_plan_id == plan.id for route in observation.routes)
 
 
 def test_route_plan_query_rejects_an_inexact_legacy_diagnostic() -> None:
@@ -1310,15 +1524,117 @@ def test_unclassifiable_member_has_an_explicit_whole_group_fallback(
         return real_classify(edge, src, tgt, ctx)
 
     monkeypatch.setattr(exit_turns, "classify_inter_section_family", classify)
-    _graph, _offsets, observation = _observe(
+    _graph, _offsets, _original_offsets, execution = _build_execution(
         TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     )
-    plan = _plan_for_source(observation, "__junction_9")
+    plan = next(item for item in execution.plans if item.source_id == "__junction_9")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
     assert plan.legacy_reason == "missing-production-family"
     assert len(plan.unclassified_member_ids) == 1
-    build_route_plan_query(observation.plan)
+
+
+def test_a_left_exit_drop_is_built_on_the_column_it_is_drawn_on() -> None:
+    """The drop's descent takes its corridor seat where the route is built.
+
+    An axis a plan states has to be the one the map ends with, and the column
+    derived from the two boxes' left edges is not: the corridor-clearance pass
+    travels it inward afterwards.  Seating it at build is what lets the turn be
+    stated, so the built column and the drawn column are one coordinate and the
+    system carries no compatibility verdict.
+    """
+    path = TOPOLOGIES / "stacked_left_exit_drop.mmd"
+    built: list[list[tuple[float, float]]] = []
+    original = inter_handlers._route_left_exit_left_entry_drop
+
+    def record(edge, src, tgt, ctx):
+        route = original(edge, src, tgt, ctx)
+        if route is not None:
+            built.append([(x, y) for x, y in route.points])
+        return route
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(inter_handlers, "_route_left_exit_left_entry_drop", record)
+        _graph, _offsets, observation = _observe(path)
+
+    drawn = [
+        [(x, y) for x, y in route.points]
+        for route in observation.routes
+        if route.edge.source == "sec1__exit_left_0"
+    ]
+    assert built and drawn == built[-1:]
+    assert all(
+        system.disposition is RouteSystemDisposition.PLANNED
+        for system in observation.plan.systems
+    )
+
+
+def test_a_chained_trunk_descent_is_seated_off_the_column_it_is_built_on() -> None:
+    """The chained-trunk decline rests on a column the gap allocator moves.
+
+    Both U-bypass descents are built one offset step outboard of where the map
+    draws them: the gap they stand in also carries a third line's rise, and the
+    allocator centres that whole population.  Freezing either descent would take
+    it out of that population, which is what the verdict on this system names.
+    """
+    path = TOPOLOGIES / "disjoint_sameline_trunks.mmd"
+    built: dict[str, float] = {}
+    original = inter_handlers._route_bypass
+
+    def record(edge, *args, **kwargs):
+        route = original(edge, *args, **kwargs)
+        if route is not None and route.edge.source == "secC__exit_right_2":
+            built[route.line_id] = route.points[1][0]
+        return route
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(inter_handlers, "_route_bypass", record)
+        _graph, _offsets, observation = _observe(path)
+
+    drawn = {
+        route.line_id: route.points[1][0]
+        for route in observation.routes
+        if route.edge.source == "secC__exit_right_2"
+    }
+    assert built == {"a": 560.0, "b": 556.0}
+    assert drawn == {"a": 556.0, "b": 552.0}
+
+
+def test_a_gap_seated_axis_is_declined_on_its_pre_seating_coordinate() -> None:
+    """The declined overlap is with a guess the gap allocator moves clear of.
+
+    The fan's axes are derived from the grid edges its handler has to hand;
+    ``normalize._materialize_gap_slots`` then seats the whole gap at once and
+    lands each line on the column the exempt around-stack handler owns for it.
+    Pinning both coordinates keeps the family's justification measurable: the
+    plan declines on the pre-seating guess, and the seat it would have to state
+    instead is the one every line is finally drawn on.
+    """
+    _graph, _offsets, observation = _observe(
+        FIXTURES / "planned_compatibility_channel_collision.mmd"
+    )
+    plan = _plan_for_source(observation, "__junction_8")
+    assert plan.legacy_reason == "planned-axis-overlaps-compatibility-channel"
+
+    def descent_x(source: str, line_id: str) -> float:
+        (route,) = [
+            route
+            for route in observation.routes
+            if route.edge.source == source
+            and route.line_id == line_id
+            and route.edge.target == "branch_b__entry_left_5"
+        ]
+        return route.points[1][0]
+
+    around_stack = {
+        route.line_id: route.points[2][0]
+        for route in observation.routes
+        if route.edge.source == "branch_a__exit_bottom_1"
+    }
+    assert around_stack == {"alpha": 226.0, "beta": 222.0, "gamma": 218.0}
+    assert {
+        line_id: descent_x("__junction_8", line_id) for line_id in around_stack
+    } == around_stack
 
 
 def test_planned_turn_falls_back_before_a_compatibility_channel_collision() -> None:
@@ -1362,8 +1678,8 @@ def test_compatibility_claim_matches_the_emitted_channel_span(fold: int) -> None
         facts = inter_handlers._build_inter_facts(
             edge, source_station, target_station, ctx
         )
-        geometry = inter_handlers._tb_bottom_exit_around_stack_geometry(facts)
-        route = inter_handlers._route_tb_bottom_exit_around_stack(facts)
+        geometry = inter_handlers._around_stack_geometry(facts)
+        route = inter_handlers._route_around_stack(facts)
         assert route is not None
         channel_start, channel_end = route.points[2:4]
         assert channel_start[0] == pytest.approx(geometry.channel_x)
@@ -1424,21 +1740,15 @@ def test_missing_outbound_members_have_a_valid_legacy_lane_record(
         )
 
     monkeypatch.setattr(exit_turns, "build_route_semantic_scaffold", omit_outbound)
-    monkeypatch.setattr(
-        convergences,
-        "build_convergence_plan_execution",
-        lambda *_args, **_kwargs: convergences.empty_convergence_plan_execution(),
-    )
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
     assert graph.fan_plan_execution is not None
     graph.fan_plan_execution = replace(graph.fan_plan_execution, scaffold=None)
-    offsets = compute_station_offsets(graph)
-    observation = observe_route_edges(graph, station_offsets=offsets)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+    execution = exit_turns.build_exit_turn_execution(graph, ctx)
     (plan,) = tuple(
-        item
-        for item in observation.plan.exit_turn_plans
-        if item.source_id == "__junction_9"
+        item for item in execution.plans if item.source_id == "__junction_9"
     )
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
@@ -1462,7 +1772,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
             and ctx.station_offsets is not None
             and ctx.station_offsets[(edge.source, edge.line_id)] == pytest.approx(8.0)
         ):
-            return RouteFamilyId.BYPASS_FAMILY
+            return RouteFamilyId.NEAR_VERTICAL_JUNCTION
         return family
 
     monkeypatch.setattr(exit_turns, "classify_inter_section_family", classify)
@@ -1470,7 +1780,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
     plan = _plan_for_source(observation, "__junction_37")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "unsupported-family:bypass-family"
+    assert plan.legacy_reason == "unsupported-family:near-vertical-same-col-junction"
     assert plan.axes == ()
     assert plan.lane_transitions == ()
     assert all(lane.station_ids == () for lane in plan.source_lanes)
@@ -1509,12 +1819,12 @@ def test_cross_plan_station_lane_ownership_falls_back_atomically(
         return stations, transitions, reason
 
     monkeypatch.setattr(exit_turns, "_source_lane_ownership", share_station)
-    _graph, offsets, observation = _observe(
+    _graph, offsets, _original_offsets, execution = _build_execution(
         TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     )
     affected = [
         item
-        for item in observation.plan.exit_turn_plans
+        for item in execution.plans
         if item.source_id in {"__junction_8", "__junction_9"}
     ]
 
@@ -1524,7 +1834,6 @@ def test_cross_plan_station_lane_ownership_falls_back_atomically(
         item.legacy_reason == "shared-source-ownership-conflict" for item in affected
     )
     assert offsets[("c__exit_right_2", "main")] == pytest.approx(0.0)
-    build_route_plan_query(observation.plan)
 
 
 def test_cross_plan_station_lane_slots_are_checked_after_all_compaction(
@@ -1808,7 +2117,7 @@ def test_runtime_invariant_rejects_an_unsatisfied_runway_demand() -> None:
 
 def test_runtime_invariant_rejects_a_shifted_straight_continuation() -> None:
     graph, offsets, observation = _observe(
-        TOPOLOGIES / "terminated_exit_lane_compaction.mmd"
+        TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     )
     plan = _plan_for_source(observation, "__junction_9")
     assignment = next(
@@ -2143,7 +2452,6 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
         item
         for item in observation.plan.reservations
         if item.orientation is CorridorOrientation.VERTICAL
-        and item.system_id != plan.system_id
     )
     span = next(
         item.span for item in observation.plan.demands if item.id == plan.demand_ids[0]
@@ -2151,6 +2459,7 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
     axis = plan.axes[0]
     conflicting_reservation = replace(
         reservation,
+        system_id=RouteSystemId("foreign-system"),
         span=span,
         claims=tuple(
             replace(claim, allocation_coordinate=axis.coordinate)
@@ -2159,10 +2468,7 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
     )
     modified = replace(
         observation.plan,
-        reservations=tuple(
-            conflicting_reservation if item.id == reservation.id else item
-            for item in observation.plan.reservations
-        ),
+        reservations=(*observation.plan.reservations, conflicting_reservation),
     )
 
     conflicts = expected_exit_turn_foreign_references(modified)
@@ -2172,9 +2478,12 @@ def test_foreign_vertical_band_conflict_is_recorded() -> None:
 
 def test_perpendicular_plan_axes_do_not_create_foreign_conflicts() -> None:
     _graph, _offsets, observation = _observe(TOPOLOGIES / "complex_multipath.mmd")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "complex_multipath.mmd"
+    )
     first, second = (
         item
-        for item in observation.plan.exit_turn_plans
+        for item in execution.plans
         if item.disposition is ExitTurnDisposition.PLANNED
         and item.axes
         and item.reference_id is not None
@@ -2194,9 +2503,9 @@ def test_perpendicular_plan_axes_do_not_create_foreign_conflicts() -> None:
     )
     modified = replace(
         observation.plan,
+        demands=execution.demands,
         exit_turn_plans=tuple(
-            perpendicular if item.id == second.id else item
-            for item in observation.plan.exit_turn_plans
+            perpendicular if item.id == second.id else item for item in execution.plans
         ),
     )
 
@@ -2210,18 +2519,17 @@ def test_vertical_source_axes_conflict_with_horizontal_corridors() -> None:
         TOPOLOGIES / "tb_bottom_exit_bundle_jog.mmd"
     )
     plan = _plan_for_source(observation, "up__exit_bottom_0")
-    _other_graph, _other_offsets, other = _observe(TOPOLOGIES / "complex_multipath.mmd")
     reservation = next(
         item
-        for item in other.plan.reservations
+        for item in observation.plan.reservations
         if item.orientation is CorridorOrientation.HORIZONTAL
-        and item.system_id != plan.system_id
     )
     span = next(
         item.span for item in observation.plan.demands if item.id == plan.demand_ids[0]
     )
     conflicting_reservation = replace(
         reservation,
+        system_id=RouteSystemId("foreign-system"),
         span=span,
         claims=tuple(
             replace(claim, allocation_coordinate=plan.axes[0].coordinate)
@@ -2310,7 +2618,10 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
         station_offsets=offsets,
         offset_step=10.0,
     )
-    plan = _plan_for_source(observation, "__junction_9")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        path, offset_step=10.0
+    )
+    plan = next(item for item in execution.plans if item.source_id == "__junction_9")
 
     assert plan.spacing == pytest.approx(10.0)
     assert all(
@@ -2323,6 +2634,10 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
         == pytest.approx((right.rank - left.rank) * 10.0)
         for left, right in zip(ordered_axes, ordered_axes[1:])
     )
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -2587,3 +2902,32 @@ def _corpus_disposition_overrides() -> dict[str, int]:
 
 def test_settlement_rarely_overrides_a_fresh_exit_turn_disposition() -> None:
     assert _corpus_disposition_overrides() == EXPECTED_ADOPTED_DISPOSITION_OVERRIDES
+
+
+def test_a_handover_station_seats_its_two_names_on_adjacent_lanes() -> None:
+    """A hand-over station's arriving and departing names are distinct lines,
+    so absent ``collapse_offsets`` they hold distinct lanes one step apart:
+    the marker spans both runs and each leaves straight along its own lane.
+
+    The authoring semantics here are the repo owner's ruling, not a
+    consequence of the routing model.
+    """
+    path = ROOT / "examples" / "topologies" / "fanout_line_reused_nonadjacent_leg.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph, validate=True)
+    offsets = compute_station_offsets(graph)
+    handovers = [
+        (station_id, incoming[0].line_id, outgoing[0].line_id)
+        for station_id in graph.stations
+        if len(incoming := tuple(graph.edges_to(station_id))) == 1
+        and len(outgoing := tuple(graph.edges_from(station_id))) == 1
+        and incoming[0].line_id != outgoing[0].line_id
+    ]
+    assert handovers, "fixture no longer carries a hand-over station"
+    for station_id, arriving, departing in handovers:
+        arriving_lane = offsets[(station_id, arriving)]
+        departing_lane = offsets[(station_id, departing)]
+        assert abs(departing_lane - arriving_lane) == pytest.approx(OFFSET_STEP), (
+            f"{station_id}: '{arriving}' at {arriving_lane} and '{departing}' at "
+            f"{departing_lane} are not one lane apart"
+        )

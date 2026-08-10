@@ -117,7 +117,7 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     from nf_metro.layout.envelope_settlement import EnvelopeSettlement
-    from nf_metro.layout.route_plan import RoutePlan
+    from nf_metro.layout.route_plan import FanPlan, RoutePlan
     from nf_metro.layout.route_reservations import (
         CanvasRegion,
         DrawnCorridorContainment,
@@ -5198,6 +5198,38 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         )
 
 
+def _straight_frame_fault(
+    plan: FanPlan,
+    lane_offsets: tuple[float | None, ...],
+    expected_lane_offsets: tuple[float, ...],
+) -> str | None:
+    """Which straight-frame contract *plan* breaks, phrased for the reader.
+
+    Three separate faults break a straight frame and only one concerns the
+    offsets, so the fault names itself: reporting the offsets for a centreline
+    disagreement prints two tuples that are usually identical.
+    """
+    if (plan.appearance_centreline_branch_id is None) != plan.has_vacant_trunk:
+        return (
+            f"centreline branch {plan.appearance_centreline_branch_id!r} "
+            f"disagrees with vacant trunk {plan.has_vacant_trunk!r}"
+        )
+    if not plan.has_vacant_trunk and (
+        sum(offset == 0.0 for offset in lane_offsets) != 1
+        or any(offset is None or offset < 0.0 for offset in lane_offsets)
+    ):
+        return f"no single lane holds the centreline; lane offsets {lane_offsets!r}"
+    if any(
+        actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
+        for actual, target in zip(lane_offsets, expected_lane_offsets, strict=True)
+    ):
+        return (
+            f"lane offsets {lane_offsets!r} do not match "
+            f"expected {expected_lane_offsets!r}"
+        )
+    return None
+
+
 def _guard_planned_fan_frame_realised(
     graph: MetroGraph,
     phase: str,
@@ -5207,10 +5239,10 @@ def _guard_planned_fan_frame_realised(
     """Raise when a fan's settled frame disagrees with its semantic contract."""
     from nf_metro.layout.fan_geometry import fan_lane_offsets
     from nf_metro.layout.fan_plans import (
-        fan_appearance_lane_sign,
+        fan_lane_sign,
         vertical_fan_label_lane_pitch,
     )
-    from nf_metro.layout.route_plan import FanAppearancePolicy
+    from nf_metro.layout.route_plan import FanAppearancePolicy, fan_lane_seat_keys
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
     invalid_policy = next(
@@ -5225,6 +5257,21 @@ def _guard_planned_fan_frame_realised(
         raise PhaseInvariantError(
             f"{phase}: fan {invalid_policy.id!s} has non-canonical appearance "
             f"policy {invalid_policy.appearance_policy!r}"
+        )
+
+    missing_join = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if plan.owns_geometry
+            and plan.authored_join_station_id is not None
+            and plan.join_station_id is None
+        ),
+        None,
+    )
+    if missing_join is not None:
+        raise PhaseInvariantError(
+            f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
         )
 
     unsupported = next(
@@ -5243,21 +5290,6 @@ def _guard_planned_fan_frame_realised(
             f"appearance policy {unsupported.appearance_policy.value!r}"
         )
 
-    missing_join = next(
-        (
-            plan
-            for plan in graph.fan_plans
-            if plan.owns_geometry
-            and plan.authored_join_station_id is not None
-            and plan.join_station_id is None
-        ),
-        None,
-    )
-    if missing_join is not None:
-        raise PhaseInvariantError(
-            f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
-        )
-
     offset_step = graph_offset_step(graph)
     section_layers: dict[str, dict[str, int]] = {}
     tb_positive_fan = tb_positive_fan_sections(graph)
@@ -5274,16 +5306,18 @@ def _guard_planned_fan_frame_realised(
                 f"{phase}: planned fan {plan.id!s} has no frozen appearance frame"
             )
         section_id = graph.section_for_station(plan.fork_station_id)
-        expected_sign = fan_appearance_lane_sign(
+        expected_sign = fan_lane_sign(
             graph,
             frame,
             section_id,
             plan.authored_source_id,
+            branches=plan.branches,
+            tb_positive_fan=tb_positive_fan,
         )
         if plan.appearance_lane_sign != expected_sign:
             raise PhaseInvariantError(
                 f"{phase}: planned fan {plan.id!s} appearance lane sign "
-                f"{plan.appearance_lane_sign:+.0f} disagrees with its feeder-aware "
+                f"{plan.appearance_lane_sign:+.0f} disagrees with its bundle-aware "
                 f"axis sign {expected_sign:+.0f}"
             )
         section = graph.sections.get(section_id or "")
@@ -5312,6 +5346,7 @@ def _guard_planned_fan_frame_realised(
             tuple(branch.id for branch in plan.branches),
             plan.appearance_lane_pitch,
             plan.appearance_centreline_branch_id,
+            fan_lane_seat_keys(plan.branches),
         )
         if plan.appearance_policy is FanAppearancePolicy.SYMMETRIC:
             if any(
@@ -5325,21 +5360,16 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
-        elif plan.layout_station_ids and (
-            plan.appearance_centreline_branch_id is None
-            or sum(offset == 0.0 for offset in lane_offsets) != 1
-            or any(offset is None or offset < 0.0 for offset in lane_offsets)
-            or any(
-                actual is None or abs(actual - target) > COORD_TOLERANCE_FINE
-                for actual, target in zip(
-                    lane_offsets, expected_lane_offsets, strict=True
-                )
-            )
-        ):
+        straight_frame_fault = (
+            _straight_frame_fault(plan, lane_offsets, expected_lane_offsets)
+            if plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+            and plan.layout_station_ids
+            else None
+        )
+        if straight_frame_fault is not None:
             raise PhaseInvariantError(
                 f"{phase}: straight planned fan {plan.id!s} does not keep its "
-                f"top branch on the centreline; lane offsets {lane_offsets!r}, "
-                f"expected {expected_lane_offsets!r}"
+                f"appearance frame: {straight_frame_fault}"
             )
 
         local_anchor = plan.local_frame_anchor
@@ -5419,10 +5449,13 @@ def _guard_planned_fan_frame_realised(
                     f"{carrier.station_id!r} names a line outside its offset order"
                 )
             station_lines = set(graph.station_lines(carrier.station_id))
-            if station_lines != set(carrier.line_ids):
+            # A carrier states a slot for each line it names and stays silent
+            # about the rest, so a station may also carry lines another owner
+            # ordered; naming one that is absent states a slot for nothing.
+            if not set(carrier.line_ids).issubset(station_lines):
                 raise PhaseInvariantError(
                     f"{phase}: planned fan {plan.id!s} offset carrier "
-                    f"{carrier.station_id!r} carries unowned lines"
+                    f"{carrier.station_id!r} names a line it does not carry"
                 )
             for assignment in carrier.assignments:
                 expected = assignment.slot * offset_step
@@ -6105,6 +6138,8 @@ def _ensure_pass_c_inputs(
     graph: MetroGraph,
     offsets: dict[tuple[str, str], float] | None,
     routes: list[RoutedPath] | None,
+    *,
+    validate_final_geometry: bool,
 ) -> tuple[dict[tuple[str, str], float], list[RoutedPath] | None]:
     """Compute the shared ``offsets`` / ``routes`` a guard run inspects, once.
 
@@ -6115,12 +6150,17 @@ def _ensure_pass_c_inputs(
     need routes are then skipped.
     """
     from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.layout.routing.core import route_edges_for_placement_guards
 
     if offsets is None:
         offsets = compute_station_offsets(graph)
     if routes is None:
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = (
+                route_edges(graph, station_offsets=offsets)
+                if validate_final_geometry
+                else route_edges_for_placement_guards(graph, offsets)
+            )
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
     return offsets, routes
@@ -6146,7 +6186,12 @@ def run_validate_guards(
     A spec needing ``routes`` is skipped when routing failed.  Returns the
     shared ``(offsets, routes)``.
     """
-    offsets, routes = _ensure_pass_c_inputs(graph, offsets, routes)
+    offsets, routes = _ensure_pass_c_inputs(
+        graph,
+        offsets,
+        routes,
+        validate_final_geometry=include_final,
+    )
     available: dict[str, object] = {
         "offsets": offsets,
         "routes": routes,

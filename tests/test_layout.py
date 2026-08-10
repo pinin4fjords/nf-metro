@@ -1241,7 +1241,7 @@ def test_full_bundle_column_fans_around_trunk_with_center_ports():
     """Terminal section's full-bundle column fans symmetrically with --center-ports."""
     graph = parse_metro_mermaid(_terminal_full_bundle_text())
     graph.center_ports = True
-    compute_layout(graph, y_spacing=50.0)
+    compute_layout(graph, y_spacing=50.0, validate=True)
     ay = graph.stations["a"].y
     by = graph.stations["b"].y
     assert ay != by, "a and b should not share Y after fan"
@@ -1290,12 +1290,19 @@ def test_full_bundle_column_fans_non_terminal_section():
     )
     graph = parse_metro_mermaid(text)
     graph.center_ports = True
-    compute_layout(graph, y_spacing=50.0)
+    compute_layout(graph, y_spacing=50.0, validate=True)
     # `middle` has exit ports but its column carries only full-bundle
     # stations with no unique trunk, so the symfan should fire and the
     # pair should flank a vacant trunk row.
     ay = graph.stations["a"].y
     by = graph.stations["b"].y
+    # A straight-appearance diamond with an authored join keeps its top branch
+    # on the main track, so the section allocator owns the lane frame and the
+    # flanking asserted below is the allocator's, not the fan plan's.
+    plan = next(plan for plan in graph.fan_plans if plan.authored_source_id == "u")
+    assert not plan.owns_geometry
+    assert plan.legacy_reason == "straight-diamond-layout-owns-geometry"
+    assert plan.appearance_centreline_branch_id is None
     delta = abs(by - ay)
     assert delta == pytest.approx(100.0), (
         f"Non-terminal full-bundle column should flank trunk: delta={delta}"

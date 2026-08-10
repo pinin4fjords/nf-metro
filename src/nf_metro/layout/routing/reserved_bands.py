@@ -137,6 +137,47 @@ def corridor_clearance_band(
     )
 
 
+def seat_run_in_corridor_clearance(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    section_ids: Sequence[str],
+    coordinate: float,
+    run_start: float,
+    run_end: float,
+) -> float:
+    """*coordinate* seated inside the clearance its own corridor owes.
+
+    A handler derives a channel's depth from the grid edges it has to hand,
+    which is a proxy for the blockers a reservation measures over the corridor's
+    own run: a section spanning the boundary or a header badge inside the run's
+    stretch is charged by the reservation and invisible to the proxy.  A
+    coordinate the proxy leaves outside the band is one the closing guard
+    refuses, so stating the seat here makes the emitted run satisfy its own
+    reservation without a later pass having to move it -- which is the only way
+    it can be satisfied at all once a plan owns the turn beside it and freezes
+    the run in place.
+
+    Emitting and settling therefore read one rule: this is
+    :func:`corridor_clearance_band` clamped, the same pair the containment pass
+    applies to an unfrozen leg.  A run in no gap has no band and keeps
+    *coordinate*, and so does a run whose band is inverted -- a boundary owing
+    more clearance than it has cannot seat anything, and choosing which of its
+    two edges to overrun is the closing guard's report to make, not this one's.
+    """
+    band = corridor_clearance_band(
+        graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=coordinate,
+        run_start=run_start,
+        run_end=run_end,
+    )
+    if band is None or band.hi < band.lo - COORD_TOLERANCE:
+        return coordinate
+    return min(max(coordinate, band.lo), band.hi)
+
+
 @dataclass(frozen=True, slots=True)
 class ReservedBands:
     """Realised gap corridors on one axis, keyed by the boundary they cross."""
@@ -190,6 +231,9 @@ class ReservedCorridors:
     row_bands_by_edge: Mapping[EdgeKey, tuple[ReservedBand, ...]] = field(
         default_factory=dict
     )
+    column_bands_by_edge: Mapping[EdgeKey, tuple[ReservedBand, ...]] = field(
+        default_factory=dict
+    )
 
     def for_segment(
         self, source: str, target: str, line_id: str, rank: int
@@ -203,6 +247,106 @@ class ReservedCorridors:
         """The edge's row-gap band, when it claims exactly one row corridor."""
         bands = self.row_bands_by_edge.get((source, target, line_id), ())
         return bands[0] if len(bands) == 1 else None
+
+    def claimed_column_bands(
+        self, source: str, target: str, line_id: str
+    ) -> tuple[ReservedBand, ...]:
+        """Every distinct column-gap band claimed by one emitted edge."""
+        return self.column_bands_by_edge.get((source, target, line_id), ())
+
+
+def bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
+    """The least distance that carries every ``(band, coordinate)`` pair inside.
+
+    Clamping lane by lane would seat two lanes on one coordinate wherever a band
+    is narrower than the stagger, drawing the bundle as a single stroke, so the
+    whole bundle travels together or not at all.  A bundle whose bands leave it
+    nowhere to stand does not travel: which edge to overrun is the closing
+    guard's report to make.
+
+    Stated once because the pass that applies the travel and the plan that names
+    the seated coordinate have to read the same number: a plan naming the
+    coordinate before the travel describes a lane the seating then vacates.
+    Applying it twice is applying it once, since a bundle already inside its
+    bands asks for no travel.
+    """
+    if not items:
+        return 0.0
+    lower = max(band.lo - coordinate for band, coordinate in items)
+    upper = min(band.hi - coordinate for band, coordinate in items)
+    if lower > upper + COORD_TOLERANCE:
+        return 0.0
+    return min(max(0.0, lower), upper)
+
+
+def seat_bundle_in_corridor_clearance(
+    graph: MetroGraph,
+    *,
+    axis: int,
+    section_ids: Sequence[str],
+    lanes: Sequence[float],
+    run_start: float,
+    run_end: float,
+    clear_of: ReservedBand | None = None,
+) -> float:
+    """The travel that seats a whole bundle inside its corridor's clearance.
+
+    The bundle counterpart of :func:`seat_run_in_corridor_clearance`: the band
+    says where one lane may run, and a bundle satisfies it only when its
+    outermost lanes both stand inside, so the stagger is carried rather than
+    collapsed onto the band's edge.
+
+    *clear_of* is a second band the seated bundle has to stand in as well: the
+    room a peer run of the caller's own shape leaves it, which the corridor
+    knows nothing of.  The two are intersected, so a bundle whose corridor and
+    whose peer share no coordinate does not travel -- the same answer
+    :func:`bundle_travel` gives a bundle its own bands leave nowhere to stand,
+    and the same one
+    :func:`~nf_metro.layout.routing.normalize._hold_runs_in_corridor_clearance`
+    reaches when a peer denies a shift.
+    """
+    band = corridor_clearance_band(
+        graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=(min(lanes) + max(lanes)) / 2 if lanes else 0.0,
+        run_start=run_start,
+        run_end=run_end,
+    )
+    if band is None:
+        return 0.0
+    lo, hi = band.lo, band.hi
+    if clear_of is not None:
+        lo, hi = max(lo, clear_of.lo), min(hi, clear_of.hi)
+    seat = resolved_band(lo, hi)
+    if seat is None:
+        return 0.0
+    return bundle_travel([(seat, item) for item in lanes])
+
+
+def seat_bundle_in_claimed_bands(
+    corridors: ReservedCorridors,
+    lanes: Sequence[tuple[EdgeKey, float]],
+    *,
+    rank: int,
+) -> float:
+    """The travel that seats every lane of one bundle inside its claimed band.
+
+    Each lane owns the same segment rank of its own emitted path and each claim
+    realises its own band there.  This is the arithmetic the pre-freeze seating
+    pass applies, so reading it here lets a plan owning the turn beside the run
+    state the coordinate that pass would settle on, rather than being moved off
+    a coordinate it has already frozen.  A bundle no claim covers does not
+    travel: the ledger is published by a routing pass, so the first has none to
+    read and the live-geometry proxy speaks for the corridor instead.
+    """
+    return bundle_travel(
+        [
+            (band, coordinate)
+            for key, coordinate in lanes
+            if (band := corridors.for_segment(*key, rank)) is not None
+        ]
+    )
 
 
 def _measured_gap_bands(
@@ -293,6 +437,7 @@ class _ClaimViews:
 
     per_claim: dict[ClaimSegmentKey, ReservedBand]
     row_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
+    column_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
 
 
 def _claim_views(
@@ -312,15 +457,16 @@ def _claim_views(
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
     # Keyed by the band quantised to the comparison tolerance, so two
     # reservations describing one corridor alike collapse to a single band.
-    by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
+    row_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
+    column_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
     for reservation, lo, hi in measured:
         is_row = isinstance(reservation.region, RowGapRegion)
         band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
         for claim in reservation.claims:
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
-            if is_row:
-                by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
+            bands_by_edge = row_by_edge if is_row else column_by_edge
+            bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
             for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
                 key = (*edge_key, rank)
                 held = spans.get(key)
@@ -338,9 +484,17 @@ def _claim_views(
             for lo, hi in bands.values()
             if (band := resolved_band(lo, hi)) is not None
         )
-        for edge_key, bands in by_edge.items()
+        for edge_key, bands in row_by_edge.items()
     }
-    return _ClaimViews(per_claim, row_bands)
+    column_bands = {
+        edge_key: tuple(
+            band
+            for lo, hi in bands.values()
+            if (band := resolved_band(lo, hi)) is not None
+        )
+        for edge_key, bands in column_by_edge.items()
+    }
+    return _ClaimViews(per_claim, row_bands, column_bands)
 
 
 def build_reserved_corridors(
@@ -375,4 +529,5 @@ def build_reserved_corridors(
         ),
         views.per_claim,
         views.row_bands_by_edge,
+        views.column_bands_by_edge,
     )
