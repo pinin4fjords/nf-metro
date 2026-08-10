@@ -92,6 +92,13 @@ to [#1441](https://github.com/seqeralabs/nf-metro/issues/1441):
   cannot state those columns until the allocation itself moves to planning.
   Across the 76 members whose family pins disagree, 30 final columns are
   produced by this seating and its successor passes rather than by any builder.
+  Recording the seated column for a later pass to read back is not that move.
+  The seating already runs twice over two different populations (the
+  member-geometry freeze materializes each gap over the planned candidates and
+  their convergence context, the post-emission chain over every emitted route),
+  so a recorded column is contradicted by whichever of the two allocations did
+  not produce it, and the axis ratchet raises that contradiction as an abort.
+  The move is making those two populations one.
 - **promote hidden sub-cascades** — the leaf shapes recorded under
   `unsupported-subshape:` decide no system and become named families of the
   single router as their builders are factored.

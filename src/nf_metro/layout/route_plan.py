@@ -350,16 +350,25 @@ _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION = CompatibilityFamily(
     "X spans that move is what re-packs the inter-row trunk band the one line's "
     "two chained trunks share. The plan-time proxy for that seating, "
     "``seat_bundle_in_claimed_bands``, reads no band over either bundle's "
-    "segment and so returns no travel: the reservation ledger has to declare "
-    "these corridors before a plan can state the column the gap settles on. "
+    "segment and so returns no travel. Recording the seated column for a later "
+    "pass to read back does not state it either, because the seating runs "
+    "twice over two different populations: the member-geometry freeze "
+    "materializes each gap over the planned candidates and their convergence "
+    "context alone, while the post-emission chain materializes it over every "
+    "emitted route, compatibility systems included. The two allocations answer "
+    "differently, so no single recorded column satisfies both, and the axis "
+    "ratchet turns each disagreement into an abort: handing the U-bypass "
+    "source-turn reading the column either pass produced retains 12 of the 26 "
+    "corpus verdicts and aborts 37 maps that render today. "
     "The same seating owns the fixed-axis conflicts and the descent seating "
     "groups: across the 76 members whose family pins disagree, 30 final "
     "columns are produced by the gap centring and its successor passes rather "
     "than by any builder (measured per member, deltas 1 to 138 px), and "
     "widening a seated group to the gap's declared population still leaves "
     "the handler's column wrong on every one of the eight systems it decides. "
-    "Stating any of these axes at plan time requires the gap allocation "
-    "itself to move to planning.",
+    "Stating any of these axes at plan time requires the two populations to be "
+    "one, so that the allocation a plan reads is the allocation emission "
+    "draws.",
     _ISSUE.format(1441),
 )
 _INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
