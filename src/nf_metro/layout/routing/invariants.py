@@ -1705,7 +1705,7 @@ def check_exit_inherits_entry_bundle_order(
         through_lines = _lines_reaching_exit(graph, reference_id, port_id, exit_lines)
         through_entry_order = _order(reference_id, through_lines)
         through_exit_order = _order(port_id, through_lines)
-        if len(through_lines) >= 2 and through_entry_order != through_exit_order:
+        if through_entry_order != through_exit_order:
             violations.append(
                 ExitBundleOrderViolation(
                     section_id=section.id,

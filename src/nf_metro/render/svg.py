@@ -817,7 +817,7 @@ def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
             route.offset_regime,
             route.normalize_exempt,
             tuple(route.gap_slots),
-            (route.trunk_slot is not None, route.trunk_slot),
+            route.trunk_slot,
             route.route_system_id,
             route.emission_member_id,
             route.route_system_disposition,
@@ -854,7 +854,7 @@ def _member_geometry_decision(
         plan.offset_regime,
         plan.normalize_exempt,
         plan.gap_slots,
-        (plan.trunk_slot is not None, plan.trunk_slot),
+        plan.trunk_slot,
         tuple(
             (
                 channel.segment_rank,
