@@ -351,7 +351,15 @@ _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION = CompatibilityFamily(
     "two chained trunks share. The plan-time proxy for that seating, "
     "``seat_bundle_in_claimed_bands``, reads no band over either bundle's "
     "segment and so returns no travel: the reservation ledger has to declare "
-    "these corridors before a plan can state the column the gap settles on.",
+    "these corridors before a plan can state the column the gap settles on. "
+    "The same seating owns the fixed-axis conflicts and the descent seating "
+    "groups: across the 76 members whose family pins disagree, 30 final "
+    "columns are produced by the gap centring and its successor passes rather "
+    "than by any builder (measured per member, deltas 1 to 138 px), and "
+    "widening a seated group to the gap's declared population still leaves "
+    "the handler's column wrong on every one of the eight systems it decides. "
+    "Stating any of these axes at plan time requires the gap allocation "
+    "itself to move to planning.",
     _ISSUE.format(1441),
 )
 _INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
@@ -494,17 +502,17 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
                     "fixed-anchor-owned-by-another-plan",
                     "entry-bundle-owns-the-shared-seam-lanes",
-                    "fixed-axis-conflict",
                     "lane-arms-pinned-to-overlapping-corners",
                     "linear-entry-frame-ownership-conflict",
                     "merge-branch-shares-the-descent-corner",
                     "overlapping-planned-turn-axes",
-                    "seating-group-owns-the-descent-column",
                     "shared-source-ownership-conflict",
                     "shared-station-lane-collision",
                 ),
                 _reasons(
                     _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION,
+                    "fixed-axis-conflict",
+                    "seating-group-owns-the-descent-column",
                     "planned-axis-overlaps-compatibility-channel",
                     "trunk-band-owns-the-chained-same-line-trunk",
                 ),

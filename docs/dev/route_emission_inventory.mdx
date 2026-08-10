@@ -58,25 +58,53 @@ of them can record belongs to one named family in
 retaining it and either the issue that retires it or nothing, which asserts
 permanent support:
 
-| Owner                  | Family                                   | Retired by                                                                      |
-| ---------------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
-| `exit-turn-plan`       | no planned turn for the family           | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                     |
-| `exit-turn-plan`       | no planned turn for the subshape         | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                     |
-| `exit-turn-plan`       | the turn requirement contradicts itself  | [#1710](https://github.com/seqeralabs/nf-metro/issues/1710)                     |
-| `exit-turn-plan`       | another plan holds the anchor            | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                     |
-| `exit-turn-plan`       | the authored exit group is incomplete    | permanent: explicit graphs and offset maps are defined inputs                   |
-| `exit-turn-plan`       | the turn has no runway                   | permanent: a placement can always be tighter than one curve radius              |
-| `exit-turn-plan`       | the verdict states no geometry           | permanent: it constrains nothing and escalates no system                        |
-| `exit-turn-plan`       | the rail emitter owns the route          | permanent: rail mode draws every inter-section edge from its own emitter        |
-| `exit-turn-plan`       | the gap allocator owns the drop column   | permanent: the column is a gap slot ranked over legs from other systems         |
-| `exit-turn-plan`       | the lane order crosses outside the group | permanent: the crossing is in the offsets the group reads, not its own ordering |
-| `fan-plan`             | layout owns the fan frame                | permanent: the section allocator or rail emitter fixes that frame               |
-| `fan-plan`             | the resolved fan is incomplete           | permanent: hand-built graphs are valid routing inputs                           |
-| `fan-plan`             | overlapping fan ownership                | [#1711](https://github.com/seqeralabs/nf-metro/issues/1711)                     |
-| `fan-plan`             | no planned frame for the fan shape       | [#1711](https://github.com/seqeralabs/nf-metro/issues/1711)                     |
-| `convergence-plan`     | the canonical template declined          | [#1713](https://github.com/seqeralabs/nf-metro/issues/1713)                     |
-| `convergence-plan`     | an upstream exit turn holds the frame    | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                     |
-| `member-geometry-plan` | the member has no complete seed          | permanent: a member the emission graph does not describe cannot be planned      |
+| Owner                  | Family                                       | Retired by                                                                               |
+| ---------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `exit-turn-plan`       | the turn requirement contradicts itself      | permanent: a degenerate or self-contradictory reading states no plannable turn           |
+| `exit-turn-plan`       | another plan holds the anchor                | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                              |
+| `exit-turn-plan`       | the gap bundle seats the axis after emission | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441): plan-time gap allocation    |
+| `exit-turn-plan`       | the leaf is a sub-cascade of its family      | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441): promote hidden sub-cascades |
+| `exit-turn-plan`       | the drop is not a leaf of its cascade        | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                              |
+| `exit-turn-plan`       | the authored exit group is incomplete        | permanent: explicit graphs and offset maps are defined inputs                            |
+| `exit-turn-plan`       | the turn has no runway                       | permanent: a placement can always be tighter than one curve radius                       |
+| `exit-turn-plan`       | the verdict states no geometry               | permanent: it constrains nothing and escalates no system                                 |
+| `exit-turn-plan`       | the gap allocator owns the drop column       | permanent: the column is a gap slot ranked over legs from other systems                  |
+| `exit-turn-plan`       | the lane order crosses outside the group     | permanent: the crossing is in the offsets the group reads, not its own ordering          |
+| `fan-plan`             | layout owns the fan frame                    | permanent: the section allocator or a local layout idiom fixes that frame                |
+| `fan-plan`             | the resolved fan is incomplete               | permanent: hand-built graphs are valid routing inputs                                    |
+| `fan-plan`             | layout seats what two readings state         | permanent: the seat is the allocator's whichever reading is taken                        |
+| `fan-plan`             | the fan has no section frame                 | permanent: a fork outside any flow-axis section states no direction                      |
+| `convergence-plan`     | the canonical template declined              | [#1713](https://github.com/seqeralabs/nf-metro/issues/1713)                              |
+| `convergence-plan`     | an upstream exit turn holds the frame        | [#1441](https://github.com/seqeralabs/nf-metro/issues/1441)                              |
+| `member-geometry-plan` | the member has no complete seed              | permanent: a member the emission graph does not describe cannot be planned               |
+
+## The single-system trajectory
+
+The established first-match dispatcher is a remainder under retirement, not a
+peer of the planned path. Every production family now plans its geometry, so
+the dispatcher's surviving jobs are enumerable, and every one of them belongs
+to [#1441](https://github.com/seqeralabs/nf-metro/issues/1441):
+
+- **plan-time gap allocation** — the one measured dependency that keeps corpus
+  systems on the compatibility path: `_layout_gap_bundle` seats each
+  inter-column gap over a population wider than any one plan's claims, reading
+  fused sibling spans and anchored midpoints off built routes, so a plan
+  cannot state those columns until the allocation itself moves to planning.
+  Across the 76 members whose family pins disagree, 30 final columns are
+  produced by this seating and its successor passes rather than by any builder.
+- **promote hidden sub-cascades** — the leaf shapes recorded under
+  `unsupported-subshape:` decide no system and become named families of the
+  single router as their builders are factored.
+- **consume `_InterFacts`** and make the dispatch rules disjoint, so handlers
+  stop re-deriving facts the snapshot already resolved.
+- **delete the passes the plan owners displaced** — the junction peel-off pass
+  in `normalize.py` is already corpus-inert and carries a needs-review triage
+  verdict; each promoted seat turns another settlement pass into a no-op that
+  can be removed with corpus evidence.
+
+When those land, the compatibility disposition survives only as attribution —
+"no plan claims this geometry" over permanent, input-class readings — drawn by
+the same consolidated emitter, and the parallel code path is gone.
 
 Each `RouteSystemCompatibilityReason` carries the owner, the planner's exact
 deterministic reason, and that family's justification and follow-up verbatim.
