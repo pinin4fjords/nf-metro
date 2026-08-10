@@ -29,7 +29,7 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     spans_share_corridor,
 )
-from nf_metro.layout.route_plan import RouteSystemDisposition
+from nf_metro.layout.route_plan import DemandAxis, RouteSystemDisposition
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -65,6 +65,7 @@ from nf_metro.layout.routing.common import (
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
     section_ids_of_stations,
+    segment_direction,
     symmetric_bundle_midpoint,
     tail_on_slot,
     trunk_depths_contiguous,
@@ -88,6 +89,7 @@ from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
+from nf_metro.layout.routing.orientation import direction_axis, lateral_order_sign
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     corridor_clearance_band,
@@ -296,6 +298,7 @@ def _layout_gap_bundle(
     gap_right: float,
     ctx: _RoutingCtx,
     pins: dict[tuple[bool, str], float] | None = None,
+    heading_pins: dict[tuple[bool, str], float] | None = None,
 ) -> None:
     """Lay out one ``(gap, row)``'s bundles concentrically, centred in the gap.
 
@@ -303,6 +306,12 @@ def _layout_gap_bundle(
     claim's own band, which settlement sized for exactly this bundle over the
     corridor's own span -- the shared gap edges name whichever sections happen
     to sit in the two columns, which is a different and wider set of blockers.
+
+    *pins* are columns an owner states outright and *heading_pins* columns read
+    off a heading's ladder elsewhere in the gap; a bundle the stated columns
+    anchor is seated on those, and only a bundle they leave unanchored falls to
+    the ladder.  Merging the two would let a derived column contradict a stated
+    one and lose an anchor the gap already had.
     """
     step = ctx.offset_step
     # Stable left-to-right order: by current bundle centre.
@@ -315,9 +324,25 @@ def _layout_gap_bundle(
         _convergence_line_order(c, ctx.graph) or _distinct_line_order(c)
         for _, c in bundles
     ]
+
+    def anchor(order: list[str], down: bool) -> float | None:
+        for layer in (pins, heading_pins):
+            if not layer:
+                continue
+            mid = _anchored_bundle_midpoint(
+                order, layer, down, step, gap_left, gap_right
+            )
+            if mid is not None:
+                return mid
+        return None
+
+    anchors = [
+        anchor(order, down) for order, (down, _chans) in zip(line_orders, bundles)
+    ]
     # Skip a lone bundle carrying a single distinct line: nothing to
-    # re-bundle and centring risks disturbing wrap geometry.
-    if len(bundles) == 1 and len(line_orders[0]) <= 1:
+    # re-bundle and centring risks disturbing wrap geometry.  An anchor names
+    # the column outright, which is a placement rather than a re-bundling.
+    if len(bundles) == 1 and len(line_orders[0]) <= 1 and anchors[0] is None:
         return
     widths = [max(0, len(o) - 1) * step for o in line_orders]
     # A lone bundle centres on the true gap midpoint (symmetric clearance
@@ -331,9 +356,7 @@ def _layout_gap_bundle(
         # travel direction: a leftward bypass's descent is the mirror of a
         # rightward one, so its largest radius sits on the LEFT.  Read the leg
         # direction from geometry; fall back to the bundle's vertical sense.
-        anchored = _anchored_bundle_midpoint(
-            order, pins or {}, _down, step, gap_left, gap_right
-        )
+        anchored = anchors[bi]
         if anchored is not None:
             mid = anchored
         elif lone:
@@ -669,6 +692,121 @@ def _fused_sibling_spans(
     return spans
 
 
+_OPENING_TURN_SEGMENT = 1
+
+
+class _HeadingTurn(NamedTuple):
+    """One route's turn off a shared opening run, keyed by that run's heading.
+
+    ``lane`` is the run's own coordinate, the axis the members' bundle order is
+    read on; ``column`` the coordinate they turn onto.
+    """
+
+    route: RoutedPath
+    lane: float
+    column: float
+    fixed: bool
+
+
+def _opening_heading_turn(
+    rp: RoutedPath,
+) -> tuple[tuple[str, Direction, Direction], _HeadingTurn] | None:
+    """The heading *rp* opens on and the turn it takes off it, else ``None``.
+
+    A heading is the ``(source, run direction, turn direction)`` of a horizontal
+    run leaving one source and the vertical taken off it; ``None`` for a route
+    that does not open that way.
+    """
+    if len(rp.points) < _OPENING_TURN_SEGMENT + 2:
+        return None
+    run_start, corner, turn_end = rp.points[:3]
+    run_dir = segment_direction(run_start, corner)
+    turn_dir = segment_direction(corner, turn_end)
+    if run_dir is None or turn_dir is None:
+        return None
+    if direction_axis(run_dir) is not DemandAxis.X:
+        return None
+    if direction_axis(turn_dir) is not DemandAxis.Y:
+        return None
+    return (rp.edge.source, run_dir, turn_dir), _HeadingTurn(
+        route=rp,
+        lane=corner[1],
+        column=corner[0],
+        fixed=rp.normalize_exempt or planner_owns_segment(rp, _OPENING_TURN_SEGMENT),
+    )
+
+
+def _heading_ladder_columns(
+    members: list[_HeadingTurn], run_dir: Direction, turn_dir: Direction, step: float
+) -> dict[int, float]:
+    """Columns the movable members of one heading must turn onto, by route id.
+
+    Lines leaving one source on one horizontal run are a single bundle: they
+    leave it in their lane order and carry that order round the bend, so the
+    columns they turn onto step by ``lateral_order_sign`` of the turn, one
+    ``step`` per lane rank -- the line on the outside of the bend runs on
+    furthest before it can leave, and turns last.
+
+    A member whose handler owns its column states where the ladder sits, so the
+    ladder is read off the owned columns and only the movable members are
+    answered.  Nothing is read from a heading with no owned member, from owned
+    members that place the ladder in different places, or from a line resolving
+    to more than one column -- that line is a fan rather than a bundle member.
+    """
+    by_line: defaultdict[str, list[_HeadingTurn]] = defaultdict(list)
+    for member in members:
+        by_line[member.route.line_id].append(member)
+    if len(by_line) < 2:
+        return {}
+    lanes: dict[str, float] = {}
+    for line_id, line_members in by_line.items():
+        columns = [m.column for m in line_members]
+        if max(columns) - min(columns) > COORD_TOLERANCE:
+            return {}
+        lanes[line_id] = min(m.lane for m in line_members)
+    ranks = {
+        line_id: rank
+        for rank, line_id in enumerate(
+            sorted(lanes, key=lambda lid: lateral_order_sign(run_dir) * lanes[lid])
+        )
+    }
+    progression = lateral_order_sign(turn_dir) * step
+    origins = [
+        m.column - ranks[m.route.line_id] * progression for m in members if m.fixed
+    ]
+    if not origins or max(origins) - min(origins) > COORD_TOLERANCE:
+        return {}
+    origin = origins[0]
+    return {
+        id(m.route): origin + ranks[m.route.line_id] * progression
+        for m in members
+        if not m.fixed
+    }
+
+
+def _heading_pinned_columns(routes: list[RoutedPath], step: float) -> dict[int, float]:
+    """Per-route columns the settled headings leave their movable members.
+
+    The gap seating groups legs by the gap each DECLARES, and a leg whose own
+    handler owns its opening column declares whatever gap its later channel
+    occupies instead -- so a heading can have its ladder stated in a gap the
+    seating reads as carrying only the movable member, which it then centres
+    wherever the gap's other bundles leave room.  Restating the owned column as
+    a pin on the movable member gives that seating the ladder to sit on.
+    """
+    headings: defaultdict[tuple[str, Direction, Direction], list[_HeadingTurn]] = (
+        defaultdict(list)
+    )
+    for rp in routes:
+        found = _opening_heading_turn(rp)
+        if found is not None:
+            headings[found[0]].append(found[1])
+    pinned: dict[int, float] = {}
+    for (_source, run_dir, turn_dir), members in headings.items():
+        pinned.update(_heading_ladder_columns(members, run_dir, turn_dir, step))
+    return pinned
+
+
 def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Resolve every declared :class:`GapSlot` to a concentric channel X.
 
@@ -686,6 +824,10 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
       seats on that column instead of centring
       (:func:`_anchored_bundle_midpoint`), so the coincidence fusion that later
       pulls this bundle's leg onto it does not drag it across a sibling.
+    * A bundle carrying one member of a heading whose ladder an exempt handler
+      has already stated seats on the column that heading's lateral order gives
+      it (:func:`_heading_pinned_columns`), so the two turn onto columns running
+      with the order they held on the shared run rather than across it.
 
     The grouping is read from the declared slots rather than rediscovered from
     raw geometry; the concentric layout and flanking-radius recompute are the
@@ -700,15 +842,23 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     owned: dict[tuple[int, int | None], dict[tuple[bool, str], float]] = defaultdict(
         dict
     )
+    heading_columns = _heading_pinned_columns(routes, ctx.offset_step)
+    derived: dict[tuple[int, int | None], dict[tuple[bool, str], float]] = defaultdict(
+        dict
+    )
     for rp in routes:
         for slot in rp.gap_slots:
             ch = _locate_slot_channel(rp, slot, graph)
             if ch is None:
                 continue
+            key = (slot.gap_lo_col, slot.row)
             if rp.normalize_exempt or _planner_owns_channel(ch):
-                owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
+                owned[key][(ch.down, rp.line_id)] = ch.x
             else:
-                by_gap[(slot.gap_lo_col, slot.row)].append(ch)
+                by_gap[key].append(ch)
+                column = heading_columns.get(id(rp))
+                if column is not None and ch.idx == _OPENING_TURN_SEGMENT:
+                    derived[key][(ch.down, rp.line_id)] = column
 
     bands = _grid_row_bands(graph)
     for (lo, row), chans in by_gap.items():
@@ -738,7 +888,14 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             same = [c for c in chans if c.down is down]
             for corridor in _split_corridors(same):
                 bundles.append((down, corridor))
-        _layout_gap_bundle(bundles, gap_left, gap_right, ctx, owned.get((lo, row)))
+        _layout_gap_bundle(
+            bundles,
+            gap_left,
+            gap_right,
+            ctx,
+            owned.get((lo, row)),
+            derived.get((lo, row)),
+        )
 
 
 def _separate_declared_opposing_gap_bundles(
