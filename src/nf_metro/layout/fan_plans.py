@@ -9,7 +9,7 @@ deterministic legacy disposition.
 from __future__ import annotations
 
 import math
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Container, Iterable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
@@ -234,27 +234,41 @@ def _appearance_centreline_branch_id(
     appearance_policy: FanAppearancePolicy,
     structural_trunk_rank: int | None,
 ) -> FanBranchPlanId | None:
-    """Choose the branch that a straight local fan keeps on its main track."""
+    """Choose the branch that a straight local fan keeps on its main track.
+
+    A straight frame holds exactly one branch at lane zero, so the centreline
+    has to own its lane seat: branches that leave the fork through a shared
+    station stand on one seat and could not be told apart on the main track.
+    Each candidate is therefore passed over when it shares its seat, and the
+    choice falls through to the next one.
+    """
     if appearance_policy is not FanAppearancePolicy.STRAIGHT or not any(
         branch.lane_station_ids for branch in branches
     ):
         return None
+    seat_keys = fan_lane_seat_keys(branches)
+    seat_population = Counter(seat_keys)
+    owns_seat = {
+        branch.id: seat_population[seat_key] == 1
+        for branch, seat_key in zip(branches, seat_keys, strict=True)
+    }
     trunk_branches = tuple(
         branch for branch in branches if branch.is_trunk_continuation
     )
-    if len(trunk_branches) == 1:
+    if len(trunk_branches) == 1 and owns_seat[trunk_branches[0].id]:
         return trunk_branches[0].id
     rider_id = _branch_riding_past_a_sibling(graph, branches)
-    if rider_id is not None:
+    if rider_id is not None and owns_seat[rider_id]:
         return rider_id
     if structural_trunk_rank is not None:
         structural_trunk = next(
             (branch for branch in branches if branch.rank == structural_trunk_rank),
             None,
         )
-        if structural_trunk is not None:
+        if structural_trunk is not None and owns_seat[structural_trunk.id]:
             return structural_trunk.id
-    return min(branches, key=lambda branch: (branch.opening_rank, branch.rank)).id
+    seatable = tuple(branch for branch in branches if owns_seat[branch.id]) or branches
+    return min(seatable, key=lambda branch: (branch.opening_rank, branch.rank)).id
 
 
 def vertical_fan_label_lane_pitch(
