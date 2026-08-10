@@ -1145,6 +1145,18 @@ def _retags_its_line(graph: MetroGraph, station_id: str) -> bool:
     )
 
 
+def _seats_a_retag(graph: MetroGraph, station_id: str) -> bool:
+    """Whether the fan gives a hand-over station a lane per name of its own.
+
+    Collapsed offsets seat every name a station carries on the one lane its
+    busiest side needs, and a hand-over station carries one line in and one
+    out, so both its names ride the track through it and the marker stays a
+    single-lane dot.  Only a map that spreads its lines gives the two names
+    the adjacent lanes the marker spans.
+    """
+    return not graph.compact_offsets and _retags_its_line(graph, station_id)
+
+
 def _contiguous_assignments(
     offset_line_order: Sequence[str],
     present: Container[str],
@@ -1338,7 +1350,7 @@ def _offset_carriers(
                 branch_incidence[edge.source][branch.rank].add(edge.line_id)
                 branch_incidence[edge.target][branch.rank].add(edge.line_id)
     for station_id, by_branch in branch_incidence.items():
-        if len(by_branch) < 2 and not _retags_its_line(graph, station_id):
+        if len(by_branch) < 2 and not _seats_a_retag(graph, station_id):
             continue
         add_station(
             station_id,
