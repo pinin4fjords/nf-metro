@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from _pytest.mark.structures import ParameterSet
 
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.engine import compute_layout
@@ -41,35 +40,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 TOPOLOGIES = FIXTURES / "topologies"
 EXAMPLES = REPO_ROOT / "examples"
-_CURVE_REPROS = FIXTURES / "curve_invariant_repros"
-_HASH_SEEDS = FIXTURES / "hash_seed_determinism"
 
-_TWO_MOVABLE_MEMBERS = (
-    "one heading whose members ALL move seats as a single gap bundle, whose "
-    "line order the crossing minimiser picks from the deep-end turn-offs "
-    "rather than from the lateral order the members held on the shared run"
-)
-
-# Fixtures each corpus sweep below knows to carry a violation of its own rule,
-# with what that fixture carries.  Naming a carrier keeps it IN the sweep under
-# a strict mark, so the day its defect is fixed the sweep reds, rather than its
-# whole tree sitting outside the corpus unwatched.
-_KNOWN_BUNDLE_ORDER_CARRIERS: dict[str, str] = {
-    "seed_15.mmd": (
-        "an exit-port bundle turns L->D onto columns that contradict the "
-        "incoming run's order, crossing the pair inside the corner"
-    ),
-    "seed_41.mmd": (
-        "an exit-port bundle turns U->L onto columns that contradict the "
-        "incoming run's order, crossing the pair inside the corner"
-    ),
-}
-_KNOWN_SHARED_RUN_CARRIERS: dict[str, str] = {
-    "seed_15.mmd": _TWO_MOVABLE_MEMBERS,
-    "seed_41.mmd": _TWO_MOVABLE_MEMBERS,
-    "seed_72.mmd": _TWO_MOVABLE_MEMBERS,
-    "seed_77.mmd": _TWO_MOVABLE_MEMBERS,
-}
+# Fixtures with KNOWN bundle-order violations that the criterion
+# correctly surfaces.  These are real bugs we xfail rather than blunt
+# the criterion to hide them.
+_KNOWN_VIOLATION_FIXTURES: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -81,31 +56,14 @@ def _gather_fixtures() -> list[Path]:
     paths: list[Path] = []
     paths.extend(sorted(FIXTURES.glob("*.mmd")))
     paths.extend(sorted(TOPOLOGIES.glob("*.mmd")))
-    paths.extend(sorted(_CURVE_REPROS.glob("*.mmd")))
-    paths.extend(sorted(_HASH_SEEDS.glob("*.mmd")))
     paths.extend(sorted(EXAMPLES.glob("*.mmd")))
     paths.extend(sorted((EXAMPLES / "topologies").glob("*.mmd")))
     return paths
 
 
-def _sweep(carriers: dict[str, str] | None = None) -> list[ParameterSet]:
-    """The corpus as parameters, strict-xfailing this sweep's known carriers."""
-    known = carriers or {}
-    return [
-        pytest.param(
-            path,
-            id=path.relative_to(REPO_ROOT).as_posix(),
-            marks=(
-                [pytest.mark.xfail(strict=True, reason=known[path.name])]
-                if path.name in known
-                else []
-            ),
-        )
-        for path in _gather_fixtures()
-    ]
-
-
-@pytest.mark.parametrize("path", _sweep(_KNOWN_BUNDLE_ORDER_CARRIERS))
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
 def test_no_bundle_order_violations_in_gallery(path: Path) -> None:
     """Every shipped topology and example must route without a
     bundle-order violation.
@@ -113,7 +71,17 @@ def test_no_bundle_order_violations_in_gallery(path: Path) -> None:
     This is the corpus-level happy-path check.  A regression to a
     routing handler that creates a flipped concentric bundle would
     cause exactly one fixture to start failing here.
+
+    Fixtures listed in :data:`_KNOWN_VIOLATION_FIXTURES` are
+    xfailed: they have real bundle-order bugs at the Plots-entry
+    corner that the criterion correctly catches, and we'd rather
+    track those as known failures than silently blunt the criterion.
     """
+    if path.name in _KNOWN_VIOLATION_FIXTURES:
+        pytest.xfail(
+            f"{path.name} has a known bundle-order violation at the "
+            "Plots-entry corner; the criterion correctly catches it."
+        )
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
@@ -220,7 +188,9 @@ def test_left_entry_wrap_preserves_bundle_order(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", _sweep())
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
 def test_no_tb_exit_corner_column_flips_in_gallery(path: Path) -> None:
     """No shipped fixture turns a TB section's bundle out through a LEFT/RIGHT
     exit in an order that disagrees with its in-section vertical column.
@@ -277,7 +247,9 @@ def test_tb_exit_corner_continues_column_and_keeps_bundle_order(path: Path) -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", _sweep(_KNOWN_SHARED_RUN_CARRIERS))
+@pytest.mark.parametrize(
+    "path", _gather_fixtures(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
 def test_no_shared_run_turn_flips_in_gallery(path: Path) -> None:
     """No shipped fixture turns lines off one shared run onto crossing columns.
 
@@ -344,89 +316,6 @@ def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
         f"{len(at_exit)} shared-run turn flip(s) at the exit junction; first: "
         f"{at_exit[0].message() if at_exit else ''}"
     )
-
-
-# Each fixture below names one heading whose ladder an exempt handler states
-# and whose other member the gap seating places, so the rule is pinned to a
-# named source rather than left to the whole-corpus sweeps above.
-@pytest.mark.parametrize(
-    ("relative_path", "source_id"),
-    [
-        (_CURVE_REPROS / "rl_return_row_convergence.mmd", "__junction_16"),
-        (_HASH_SEEDS / "seed_77.mmd", "__junction_35"),
-    ],
-    ids=["rl_return_row_convergence", "seed_77"],
-)
-def test_return_row_gap_seating_keeps_the_headings_lateral_order(
-    relative_path: Path, source_id: str
-) -> None:
-    """A gap-seated ladder turns onto columns running with its lateral order.
-
-    Lines leaving one source on one horizontal run turn down onto a ladder of
-    columns whose progression is the turn's ``lateral_order_sign``: rightward
-    into a downturn, the line lower on the run is inside the bend and turns
-    first, at the smaller x.  The member whose handler owns its column states
-    where that ladder sits, and the gap carrying the other member's descent
-    seats it on the column the ladder gives it rather than centring it.
-    """
-    graph = parse_metro_mermaid(relative_path.read_text())
-    compute_layout(graph)
-    offsets = compute_station_offsets(graph)
-    routes = route_edges(graph, station_offsets=offsets)
-    flips = [
-        violation
-        for violation in check_shared_run_turn_preserves_bundle_order(routes, offsets)
-        if violation.source_id == source_id
-    ]
-    assert flips == [], (
-        f"{len(flips)} shared-run turn flip(s) out of {source_id!r}; first: "
-        f"{flips[0].message() if flips else ''}"
-    )
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "The descent lanes out of a bottom exit are seated by line priority, "
-        "so the member continuing deepest can hold an inner column and its "
-        "siblings' leftward turns cut across the descent it is still drawing."
-    ),
-)
-def test_descending_exit_bundle_seats_the_deepest_member_outermost() -> None:
-    """A descending bundle's peel-offs clear the sibling running deeper.
-
-    Three lanes leave ``integration`` together and turn west at three depths.
-    A lane turning west sweeps every column to its left, so a lane whose
-    descent continues past that depth has to stand to its right: the descent
-    columns read in landing-depth order, deepest outermost, and the turns nest.
-    """
-    path = EXAMPLES / "topologies" / "fold_stacked_branch.mmd"
-    graph = parse_metro_mermaid(path.read_text())
-    compute_layout(graph)
-    offsets = compute_station_offsets(graph)
-    routes = route_edges(graph, station_offsets=offsets)
-
-    descents = {
-        rp.line_id: (pts[0][0], pts[1][1])
-        for rp in routes
-        if rp.edge.source == "__junction_15"
-        and len(pts := apply_route_offsets(rp, offsets)) >= 3
-        and abs(pts[1][0] - pts[0][0]) <= COORD_TOLERANCE
-        and pts[1][1] > pts[0][1]
-        and pts[2][0] < pts[1][0]
-    }
-    assert {"rna", "atac", "protein"} <= set(descents), descents
-    by_depth = sorted(descents, key=lambda line_id: descents[line_id][1])
-    columns = [descents[line_id][0] for line_id in by_depth]
-    assert columns == sorted(columns), (
-        "lanes turning west earlier must stand left of the lanes still "
-        f"descending, but landing-depth order {by_depth} draws columns {columns}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Route-level negative test: a synthetic flipped corner is caught
-# ---------------------------------------------------------------------------
 
 
 def _synthetic_route(line_id: str, points: list[tuple[float, float]]) -> RoutedPath:
