@@ -2512,6 +2512,87 @@ def _with_landing(
     return replace(plan, landings=tuple(landings))
 
 
+def _settle_landing_against_flank(
+    settled: list[ConvergencePlan],
+    landing_plan: ConvergencePlan,
+    landing_plan_rank: int,
+    landing_rank: int,
+    plan_rank: int,
+    flank_rank: int,
+    graph: MetroGraph,
+    clearance: float,
+    curve_radius: float,
+) -> bool:
+    """Lane one landing clear of one trunk flank, writing back into *settled*.
+
+    Both runs of the pair are read back from *settled*, so a flank or landing an
+    earlier call re-seats is compared where it stands rather than where it was
+    found.  ``False`` reports that the landing draws no cross run, or the trunk
+    carries no axis, so no flank of that trunk can conflict with this landing.
+    """
+    trunk_plan = settled[plan_rank]
+    axis = trunk_plan.trunk_axis
+    landing = settled[landing_plan_rank].landings[landing_rank]
+    landing_segment = _landing_cross_segment(landing, graph)
+    if landing_segment is None or axis is None:
+        return False
+    landing_direction = _direction(*landing_segment)
+    landing_horizontal = (
+        abs(landing_segment[0][1] - landing_segment[1][1]) <= COORD_TOLERANCE
+    )
+    landing_coordinate = (
+        landing_segment[0][1] if landing_horizontal else landing_segment[0][0]
+    )
+    flank = _trunk_segments(axis)[flank_rank]
+    if (
+        landing.edge.line_id not in trunk_plan.line_ids
+        or landing_direction is _trunk_run_travel_direction(axis, flank_rank)
+        or not _parallel_segments_conflict(landing_segment, flank, curve_radius)
+        or _shared_source_bundle_stroke(
+            landing_plan,
+            landing,
+            trunk_plan,
+            flank_rank,
+            landing_segment,
+            flank,
+        )
+    ):
+        return True
+    flank_coordinate = flank[0][1] if landing_horizontal else flank[0][0]
+    endpoint = _flank_endpoint(axis, flank_rank)
+    if endpoint is None:
+        return True
+    forked = _forked_flank(landing, trunk_plan, flank_rank)
+    coordinate = _flank_settled_column(
+        forked=forked,
+        flank_coordinate=flank_coordinate,
+        landing_coordinate=landing_coordinate,
+        endpoint=endpoint,
+        clearance=clearance,
+        curve_radius=curve_radius,
+    )
+    if coordinate is None:
+        reseated = (
+            None
+            if landing.member_id == landing_plan.primary_trunk_member_id
+            else _landing_gives_way_to_flank(
+                landing,
+                forked=forked,
+                flank_coordinate=flank_coordinate,
+                endpoint=endpoint,
+                clearance=clearance,
+                curve_radius=curve_radius,
+            )
+        )
+        if reseated is not None:
+            settled[landing_plan_rank] = _with_landing(
+                settled[landing_plan_rank], landing_rank, reseated
+            )
+        return True
+    settled[plan_rank] = _move_trunk_flank(trunk_plan, flank_rank, coordinate)
+    return True
+
+
 def _settle_landing_trunk_flanks(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
 ) -> tuple[ConvergencePlan, ...]:
@@ -2527,78 +2608,18 @@ def _settle_landing_trunk_flanks(
                 if settled[plan_rank].id == landing_plan.id:
                     continue
                 for flank_rank in (1, 3):
-                    # Both runs of the pair are read back from `settled` on every
-                    # step, so a flank or landing an earlier step re-seats is
-                    # compared where it stands rather than where it was found.
-                    trunk_plan = settled[plan_rank]
-                    axis = trunk_plan.trunk_axis
-                    landing = settled[landing_plan_rank].landings[landing_rank]
-                    landing_segment = _landing_cross_segment(landing, graph)
-                    if landing_segment is None or axis is None:
-                        break
-                    landing_direction = _direction(*landing_segment)
-                    landing_horizontal = (
-                        abs(landing_segment[0][1] - landing_segment[1][1])
-                        <= COORD_TOLERANCE
-                    )
-                    landing_coordinate = (
-                        landing_segment[0][1]
-                        if landing_horizontal
-                        else landing_segment[0][0]
-                    )
-                    flank = _trunk_segments(axis)[flank_rank]
-                    if (
-                        landing.edge.line_id not in trunk_plan.line_ids
-                        or landing_direction
-                        is _trunk_run_travel_direction(axis, flank_rank)
-                        or not _parallel_segments_conflict(
-                            landing_segment, flank, curve_radius
-                        )
-                        or _shared_source_bundle_stroke(
-                            landing_plan,
-                            landing,
-                            trunk_plan,
-                            flank_rank,
-                            landing_segment,
-                            flank,
-                        )
+                    if not _settle_landing_against_flank(
+                        settled,
+                        landing_plan,
+                        landing_plan_rank,
+                        landing_rank,
+                        plan_rank,
+                        flank_rank,
+                        graph,
+                        clearance,
+                        curve_radius,
                     ):
-                        continue
-                    flank_coordinate = (
-                        flank[0][1] if landing_horizontal else flank[0][0]
-                    )
-                    endpoint = _flank_endpoint(axis, flank_rank)
-                    if endpoint is None:
-                        continue
-                    forked = _forked_flank(landing, trunk_plan, flank_rank)
-                    coordinate = _flank_settled_column(
-                        forked=forked,
-                        flank_coordinate=flank_coordinate,
-                        landing_coordinate=landing_coordinate,
-                        endpoint=endpoint,
-                        clearance=clearance,
-                        curve_radius=curve_radius,
-                    )
-                    if coordinate is None:
-                        if landing.member_id == landing_plan.primary_trunk_member_id:
-                            continue
-                        reseated = _landing_gives_way_to_flank(
-                            landing,
-                            forked=forked,
-                            flank_coordinate=flank_coordinate,
-                            endpoint=endpoint,
-                            clearance=clearance,
-                            curve_radius=curve_radius,
-                        )
-                        if reseated is None:
-                            continue
-                        settled[landing_plan_rank] = _with_landing(
-                            settled[landing_plan_rank], landing_rank, reseated
-                        )
-                        continue
-                    settled[plan_rank] = _move_trunk_flank(
-                        trunk_plan, flank_rank, coordinate
-                    )
+                        break
     return tuple(settled)
 
 
@@ -2807,6 +2828,54 @@ def _gap_channels_crowd(first: _PlanGapChannel, second: _PlanGapChannel) -> bool
     )
 
 
+def _clearance_candidates(
+    base_coordinate: float,
+    base_down: bool,
+    obstacles: Iterable[_PlanGapChannel],
+) -> tuple[float, ...]:
+    """Columns a leg standing at *base_coordinate* could step to, nearest first.
+
+    Every obstacle offers the two columns one lane clearance either side of it,
+    so the first admissible candidate is the smallest move that clears the
+    crowding.  ``same_line=False`` matches :func:`_gap_channels_crowd`: a caller
+    filters obstacles sharing any of the leg's lines before asking.
+    """
+    return tuple(
+        sorted(
+            {
+                obstacle.coordinate
+                + sign
+                * cotravelling_lane_clearance(
+                    same_line=False,
+                    counter_running=obstacle.down is not base_down,
+                    curve_radius=CURVE_RADIUS,
+                )
+                for obstacle in obstacles
+                for sign in (-1.0, 1.0)
+            },
+            key=lambda candidate: (abs(candidate - base_coordinate), candidate),
+        )
+    )
+
+
+def _inside_usable_gap(gap_edges: tuple[float, float], coordinate: float) -> bool:
+    """Whether *coordinate* clears both edges of the gap spanning *gap_edges*."""
+    gap_left, gap_right = gap_edges
+    return (
+        gap_left + EDGE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+        <= coordinate
+        <= gap_right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE
+    )
+
+
+def _channel_inside_gap(graph: MetroGraph, channel: _PlanGapChannel) -> bool:
+    """Whether *channel* sits inside the usable band of the gap it claims."""
+    return _inside_usable_gap(
+        column_gap_edges(graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]),
+        channel.coordinate,
+    )
+
+
 def _member_represented_convergence_lane(
     convergence_channel: _PlanGapChannel,
     member_channel: _PlanGapChannel,
@@ -2911,15 +2980,11 @@ def _flank_lane_coordinate(
         for channel in seated:
             if channel.flank_rank != flank_rank:
                 continue
-            gap_left, gap_right = column_gap_edges(
+            gap_edges = column_gap_edges(
                 graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]
             )
-            usable_left = gap_left + EDGE_TO_BUNDLE_CLEARANCE
-            usable_right = gap_right - EDGE_TO_BUNDLE_CLEARANCE
-            if (
-                gap_right <= gap_left
-                or channel.coordinate < usable_left - COORD_TOLERANCE
-                or channel.coordinate > usable_right + COORD_TOLERANCE
+            if gap_edges[1] <= gap_edges[0] or not _inside_usable_gap(
+                gap_edges, channel.coordinate
             ):
                 return False
             if any(_gap_channels_crowd(channel, obstacle) for obstacle in obstacles):
@@ -2932,20 +2997,7 @@ def _flank_lane_coordinate(
         if channel.flank_rank == flank_rank
         and abs(channel.coordinate - column) <= COORD_TOLERANCE
     )
-    candidates = sorted(
-        {
-            obstacle.coordinate
-            + sign
-            * (
-                BUNDLE_TO_BUNDLE_CLEARANCE
-                if obstacle.down is not flank_down
-                else OFFSET_STEP
-            )
-            for obstacle in obstacles
-            for sign in (-1.0, 1.0)
-        },
-        key=lambda candidate: (abs(candidate - column), candidate),
-    )
+    candidates = _clearance_candidates(column, flank_down, obstacles)
     return next((candidate for candidate in candidates if feasible(candidate)), None)
 
 
@@ -3084,19 +3136,35 @@ def _settle_opposing_gap_flanks(
     )
     settled = list(ordered)
     lookup = gap_lookup_geometry(graph)
-    for current_rank, _plan in enumerate(ordered):
-        resident = [
+    # A plan is frozen and every move replaces it with a new one, so its legs
+    # are a function of its identity; holding the plan alongside its legs keeps
+    # it alive, which is what makes the identity key unique for this pass.
+    seats: dict[int, tuple[ConvergencePlan, tuple[_PlanGapChannel, ...]]] = {}
+
+    def channels_of(plan: ConvergencePlan) -> tuple[_PlanGapChannel, ...]:
+        seat = seats.get(id(plan))
+        if seat is None:
+            seat = (plan, _plan_gap_channels(plan, graph, lookup))
+            seats[id(plan)] = seat
+        return seat[1]
+
+    def resident_channels(current_rank: int) -> list[_PlanGapChannel]:
+        """Every leg already fixed, or seated by a plan settling earlier."""
+        return [
             *fixed_channels,
             *(
                 channel
                 for prior_plan in settled[:current_rank]
-                for channel in _plan_gap_channels(prior_plan, graph, lookup)
+                for channel in channels_of(prior_plan)
             ),
         ]
+
+    for current_rank, _plan in enumerate(ordered):
+        resident = resident_channels(current_rank)
         plan = settled[current_rank]
         if plan.trunk_axis is None or plan.trunk_axis.axis is not DemandAxis.X:
             continue
-        channels = _plan_gap_channels(plan, graph, lookup)
+        channels = channels_of(plan)
         for flank_rank in (1, 3):
             if (plan.id, flank_rank) in exit_owned_flanks:
                 continue
@@ -3131,9 +3199,7 @@ def _settle_opposing_gap_flanks(
                         channel.y_lo,
                         channel.y_hi,
                     )
-                    for candidate_channel in _plan_gap_channels(
-                        candidate_plan, graph, lookup
-                    )
+                    for candidate_channel in channels_of(candidate_plan)
                     for channel in seated
                 )
             )
@@ -3175,22 +3241,8 @@ def _settle_opposing_gap_flanks(
                 jointly_feasible=landing_feasible,
             )
             if coordinate is None and len(coupled_flanks) == 1:
-                direct_candidates = sorted(
-                    {
-                        obstacle.coordinate
-                        + sign
-                        * (
-                            BUNDLE_TO_BUNDLE_CLEARANCE
-                            if seated[0].down is not obstacle.down
-                            else OFFSET_STEP
-                        )
-                        for obstacle in obstacles
-                        for sign in (-1.0, 1.0)
-                    },
-                    key=lambda candidate: (
-                        abs(candidate - seated[0].coordinate),
-                        candidate,
-                    ),
+                direct_candidates = _clearance_candidates(
+                    seated[0].coordinate, seated[0].down, obstacles
                 )
                 for candidate_coordinate in direct_candidates:
                     try:
@@ -3200,7 +3252,7 @@ def _settle_opposing_gap_flanks(
                     coupled_plan = moved_by_rank[current_rank]
                     moved_channels = tuple(
                         channel
-                        for channel in _plan_gap_channels(coupled_plan, graph, lookup)
+                        for channel in channels_of(coupled_plan)
                         if channel.flank_rank == flank_rank
                     )
                     if not moved_channels or any(
@@ -3210,20 +3262,7 @@ def _settle_opposing_gap_flanks(
                     ):
                         continue
                     if any(
-                        not (
-                            (
-                                bounds := column_gap_edges(
-                                    graph,
-                                    channel.gap[0],
-                                    channel.gap[0] + 1,
-                                    row=channel.gap[1],
-                                )
-                            )[0]
-                            + EDGE_TO_BUNDLE_CLEARANCE
-                            - COORD_TOLERANCE
-                            <= channel.coordinate
-                            <= bounds[1] - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE
-                        )
+                        not _channel_inside_gap(graph, channel)
                         for channel in moved_channels
                     ):
                         continue
@@ -3244,15 +3283,8 @@ def _settle_opposing_gap_flanks(
                 continue
             for candidate_rank, moved in moved_by_rank.items():
                 settled[candidate_rank] = moved
-            resident = [
-                *fixed_channels,
-                *(
-                    channel
-                    for prior_plan in settled[:current_rank]
-                    for channel in _plan_gap_channels(prior_plan, graph, lookup)
-                ),
-            ]
-            channels = _plan_gap_channels(settled[current_rank], graph, lookup)
+            resident = resident_channels(current_rank)
+            channels = channels_of(settled[current_rank])
 
         for channel in tuple(item for item in channels if item.flank_rank is None):
             if any(
@@ -3269,32 +3301,14 @@ def _settle_opposing_gap_flanks(
             )
             if not obstacles:
                 continue
-            gap_left, gap_right = column_gap_edges(
+            gap_edges = column_gap_edges(
                 graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]
             )
-            candidates = sorted(
-                {
-                    obstacle.coordinate
-                    + sign
-                    * (
-                        BUNDLE_TO_BUNDLE_CLEARANCE
-                        if channel.down is not obstacle.down
-                        else OFFSET_STEP
-                    )
-                    for obstacle in obstacles
-                    for sign in (-1.0, 1.0)
-                },
-                key=lambda candidate: (
-                    abs(candidate - channel.coordinate),
-                    candidate,
-                ),
+            candidates = _clearance_candidates(
+                channel.coordinate, channel.down, obstacles
             )
             for coordinate in candidates:
-                if not (
-                    gap_left + EDGE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
-                    <= coordinate
-                    <= gap_right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE
-                ):
+                if not _inside_usable_gap(gap_edges, coordinate):
                     continue
                 moved_plan = _move_landing_opening(
                     settled[current_rank],
@@ -3307,7 +3321,7 @@ def _settle_opposing_gap_flanks(
                 moved_channel = next(
                     (
                         item
-                        for item in _plan_gap_channels(moved_plan, graph, lookup)
+                        for item in channels_of(moved_plan)
                         if item.claimant_member_ids == channel.claimant_member_ids
                         and item.gap == channel.gap
                     ),
@@ -3328,7 +3342,7 @@ def _settle_opposing_gap_flanks(
                 ):
                     continue
                 settled[current_rank] = moved_plan
-                channels = _plan_gap_channels(moved_plan, graph, lookup)
+                channels = channels_of(moved_plan)
                 break
     by_id = {plan.id: plan for plan in settled}
     return tuple(by_id[plan.id] for plan in plans)
@@ -4019,35 +4033,60 @@ def _settle_convergence_geometry(
     return _reconcile_landing_handedness(settled, graph)
 
 
-def settle_global_convergence_execution(
+def _settle_eligible(
+    execution: ConvergencePlanExecution,
+    exit_turn_plans: tuple[ExitTurnPlan, ...],
+    planned_system_ids: frozenset[RouteSystemId],
+) -> tuple[tuple[ConvergencePlan, ...], tuple[ExitTurnPlan, ...]]:
+    """The geometry-owning plans of *planned_system_ids* and their exit turns."""
+    return (
+        tuple(
+            plan
+            for plan in execution.plans
+            if plan.system_id in planned_system_ids and plan.owns_geometry
+        ),
+        tuple(plan for plan in exit_turn_plans if plan.system_id in planned_system_ids),
+    )
+
+
+def _settle_convergence_execution(
     execution: ConvergencePlanExecution,
     graph: MetroGraph,
     ctx: _RoutingCtx,
     *,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
-    member_geometry: MemberGeometryExecution,
     planned_system_ids: frozenset[RouteSystemId],
-    include_resources: bool,
+    member_geometry: MemberGeometryExecution | None = None,
+    include_resources: bool = False,
 ) -> ConvergencePlanExecution:
-    """Settle post-member eligible owners before final atomic disposition."""
-    eligible = tuple(
-        plan
-        for plan in execution.plans
-        if plan.system_id in planned_system_ids and plan.owns_geometry
+    """Settle the eligible owners of *planned_system_ids* back into *execution*.
+
+    With *member_geometry* the pass is the final one: allocated member legs are
+    fixed obstacles the corridor runs pack against, and the seats it settles on
+    have to survive the feasibility check that closes convergence planning.
+    """
+    eligible, planned_exit_turns = _settle_eligible(
+        execution, exit_turn_plans, planned_system_ids
     )
-    planned_exit_turns = tuple(
-        plan for plan in exit_turn_plans if plan.system_id in planned_system_ids
+    fixed_channels = (
+        _planned_member_gap_channels(eligible, member_geometry)
+        if member_geometry is not None
+        else ()
     )
-    fixed_channels = _planned_member_gap_channels(eligible, member_geometry)
     settled = _settle_convergence_geometry(
         eligible,
         graph,
         ctx,
         planned_exit_turns,
         fixed_channels,
-        _member_corridor_runs(eligible, member_geometry, graph),
+        (
+            _member_corridor_runs(eligible, member_geometry, graph)
+            if member_geometry is not None
+            else ()
+        ),
     )
-    _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
+    if member_geometry is not None:
+        _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
     settled_by_id = {plan.id: plan for plan in settled}
     plans = tuple(settled_by_id.get(plan.id, plan) for plan in execution.plans)
     references, demands = _resources(graph, plans) if include_resources else ((), ())
@@ -4060,6 +4099,28 @@ def settle_global_convergence_execution(
     )
 
 
+def settle_global_convergence_execution(
+    execution: ConvergencePlanExecution,
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    *,
+    exit_turn_plans: tuple[ExitTurnPlan, ...],
+    member_geometry: MemberGeometryExecution,
+    planned_system_ids: frozenset[RouteSystemId],
+    include_resources: bool,
+) -> ConvergencePlanExecution:
+    """Settle post-member eligible owners before final atomic disposition."""
+    return _settle_convergence_execution(
+        execution,
+        graph,
+        ctx,
+        exit_turn_plans=exit_turn_plans,
+        planned_system_ids=planned_system_ids,
+        member_geometry=member_geometry,
+        include_resources=include_resources,
+    )
+
+
 def settle_preliminary_convergence_execution(
     execution: ConvergencePlanExecution,
     graph: MetroGraph,
@@ -4069,23 +4130,12 @@ def settle_preliminary_convergence_execution(
     planned_system_ids: frozenset[RouteSystemId],
 ) -> ConvergencePlanExecution:
     """Settle provisional convergence decisions before member allocation."""
-    eligible = tuple(
-        plan
-        for plan in execution.plans
-        if plan.system_id in planned_system_ids and plan.owns_geometry
-    )
-    planned_exit_turns = tuple(
-        plan for plan in exit_turn_plans if plan.system_id in planned_system_ids
-    )
-    settled = _settle_convergence_geometry(eligible, graph, ctx, planned_exit_turns)
-    by_id = {plan.id: plan for plan in settled}
-    plans = tuple(by_id.get(plan.id, plan) for plan in execution.plans)
-    return ConvergencePlanExecution(
-        plans,
-        (),
-        (),
-        execution.diagnostics,
-        _query(plans, execution.query._edge_order),
+    return _settle_convergence_execution(
+        execution,
+        graph,
+        ctx,
+        exit_turn_plans=exit_turn_plans,
+        planned_system_ids=planned_system_ids,
     )
 
 
