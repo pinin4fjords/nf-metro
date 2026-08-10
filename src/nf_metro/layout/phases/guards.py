@@ -5360,14 +5360,13 @@ def _guard_planned_fan_frame_realised(
                     f"lane offsets {lane_offsets!r}; expected "
                     f"{expected_lane_offsets!r} around one centreline"
                 )
-        straight_frame_fault = _straight_frame_fault(
-            plan, lane_offsets, expected_lane_offsets
-        )
-        if (
-            plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+        straight_frame_fault = (
+            _straight_frame_fault(plan, lane_offsets, expected_lane_offsets)
+            if plan.appearance_policy is FanAppearancePolicy.STRAIGHT
             and plan.layout_station_ids
-            and straight_frame_fault is not None
-        ):
+            else None
+        )
+        if straight_frame_fault is not None:
             raise PhaseInvariantError(
                 f"{phase}: straight planned fan {plan.id!s} does not keep its "
                 f"appearance frame: {straight_frame_fault}"

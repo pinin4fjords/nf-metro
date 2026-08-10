@@ -1235,10 +1235,28 @@ def _entry_offset_carriers(
     )
 
 
+def _section_line_index(graph: MetroGraph) -> dict[str, frozenset[str]]:
+    """Every line the stations of each section carry, indexed in one walk."""
+    return {
+        section_id: frozenset(
+            line_id
+            for member_id in section.station_ids
+            for line_id in graph.station_lines(member_id)
+        )
+        for section_id, section in graph.sections.items()
+    }
+
+
 def _rides_foreign_line_corridor(
-    graph: MetroGraph, station_id: str, fan_lines: frozenset[str]
+    graph: MetroGraph,
+    station_id: str,
+    fan_lines: frozenset[str],
+    section_lines: dict[str, frozenset[str]] | None = None,
 ) -> bool:
     """Whether *station_id* only relays a corridor that carries a non-fan line.
+
+    *section_lines* is :func:`_section_line_index`, which a caller asking about
+    a whole carrier set builds once and shares; a lone question builds its own.
 
     Scoped to ports, junctions and hand-over stations: a fork or join station
     is the point a fan actively dispatches its own lines from, so it states
@@ -1260,14 +1278,10 @@ def _rides_foreign_line_corridor(
         and not _retags_its_line(graph, station_id)
     ):
         return False
+    index = _section_line_index(graph) if section_lines is None else section_lines
 
     def carries_foreign_line(section_id: str | None) -> bool:
-        section = graph.sections.get(section_id or "")
-        return section is not None and any(
-            line_id not in fan_lines
-            for member_id in section.station_ids
-            for line_id in graph.station_lines(member_id)
-        )
+        return not index.get(section_id or "", frozenset()) <= fan_lines
 
     own_section_id = graph.section_for_station(station_id)
     if own_section_id is not None:
@@ -1331,13 +1345,16 @@ def _offset_carriers(
             (line_id for lines in by_branch.values() for line_id in lines),
         )
 
+    if not carrier_lines:
+        return ()
+    section_lines = _section_line_index(graph)
     return tuple(
         FanOffsetCarrier(
             station_id=station_id,
             assignments=_contiguous_assignments(offset_line_order, lines, offset_sign),
         )
         for station_id, lines in carrier_lines.items()
-        if not _rides_foreign_line_corridor(graph, station_id, fan_lines)
+        if not _rides_foreign_line_corridor(graph, station_id, fan_lines, section_lines)
     )
 
 
