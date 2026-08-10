@@ -206,7 +206,6 @@ class _ExitTurnGeometryState:
     lead_in_start: tuple[float, float] | None
     segment_start: tuple[float, float] | None
     segment_end: tuple[float, float] | None
-    segment_radii: tuple[tuple[int, float], ...] | None
     transition_plan_id: str | None
     transition_points: tuple[tuple[float, float], ...] | None
     transition_radii: tuple[float, ...] | None
@@ -3280,7 +3279,12 @@ def snapshot_exit_turn_segments(
     routes: list[RoutedPath],
     plans: tuple[ExitTurnPlan, ...] = (),
 ) -> _ExitTurnSnapshot:
-    """Capture every planner-owned segment and hand-off after template emission."""
+    """Capture every planner-owned segment and hand-off after template emission.
+
+    Exit-turn plans own the turn axis and waypoint geometry. Corner radii are
+    resolved across coincident same-line routes after every member has emitted,
+    so they belong to the corner-radius unifier rather than an individual plan.
+    """
     values: dict[tuple[str, ...], _ExitTurnGeometryState] = {}
     for route in routes:
         if route.exit_turn_axis_id is not None:
@@ -3300,9 +3304,6 @@ def snapshot_exit_turn_segments(
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BYPASS_FAMILY.value,
             }
-            radii = None
-            if route.curve_radii is not None and 0 <= rank - 1 < len(route.curve_radii):
-                radii = ((rank - 1, route.curve_radii[rank - 1]),)
             values[
                 (
                     "axis",
@@ -3316,7 +3317,6 @@ def snapshot_exit_turn_segments(
                 route.points[rank - 1],
                 route.points[rank],
                 None if landing_point_settled_later else route.points[rank + 1],
-                radii,
                 None,
                 None,
                 None,
@@ -3333,7 +3333,6 @@ def snapshot_exit_turn_segments(
                 )
             ] = _ExitTurnGeometryState(
                 route.exit_turn_family_id,
-                None,
                 None,
                 None,
                 None,
