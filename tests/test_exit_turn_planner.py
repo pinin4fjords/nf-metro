@@ -2084,13 +2084,22 @@ def test_post_pass_snapshot_owns_family_direction_and_endpoints() -> None:
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "family_id"),
     (
-        TOPOLOGIES / "exit_run_three_drop_columns.mmd",
-        ROOT / "examples" / "genomeassembly_staggered.mmd",
+        (
+            TOPOLOGIES / "exit_run_three_drop_columns.mmd",
+            RouteFamilyId.STANDARD_L_SHAPE.value,
+        ),
+        (
+            ROOT / "examples" / "genomeassembly_staggered.mmd",
+            RouteFamilyId.MERGE_ENTRY.value,
+        ),
     ),
 )
-def test_post_pass_snapshot_leaves_corner_radius_to_unifier(path: Path) -> None:
+def test_post_pass_snapshot_leaves_corner_radius_to_unifier(
+    path: Path,
+    family_id: str,
+) -> None:
     _graph, _offsets, observation = _observe(path)
     routes = copy.deepcopy(observation.routes)
     route = next(
@@ -2099,6 +2108,7 @@ def test_post_pass_snapshot_leaves_corner_radius_to_unifier(path: Path) -> None:
         if item.exit_turn_axis_id is not None
         and item.exit_turn_segment_rank is not None
         and item.curve_radii is not None
+        and item.exit_turn_family_id == family_id
     )
     rank = route.exit_turn_segment_rank
     radius_index = rank - 1
@@ -2111,6 +2121,9 @@ def test_post_pass_snapshot_leaves_corner_radius_to_unifier(path: Path) -> None:
     )
     route.curve_radii[radius_index] = narrow_radius
     coincident_peer = copy.deepcopy(route)
+    coincident_peer.exit_turn_plan_id = None
+    coincident_peer.exit_turn_member_id = None
+    coincident_peer.exit_turn_family_id = None
     coincident_peer.exit_turn_axis_id = None
     coincident_peer.exit_turn_segment_rank = None
     assert coincident_peer.curve_radii is not None

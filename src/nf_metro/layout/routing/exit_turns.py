@@ -3279,12 +3279,7 @@ def snapshot_exit_turn_segments(
     routes: list[RoutedPath],
     plans: tuple[ExitTurnPlan, ...] = (),
 ) -> _ExitTurnSnapshot:
-    """Capture every planner-owned segment and hand-off after template emission.
-
-    Exit-turn plans own the turn axis and waypoint geometry. Corner radii are
-    resolved across coincident same-line routes after every member has emitted,
-    so they belong to the corner-radius unifier rather than an individual plan.
-    """
+    """Capture every planner-owned segment and hand-off after template emission."""
     values: dict[tuple[str, ...], _ExitTurnGeometryState] = {}
     for route in routes:
         if route.exit_turn_axis_id is not None:
