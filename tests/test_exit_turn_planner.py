@@ -17,7 +17,12 @@ import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.offsets as routing_offsets
 from nf_metro.api import prepare_graph, render_string, resolve_theme
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    OFFSET_STEP,
+)
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.route_plan import (
@@ -59,7 +64,7 @@ from nf_metro.layout.routing.invariants import check_planned_fan_landing_radius
 from nf_metro.layout.routing.postprocess import _build_bubble_ctx
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import LineSpread, PortSide
-from nf_metro.parser.route_topology import build_route_topology_query
+from nf_metro.parser.route_topology import EndpointGroupId, build_route_topology_query
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import station_marker_box
 from nf_metro.themes import NFCORE_THEME
@@ -990,11 +995,31 @@ def test_lane_arms_a_corner_apart_fork_off_one_stroke() -> None:
     assert columns[1] - columns[0] >= CURVE_RADIUS
 
 
-def test_lane_arms_inside_one_corner_are_not_one_stroke() -> None:
-    """Columns closer than a corner leave the lane drawn as two tracks."""
-    assert exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1075.0, CURVE_RADIUS)
-    assert exit_turns._lane_arms_read_as_one_stroke((536.0,), 692.0, CURVE_RADIUS)
-    assert not exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1079.0, CURVE_RADIUS)
+def test_separately_pinned_ladders_split_only_a_corner_apart() -> None:
+    """The split gate is what keeps a lane's arms out of one another's corner.
+
+    A ladder seats each of its ranks on that rank's own pin, so the columns two
+    ladders hand one lane are the pins this gate compares.  Letting a heading
+    split on pins inside one corner would hand the lane two arms sharing the
+    run their corners turn on, which draws it as two near-parallel tracks.
+    """
+    inside_one_corner = (
+        exit_turns._LadderPin(EndpointGroupId("near"), 0, 1075.0),
+        exit_turns._LadderPin(
+            EndpointGroupId("far"), 0, 1075.0 + CURVE_RADIUS - 2 * COORD_TOLERANCE
+        ),
+    )
+    clear_of_each_other = (
+        exit_turns._LadderPin(EndpointGroupId("near"), 0, 536.0),
+        exit_turns._LadderPin(EndpointGroupId("far"), 0, 692.0),
+    )
+
+    assert not exit_turns._pinned_ladders_clear_each_other(
+        inside_one_corner, CURVE_RADIUS
+    )
+    assert exit_turns._pinned_ladders_clear_each_other(
+        clear_of_each_other, CURVE_RADIUS
+    )
 
 
 def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:

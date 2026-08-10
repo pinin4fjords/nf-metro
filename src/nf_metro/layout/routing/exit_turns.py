@@ -1728,24 +1728,6 @@ def _pinned_ladders_keep_bundle_order(
     )
 
 
-def _lane_arms_read_as_one_stroke(
-    known: Iterable[float], coordinate: float, curve_radius: float
-) -> bool:
-    """Whether an arm turning at *coordinate* keeps one stroke with *known*.
-
-    A corner takes one radius of the shared run before its turn column, so arms
-    a radius or more apart open corners that never overlap and the lane reads
-    as one stroke forking late; arms on one column are one corner.  Between the
-    two the corners share run, and the lane is drawn as two near-parallel
-    tracks instead of one.
-    """
-    return all(
-        abs(item - coordinate) <= COORD_TOLERANCE
-        or abs(item - coordinate) >= curve_radius - COORD_TOLERANCE
-        for item in known
-    )
-
-
 def _turn_cohort_key_by_member(
     seeds: Iterable[_AssignmentSeed],
     curve_radius: float,
@@ -1829,9 +1811,6 @@ def _plan_turn_axes(
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
-    lane_coordinates: dict[tuple[Direction, Direction, int], set[float]] = defaultdict(
-        set
-    )
     for (run_direction, turn_direction, pinning_group_id), cohort in cohorts.items():
         ranks = tuple(sorted({seed.lane_rank for seed in cohort}))
         cohort_rank = {rank: index for index, rank in enumerate(ranks)}
@@ -1891,18 +1870,6 @@ def _plan_turn_axes(
                 else "insufficient-fixed-runway"
             )
             return _AxisPlan((), MappingProxyType({}), minimum_runway, reason)
-        for rank in ranks:
-            known = lane_coordinates[run_direction, turn_direction, rank]
-            if not _lane_arms_read_as_one_stroke(
-                known, coordinates[rank], ctx.curve_radius
-            ):
-                return _AxisPlan(
-                    (),
-                    MappingProxyType({}),
-                    minimum_runway,
-                    "lane-arms-pinned-to-overlapping-corners",
-                )
-            known.add(coordinates[rank])
         for rank in ranks:
             lane_line = ordered_lanes[rank][0]
             rank_seeds = tuple(seed for seed in cohort if seed.lane_rank == rank)

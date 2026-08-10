@@ -529,7 +529,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     _ANOTHER_PLAN_HOLDS_THE_ANCHOR,
                     "fixed-anchor-owned-by-another-plan",
                     "entry-bundle-owns-the-shared-seam-lanes",
-                    "lane-arms-pinned-to-overlapping-corners",
                     "linear-entry-frame-ownership-conflict",
                     "merge-branch-shares-the-descent-corner",
                     "overlapping-planned-turn-axes",

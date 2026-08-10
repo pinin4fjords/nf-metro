@@ -297,7 +297,6 @@
   "exit_turns.py::if len(transition_routes) != 1:::#1",
   "exit_turns.py::if len({coordinate for _line, _offset, coordinate in values}) != len(values):::#1",
   "exit_turns.py::if not _fixed_axis_matches_plan(::#1",
-  "exit_turns.py::if not _lane_arms_read_as_one_stroke(::#1",
   "exit_turns.py::if not additions:::#1",
   "exit_turns.py::if not mismatched:::#1",
   "exit_turns.py::if not outbound_edges or missing_connectors:::#1",

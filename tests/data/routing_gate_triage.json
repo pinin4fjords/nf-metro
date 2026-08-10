@@ -419,10 +419,6 @@
   "note": "The opposed-source-run recogniser: a lane whose turn-less members disagree on the direction they leave the shared source. Every member of one exit group leaves through one exit port, whose side fixes the outward ray, and a collinear target on the other side of that port is a backward hop the engine rejects before routing. The arm names a classification that contradicts itself and declines the plan; no exit group produces it.",
   "status": "defensive"
  },
- "exit_turns.py::if not _lane_arms_read_as_one_stroke(::#1": {
-  "note": "The reject that declines an axis plan when a lane's arms would turn less than one curve radius apart, drawing as two near-parallel tracks instead of one stroke forking late. Reachable when an unpinned cohort lands its turn axis within a radius of a coordinate a pinned cohort already claimed at the same lane rank; no corpus fixture crowds two same-rank claims that closely, so the reject is un-entered while the accept arm runs on 144 fixtures.",
-  "status": "needs-review"
- },
  "exit_turns.py::if not mismatched:::#1": {
   "note": "The lane hand-off path of _source_lane_ownership, entered when a station feeding the exit port along the run axis carries a different lane offset for the line than the lane the plan seats at the port. Every corpus exit group agrees on its lane from the last station through to the port, so the ownership walk returns the stations unchanged. Reachable, and the fixture that closes it also closes centrelines.py::if place_at_source:::#1, whose TARGET placement only this branch produces.",
   "status": "needs-review"
