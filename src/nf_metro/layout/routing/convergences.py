@@ -1297,9 +1297,7 @@ def _landing_cross_segment(
             (source.x, turn_coordinate),
             (landing.join_point[0], turn_coordinate),
         )
-    if all(
-        abs(start - end) <= COORD_TOLERANCE for start, end in zip(*segment, strict=True)
-    ):
+    if _points_coincide(*segment):
         return None
     return segment
 
@@ -4366,6 +4364,13 @@ def _route_covers_trunk(route: RoutedPath, axis: ConvergenceTrunkAxis) -> bool:
     )
 
 
+def _points_coincide(first: tuple[float, float], second: tuple[float, float]) -> bool:
+    """Whether two points are the same point to within routing tolerance."""
+    return all(
+        abs(a - b) <= COORD_TOLERANCE for a, b in zip(first, second, strict=True)
+    )
+
+
 def _segments_overlap(
     first: tuple[tuple[float, float], tuple[float, float]],
     second: tuple[tuple[float, float], tuple[float, float]],
@@ -4497,9 +4502,15 @@ def _seat_route_on_trunk_flanks(
     the plan seated the rest would find a different run or none at all.
 
     The central run is seated first and carries no lane displacement, because it
-    is the lane.  Each flank is seated whether or not its column moved, since its
-    offsets nest its corners inside the bundle the trunk travels in, which the
-    template that drew it did not know.
+    is the lane.  A flank is seated when the plan names a column its emitted run
+    is not on, and the seat nests that flank's corners inside the lane band --
+    the displacement a template drawing one member alone could not know.
+
+    The lane band spans only the lines converging here, so a flank already on the
+    column the plan names is left alone rather than re-derived from it: its
+    corners carry the radii the bundle builder sized against every line the flank
+    physically travels with, including co-travellers belonging to other systems,
+    and a lane band of one would flatten those to the base radius.
     """
     segments = _trunk_segments(axis)
     source_offset = (
@@ -4513,15 +4524,18 @@ def _seat_route_on_trunk_flanks(
         (rank - 1, segments[1], (source_offset, 0.0)),
         (rank + 1, segments[3], (0.0, -source_offset)),
     ):
-        if all(
-            abs(actual - expected) <= COORD_TOLERANCE
-            for actual, expected in zip(*flank, strict=True)
-        ):
+        if _points_coincide(*flank):
             continue
         if not 0 <= flank_rank < len(route.points) - 1:
             raise ConvergenceInvariantError(
                 f"planned trunk flank {flank} is absent from member {route.edge!r}"
             )
+        emitted = route.points[flank_rank : flank_rank + 2]
+        if all(
+            _points_coincide(actual, expected)
+            for actual, expected in zip(emitted, flank, strict=True)
+        ):
+            continue
         _seat_planned_run(route, flank_rank, flank, graph, *offsets)
 
 
