@@ -1301,6 +1301,40 @@ def test_a_branch_stops_where_its_lines_end_and_another_run_carries_on() -> None
     )
 
 
+_SEAM_HANDOFF_SOURCE = """\
+%%metro title: Seam hand-off
+%%metro line: l | Line | #0570b0
+%%metro line: k | Other | #e31a1c
+
+graph LR
+    subgraph src [Source]
+        a[A]
+        c[C]
+        b[B]
+        a -->|l| c
+    end
+    subgraph top_sec [Top]
+        t[T]
+        a -->|l,k| t
+    end
+    subgraph mid_sec [Mid]
+        m[M]
+        b -->|k| m
+    end
+    subgraph bot_sec [Bot]
+        n[N]
+        b -->|k| n
+    end
+"""
+"""``a`` and ``b`` leave one section through one exit port onto one junction.
+
+``a`` forks there, so its branch to ``t`` draws the run from the port through
+the junction; ``b`` forks at the junction itself, so the same run is the entry
+seam its fan reads.  ``a``'s other arm dead-ends at ``c``, which keeps the two
+forks independent: neither arm of ``a`` meets ``b``'s run before the port.
+"""
+
+
 def test_a_fan_hands_a_seam_edge_to_the_neighbour_that_draws_it() -> None:
     """A seam edge one fan draws as a leg is handed off by the fan that reads it.
 
@@ -1310,8 +1344,7 @@ def test_a_fan_hands_a_seam_edge_to_the_neighbour_that_draws_it() -> None:
     on its membership as a bound of its frame, and expects no emission member of
     its own there.  Both fans hold their frames.
     """
-    path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
-    graph = parse_metro_mermaid(path.read_text())
+    graph = parse_metro_mermaid(_SEAM_HANDOFF_SOURCE)
     compute_layout(graph, validate=True)
     by_fork = {plan.fork_station_id: plan for plan in graph.fan_plans}
     owner, reader = by_fork["a"], by_fork["__junction_4"]
@@ -1350,8 +1383,7 @@ def test_a_fan_may_only_hand_off_a_seam_it_does_not_draw() -> None:
     emission member on a ceded seam would leave two fans routing one edge.  Both
     are rejected by name.
     """
-    path = ROOT / "examples" / "topologies" / "single_line_dual_source_stacked_exit.mmd"
-    graph = parse_metro_mermaid(path.read_text())
+    graph = parse_metro_mermaid(_SEAM_HANDOFF_SOURCE)
     compute_layout(graph, validate=True)
     reader = next(
         plan for plan in graph.fan_plans if plan.fork_station_id == "__junction_4"

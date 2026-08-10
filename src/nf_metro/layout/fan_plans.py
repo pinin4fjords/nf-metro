@@ -1051,6 +1051,41 @@ def _port_ids(
     return tuple(entry), tuple(exit_)
 
 
+def _section_exit_ports_from(
+    graph: MetroGraph, station_id: str, section_id: str | None
+) -> frozenset[str]:
+    """Exit ports of *section_id* the run leaving *station_id* hands straight on to."""
+    return frozenset(
+        edge.target
+        for edge in graph.edges_from(station_id)
+        if (port := graph.ports.get(edge.target)) is not None
+        and not port.is_entry
+        and port.section_id == section_id
+    )
+
+
+def _carries_the_trunk_out(
+    graph: MetroGraph,
+    exit_port_ids: Iterable[str],
+    section_id: str | None,
+    sibling_exit_port_ids: AbstractSet[str],
+) -> bool:
+    """Whether an arm carries the fork's trunk out of *section_id* on its own.
+
+    An arm running out through the section's own exit port carries the trunk
+    the fork stands on past the fan.  Where a sibling arm's tail hands on to
+    that same port, the two arms meet again at the boundary: the run to the
+    port is the section's own chain through both of them, and neither arm
+    carries it alone.
+    """
+    return any(
+        (port := graph.ports.get(port_id)) is not None
+        and port.section_id == section_id
+        and port_id not in sibling_exit_port_ids
+        for port_id in exit_port_ids
+    )
+
+
 def _grid_position(graph: MetroGraph, section_id: str) -> tuple[int, int]:
     section = graph.sections[section_id]
     override = graph.grid_overrides.get(section_id)
@@ -2270,6 +2305,10 @@ def _build_candidate(
             for fact in facts
         ),
     )
+    tail_exit_port_ids = [
+        _section_exit_ports_from(graph, node_path[-1], layout_section_id)
+        for node_path in node_paths
+    ]
     branch_plans: list[FanBranchPlan] = []
     all_member_facts: list[AuthoredEdgeFact] = []
     all_raw_paths: list[tuple[ResolvedEdge, ...]] = []
@@ -2333,9 +2372,17 @@ def _build_candidate(
                     join_id=join_id,
                     foreign_ridden_ids=foreign_ridden_ids,
                 ),
-                is_trunk_continuation=any(
-                    graph.ports[port_id].section_id == layout_section_id
-                    for port_id in _port_ids(graph, raw_continuation)[1]
+                is_trunk_continuation=_carries_the_trunk_out(
+                    graph,
+                    _port_ids(graph, raw_continuation)[1],
+                    layout_section_id,
+                    frozenset().union(
+                        *(
+                            ports
+                            for other, ports in enumerate(tail_exit_port_ids)
+                            if other != rank
+                        )
+                    ),
                 )
                 or rank == structural_trunk_rank,
                 terminal=terminal,

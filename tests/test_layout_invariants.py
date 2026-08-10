@@ -1207,30 +1207,23 @@ def test_perpendicular_exit_is_not_a_flow_carrier_anchor():
     )
 
 
-def test_single_line_dual_source_exit_stays_on_its_trunk_row():
-    """A single line exiting a fork leaves on the row of the branch that carries it.
+def test_single_line_dual_source_exit_shares_feeder_row():
+    """A single line exiting from two chained source stations leaves on their row.
 
-    ``a`` forks: one branch ends at ``b``, the other carries the line out of the
-    section to the stacked rows below, and both feed the one exit port.  The
-    port belongs to the branch that leaves, so it sits on ``a``'s row and the
-    run through it into the first downstream section is level.  ``b`` peels onto
-    its own lane beside that trunk, a lane's step rather than a dive towards a
-    downstream row, which would drag both feeders into a pair of near-parallel
-    diagonals through the section's bottom corner.
+    ``a -> b`` carry one line and both emit it onward to stacked downstream
+    sections, so the shared exit port is a feed-forward chain, not a bypass
+    bundle: the line runs ``a -> b -> port`` as one horizontal trunk and the
+    level change to the stacked rows falls on a riser in the inter-section gap.
+    Aligning the exit to the topmost downstream row instead drags both feeders
+    into a pair of near-parallel diagonals through the section's bottom corner.
     """
     graph = _layout("topologies/single_line_dual_source_stacked_exit.mmd")
     exit_pid = "src__exit_right_0"
+    feeder_ys = [graph.stations[s].y for s in ("a", "b")]
     port_y = graph.stations[exit_pid].y
-    trunk_ys = {name: graph.stations[name].y for name in ("a", "t")}
-    assert all(abs(port_y - y) <= _Y_TOL for y in trunk_ys.values()), (
-        f"exit port {exit_pid} y={port_y:.1f} is off the trunk row {trunk_ys}; "
-        f"the single-line fork exit dove to a downstream row"
-    )
-    peel = abs(graph.stations["b"].y - port_y)
-    downstream = min(abs(graph.stations[name].y - port_y) for name in ("m", "n"))
-    assert peel < downstream, (
-        f"peel-off station b sits {peel:.1f}px off the exit row, no nearer it "
-        f"than the downstream rows at {downstream:.1f}px"
+    assert all(abs(port_y - fy) <= _Y_TOL for fy in feeder_ys), (
+        f"exit port {exit_pid} y={port_y:.1f} is off the feeder row {feeder_ys}; "
+        f"the single-line chain exit dove to a downstream row"
     )
 
 
