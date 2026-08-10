@@ -331,10 +331,6 @@
   "note": "_landing_gives_way_to_flank joins the landing to the flank's column when the two are one stroke off a shared fork, and steps it one clearance off otherwise. Neither arm is reached because _flank_settled_column never declines on the corpus: all 32 crowded landing/flank pairs seat with 9px to spare. Reachable; a fixture needs an inter-column gap below MERGE_GAP_MIN carrying a chained convergence.",
   "status": "needs-review"
  },
- "convergences.py::if landing.member_id == landing_plan.primary_trunk_member_id:::#1": {
-  "note": "Moving a primary trunk member's landing has to carry its trunk flank, which the give-way path does not do, so that member declines instead. Un-exercised for the same reason as `if forked:::#2`: the decline this guard sits inside is not reached on the corpus. Reachable.",
-  "status": "needs-review"
- },
  "convergences.py::if lane is None:::#1": {
   "note": "A resident asked to give way that has no reachable lane of its own either. Un-entered because the give-way path itself is un-entered on the corpus. Reachable; a fixture is a channel with no seat for either run, which is the population #1712 exists to give room to.",
   "status": "needs-review"
@@ -401,10 +397,6 @@
  },
  "convergences.py::or abs(before[0] - start[0]) > COORD_TOLERANCE::#1": {
   "note": "Rejects an interior horizontal whose leading flank is not vertical. Reachable: _member_corridor_runs walks raw plan.points with no normalize filter, and the corpus already freezes an H-D-H member polyline (examples/topologies/rail_boundary_bundle_fan.mmd), so one extra leg makes a horizontal run diagonal-flanked. Not the same contract as the look-alike defensive pair in common.py::iter_horizontal_trunks, which is fed only normalize-filtered bypass U-shapes. Wants a fixture.",
-  "status": "needs-review"
- },
- "convergences.py::or channel.coordinate < usable_left - COORD_TOLERANCE::#1": {
-  "note": "Left-hand out-of-band reject for a moved gap channel. Its mirror operand (> usable_right) is exercised in the same loop right now and both were exercised at 897747b0, so the arm is plainly reachable; it lost its last covering fixture in 908637eb..04209e3d. Left un-exercised deliberately (frozen render corpus).",
   "status": "needs-review"
  },
  "core.py::if result is not None:::#1": {
@@ -617,6 +609,10 @@
  },
  "inter_section_handlers.py::if section not in landing_sections:::#1": {
   "note": "The planner admits this emitter only when branches land in distinct sections, so the duplicate-section arm cannot occur for a valid frozen emission. It remains a materialisation-time drift check.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if self.launch_coordinate is None or self.axis_coordinate is None:::#1": {
+  "note": "_SourceSeam.minimum_runway returns None for a shape whose centreline never turns (everything but run_direction unstated). Production readers only reach it through _SourceTurnRequirement.from_seam and the planner sites that assert non-None first, and those run only for turning families, so the None arm firing would be a family-contract violation.",
   "status": "defensive"
  },
  "inter_section_handlers.py::if shared_vx is not None:::#1": {
