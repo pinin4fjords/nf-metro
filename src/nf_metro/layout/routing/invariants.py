@@ -87,6 +87,9 @@ from nf_metro.layout.routing.common import (
     vertical_flow_sections,
 )
 from nf_metro.layout.routing.context import partial_flat_continuation_lines
+from nf_metro.layout.seam_topology import (
+    entry_fan_receives_stacked_left_reversed_bundle,
+)
 from nf_metro.parser.model import (
     Edge,
     LayoutGeometryWarning,
@@ -3075,16 +3078,103 @@ def _segments_properly_cross(
     return (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
 
 
-def _routes_first_crossing(
+def _routes_crossings(
     a: Sequence[tuple[float, float]], b: Sequence[tuple[float, float]]
-) -> tuple[float, float] | None:
-    """First proper segment intersection between polylines *a* and *b*, or ``None``."""
+) -> Iterator[tuple[float, float]]:
+    """Yield proper segment intersections between polylines *a* and *b*."""
     for i in range(len(a) - 1):
         for j in range(len(b) - 1):
             hit = _segments_properly_cross(a[i], a[i + 1], b[j], b[j + 1])
             if hit is not None:
-                return hit
-    return None
+                yield hit
+
+
+def _routes_first_crossing(
+    a: Sequence[tuple[float, float]], b: Sequence[tuple[float, float]]
+) -> tuple[float, float] | None:
+    """First proper segment intersection between polylines *a* and *b*, or ``None``."""
+    return next(_routes_crossings(a, b), None)
+
+
+@dataclass(frozen=True)
+class SectionLineRecrossing:
+    """Two lines that cross more than once inside one section."""
+
+    section_id: str
+    line_a: str
+    line_b: str
+    crossings: tuple[tuple[float, float], ...]
+
+    def message(self) -> str:
+        points = ", ".join(f"({x:.1f}, {y:.1f})" for x, y in self.crossings)
+        return (
+            f"lines {self.line_a!r}/{self.line_b!r} cross and recross in "
+            f"section {self.section_id!r} at {points}"
+        )
+
+
+def check_stacked_split_no_line_recrossing(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[SectionLineRecrossing]:
+    """Return line pairs that cross twice after a reversing stacked split entry."""
+    eligible_sections = {
+        section.id
+        for section in graph.sections.values()
+        if entry_fan_receives_stacked_left_reversed_bundle(graph, section)
+    }
+    if not eligible_sections:
+        return []
+    paths_by_section_line: dict[tuple[str, str], list[list[tuple[float, float]]]] = (
+        defaultdict(list)
+    )
+    for route in routes:
+        source = graph.stations.get(route.edge.source)
+        target = graph.stations.get(route.edge.target)
+        if source is None or target is None or source.section_id != target.section_id:
+            continue
+        section_id = source.section_id
+        if section_id not in eligible_sections:
+            continue
+        paths_by_section_line[(section_id, route.line_id)].append(
+            apply_route_offsets(route, offsets)
+        )
+
+    violations: list[SectionLineRecrossing] = []
+    section_lines: dict[str, list[str]] = defaultdict(list)
+    for section_id, line_id in paths_by_section_line:
+        section_lines[section_id].append(line_id)
+    for section_id, line_ids in section_lines.items():
+        ordered_lines = sorted(set(line_ids))
+        for index, line_a in enumerate(ordered_lines):
+            for line_b in ordered_lines[index + 1 :]:
+                crossings: list[tuple[float, float]] = []
+                for path_a in paths_by_section_line[(section_id, line_a)]:
+                    for path_b in paths_by_section_line[(section_id, line_b)]:
+                        for hit in _routes_crossings(path_a, path_b):
+                            if not any(
+                                abs(hit[0] - prior[0]) <= COORD_TOLERANCE
+                                and abs(hit[1] - prior[1]) <= COORD_TOLERANCE
+                                for prior in crossings
+                            ):
+                                crossings.append(hit)
+                            if len(crossings) == 2:
+                                break
+                        if len(crossings) == 2:
+                            break
+                    if len(crossings) == 2:
+                        break
+                if len(crossings) >= 2:
+                    violations.append(
+                        SectionLineRecrossing(
+                            section_id,
+                            line_a,
+                            line_b,
+                            tuple(crossings),
+                        )
+                    )
+    return violations
 
 
 def _fan_merge_partition_legs(
@@ -3141,8 +3231,8 @@ def check_fan_merge_no_partition_crossing(
     rotated 90 degrees, and a rotation preserves the horizontal layout's
     non-crossing, so a transposed fork/merge bundle there is a lane-sign defect.
     Horizontal sections stack lanes on Y and route a far-row feeder into a merge
-    on a perpendicular riser, a tolerated weave that genuinely crosses (every
-    multi-aligner pipeline ships one), so the same intolerance does not apply.
+    on a perpendicular riser, a tolerated weave that genuinely crosses, so the
+    same intolerance does not apply there.
     """
     route_by_edge = {
         (rp.edge.source, rp.edge.target, rp.line_id): apply_route_offsets(rp, offsets)
@@ -6199,6 +6289,17 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_port_corner_within_bbox, "A"),
     # --- Tier B: invoked only by a validate-path ``_guard_*`` wrapper ---
     _check_spec(check_tb_exit_corner_preserves_column_order, "B"),
+    _check_spec(
+        check_stacked_split_no_line_recrossing,
+        "B",
+        issue_pin=("#1720",),
+        narrow_reason=(
+            "Scoped to repeated crossings by a distinct-line pair inside a "
+            "horizontal split consumer fed by one direct stacked LEFT-to-LEFT "
+            "half-turn. A single weave can be required elsewhere, but the "
+            "second crossing in this topology only restores the original order."
+        ),
+    ),
     _check_spec(check_fan_merge_no_partition_crossing, "B"),
     _check_spec(check_fanout_tail_join, "B"),
     _check_spec(check_merge_port_approach_side, "B"),
@@ -6323,6 +6424,7 @@ __all__ = [
     "SameLineParallelRun",
     "SeamApproachDepartureMismatch",
     "SharedRunTurnFlip",
+    "SectionLineRecrossing",
     "Side",
     "StackedElbowGraze",
     "UndeclaredGapChannel",
@@ -6343,6 +6445,7 @@ __all__ = [
     "check_fan_opening_geometry",
     "check_planned_fan_landing_radius",
     "check_no_distinct_line_fanout_crossing",
+    "check_stacked_split_no_line_recrossing",
     "check_merge_branches_meet_trunk",
     "check_merge_feeders_land_on_trunk",
     "check_merge_port_approach_side",

@@ -46,6 +46,7 @@ from enum import Enum
 
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.context import _has_intervening_sections
+from nf_metro.layout.seam_topology import is_stacked_left_exit_left_entry
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
 
@@ -95,8 +96,12 @@ def _reverses(
     via_junction = _seam_via_junction(graph, exit_port, entry_port)
     if _is_around_below_left_entry(
         graph, exit_port, entry_port, feeder, consumer, via_junction
-    ) or _is_stacked_left_exit_left_entry(
-        exit_port, entry_port, feeder, consumer, via_junction
+    ) or is_stacked_left_exit_left_entry(
+        exit_port,
+        entry_port,
+        feeder,
+        consumer,
+        via_junction=via_junction,
     ):
         return True
     return _is_fold_right_entry(exit_port, entry_port, via_junction) or (
@@ -168,23 +173,6 @@ def _is_around_below_left_entry(
         graph, feeder.grid_col, consumer.grid_col, feeder.grid_row
     ) or _has_intervening_sections(
         graph, feeder.grid_col, consumer.grid_col, consumer.grid_row
-    )
-
-
-def _is_stacked_left_exit_left_entry(
-    exit_port: Port,
-    entry_port: Port,
-    feeder: Section,
-    consumer: Section,
-    via_junction: bool,
-) -> bool:
-    """Half-turn through the outer margin between same-facing LEFT ports."""
-    return (
-        not via_junction
-        and exit_port.side is PortSide.LEFT
-        and entry_port.side is PortSide.LEFT
-        and feeder.grid_row != consumer.grid_row
-        and consumer.grid_col <= feeder.grid_col
     )
 
 

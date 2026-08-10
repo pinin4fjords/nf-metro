@@ -45,7 +45,7 @@ Gates with an un-exercised arm:
 | ---: | --- | --- | --- |
 | 73 | `if (` | `->L81` |  |
 | 82 | `if place_at_source:` | `->L86` | **needs-review** -- The else seats the hand-off diagonal against the target end, taken when a lane transition carries ExitLaneTransitionPlacement.TARGET. The only producer of TARGET is _source_lane_ownership (exit_turns.py), on the mismatched-offset path the corpus never takes either (see exit_turns.py::if not mismatched:::#1); every transition the corpus plans is a SOURCE placement from the continuation builders. One fixture closes both: an in-section station whose lane offset for the exiting line differs from the lane the exit-turn plan seats that line on at the port. |
-| 437 | `if route.curve_radii is not None:` | `->L439` |  |
+| 439 | `if route.curve_radii is not None:` | `->L441` |  |
 
 ## `common.py`
 

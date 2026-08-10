@@ -4283,20 +4283,24 @@ def _guard_fan_merge_no_partition_crossing(
     offsets: dict[tuple[str, str], float] | None = None,
     routes: list[RoutedPath] | None = None,
 ) -> None:
-    """Final-phase: a vertical-flow fork/merge keeps its partitioning bundle clear.
+    """Final-phase: partitioning bundles do not cross unnecessarily.
 
     Wraps :func:`check_fan_merge_no_partition_crossing`: at a fork or merge in a
     vertical-flow section, two distinct lines that each reach exactly one
-    in-section neighbour must leave/dock in those neighbours' lane order.  A
-    transposed order crosses them between the station and where they peel apart,
-    a defect the bundle-mate guard misses because the lines ride different edges.
+    in-section neighbour must leave/dock in those neighbours' lane order. In a
+    horizontal split fed by a stacked half-turn, a line pair may not cross and
+    recross within the consumer section.
     """
     from nf_metro.layout.routing.invariants import (
         check_fan_merge_no_partition_crossing,
+        check_stacked_split_no_line_recrossing,
     )
 
     _raise_on_first_violation(
         graph, phase, check_fan_merge_no_partition_crossing, offsets, routes
+    )
+    _raise_on_first_violation(
+        graph, phase, check_stacked_split_no_line_recrossing, offsets, routes
     )
 
 
