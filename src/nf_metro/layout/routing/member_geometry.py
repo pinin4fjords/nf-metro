@@ -9,17 +9,18 @@ from types import MappingProxyType
 from typing import TypeVar
 
 from nf_metro.layout.constants import (
-    BUNDLE_TO_BUNDLE_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
-    OFFSET_STEP,
 )
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
+    ExitTurnAxisId,
+    ExitTurnPlanId,
+    FanPlanId,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
@@ -49,7 +50,9 @@ from nf_metro.layout.routing.normalize import (
     _materialize_gap_slots,
     _materialize_trunk_slots,
     _reseat_concentric_flanking,
+    _segment_claim_band,
     _separate_opposing_inter_row_trunks,
+    _set_vchannel_x,
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
@@ -62,6 +65,7 @@ class MemberGeometryDeclinedError(RuntimeError):
     """A classified non-convergence member produced no canonical template."""
 
 
+_IdT = TypeVar("_IdT")
 _IndexedItem = TypeVar("_IndexedItem")
 _SystemGapKey = tuple[RouteSystemId, tuple[int, int | None]]
 
@@ -143,24 +147,6 @@ class MemberGeometryExecution:
             else ResolvedEdge(edge.source, edge.target, edge.line_id)
         )
         return self._by_edge.get(resolved)
-
-    def plans_for_system(
-        self, system_id: RouteSystemId
-    ) -> tuple[RouteMemberGeometryPlan, ...]:
-        return self._by_system.get(system_id, ())
-
-    def gap_channels_for_system(
-        self,
-        system_id: RouteSystemId,
-        *,
-        excluding: frozenset[ResolvedEdge] = frozenset(),
-    ) -> tuple[tuple[frozenset[str], RouteMemberGapChannel], ...]:
-        return tuple(
-            (frozenset((plan.edge.line_id,)), channel)
-            for plan in self.plans_for_system(system_id)
-            if plan.edge not in excluding
-            for channel in plan.gap_channels
-        )
 
     def gap_channels(
         self, *, excluding: frozenset[ResolvedEdge] = frozenset()
@@ -262,6 +248,15 @@ def _append_compatibility_context(
         ctx.convergences = prior_convergences
 
 
+def _typed_id(factory: Callable[[str], _IdT], value: str | None) -> _IdT | None:
+    """*value* read into its own id space, leaving an absent id absent.
+
+    A route carries its ids as bare strings while a plan record names the space
+    each belongs to, so one conversion serves every crossing between the two.
+    """
+    return None if value is None else factory(value)
+
+
 def _freeze_plan(
     scaffold: RouteSemanticScaffold,
     candidate: _MemberCandidate,
@@ -312,13 +307,15 @@ def _freeze_plan(
         tuple(route.gap_slots),
         route.trunk_slot,
         tuple(channels),
-        exit_turn_plan_id=route.exit_turn_plan_id,
-        exit_turn_member_id=route.exit_turn_member_id,
+        exit_turn_plan_id=_typed_id(ExitTurnPlanId, route.exit_turn_plan_id),
+        exit_turn_member_id=_typed_id(EmissionMemberId, route.exit_turn_member_id),
         exit_turn_family_id=route.exit_turn_family_id,
-        exit_turn_axis_id=route.exit_turn_axis_id,
+        exit_turn_axis_id=_typed_id(ExitTurnAxisId, route.exit_turn_axis_id),
         exit_turn_segment_rank=route.exit_turn_segment_rank,
-        exit_lane_transition_plan_id=route.exit_lane_transition_plan_id,
-        fan_plan_id=route.fan_plan_id,
+        exit_lane_transition_plan_id=_typed_id(
+            ExitTurnPlanId, route.exit_lane_transition_plan_id
+        ),
+        fan_plan_id=_typed_id(FanPlanId, route.fan_plan_id),
         fan_route_emitter=route.fan_route_emitter,
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
     )
@@ -446,6 +443,17 @@ def _candidate_clears_runway(
     )
 
 
+def _seat_channel(channel: _VChannel, coordinate: float) -> None:
+    """Move *channel* onto *coordinate*, recording it on the channel as well.
+
+    A materialised channel outlives the move: the passes after it read the
+    coordinate off the record rather than locating the leg again, so the record
+    and the route it describes have to state one coordinate.
+    """
+    _set_vchannel_x(channel, coordinate)
+    channel.x = coordinate
+
+
 def _align_same_line_channels(
     materialized: tuple[_MaterializedChannel, ...],
     claims_by_system_gap: Mapping[
@@ -454,8 +462,6 @@ def _align_same_line_channels(
     ],
     ctx: _RoutingCtx,
 ) -> None:
-    from nf_metro.layout.routing.normalize import _set_vchannel_x
-
     seated: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
         route = item.candidate.route
@@ -501,7 +507,7 @@ def _align_same_line_channels(
             None,
         )
         if coordinate is not None:
-            _set_vchannel_x(channel, coordinate)
+            _seat_channel(channel, coordinate)
             seated.add(item.key)
 
 
@@ -574,13 +580,11 @@ def _claim_clearance(
     overlap = min(channel.y_hi, claim.y_hi) - max(channel.y_lo, claim.y_lo)
     if overlap <= MIN_CORRIDOR_Y_OVERLAP:
         return 0.0
-    if same_line:
-        return cotravelling_lane_clearance(
-            same_line=True,
-            counter_running=channel.down is not claim.down,
-            curve_radius=ctx.curve_radius,
-        )
-    return BUNDLE_TO_BUNDLE_CLEARANCE if channel.down is not claim.down else OFFSET_STEP
+    return cotravelling_lane_clearance(
+        same_line=same_line,
+        counter_running=channel.down is not claim.down,
+        curve_radius=ctx.curve_radius,
+    )
 
 
 def _claim_source_compatible(
@@ -608,8 +612,6 @@ def _allocate_bundle_around_claims(
     bundle translates as one body, which keeps its members' lane order and
     keeps any carrier it already shares with a claim intact.
     """
-    from nf_metro.layout.routing.normalize import _set_vchannel_x
-
     relevant_by_key = {
         item.key: tuple(
             claim
@@ -696,7 +698,7 @@ def _allocate_bundle_around_claims(
     if delta is None or abs(delta) <= COORD_TOLERANCE_FINE:
         return
     for item in items:
-        _set_vchannel_x(item.channel, item.channel.x + delta)
+        _seat_channel(item.channel, item.channel.x + delta)
 
 
 def _channel_bundles(
@@ -837,12 +839,7 @@ def _seat_claimed_segments_before_freeze(
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
                 continue
-            band = ctx.reserved_bands.for_segment(
-                route.edge.source,
-                route.edge.target,
-                route.line_id,
-                rank,
-            )
+            band = _segment_claim_band(ctx, route, rank)
             if band is None:
                 continue
             if abs(start[1] - end[1]) <= COORD_TOLERANCE:
@@ -875,8 +872,6 @@ def _allocate_preliminary_gap_claims(
         return
     materialized = _materialized_channels(candidates, ctx)
     _align_same_line_channels(materialized, _index_claims(claims), ctx)
-
-    materialized = _materialized_channels(candidates, ctx)
     effective_claims = _effective_claims(
         claims, _index_materialized_channels(materialized)
     )

@@ -552,4 +552,4 @@ def test_a_pair_settlement_cannot_seat_is_refused_rather_than_re_emitted() -> No
     """
     registered = frozenset(ROUTE_SYSTEM_COMPATIBILITY_REASONS["convergence-plan"])
 
-    assert not registered & {kind.reason for kind in ConvergenceConflictKind}
+    assert not registered & {kind.value for kind in ConvergenceConflictKind}
