@@ -2606,7 +2606,6 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     ch = _VChannel(route=rp, idx=k, x=lead_x, y_lo=y_lo, y_hi=y_hi, down=down)
     overlap = radius if (run.after_y > run.y) == down else 0.0
     del pts[k + 2]
-    # A route built outside route_along carries the field's None default.
     if rp.curve_radii is not None:
         del rp.curve_radii[k:]
     pts[k + 1] = (lead_x, run.y + overlap * (1.0 if down else -1.0))

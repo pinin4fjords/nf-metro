@@ -1004,7 +1004,7 @@
   "status": "defensive"
  },
  "normalize.py::if rp.curve_radii is not None:::#1": {
-  "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. route_along always populates it, but the field's declared default is None, so a route built outside route_along carries None and it cannot be treated as always present (#1597).",
+  "note": "Truncating the tail in _land_feeder_on_run must keep curve_radii aligned with the shortened waypoint list. Every route reaching the guard is a merge branch, and _route_merge_branch routes those along a fixed 4-point centreline whose two interior corners always earn radii, so the None arm is entered by no corpus map. build_concentric_bundle emits None for a centreline with no interior corner, so the field cannot be treated as always present (#1597).",
   "status": "defensive"
  },
  "normalize.py::if run is None:::#1": {
