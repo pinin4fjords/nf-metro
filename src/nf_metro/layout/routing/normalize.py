@@ -60,7 +60,6 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
-    perp_peeloff_off_horizontal_junction,
     planner_owns_segment,
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
@@ -1194,12 +1193,10 @@ def _coincide_fanout_opening_descents(
     (:func:`_bundle_divergent_distinct_descents`).
 
     It runs *after* :func:`_coincide_same_line_tracks` so convergence has already
-    settled the perpendicular drops: a branch that peels straight down the
-    junction's own column into a TOP/BOTTOM port (rounded later by
-    :func:`_round_junction_perp_peeloff`) lands on the junction column during
-    convergence, presenting here as a bare vertical drop rather than a
-    horizontal-then-vertical opening, so it stays clear of an L-shaped sibling
-    that genuinely diverges to another column.
+    settled the perpendicular drops. A branch that peels straight down the
+    junction's own column into a TOP/BOTTOM port lands on the junction column
+    during convergence, so it stays clear of an L-shaped sibling that genuinely
+    diverges to another column.
     """
     for group in _divergent_source_groups(routes):
         planned = [
@@ -2597,9 +2594,8 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     if not verticals:
         return
     k, lead_x, y_lo, y_hi, down = verticals[-1]
-    # A merge feeder's source is a junction, which may also be a fan-out junction
-    # -- and _round_junction_perp_peeloff prepends a waypoint to those routes, so
-    # the handler's four-point shape does not survive routing as a given.
+    # A feeder with another construction attached to its source can carry more
+    # than the four points emitted by the merge-branch builder.
     if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:
         return
     travel = 1.0 if run.xb >= run.xa else -1.0
@@ -2611,7 +2607,6 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     ch = _VChannel(route=rp, idx=k, x=lead_x, y_lo=y_lo, y_hi=y_hi, down=down)
     overlap = radius if (run.after_y > run.y) == down else 0.0
     del pts[k + 2]
-    # The same peel-off rounding pass clears curve_radii outright.
     if rp.curve_radii is not None:
         del rp.curve_radii[k:]
     pts[k + 1] = (lead_x, run.y + overlap * (1.0 if down else -1.0))
@@ -3626,48 +3621,6 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
         # approach into the bend stays horizontal.
         if abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE:
             up.points[-1] = (down.points[0][0], p_last[1])
-
-
-def _round_junction_perp_peeloff(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
-    """Round a perpendicular branch that peels off a horizontal junction trunk.
-
-    A fan-out junction whose trunk runs horizontally (a feed arriving along one
-    side, a sibling branch continuing along the other) can fan one line to a
-    TOP/BOTTOM entry port directly below/above it.  That branch drops straight
-    off the junction, so the horizontal-to-vertical turn falls exactly on the
-    junction where the incoming trunk and this drop are two separate routes:
-    neither owns the corner, so it renders as a hard 90 degrees while every
-    other direction change curves.
-
-    Prepend a short horizontal lead-in toward the feed side so the drop owns a
-    horizontal segment into the turn -- the corner is then a standard within-
-    path curve, landing straight down the port column.  The lead-in overlays
-    the incoming trunk (same line, same Y), so it never draws in open space; it
-    is clamped to the feeder's own length so it cannot overshoot into the
-    source section.
-
-    Runs after :func:`_coincide_same_line_tracks` because the drop's column is
-    the port X that convergence fusion settles, not a routing-time coordinate.
-    """
-    from nf_metro.layout.route_topology import divergence_junction_sources
-
-    fanouts = divergence_junction_sources(ctx.graph, ctx.topology)
-    if not fanouts:
-        return
-    graph = ctx.graph
-    radius = ctx.curve_radius
-    for rp in routes:
-        if not rp.is_inter_section or rp.edge.source not in fanouts:
-            continue
-        peeloff = perp_peeloff_off_horizontal_junction(graph, routes, rp)
-        if peeloff is None:
-            continue
-        junction, feeder, pts = peeloff
-        x0, y0 = pts[0]
-        side = -1.0 if feeder.x < junction.x else 1.0
-        lead_len = min(radius, abs(feeder.x - junction.x))
-        rp.points = [(x0 + side * lead_len, y0), *pts]
-        rp.curve_radii = None
 
 
 def _convergence_line_order(

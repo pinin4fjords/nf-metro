@@ -1347,6 +1347,7 @@ def _compute_section_layout(
     name the sub-stage.
     """
     from nf_metro.layout.section_placement import (
+        _reflect_stacked_split_consumer_tracks,
         place_sections,
         position_ports,
         reenforce_column_gaps,
@@ -1399,6 +1400,7 @@ def _compute_section_layout(
 
     # Stage 1.3: Place sections on the canvas
     place_sections(graph, section_x_gap, section_y_gap)
+    _reflect_stacked_split_consumer_tracks(graph, section_subgraphs)
     _snap(graph, "1.3")
     if validate:
         _guard_independent_components_disjoint(graph, "after Stage 1.3")

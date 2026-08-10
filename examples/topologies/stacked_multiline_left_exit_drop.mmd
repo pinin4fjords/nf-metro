@@ -1,0 +1,25 @@
+%%metro title: Stacked Left Drop
+%%metro style: dark
+%%metro line: a | A | #e63946
+%%metro line: b | B | #457b9d
+
+%%metro grid: source | 0,0
+%%metro grid: target | 0,1
+
+graph LR
+    subgraph source [Source]
+        %%metro direction: RL
+        %%metro exit: left | a, b
+        start[Start]
+        split[Split]
+        start -->|a,b| split
+    end
+
+    subgraph target [Target]
+        %%metro entry: left | a, b
+        final[Final]
+        done[Done]
+        final -->|a,b| done
+    end
+
+    split -->|a,b| final

@@ -24,6 +24,7 @@ from nf_metro.layout.route_plan import (
     CoordinateRegime,
     DemandAxis,
     DemandKind,
+    EmissionMemberId,
     EmissionRole,
     ExitLaneOrderSource,
     ExitTurnDisposition,
@@ -995,6 +996,85 @@ def test_lane_arms_inside_one_corner_are_not_one_stroke() -> None:
     assert exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1075.0, CURVE_RADIUS)
     assert exit_turns._lane_arms_read_as_one_stroke((536.0,), 692.0, CURVE_RADIUS)
     assert not exit_turns._lane_arms_read_as_one_stroke((1075.0,), 1079.0, CURVE_RADIUS)
+
+
+def test_free_lane_arm_overlapping_a_pinned_corner_uses_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_plan = exit_turns._plan_turn_axes
+    captured = []
+
+    def capture(*args):
+        if args[3] == "__junction_10":
+            captured.append(args)
+        return real_plan(*args)
+
+    monkeypatch.setattr(exit_turns, "_plan_turn_axes", capture)
+    _build_execution(TOPOLOGIES / "riboseq_fold_two_dir_entry.mmd")
+    assert captured
+    graph, ctx, plan_id, source_id, exit_port_id, source_run, lanes, seeds = captured[0]
+    pinned = next(seed for seed in seeds if seed.fixed_axis is not None)
+    assert pinned.fixed_axis is not None
+    assert pinned.run_direction is not None
+    assert 0.0 < ctx.offset_step < ctx.curve_radius
+    overlapping_axis = pinned.fixed_axis + ctx.offset_step
+    free = replace(
+        pinned,
+        member_id=EmissionMemberId("free-overlapping-arm"),
+        entry_group_id="free-overlapping-arm",
+        launch_coordinate=(
+            overlapping_axis - pinned.run_direction.sign * ctx.curve_radius
+        ),
+        minimum_runway=ctx.curve_radius,
+        fixed_axis=None,
+    )
+
+    result = real_plan(
+        graph,
+        ctx,
+        plan_id,
+        source_id,
+        exit_port_id,
+        source_run,
+        lanes,
+        (*seeds, free),
+    )
+
+    assert result.legacy_reason == "lane-arms-pinned-to-overlapping-corners"
+
+
+def test_multiline_stacked_left_exit_drop_has_a_covered_compatibility_reason() -> None:
+    _graph, _offsets, observation = _observe(
+        TOPOLOGIES / "stacked_multiline_left_exit_drop.mmd"
+    )
+
+    (system,) = observation.plan.systems
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert tuple(
+        (reason.owner, reason.reason) for reason in system.compatibility_reasons
+    ) == (
+        (
+            "exit-turn-plan",
+            "unsupported-family:serpentine-left-exit-left-entry",
+        ),
+    )
+
+
+def test_split_stacked_left_entry_drop_has_a_covered_compatibility_reason() -> None:
+    _graph, _offsets, observation = _observe(
+        TOPOLOGIES / "stacked_split_left_entry_drop.mmd"
+    )
+
+    (system,) = observation.plan.systems
+    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert tuple(
+        (reason.owner, reason.reason) for reason in system.compatibility_reasons
+    ) == (
+        (
+            "exit-turn-plan",
+            "unsupported-subshape:left-entry-left_exit_drop",
+        ),
+    )
 
 
 def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:

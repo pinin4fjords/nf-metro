@@ -15,6 +15,8 @@ idioms reverse:
   drops in from the right -- a U-turn),
 * an around-below LEFT entry (a far-side LEFT-exit feeder drops below every box
   and rises into the outward side -- a half-turn),
+* a LEFT-exit-to-LEFT-entry drop across rows (the feeder leads into the outer
+  margin and returns through the same-facing target port -- a half-turn),
 * a vertical column continuation (a vertical section's BOTTOM exit feeding a TOP
   entry, whose down-flowing bundle the section already carries reversed),
 * a fold RIGHT entry (a BOTTOM exit turned into a RIGHT entry through a fold
@@ -44,6 +46,7 @@ from enum import Enum
 
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.context import _has_intervening_sections
+from nf_metro.layout.seam_topology import is_stacked_left_exit_left_entry
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
 
@@ -93,6 +96,12 @@ def _reverses(
     via_junction = _seam_via_junction(graph, exit_port, entry_port)
     if _is_around_below_left_entry(
         graph, exit_port, entry_port, feeder, consumer, via_junction
+    ) or is_stacked_left_exit_left_entry(
+        exit_port,
+        entry_port,
+        feeder,
+        consumer,
+        via_junction=via_junction,
     ):
         return True
     return _is_fold_right_entry(exit_port, entry_port, via_junction) or (

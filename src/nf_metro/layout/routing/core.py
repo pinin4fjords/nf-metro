@@ -107,7 +107,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _restack_channel,
     _restack_htrunk,
     _restack_trunk_band,
-    _round_junction_perp_peeloff,
     _separate_declared_opposing_gap_bundles,
     _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
@@ -509,13 +508,6 @@ def _route_edges(  # noqa: C901
     # line peels off, rather than running on independently-sized bands.
     _bundle_divergent_distinct_traverses(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "fanout traverse bundling")
-    # A perpendicular branch dropped directly off a horizontal fan-out junction
-    # trunk peels off at a hard 90; give its departure a lead-in so the corner
-    # curves. Runs after coincidence settles the drop's port column.
-    _round_junction_perp_peeloff(routes, ctx)
-    assert_exit_turn_snapshot(
-        routes, planned_segments, "perpendicular peeloff rounding"
-    )
     # Distinct-line counterpart: spread any two different lines whose final port
     # descents were forced onto one channel (a shared gap left of a wide target).
     _stagger_convergent_distinct_lines(routes, ctx)

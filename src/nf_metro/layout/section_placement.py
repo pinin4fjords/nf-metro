@@ -49,6 +49,9 @@ from nf_metro.layout.routing.common import (
     resolve_section,
     section_exists_above_row,
 )
+from nf_metro.layout.seam_topology import (
+    entry_fan_receives_stacked_left_reversed_bundle,
+)
 from nf_metro.parser.model import (
     Edge,
     MetroGraph,
@@ -58,6 +61,28 @@ from nf_metro.parser.model import (
     Station,
     is_bypass_v,
 )
+
+
+def _reflect_stacked_split_consumer_tracks(
+    graph: MetroGraph,
+    section_subgraphs: dict[str, MetroGraph],
+) -> None:
+    """Reflect a split consumer whose half-turn delivers reversed lane order."""
+    for section_id, sub in section_subgraphs.items():
+        section = graph.sections[section_id]
+        if not entry_fan_receives_stacked_left_reversed_bundle(graph, section):
+            continue
+
+        stations = list(sub.stations.values())
+        y_sum = min(station.y for station in stations) + max(
+            station.y for station in stations
+        )
+        track_sum = min(station.track for station in stations) + max(
+            station.track for station in stations
+        )
+        for station in stations:
+            station.y = y_sum - station.y
+            station.track = track_sum - station.track
 
 
 def _assign_grid_layout(
