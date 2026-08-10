@@ -318,6 +318,96 @@ def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
     )
 
 
+# The two fixture trees below sit outside :func:`_gather_fixtures`, so the
+# corpus sweep above never reaches them.  Both name one settled heading each,
+# so the rule is stated on coordinates rather than on a whole-corpus sweep.
+_CURVE_REPROS = FIXTURES / "curve_invariant_repros"
+_HASH_SEEDS = FIXTURES / "hash_seed_determinism"
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source_id"),
+    [
+        (_CURVE_REPROS / "rl_return_row_convergence.mmd", "__junction_16"),
+        (_HASH_SEEDS / "seed_77.mmd", "__junction_35"),
+    ],
+    ids=["rl_return_row_convergence", "seed_77"],
+)
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "The gap-slot seating redistributes a return-row gap's movable bundles "
+        "across the gap by their current column, blind to the exempt sibling "
+        "column its heading turns onto, so the pair swaps sides through the arc."
+    ),
+)
+def test_return_row_gap_seating_keeps_the_headings_lateral_order(
+    relative_path: Path, source_id: str
+) -> None:
+    """A gap-seated ladder turns onto columns running with its lateral order.
+
+    Lines leaving one source on one horizontal run turn down onto a ladder of
+    columns whose progression is the turn's ``lateral_order_sign``: rightward
+    into a downturn, the line lower on the run is inside the bend and turns
+    first, at the smaller x.  Handlers already open these two headings that way;
+    the gap that carries the descent then re-seats the movable member on a
+    column past its exempt sibling's, which is where the order inverts.
+    """
+    graph = parse_metro_mermaid(relative_path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    flips = [
+        violation
+        for violation in check_shared_run_turn_preserves_bundle_order(routes, offsets)
+        if violation.source_id == source_id
+    ]
+    assert flips == [], (
+        f"{len(flips)} shared-run turn flip(s) out of {source_id!r}; first: "
+        f"{flips[0].message() if flips else ''}"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "The descent lanes out of a bottom exit are seated by line priority, "
+        "so the member continuing deepest can hold an inner column and its "
+        "siblings' leftward turns cut across the descent it is still drawing."
+    ),
+)
+def test_descending_exit_bundle_seats_the_deepest_member_outermost() -> None:
+    """A descending bundle's peel-offs clear the sibling running deeper.
+
+    Three lanes leave ``integration`` together and turn west at three depths.
+    A lane turning west sweeps every column to its left, so a lane whose
+    descent continues past that depth has to stand to its right: the descent
+    columns read in landing-depth order, deepest outermost, and the turns nest.
+    """
+    path = EXAMPLES / "topologies" / "fold_stacked_branch.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    descents = {
+        rp.line_id: (pts[0][0], pts[1][1])
+        for rp in routes
+        if rp.edge.source == "__junction_15"
+        and len(pts := apply_route_offsets(rp, offsets)) >= 3
+        and abs(pts[1][0] - pts[0][0]) <= COORD_TOLERANCE
+        and pts[1][1] > pts[0][1]
+        and pts[2][0] < pts[1][0]
+    }
+    assert {"rna", "atac", "protein"} <= set(descents), descents
+    by_depth = sorted(descents, key=lambda line_id: descents[line_id][1])
+    columns = [descents[line_id][0] for line_id in by_depth]
+    assert columns == sorted(columns), (
+        "lanes turning west earlier must stand left of the lanes still "
+        f"descending, but landing-depth order {by_depth} draws columns {columns}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Route-level negative test: a synthetic flipped corner is caught
 # ---------------------------------------------------------------------------
