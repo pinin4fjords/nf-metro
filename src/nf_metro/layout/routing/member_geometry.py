@@ -443,6 +443,19 @@ def _candidate_clears_runway(
     )
 
 
+def _seat_channel(channel: _VChannel, coordinate: float) -> None:
+    """Move *channel* onto *coordinate*, recording it on the channel as well.
+
+    A materialised channel outlives the move: the passes after it read the
+    coordinate off the record rather than locating the leg again, so the record
+    and the route it describes have to state one coordinate.
+    """
+    from nf_metro.layout.routing.normalize import _set_vchannel_x
+
+    _set_vchannel_x(channel, coordinate)
+    channel.x = coordinate
+
+
 def _align_same_line_channels(
     materialized: tuple[_MaterializedChannel, ...],
     claims_by_system_gap: Mapping[
@@ -451,8 +464,6 @@ def _align_same_line_channels(
     ],
     ctx: _RoutingCtx,
 ) -> None:
-    from nf_metro.layout.routing.normalize import _set_vchannel_x
-
     seated: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
         route = item.candidate.route
@@ -498,7 +509,7 @@ def _align_same_line_channels(
             None,
         )
         if coordinate is not None:
-            _set_vchannel_x(channel, coordinate)
+            _seat_channel(channel, coordinate)
             seated.add(item.key)
 
 
@@ -603,8 +614,6 @@ def _allocate_bundle_around_claims(
     bundle translates as one body, which keeps its members' lane order and
     keeps any carrier it already shares with a claim intact.
     """
-    from nf_metro.layout.routing.normalize import _set_vchannel_x
-
     relevant_by_key = {
         item.key: tuple(
             claim
@@ -691,7 +700,7 @@ def _allocate_bundle_around_claims(
     if delta is None or abs(delta) <= COORD_TOLERANCE_FINE:
         return
     for item in items:
-        _set_vchannel_x(item.channel, item.channel.x + delta)
+        _seat_channel(item.channel, item.channel.x + delta)
 
 
 def _channel_bundles(
@@ -865,8 +874,6 @@ def _allocate_preliminary_gap_claims(
         return
     materialized = _materialized_channels(candidates, ctx)
     _align_same_line_channels(materialized, _index_claims(claims), ctx)
-
-    materialized = _materialized_channels(candidates, ctx)
     effective_claims = _effective_claims(
         claims, _index_materialized_channels(materialized)
     )
