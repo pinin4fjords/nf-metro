@@ -13,6 +13,8 @@ idioms reverse:
 
 * an over-the-top RIGHT entry (a same-row feeder loops over the section top and
   drops in from the right -- a U-turn),
+* an around-below LEFT entry (a far-side LEFT-exit feeder drops below every box
+  and rises into the outward side -- a half-turn),
 * a LEFT-exit-to-LEFT-entry drop across rows (the feeder leads into the outer
   margin and returns through the same-facing target port -- a half-turn),
 * a vertical column continuation (a vertical section's BOTTOM exit feeding a TOP

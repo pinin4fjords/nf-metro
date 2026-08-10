@@ -1013,12 +1013,19 @@ def test_free_lane_arm_overlapping_a_pinned_corner_uses_legacy(
     _build_execution(TOPOLOGIES / "riboseq_fold_two_dir_entry.mmd")
     assert captured
     graph, ctx, plan_id, source_id, exit_port_id, source_run, lanes, seeds = captured[0]
+    pinned = next(seed for seed in seeds if seed.fixed_axis is not None)
+    assert pinned.fixed_axis is not None
+    assert pinned.run_direction is not None
+    assert 0.0 < ctx.offset_step < ctx.curve_radius
+    overlapping_axis = pinned.fixed_axis + ctx.offset_step
     free = replace(
-        seeds[0],
+        pinned,
         member_id=EmissionMemberId("free-overlapping-arm"),
         entry_group_id="free-overlapping-arm",
-        launch_coordinate=526.0,
-        minimum_runway=14.0,
+        launch_coordinate=(
+            overlapping_axis - pinned.run_direction.sign * ctx.curve_radius
+        ),
+        minimum_runway=ctx.curve_radius,
         fixed_axis=None,
     )
 

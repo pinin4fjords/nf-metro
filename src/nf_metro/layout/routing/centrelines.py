@@ -396,6 +396,8 @@ def route_hvh_tapered(
     *channel_x*, and into the target port, and taper each line to its own offset
     at both ends (the vertical leg is the transition).  With *fit_segment* the
     base radius shrinks to fit a vertical leg shorter than its two corners.
+    Opposing horizontal legs form a half-turn, so the target screen-normal is
+    opposite the path-normal used to carry bundle order through the corners.
     """
     members, src_center, tgt_center = gather_tapered_bundle(ctx, edge)
     sy_c = src.y + src_center

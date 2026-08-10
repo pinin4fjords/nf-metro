@@ -8,8 +8,9 @@ seam in the corpus.
 
 Two guarantees:
 
-* **Soundness** -- the classifier never reverses a seam the machinery keeps. Every
-  transposition it reports corresponds to a real reversal idiom.
+* **Soundness** -- every classifier transposition is either reproduced by the
+  machinery or belongs to the pinned set of direct half-turn seams that the
+  seam-local model owns.
 * **Documented residuals** -- the machinery additionally marks a fixed set of
   seams reversed that the classifier preserves. These are *not* classifier
   failures: in every case the transposition was introduced at an upstream seam
@@ -77,30 +78,6 @@ def _machinery_is_over_top_right_entry(
     return False
 
 
-def _machinery_is_stacked_left_exit_left_entry(
-    graph: MetroGraph, entry_port: Port
-) -> bool:
-    """Whether a direct LEFT exit reaches a LEFT entry across grid rows."""
-    if not (entry_port.is_entry and entry_port.side is PortSide.LEFT):
-        return False
-    consumer = graph.section_for_port(entry_port)
-    for edge in graph.edges_to(entry_port.id):
-        exit_port = graph.ports.get(edge.source)
-        if (
-            exit_port is None
-            or exit_port.is_entry
-            or exit_port.side is not PortSide.LEFT
-        ):
-            continue
-        feeder = graph.section_for_port(exit_port)
-        if (
-            feeder.grid_row != consumer.grid_row
-            and consumer.grid_col <= feeder.grid_col
-        ):
-            return True
-    return False
-
-
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
 
@@ -118,6 +95,13 @@ CORPUS_IDS = [
 #   - the near-vertical junction RIGHT entry, whose reversal turns on pixel
 #     overhang rather than sides/grid and is deferred coordinate-free.
 NEAR_VERTICAL_RESIDUAL = ("near_vertical_junction_hook", "src", "pseudo", "R->R")
+EXPECTED_CLASSIFIER_ONLY_REVERSALS = frozenset(
+    {
+        ("stacked_left_exit_drop", "sec1", "sec2", "L->L"),
+        ("stacked_multiline_left_exit_drop", "source", "target", "L->L"),
+        ("stacked_split_left_entry_drop", "source", "target", "L->L"),
+    }
+)
 EXPECTED_RESIDUALS = frozenset(
     {
         NEAR_VERTICAL_RESIDUAL,
@@ -212,7 +196,6 @@ def _machinery_reverses(graph, entry_port, sec_id, tb_sections, reversed_secs) -
     return (
         sec_id in reversed_secs
         or _machinery_is_over_top_right_entry(graph, entry_port, tb_sections)
-        or _machinery_is_stacked_left_exit_left_entry(graph, entry_port)
         or is_far_side_around_below_left_entry(graph, entry_port)
         or is_near_vertical_junction_right_entry(graph, entry_port)
     )
@@ -279,16 +262,19 @@ def _seam_verdicts(path_str: str):
 
 
 @pytest.mark.parametrize("path", CORPUS_FILES, ids=CORPUS_IDS)
-def test_classifier_never_reverses_a_kept_seam(path: Path) -> None:
-    """Soundness: every seam the classifier reverses, the machinery reverses too."""
-    false_reverses = [
+def test_classifier_only_reversals_are_pinned_half_turns(path: Path) -> None:
+    """Classifier-only reversals are exactly the direct half-turn seams."""
+    classifier_only = {
         sig
         for sig, classifier, machinery in _seam_verdicts(str(path))
         if classifier and not machinery
-    ]
-    assert not false_reverses, (
-        f"{path.stem}: classifier reversed seam(s) the machinery keeps: "
-        f"{false_reverses}"
+    }
+    expected = {
+        sig for sig in EXPECTED_CLASSIFIER_ONLY_REVERSALS if sig[0] == path.stem
+    }
+    assert classifier_only == expected, (
+        f"{path.stem}: classifier-only seam reversals differ: "
+        f"actual={classifier_only}, expected={expected}"
     )
 
 
@@ -333,6 +319,7 @@ def _verdict(stem: str, feeder: str, consumer: str):
     [
         ("tb_right_entry_stack", "source", "upper"),  # over-the-top RIGHT entry
         ("bypass_leftward_far_side_entry", "src_sec", "tgt_sec"),  # around-below LEFT
+        ("stacked_multiline_left_exit_drop", "source", "target"),  # stacked LEFT
         ("rnaseq_sections", "postprocessing", "qc_report"),  # TB column continuation
         ("fold_stacked_branch", "integration", "bio_interp"),  # fold RIGHT via junction
         ("fold_double", "calling", "hard_filter"),  # fold turn across rows
