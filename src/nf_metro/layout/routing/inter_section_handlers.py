@@ -5214,7 +5214,7 @@ def _left_exit_left_entry_drop_channel_x(
     )
     channel_x = min(left_edge, src.x, tgt.x) - ctx.curve_radius - ctx.offset_step
     members, _src_center, _tgt_center = gather_tapered_bundle(ctx, edge)
-    sign = right_normal_axis_sign(vertical_direction(tgt.y - src.y))
+    sign = right_normal_axis_sign(Direction.D if tgt.y > src.y else Direction.U)
     return channel_x + seat_bundle_in_corridor_clearance(
         ctx.graph,
         axis=0,
@@ -5781,8 +5781,8 @@ def perp_exit_farside_entry_wrap_geometry(f: _InterFacts) -> _PerpExitFarSideWra
         corner_x,
         hy,
         vx,
-        vertical_direction(dy),
-        horizontal_direction(vx - corner_x),
+        Direction.D if dy > 0 else Direction.U,
+        Direction.R if vx > corner_x else Direction.L,
         sy,
         hy,
     )
@@ -5814,7 +5814,10 @@ def _route_perp_exit_farside_entry_wrap(f: _InterFacts) -> RoutedPath | None:
         source_leads_down=True,
     )
     _declare_channel(
-        route, ctx, geometry.descent_x, vertical_direction(tgt.y - geometry.channel_y)
+        route,
+        ctx,
+        geometry.descent_x,
+        Direction.D if tgt.y > geometry.channel_y else Direction.U,
     )
     return route
 

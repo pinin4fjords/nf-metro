@@ -804,9 +804,10 @@ def _straight_connector_turn_requirement(
         return _SourceTurnRequirement(
             None, None, None, None, None, "unsupported-subshape:degenerate-straight"
         )
-    actual_run = (
-        horizontal_direction(delta) if horizontal else vertical_direction(delta)
-    )
+    if horizontal:
+        actual_run = Direction.R if delta > 0 else Direction.L
+    else:
+        actual_run = Direction.D if delta > 0 else Direction.U
     if actual_run is not source_run_direction:
         return _SourceTurnRequirement(
             None, None, None, None, None, "unsupported-subshape:opposed-straight"
