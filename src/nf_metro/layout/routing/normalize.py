@@ -1045,24 +1045,19 @@ def _reconcile_moved_trunk_slot(
         rp.declare_trunk_slot(gap_upper_row=row)
 
 
-def _snap_group(
-    group: _Coincidence,
-    graph: MetroGraph,
-    *,
-    validate_planned_axes: bool = True,
-) -> None:
+def _snap_group(group: _Coincidence, ctx: _RoutingCtx) -> None:
     """Snap every channel in a coincidence group onto its shared reference X."""
     planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
-        if validate_planned_axes:
+        if ctx.validate_final_route_frames:
             raise ValueError("one coincidence group contains conflicting planned axes")
         return
     for ch in group.channels:
         if _planner_owns_channel(ch):
             continue
         if abs(ch.x - ref_x) > COORD_TOLERANCE:
-            _reconcile_moved_gap_slot(ch, ref_x, graph)
+            _reconcile_moved_gap_slot(ch, ref_x, ctx.graph)
             _set_vchannel_x(ch, ref_x)
 
 
@@ -1181,11 +1176,7 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
             [c.x for c in chans], source_x, COORD_TOLERANCE
         )
         if ref is not None:
-            _snap_group(
-                _Coincidence(chans, ref),
-                ctx.graph,
-                validate_planned_axes=ctx.validate_final_route_frames,
-            )
+            _snap_group(_Coincidence(chans, ref), ctx)
 
 
 def _coincide_fanout_opening_descents(
@@ -1216,11 +1207,7 @@ def _coincide_fanout_opening_descents(
         ]
         if planned and max(planned) - min(planned) > COORD_TOLERANCE:
             continue
-        _snap_group(
-            group,
-            ctx.graph,
-            validate_planned_axes=ctx.validate_final_route_frames,
-        )
+        _snap_group(group, ctx)
     _bundle_divergent_distinct_descents(
         routes, ctx, settle_frozen_arcs=settle_frozen_arcs
     )
@@ -1256,11 +1243,7 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     the handler could have anticipated.
     """
     for group in _convergent_port_groups(routes, ctx):
-        _snap_group(
-            group,
-            ctx.graph,
-            validate_planned_axes=ctx.validate_final_route_frames,
-        )
+        _snap_group(group, ctx)
     for group in _merge_feeder_groups(routes, ctx):
         # Attribution stamps the disposition after the pre-freeze chain has
         # run, so on that path every route carries None and nothing qualifies.
@@ -1396,14 +1379,7 @@ def _coincide_same_line_fanout_traverses(
             bands = tuple(
                 band
                 for member in group
-                if (
-                    band := ctx.reserved_bands.for_segment(
-                        member.route.edge.source,
-                        member.route.edge.target,
-                        member.route.line_id,
-                        member.idx,
-                    )
-                )
+                if (band := _segment_claim_band(ctx, member.route, member.idx))
                 is not None
             )
             lower = max((band.lo for band in bands), default=float("-inf"))
@@ -1495,15 +1471,7 @@ def _clear_compatibility_entry_wrap_leadouts(
         )
         if route_system_owns_segment_boundary(route, opening.idx):
             continue
-        if (
-            ctx.reserved_bands.for_segment(
-                route.edge.source,
-                route.edge.target,
-                route.line_id,
-                opening.idx,
-            )
-            is not None
-        ):
+        if _segment_claim_band(ctx, route, opening.idx) is not None:
             continue
         sibling_xs = [
             x

@@ -159,13 +159,13 @@ class RouteMemberGeometryPlan:
     gap_slots: tuple[GapSlot, ...]
     trunk_slot: TrunkSlot | None
     gap_channels: tuple[RouteMemberGapChannel, ...]
-    exit_turn_plan_id: str | None = None
-    exit_turn_member_id: str | None = None
+    exit_turn_plan_id: ExitTurnPlanId | None = None
+    exit_turn_member_id: EmissionMemberId | None = None
     exit_turn_family_id: str | None = None
-    exit_turn_axis_id: str | None = None
+    exit_turn_axis_id: ExitTurnAxisId | None = None
     exit_turn_segment_rank: int | None = None
-    exit_lane_transition_plan_id: str | None = None
-    fan_plan_id: str | None = None
+    exit_lane_transition_plan_id: ExitTurnPlanId | None = None
+    fan_plan_id: FanPlanId | None = None
     fan_route_emitter: str | None = None
     consumed_reservation_ids: tuple[str, ...] = ()
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
@@ -262,10 +262,15 @@ class CompatibilityFamily:
     permanent support, which ``justification`` then has to earn: the limit is a
     property of the input or of a frame another owner holds, not a planner the
     pipeline has yet to teach.
+
+    ``constrains_geometry`` is ``False`` where the verdict names nothing a plan
+    could have owned, so no system escalates to compatibility emission on it and
+    no system is mixed by it; :func:`_inert_reasons` assigns those.
     """
 
     justification: str
     follow_up: str | None = None
+    constrains_geometry: bool = True
 
     def __post_init__(self) -> None:
         if not self.justification:
@@ -282,6 +287,19 @@ def _reasons(
 ) -> dict[str, CompatibilityFamily]:
     """Assign *family* to each of *reasons*, which share one cause."""
     return dict.fromkeys(reasons, family)
+
+
+def _inert_reasons(
+    family: CompatibilityFamily, *reasons: str
+) -> dict[str, CompatibilityFamily]:
+    """Assign *family* to *reasons* whose verdicts constrain no geometry.
+
+    A single-member exit group has no lane order and no shared axis to plan, and
+    a layout-owned fan states that the section allocator decides that frame.
+    Neither says the planner is unable to own the system's members, so a system
+    carrying one of these verdicts is neither escalated nor mixed by it.
+    """
+    return _reasons(dataclasses.replace(family, constrains_geometry=False), *reasons)
 
 
 def _registry(
@@ -541,7 +559,7 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "insufficient-structural-runway",
                     "source-lane-transition-has-no-runway",
                 ),
-                _reasons(_STATES_NO_GEOMETRY, "single-member-group"),
+                _inert_reasons(_STATES_NO_GEOMETRY, "single-member-group"),
                 _reasons(
                     _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP,
                     "lane-transition-order-inversion",
@@ -565,10 +583,13 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "centreline-anchor-off-its-branch-lane",
                     "shared-landing-port-allocator-owns-the-seat",
                     "symmetric-diamond-layout-owns-the-anchor",
+                    "section-entry-trunk-has-foreign-head",
+                ),
+                _inert_reasons(
+                    _LAYOUT_OWNS_THE_FAN_FRAME,
                     "off-track-layout-owns-fan-geometry",
                     "rail-layout-owns-fan-geometry",
                     "same-line-open-fan-layout-owns-geometry",
-                    "section-entry-trunk-has-foreign-head",
                     "straight-diamond-layout-owns-geometry",
                 ),
                 _reasons(
@@ -662,9 +683,6 @@ class ConvergenceConflictKind(Enum):
         "a convergence approach and trunk flank have no settlement room"
     )
 
-    def __init__(self, reason: str) -> None:
-        self.reason = reason
-
 
 @dataclass(frozen=True, slots=True)
 class ConvergenceConflict:
@@ -706,7 +724,7 @@ class ConvergenceConflict:
         first, second = self.sites
         lines = ", ".join(self.line_ids)
         return (
-            f"{self.kind.reason} for line(s) {lines}, measured "
+            f"{self.kind.value} for line(s) {lines}, measured "
             f"{self.separation:.2f}px apart along {self.axis.value} between "
             f"{_site_text(first)} and {_site_text(second)}"
         )

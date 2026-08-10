@@ -96,11 +96,6 @@ class RouteSystemEmissionExecution:
         )
         return self._member_by_edge.get(resolved)
 
-    def covering_member_for(
-        self, member_id: EmissionMemberId
-    ) -> EmissionMemberId | None:
-        return self._covered_by_member.get(member_id)
-
     def covered_edges(self) -> frozenset[ResolvedEdge]:
         """The legs another member draws end to end rather than each their own."""
         return frozenset(
@@ -192,25 +187,13 @@ def classify_route_system_dispositions(
     )
 
 
-_INERT_OWNER_REASONS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {
-        "exit-turn-plan": frozenset({"single-member-group"}),
-        "fan-plan": frozenset(
-            {
-                "off-track-layout-owns-fan-geometry",
-                "rail-layout-owns-fan-geometry",
-                "same-line-open-fan-layout-owns-geometry",
-                "straight-diamond-layout-owns-geometry",
-            }
-        ),
-    }
-)
-"""Owner verdicts that constrain no geometry, so no system escalates on them.
+def _constrains_geometry(owner: str, reason: str) -> bool:
+    """Whether *owner*'s verdict on *reason* names geometry a plan could own.
 
-A single-member exit group has no lane order and no shared axis to plan, and a
-layout-owned fan states that the section allocator decides that frame.  Neither
-says the planner is unable to own the system's members, so neither is a mixed
-system."""
+    The registry states this per reason, so a verdict that constrains nothing
+    neither escalates its system to compatibility emission nor makes it mixed.
+    """
+    return compatibility_family(owner, reason).constrains_geometry
 
 
 def _classify_route_system_dispositions(
@@ -265,7 +248,7 @@ def _classify_route_system_dispositions(
                 _compatibility_reason(owner, reason)
                 for owner in decisive
                 for reason in declined[owner]
-                if reason not in _INERT_OWNER_REASONS.get(owner, frozenset())
+                if _constrains_geometry(owner, reason)
             )
         )
         superseded = tuple(
@@ -276,7 +259,7 @@ def _classify_route_system_dispositions(
                 and owner not in decisive
                 and owner != decided_by
                 for reason in owner_reasons
-                if reason not in _INERT_OWNER_REASONS.get(owner, frozenset())
+                if _constrains_geometry(owner, reason)
             )
         )
         decisions.append(
@@ -454,24 +437,25 @@ def build_route_system_emission_execution(
         )
 
     frozen = tuple(systems)
-    for system in frozen if require_member_geometry else ():
-        if system.disposition is not RouteSystemDisposition.PLANNED:
-            continue
-        convergence_edges = {
-            edge
-            for plan in convergence_by_system.get(system.system_id, ())
-            if plan.disposition is ConvergenceDisposition.PLANNED
-            for edge in plan.resolved_member_edges
-        }
-        for member in system.members:
-            owners = int(member.geometry_plan is not None) + int(
-                member.edge in convergence_edges
-            )
-            if owners != 1:
-                raise ValueError(
-                    f"planned route system {system.system_id} member "
-                    f"{member.member_id} has {owners} geometry decisions"
+    if require_member_geometry:
+        for system in frozen:
+            if system.disposition is not RouteSystemDisposition.PLANNED:
+                continue
+            convergence_edges = {
+                edge
+                for plan in convergence_by_system.get(system.system_id, ())
+                if plan.disposition is ConvergenceDisposition.PLANNED
+                for edge in plan.resolved_member_edges
+            }
+            for member in system.members:
+                owners = int(member.geometry_plan is not None) + int(
+                    member.edge in convergence_edges
                 )
+                if owners != 1:
+                    raise ValueError(
+                        f"planned route system {system.system_id} member "
+                        f"{member.member_id} has {owners} geometry decisions"
+                    )
     by_edge = {member.edge: system for system in frozen for member in system.members}
     member_by_edge = {
         member.edge: member for system in frozen for member in system.members
