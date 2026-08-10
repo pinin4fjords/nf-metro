@@ -1071,6 +1071,14 @@
         "mmd": "%%metro title: Below Feeder Wraps Around Rightmost Section\n%%metro directional: true\n%%metro line: rnaseq | RNA-seq | #e64980\n%%metro grid: orf_calling | 2,1\n%%metro grid: novel_transcripts | 0,2\n\ngraph LR\n    subgraph orf_calling [ORF]\n        %%metro entry: top | rnaseq\n        o0[Call ORFs]\n    end\n    subgraph novel_transcripts [Novel]\n        nt0[Assemble Transcripts]\n    end\n    nt0 -->|rnaseq| o0\n"
       },
       {
+        "name": "stacked_multiline_left_exit_drop",
+        "mmd": "%%metro title: Stacked Left Drop\n%%metro style: dark\n%%metro line: a | A | #e63946\n%%metro line: b | B | #457b9d\n\n%%metro grid: source | 0,0\n%%metro grid: target | 0,1\n\ngraph LR\n    subgraph source [Source]\n        %%metro direction: RL\n        %%metro exit: left | a, b\n        start[Start]\n        split[Split]\n        start -->|a,b| split\n    end\n\n    subgraph target [Target]\n        %%metro entry: left | a, b\n        final[Final]\n        done[Done]\n        final -->|a,b| done\n    end\n\n    split -->|a,b| final\n"
+      },
+      {
+        "name": "stacked_split_left_entry_drop",
+        "mmd": "%%metro title: Stacked Split Left Drop\n%%metro style: dark\n%%metro line: a | A | #e63946\n%%metro line: b | B | #457b9d\n\n%%metro grid: source | 0,0\n%%metro grid: target | 0,1\n\ngraph LR\n    subgraph source [Source]\n        %%metro direction: RL\n        %%metro exit: left | a, b\n        start[Start]\n        split[Split]\n        start -->|a,b| split\n    end\n\n    subgraph target [Target]\n        %%metro entry: left | a\n        %%metro entry: left | b\n        final_a[Final A]\n        final_b[Final B]\n        done[Done]\n        final_a -->|a| done\n        final_b -->|b| done\n    end\n\n    split -->|a| final_a\n    split -->|b| final_b\n"
+      },
+      {
         "name": "offtrack_output_peel_before_successor",
         "mmd": "%%metro title: Off-track output peel-off before successor\n%%metro line: a | Line A | #0570b0\n%%metro line: b | Line B | #d94801\n%%metro file: early_out | VCF | Early\n%%metro off_track: early_out\n\ngraph LR\n    subgraph s [Section]\n        filt[Filter step]\n        annot[Annotate step]\n        final[Finalize]\n        early_out[ ]\n        final_out[ ]\n\n        filt -->|a,b| early_out\n        filt -->|a,b| annot\n        annot -->|a,b| final\n        final -->|a,b| final_out\n    end\n"
       },
