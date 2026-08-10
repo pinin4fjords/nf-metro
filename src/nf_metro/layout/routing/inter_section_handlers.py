@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from math import inf
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
@@ -174,6 +175,22 @@ class _InterFacts:
     @property
     def graph(self) -> MetroGraph:
         return self.ctx.graph
+
+    @cached_property
+    def bypass_route(self) -> _BypassRoute:
+        return _bypass_route_kind(self)
+
+    @cached_property
+    def bottom_exit_junction_route(self) -> _BottomExitJunctionRoute:
+        return _bottom_exit_junction_route_kind(self)
+
+    @cached_property
+    def merge_entry_route(self) -> _MergeEntryRoute:
+        return _merge_entry_route_kind(self)
+
+    @cached_property
+    def merge_trunk_shape(self) -> _MergeTrunkShape:
+        return _merge_trunk_shape(self)
 
     @property
     def dx(self) -> float:
@@ -535,14 +552,9 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
 
 def _route_merge_trunk_feeder(f: _InterFacts) -> RoutedPath | None:
     """Dispatch wrapper: the trunk feeder's full bypass to the entry port."""
-    if _merge_trunk_shape(f).around_below:
+    if f.merge_trunk_shape.around_below:
         return _route_merge_trunk_around_below(f)
-    return _route_merge_trunk(f)
-
-
-def _route_merge_trunk_around_below_feeder(f: _InterFacts) -> RoutedPath | None:
-    """Dispatch wrapper: a merge trunk with no target-side channel."""
-    return _route_merge_trunk_around_below(f)
+    return _route_merge_trunk(f, f.merge_trunk_shape)
 
 
 def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
@@ -552,7 +564,7 @@ def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
 
 
 class _BypassRoute(Enum):
-    """Which shape :func:`_route_bypass_family` builds for a multi-column hop."""
+    """Leaf selected for a multi-column bypass hop."""
 
     L_SHAPE = "l_shape"
     CELLMATE_GAP_DROP = "cellmate_gap_drop"
@@ -1280,7 +1292,7 @@ def _route_left_entry_corridor(f: _InterFacts) -> RoutedPath | None:
 def _takes_left_entry_corridor(f: _InterFacts) -> bool:
     """Whether the route reaches the corridor leaf of the LEFT-entry family."""
     direct = f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row
-    bypass = f.needs_bypass and _bypass_route_kind(f) is _BypassRoute.LEFT_ENTRY_FAMILY
+    bypass = f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_ENTRY_FAMILY
     return (direct or bypass) and _left_entry_route_kind(f) is _LeftEntryRoute.CORRIDOR
 
 
@@ -1511,7 +1523,7 @@ def _route_left_entry_over_top(
 
 
 class _MergeEntryRoute(Enum):
-    """Which shape :func:`_route_merge_entry_family` builds for a merge feeder."""
+    """Leaf selected for a merge feeder by the dispatch table."""
 
     STRAIGHT = "straight"
     CORRIDOR = "corridor"
@@ -1631,7 +1643,7 @@ def _route_merge_entry_perpendicular(f: _InterFacts) -> RoutedPath | None:
 
 
 def _takes_merge_entry_kind(f: _InterFacts, kind: _MergeEntryRoute) -> bool:
-    return f.merge_ep is not None and _merge_entry_route_kind(f) is kind
+    return f.merge_ep is not None and f.merge_entry_route is kind
 
 
 def _right_entry_plough_needs_bypass(f: _InterFacts) -> bool:
@@ -1770,8 +1782,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "bottom-exit junction right landings",
         lambda f: (
             f.edge.source in f.ctx.bottom_exit_junctions
-            and _bottom_exit_junction_route_kind(f)
-            is _BottomExitJunctionRoute.FAN_LANDINGS
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.FAN_LANDINGS
         ),
         lambda f: _route_bottom_exit_junction_right_landings(f),
     ),
@@ -1780,14 +1791,17 @@ _INTER_SECTION_RULES: list[_Rule] = [
         "bottom-exit junction via gap",
         lambda f: (
             f.edge.source in f.ctx.bottom_exit_junctions
-            and _bottom_exit_junction_route_kind(f) is _BottomExitJunctionRoute.VIA_GAP
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.VIA_GAP
         ),
         lambda f: _route_bottom_exit_junction_via_gap_leaf(f),
     ),
     _Rule(
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
         "bottom-exit junction",
-        lambda f: f.edge.source in f.ctx.bottom_exit_junctions,
+        lambda f: (
+            f.edge.source in f.ctx.bottom_exit_junctions
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.PLAIN
+        ),
         lambda f: _route_bottom_exit_junction(f),
     ),
     # Every feeder of a merge that has a trunk routes through the merge
@@ -1799,14 +1813,14 @@ _INTER_SECTION_RULES: list[_Rule] = [
     _Rule(
         RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
         "merge trunk around below",
-        lambda f: f.is_merge_trunk and _merge_trunk_shape(f).around_below,
-        _route_merge_trunk_around_below_feeder,
+        lambda f: f.is_merge_trunk and f.merge_trunk_shape.around_below,
+        lambda f: _route_merge_trunk_around_below(f),
     ),
     _Rule(
         RouteFamilyId.MERGE_TRUNK,
         "merge trunk",
-        lambda f: f.is_merge_trunk,
-        _route_merge_trunk_feeder,
+        lambda f: f.is_merge_trunk and not f.merge_trunk_shape.around_below,
+        lambda f: _route_merge_trunk(f, f.merge_trunk_shape),
     ),
     _Rule(
         RouteFamilyId.MERGE_BRANCH,
@@ -1823,23 +1837,20 @@ _INTER_SECTION_RULES: list[_Rule] = [
     _Rule(
         RouteFamilyId.BYPASS_L_SHAPE,
         "bypass L-shape",
-        lambda f: f.needs_bypass and _bypass_route_kind(f) is _BypassRoute.L_SHAPE,
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.L_SHAPE,
         lambda f: _route_l_shape(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
     ),
     _Rule(
         RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
         "bypass cell-mate gap drop",
-        lambda f: (
-            f.needs_bypass and _bypass_route_kind(f) is _BypassRoute.CELLMATE_GAP_DROP
-        ),
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.CELLMATE_GAP_DROP,
         _route_bypass_cellmate_gap_drop,
     ),
     _Rule(
         RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
         "bypass packed-cell same row",
         lambda f: (
-            f.needs_bypass
-            and _bypass_route_kind(f) is _BypassRoute.PACKED_CELL_SAME_ROW
+            f.needs_bypass and f.bypass_route is _BypassRoute.PACKED_CELL_SAME_ROW
         ),
         _route_bypass_packed_cell_same_row,
     ),
@@ -1847,32 +1858,28 @@ _INTER_SECTION_RULES: list[_Rule] = [
         RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
         "bypass RIGHT entry cross-row",
         lambda f: (
-            f.needs_bypass
-            and _bypass_route_kind(f) is _BypassRoute.RIGHT_ENTRY_CROSS_ROW
+            f.needs_bypass and f.bypass_route is _BypassRoute.RIGHT_ENTRY_CROSS_ROW
         ),
         _route_right_entry_cross_row,
     ),
     _Rule(
         RouteFamilyId.BYPASS_LEFT_ENTRY,
         "bypass LEFT entry",
-        lambda f: (
-            f.needs_bypass and _bypass_route_kind(f) is _BypassRoute.LEFT_ENTRY_FAMILY
-        ),
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_ENTRY_FAMILY,
         _route_left_entry_family,
     ),
     _Rule(
         RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
         "bypass LEFT exit around below",
         lambda f: (
-            f.needs_bypass
-            and _bypass_route_kind(f) is _BypassRoute.LEFT_EXIT_AROUND_BELOW
+            f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_EXIT_AROUND_BELOW
         ),
         lambda f: _route_left_exit_around_below_left_entry(f.edge, f.src, f.tgt, f.ctx),
     ),
     _Rule(
         RouteFamilyId.BYPASS_FAMILY,
         "bypass family",
-        lambda f: f.needs_bypass and _bypass_route_kind(f) is _BypassRoute.U_BYPASS,
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.U_BYPASS,
         _route_u_bypass_family,
     ),
     _Rule(
@@ -1896,13 +1903,7 @@ _INTER_SECTION_RULES: list[_Rule] = [
     _Rule(
         RouteFamilyId.LEFT_ENTRY_WRAP,
         "LEFT entry wrap family",
-        lambda f: (
-            (f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row)
-            or (
-                f.needs_bypass
-                and _bypass_route_kind(f) is _BypassRoute.LEFT_ENTRY_FAMILY
-            )
-        ),
+        lambda f: f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row,
         _route_left_entry_family,
     ),
     _Rule(
@@ -2944,16 +2945,19 @@ def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
     )
 
 
-def _route_merge_trunk(f: _InterFacts) -> RoutedPath:
+def _route_merge_trunk(
+    f: _InterFacts, shape: _MergeTrunkShape | None = None
+) -> RoutedPath:
     """Full U-shape bypass for the trunk carrier, ending at the entry port."""
-    shape = _merge_trunk_shape(f)
+    shape = shape or f.merge_trunk_shape
     assert not shape.around_below
     return _route_bypass(f, _bypass_geometry(f, shape))
 
 
-def _merge_trunk_around_below_geometry(f: _InterFacts) -> _EntryWrapGeometry:
+def _merge_trunk_around_below_geometry(
+    f: _InterFacts, shape: _MergeTrunkShape
+) -> _EntryWrapGeometry:
     """Resolve the around-below seam shared by trunk planning and emission."""
-    shape = _merge_trunk_shape(f)
     assert shape.around_below and shape.entry_port is not None
     geometry = _around_section_below_geometry(
         f.ctx,
@@ -2969,22 +2973,17 @@ def _merge_trunk_around_below_geometry(f: _InterFacts) -> _EntryWrapGeometry:
         if sibling.target == f.edge.target or sibling.line_id != f.edge.line_id:
             continue
         trunk_source = f.ctx.merge.trunk_source.get(sibling.target)
-        trunk_edge = next(
-            (
-                candidate
-                for candidate in f.ctx.graph.edges_to(sibling.target)
-                if candidate.source == trunk_source
-                and candidate.line_id == sibling.line_id
-            ),
-            None,
+        trunk_edge = f.ctx.edge_by_key.get(
+            (trunk_source or "", sibling.target, sibling.line_id)
         )
         if trunk_edge is None:
             continue
         trunk_src, trunk_tgt = f.ctx.graph.edge_endpoints(trunk_edge)
         trunk_facts = _build_inter_facts(trunk_edge, trunk_src, trunk_tgt, f.ctx)
-        if _merge_trunk_shape(trunk_facts).around_below:
+        trunk_shape = trunk_facts.merge_trunk_shape
+        if trunk_shape.around_below:
             continue
-        trunk_route = _route_merge_trunk(trunk_facts)
+        trunk_route = _route_merge_trunk(trunk_facts, trunk_shape)
         flank_xs = tuple(
             start[0]
             for start, end in zip(trunk_route.points, trunk_route.points[1:])
@@ -3019,14 +3018,14 @@ def _merge_trunk_around_below_geometry(f: _InterFacts) -> _EntryWrapGeometry:
 
 def _route_merge_trunk_around_below(f: _InterFacts) -> RoutedPath:
     """Loop a merge trunk under a target with no port-side channel."""
-    shape = _merge_trunk_shape(f)
+    shape = f.merge_trunk_shape
     assert shape.entry_port is not None
     return _emit_left_entry_wrap(
         f.edge,
         f.src,
         shape.entry_port,
         f.ctx,
-        _merge_trunk_around_below_geometry(f),
+        _merge_trunk_around_below_geometry(f, shape),
     )
 
 

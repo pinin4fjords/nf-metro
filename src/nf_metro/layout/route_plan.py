@@ -30,7 +30,7 @@ from nf_metro.layout.routing.common import (
     TrunkSlot,
     right_normal_axis_sign,
 )
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES, RouteFamilyId
 from nf_metro.options import LineOrder
 from nf_metro.parser.commitments import FlowDirection
 from nf_metro.parser.model import MetroGraph, PortSide, Station, is_bypass_v
@@ -2717,17 +2717,8 @@ def _member_roles(
 ) -> tuple[EmissionRole, ...]:
     roles: set[EmissionRole] = set()
     if (
-        family
-        in {
-            RouteFamilyId.BYPASS_FAMILY,
-            RouteFamilyId.BYPASS_L_SHAPE,
-            RouteFamilyId.BYPASS_LEFT_ENTRY,
-            RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
-            RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
-            RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
-            RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
-            RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
-        }
+        family in BYPASS_ROUTE_FAMILIES
+        or family is RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS
         or is_bypass_v(edge.source)
         or is_bypass_v(edge.target)
     ):

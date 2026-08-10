@@ -62,7 +62,10 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import (
+    BYPASS_ROUTE_FAMILY_VALUES,
+    RouteFamilyId,
+)
 from nf_metro.layout.routing.inter_section_handlers import (
     _around_section_below_geometry,
     _around_stack_geometry,
@@ -807,7 +810,7 @@ def _route_derived_turn_requirement(
     route = rule.route(facts)
     if route is None:
         return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
-    points = apply_route_offsets(route, dict(ctx.station_offsets or {}))
+    points = apply_route_offsets(route, ctx.station_offsets or {})
     if len(points) < 3:
         return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
     launch, corner, after = points[:3]
@@ -3365,13 +3368,7 @@ def snapshot_exit_turn_segments(
                 RouteFamilyId.RIGHT_ENTRY_WRAP.value,
                 RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
-                RouteFamilyId.BYPASS_FAMILY.value,
-                RouteFamilyId.BYPASS_L_SHAPE.value,
-                RouteFamilyId.BYPASS_LEFT_ENTRY.value,
-                RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW.value,
-                RouteFamilyId.BYPASS_CELLMATE_GAP_DROP.value,
-                RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW.value,
-                RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW.value,
+                *BYPASS_ROUTE_FAMILY_VALUES,
             }
             values[
                 (

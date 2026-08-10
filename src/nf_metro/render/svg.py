@@ -99,6 +99,7 @@ from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
 )
+from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES
 from nf_metro.layout.routing.invariants import (
     CurveInvariantError,
     assert_render_curve_invariants,
@@ -1118,19 +1119,7 @@ def _ledger_changes_live_derived_band(
     if any(
         (
             isinstance(reservation.region, CanvasRegion)
-            and any(
-                family_id
-                in {
-                    RouteFamilyId.BYPASS_FAMILY,
-                    RouteFamilyId.BYPASS_L_SHAPE,
-                    RouteFamilyId.BYPASS_LEFT_ENTRY,
-                    RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
-                    RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
-                    RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
-                    RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
-                }
-                for family_id in reservation.route_family_ids
-            )
+            and not BYPASS_ROUTE_FAMILIES.isdisjoint(reservation.route_family_ids)
         )
         or (
             isinstance(reservation.region, ColumnGapRegion)

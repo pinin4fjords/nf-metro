@@ -46,3 +46,19 @@ class RouteFamilyId(str, Enum):
     ENTRY_RUNWAY_FALLBACK = "entry-runway-fallback"
     INTRA_SECTION_FALLBACK = "intra-section-fallback"
     RAIL_INTER_SECTION = "rail-inter-section"
+
+
+BYPASS_ROUTE_FAMILIES = frozenset(
+    {
+        RouteFamilyId.BYPASS_FAMILY,
+        RouteFamilyId.BYPASS_L_SHAPE,
+        RouteFamilyId.BYPASS_LEFT_ENTRY,
+        RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
+        RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
+        RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
+        RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
+    }
+)
+BYPASS_ROUTE_FAMILY_VALUES = frozenset(
+    family_id.value for family_id in BYPASS_ROUTE_FAMILIES
+)

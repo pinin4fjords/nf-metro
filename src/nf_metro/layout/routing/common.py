@@ -809,7 +809,7 @@ class RoutedPath:
 
 def apply_route_offsets(
     route: RoutedPath,
-    station_offsets: dict[tuple[str, str], float],
+    station_offsets: Mapping[tuple[str, str], float],
 ) -> list[tuple[float, float]]:
     """The route's final render geometry, with its line separation applied.
 
