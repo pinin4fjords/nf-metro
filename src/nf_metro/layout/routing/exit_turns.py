@@ -74,7 +74,6 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _bypass_route_kind,
     _BypassGeometry,
     _BypassRoute,
-    _entry_wrap_record,
     _InterFacts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
@@ -93,6 +92,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _PerpExitGeometry,
     _right_entry_over_top_geometry,
     _right_entry_wrap_geometry,
+    _SourceSeam,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
     bypass_line_draws_a_chained_trunk,
@@ -164,6 +164,20 @@ _PERPENDICULAR_EXIT_FAMILIES = frozenset(
 # Families the straight-connector builder draws, one per run axis.
 _STRAIGHT_CONNECTOR_FAMILIES = frozenset(
     {RouteFamilyId.SAME_Y_STRAIGHT, RouteFamilyId.SAME_X_VERTICAL_DROP}
+)
+
+# Families whose builder only ever leaves the source along the column, keyed to
+# the decline each states when asked for a run that leaves along the row.
+_OFF_COLUMN_RUN_DECLINES: Mapping[RouteFamilyId, str] = MappingProxyType(
+    {
+        RouteFamilyId.TB_BOTTOM_EXIT: "unsupported-subshape:nonvertical-tb-exit",
+        RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK: (
+            "unsupported-subshape:nonvertical-tb-exit"
+        ),
+        **dict.fromkeys(
+            _PERPENDICULAR_EXIT_FAMILIES, "unsupported-subshape:nonvertical-perp-exit"
+        ),
+    }
 )
 
 _EdgeKey = tuple[str, str, str]
@@ -422,6 +436,22 @@ class _SourceTurnRequirement:
     fixed_axis: float | None
     legacy_reason: str | None = None
 
+    @classmethod
+    def declined(cls, reason: str) -> _SourceTurnRequirement:
+        """No requirement at all: *reason* names who settles the turn instead."""
+        return cls(None, None, None, None, None, reason)
+
+    @classmethod
+    def from_seam(cls, seam: _SourceSeam) -> _SourceTurnRequirement:
+        """The requirement the seam a resolved centreline opens on already states."""
+        return cls(
+            seam.run_direction,
+            seam.turn_direction,
+            seam.launch_coordinate,
+            seam.minimum_runway,
+            seam.axis_coordinate,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class _LaneOwnership:
@@ -598,18 +628,12 @@ def _perp_exit_turn_requirement(
     geometry: _PerpExitGeometry,
 ) -> _SourceTurnRequirement:
     """The source turn a resolved perpendicular-exit centreline leaves on."""
-    if geometry.turn_direction is None:
-        return _SourceTurnRequirement(geometry.run_direction, None, None, None, None)
-    assert (
-        geometry.launch_coordinate is not None and geometry.axis_coordinate is not None
-    )
-    return _SourceTurnRequirement(
-        geometry.run_direction,
-        geometry.turn_direction,
-        geometry.launch_coordinate,
-        abs(geometry.axis_coordinate - geometry.launch_coordinate),
-        geometry.axis_coordinate,
-    )
+    if geometry.seam.turn_direction is None:
+        return _SourceTurnRequirement(
+            geometry.seam.run_direction, None, None, None, None
+        )
+    assert geometry.seam.minimum_runway is not None
+    return _SourceTurnRequirement.from_seam(geometry.seam)
 
 
 def _bottom_exit_junction_turn_requirement(
@@ -627,13 +651,8 @@ def _bottom_exit_junction_turn_requirement(
     established first-match dispatcher draws them.
     """
     if _bottom_exit_junction_is_right_landings(edge, ctx):
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:bottom-exit-junction-right-landings",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:bottom-exit-junction-right-landings"
         )
     exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
 
@@ -648,21 +667,10 @@ def _bottom_exit_junction_turn_requirement(
     if _h_segment_crosses_other_section(
         ctx.graph, geometry.vx, tgt.x, geometry.hy, exclude
     ):
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:bottom-exit-junction-via-gap",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:bottom-exit-junction-via-gap"
         )
-    return _SourceTurnRequirement(
-        geometry.run_direction,
-        geometry.turn_direction,
-        geometry.launch_coordinate,
-        abs(geometry.axis_coordinate - geometry.launch_coordinate),
-        geometry.axis_coordinate,
-    )
+    return _SourceTurnRequirement.from_seam(geometry.seam)
 
 
 def _left_entry_wrap_turn_requirement(
@@ -674,13 +682,8 @@ def _left_entry_wrap_turn_requirement(
 ) -> _SourceTurnRequirement:
     """The turn a left-entry wrap opens with, by the leaf that draws it."""
     if source_run_direction not in {Direction.R, Direction.L}:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:nonhorizontal-left-entry-wrap",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:nonhorizontal-left-entry-wrap"
         )
     facts = _build_inter_facts(edge, src, tgt, ctx)
     wrap_kind = _left_entry_route_kind(facts)
@@ -698,21 +701,10 @@ def _left_entry_wrap_turn_requirement(
     elif wrap_kind is _LeftEntryRoute.BAND_HOP:
         wrap_geometry = _left_entry_band_hop_source_seam(facts)
     else:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            f"unsupported-subshape:left-entry-{wrap_kind.value}",
+        return _SourceTurnRequirement.declined(
+            f"unsupported-subshape:left-entry-{wrap_kind.value}"
         )
-    return _SourceTurnRequirement(
-        wrap_geometry.run_direction,
-        wrap_geometry.turn_direction,
-        wrap_geometry.launch_coordinate,
-        abs(wrap_geometry.axis_coordinate - wrap_geometry.launch_coordinate),
-        wrap_geometry.axis_coordinate,
-    )
+    return _SourceTurnRequirement.from_seam(wrap_geometry.seam)
 
 
 def _right_entry_wrap_turn_requirement(
@@ -728,18 +720,12 @@ def _right_entry_wrap_turn_requirement(
     same-row loop into the channel over the target's top.
     """
     facts = _build_inter_facts(edge, src, tgt, ctx)
-    seam = (
-        _right_entry_wrap_geometry(facts).seam
+    loop = (
+        _right_entry_wrap_geometry(facts).wrap
         if facts.cross_row and facts.src_col is not None and facts.tgt_col is not None
         else _right_entry_over_top_geometry(ctx, edge, src, tgt)
     )
-    return _SourceTurnRequirement(
-        seam.run_direction,
-        seam.turn_direction,
-        seam.launch_coordinate,
-        abs(seam.axis_coordinate - seam.launch_coordinate),
-        seam.axis_coordinate,
-    )
+    return _SourceTurnRequirement.from_seam(loop.seam)
 
 
 def _right_entry_cross_row_turn_requirement(
@@ -751,13 +737,8 @@ def _right_entry_cross_row_turn_requirement(
     """The turn a RIGHT entry fed from the left opens with, at its wrap column."""
     facts = _build_inter_facts(edge, src, tgt, ctx)
     if facts.is_left_exit:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:left-exit-right-entry-step",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:left-exit-right-entry-step"
         )
     turn = vertical_direction(tgt.y - src.y)
     _fan, _size, _delta, axis = _wrap_fan_geometry(
@@ -791,27 +772,20 @@ def _straight_connector_turn_requirement(
     horizontal = family_id is RouteFamilyId.SAME_Y_STRAIGHT
     run_axis = {Direction.R, Direction.L} if horizontal else {Direction.U, Direction.D}
     if source_run_direction not in run_axis:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:straight-across-its-run-axis",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:straight-across-its-run-axis"
         )
     delta = (tgt.x - src.x) if horizontal else (tgt.y - src.y)
     if abs(delta) <= COORD_TOLERANCE:
-        return _SourceTurnRequirement(
-            None, None, None, None, None, "unsupported-subshape:degenerate-straight"
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:degenerate-straight"
         )
     if horizontal:
         actual_run = Direction.R if delta > 0 else Direction.L
     else:
         actual_run = Direction.D if delta > 0 else Direction.U
     if actual_run is not source_run_direction:
-        return _SourceTurnRequirement(
-            None, None, None, None, None, "unsupported-subshape:opposed-straight"
-        )
+        return _SourceTurnRequirement.declined("unsupported-subshape:opposed-straight")
     return _SourceTurnRequirement(actual_run, None, None, None, None)
 
 
@@ -824,67 +798,27 @@ def _source_turn_requirement(
 ) -> _SourceTurnRequirement:
     src = ctx.graph.stations[edge.source]
     tgt = ctx.graph.stations[edge.target]
+    off_column_decline = _OFF_COLUMN_RUN_DECLINES.get(family_id)
+    if off_column_decline is not None and source_run_direction not in {
+        Direction.U,
+        Direction.D,
+    }:
+        return _SourceTurnRequirement.declined(off_column_decline)
     if family_id is RouteFamilyId.TB_BOTTOM_EXIT:
-        if source_run_direction not in {Direction.U, Direction.D}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:nonvertical-tb-exit",
-            )
         geometry = _tb_bottom_exit_geometry(edge, src, tgt, ctx)
-        if geometry.turn_direction is None:
+        if geometry.seam.turn_direction is None:
             return _SourceTurnRequirement(
-                geometry.run_direction,
-                None,
-                None,
-                None,
-                None,
+                geometry.seam.run_direction, None, None, None, None
             )
-        assert (
-            geometry.launch_coordinate is not None
-            and geometry.axis_coordinate is not None
-        )
-        return _SourceTurnRequirement(
-            geometry.run_direction,
-            geometry.turn_direction,
-            geometry.launch_coordinate,
-            abs(geometry.axis_coordinate - geometry.launch_coordinate),
-            geometry.axis_coordinate,
-        )
+        assert geometry.seam.minimum_runway is not None
+        return _SourceTurnRequirement.from_seam(geometry.seam)
     if family_id in _PERPENDICULAR_EXIT_FAMILIES:
-        if source_run_direction not in {Direction.U, Direction.D}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:nonvertical-perp-exit",
-            )
         return _perp_exit_turn_requirement(
             _perp_exit_family_geometry(edge, family_id, src, tgt, ctx)
         )
     if family_id is RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK:
-        if source_run_direction not in {Direction.U, Direction.D}:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:nonvertical-tb-exit",
-            )
         stack_geometry = _around_stack_geometry(_build_inter_facts(edge, src, tgt, ctx))
-        return _SourceTurnRequirement(
-            stack_geometry.run_direction,
-            stack_geometry.turn_direction,
-            stack_geometry.launch_coordinate,
-            abs(stack_geometry.axis_coordinate - stack_geometry.launch_coordinate),
-            stack_geometry.axis_coordinate,
-        )
+        return _SourceTurnRequirement.from_seam(stack_geometry.seam)
     if family_id in _STRAIGHT_CONNECTOR_FAMILIES:
         return _straight_connector_turn_requirement(
             family_id, source_run_direction, src, tgt
@@ -944,25 +878,12 @@ def _source_turn_requirement(
             edge, src, tgt, bundle_size, ctx, expected_side, planned=True
         )
         assert entry_geometry is not None
-        if entry_geometry.turn_direction is None:
+        if entry_geometry.seam.turn_direction is None:
             return _SourceTurnRequirement(
-                entry_geometry.run_direction,
-                None,
-                None,
-                None,
-                None,
+                entry_geometry.seam.run_direction, None, None, None, None
             )
-        assert (
-            entry_geometry.launch_coordinate is not None
-            and entry_geometry.axis_coordinate is not None
-        )
-        return _SourceTurnRequirement(
-            entry_geometry.run_direction,
-            entry_geometry.turn_direction,
-            entry_geometry.launch_coordinate,
-            abs(entry_geometry.axis_coordinate - entry_geometry.launch_coordinate),
-            entry_geometry.axis_coordinate,
-        )
+        assert entry_geometry.seam.minimum_runway is not None
+        return _SourceTurnRequirement.from_seam(entry_geometry.seam)
     if family_id is RouteFamilyId.MERGE_BRANCH:
         facts = _build_inter_facts(edge, src, tgt, ctx)
         assert facts.src_col is not None
@@ -986,22 +907,12 @@ def _source_turn_requirement(
         assert entry_port is not None
         kind = _merge_entry_route_kind(facts)
         if kind is _MergeEntryRoute.STRAIGHT:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                "unsupported-subshape:merge-entry-straight",
+            return _SourceTurnRequirement.declined(
+                "unsupported-subshape:merge-entry-straight"
             )
         if kind is not _MergeEntryRoute.L_SHAPE:
-            return _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                f"unsupported-subshape:merge-entry-{kind.value}",
+            return _SourceTurnRequirement.declined(
+                f"unsupported-subshape:merge-entry-{kind.value}"
             )
         fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
         if fan is not None:
@@ -1047,13 +958,7 @@ def _source_turn_requirement(
         perp_wrap = perp_exit_farside_entry_wrap_geometry(
             _build_inter_facts(edge, src, tgt, ctx)
         )
-        return _SourceTurnRequirement(
-            perp_wrap.run_direction,
-            perp_wrap.turn_direction,
-            perp_wrap.launch_coordinate,
-            abs(perp_wrap.axis_coordinate - perp_wrap.launch_coordinate),
-            perp_wrap.axis_coordinate,
-        )
+        return _SourceTurnRequirement.from_seam(perp_wrap.seam)
     return _standard_l_shape_turn_requirement(edge, src, tgt, ctx)
 
 
@@ -1066,9 +971,7 @@ def _standard_l_shape_turn_requirement(
     """The turn a plain L-shape opens with, at the column its bundle turns on."""
     turn_delta = tgt.y - src.y
     if abs(turn_delta) <= COORD_TOLERANCE:
-        return _SourceTurnRequirement(
-            None, None, None, None, None, "missing-source-turn"
-        )
+        return _SourceTurnRequirement.declined("missing-source-turn")
     fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
     if fan is not None:
         fan_geometry = _l_shape_fan_source_turn(edge, src, tgt, fan, ctx)
@@ -1096,9 +999,7 @@ def _plain_l_shape_turn_requirement(
     """
     turn_delta = tgt.y - src.y
     if abs(turn_delta) <= COORD_TOLERANCE:
-        return _SourceTurnRequirement(
-            None, None, None, None, None, "missing-source-turn"
-        )
+        return _SourceTurnRequirement.declined("missing-source-turn")
     members, _source_center, _target_center = gather_tapered_bundle(ctx, edge)
     target_offset = next(
         target
@@ -1126,10 +1027,8 @@ def _seam_also_feeds_a_merge(edge: Edge, ctx: _RoutingCtx) -> bool:
     family turns off, not one the seam draws itself.
     """
     return any(
-        member.source == edge.source
-        and member.target != edge.target
-        and member.target in ctx.merge.junctions
-        for member in ctx.graph.edges
+        member.target != edge.target and member.target in ctx.merge.junctions
+        for member in ctx.graph.edges_from(edge.source)
     )
 
 
@@ -1146,14 +1045,7 @@ def _u_bypass_source_turn(
         # A merge branch turns off the same corner the descent opens on, and the
         # two families size that corner from different bundles: a plan naming
         # the descent's column names a radius the merge branch owns too.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "merge-branch-shares-the-descent-corner",
-        )
+        return _SourceTurnRequirement.declined("merge-branch-shares-the-descent-corner")
     seated = seated_bypass_descent(edge, geometry, ctx)
     if seated is None or seated.width != geometry.g1_n:
         # The descent shares its channel with runs the reservation seats as one
@@ -1161,48 +1053,24 @@ def _u_bypass_source_turn(
         # narrower than the gap's own population of the channel, neither where
         # the group lands nor the stagger the two flanking corners are sized
         # from follows from the member's own claim.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "seating-group-owns-the-descent-column",
-        )
+        return _SourceTurnRequirement.declined("seating-group-owns-the-descent-column")
     if bypass_line_draws_a_chained_trunk(edge, ctx):
         # Freezing this descent takes it out of the gap's movable population,
         # and the gap allocator then seats the rest of that population one step
         # over.  The X spans that move re-pack the inter-row band this line's
         # two chained trunks share, onto tracks that fuse two of its strokes.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "trunk-band-owns-the-chained-same-line-trunk",
+        return _SourceTurnRequirement.declined(
+            "trunk-band-owns-the-chained-same-line-trunk"
         )
-    if geometry.turn_direction is None:
+    if geometry.seam.turn_direction is None:
         # The descent has no depth: the lead-out and the below-row traverse
         # stand on one level, so the seam's whole source-side geometry is a
         # single run and its first corner is the far gap's rise.  The only
         # requirement derivable from that run is a straight continuation into
         # the entry, which is not the shape the member goes on to draw.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "invalid-source-turn-requirement",
-        )
-    axis_coordinate = seated.column
-    return _SourceTurnRequirement(
-        geometry.run_direction,
-        geometry.turn_direction,
-        geometry.launch_coordinate,
-        abs(axis_coordinate - geometry.launch_coordinate),
-        axis_coordinate,
+        return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
+    return _SourceTurnRequirement.from_seam(
+        replace(geometry.seam, axis_coordinate=seated.column)
     )
 
 
@@ -1214,7 +1082,7 @@ def _seam_carries_a_bundle_elsewhere(edge: Edge, ctx: _RoutingCtx) -> bool:
     of its own, settled where the bundle lands rather than where it leaves.
     """
     reached: Counter[str] = Counter(
-        member.target for member in ctx.graph.edges if member.source == edge.source
+        member.target for member in ctx.graph.edges_from(edge.source)
     )
     return any(target != edge.target and n > 1 for target, n in reached.items())
 
@@ -1236,23 +1104,13 @@ def _merge_trunk_turn_requirement(
         # The trunk shares its seam with a bundle bound elsewhere, and a plan
         # here is a plan for the whole seam: the lanes it would hand that bundle
         # are the ones the port it lands on has already ordered.
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "entry-bundle-owns-the-shared-seam-lanes",
+        return _SourceTurnRequirement.declined(
+            "entry-bundle-owns-the-shared-seam-lanes"
         )
     geometry = u_bypass_descent_geometry(edge, ctx)
     if geometry is None:
-        return _SourceTurnRequirement(
-            None,
-            None,
-            None,
-            None,
-            None,
-            "unsupported-subshape:merge-trunk-around-below",
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:merge-trunk-around-below"
         )
     return _u_bypass_source_turn(edge, geometry, ctx)
 
@@ -1301,13 +1159,11 @@ def _left_exit_around_below_turn_requirement(
 ) -> _SourceTurnRequirement:
     """The turn a LEFT exit looping under a far-side LEFT entry opens with."""
     geometry = left_exit_around_below_geometry(edge, src, tgt, ctx)
-    axis_coordinate = seated_left_exit_under_target_descent(geometry, ctx)
-    return _SourceTurnRequirement(
-        geometry.run_direction,
-        geometry.turn_direction,
-        geometry.launch_coordinate,
-        abs(axis_coordinate - geometry.launch_coordinate),
-        axis_coordinate,
+    return _SourceTurnRequirement.from_seam(
+        replace(
+            geometry.seam,
+            axis_coordinate=seated_left_exit_under_target_descent(geometry, ctx),
+        )
     )
 
 
@@ -1334,42 +1190,12 @@ def _packed_cell_same_row_turn_requirement(
         return _left_entry_wrap_turn_requirement(
             edge, source_run_direction, ctx, src, tgt
         )
-    seam = _entry_wrap_record(
-        ctx,
-        edge,
-        src,
-        pos_n=corridor.pos_n,
-        delta=corridor.delta,
-        corner_x=corridor.corner_x,
-        channel_y=corridor.channel_y,
-        descent_x=corridor.descent_x,
-    )
-    return _SourceTurnRequirement(
-        seam.run_direction,
-        seam.turn_direction,
-        seam.launch_coordinate,
-        abs(seam.axis_coordinate - seam.launch_coordinate),
-        seam.axis_coordinate,
-    )
+    return _SourceTurnRequirement.from_seam(corridor.seam)
 
 
 def _u_bypass_turn_requirement(facts: _InterFacts) -> _SourceTurnRequirement:
     """The turn the U-shaped hop opens with, for every family that draws one."""
-    assert facts.src_col is not None and facts.tgt_col is not None
-    return _u_bypass_source_turn(
-        facts.edge,
-        _bypass_geometry(
-            facts.edge,
-            facts.src,
-            facts.tgt,
-            facts.i,
-            facts.src_col,
-            facts.tgt_col,
-            facts.ctx,
-            facts.src_row,
-        ),
-        facts.ctx,
-    )
+    return _u_bypass_source_turn(facts.edge, _bypass_geometry(facts), facts.ctx)
 
 
 def _fixed_axis(
@@ -1776,13 +1602,8 @@ def _classify_assignment_seeds(
             continue
         if family_id not in PLANNED_EXIT_FAMILIES:
             reason = reason or f"unsupported-family:{family_id.value}"
-            requirement = _SourceTurnRequirement(
-                None,
-                None,
-                None,
-                None,
-                None,
-                f"unsupported-family:{family_id.value}",
+            requirement = _SourceTurnRequirement.declined(
+                f"unsupported-family:{family_id.value}"
             )
         else:
             requirement = _source_turn_requirement(

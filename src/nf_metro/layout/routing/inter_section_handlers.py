@@ -535,10 +535,7 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
 
 def _route_merge_trunk_feeder(f: _InterFacts) -> RoutedPath | None:
     """Dispatch wrapper: the trunk feeder's full bypass to the entry port."""
-    assert f.src_col is not None and f.tgt_col is not None
-    return _route_merge_trunk(
-        f.edge, f.src, f.tgt, f.i, f.n, f.src_col, f.tgt_col, f.ctx, f.src_row
-    )
+    return _route_merge_trunk(f)
 
 
 def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
@@ -650,7 +647,7 @@ def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
         if geometry is not None:
             return _route_left_entry_over_top(f, geometry)
         return _route_left_entry_family(f)
-    return _route_bypass(edge, src, tgt, f.i, f.src_col, f.tgt_col, ctx, f.src_row)
+    return _route_bypass(f, _bypass_geometry(f))
 
 
 def cellmate_gap_drop_column(f: _InterFacts) -> float | None:
@@ -883,14 +880,38 @@ def _route_left_exit_right_entry_step(
     return route
 
 
+@dataclass(frozen=True, slots=True)
+class _SourceSeam:
+    """Where a resolved centreline opens: its first run, and the turn off it.
+
+    Every shape a family draws states the same four things about its own start
+    -- the direction the member leaves the source on, the direction it turns to,
+    the coordinate the run launches from, and the one the turn lands on -- and
+    the exit-turn planner reads only those.  A shape whose centreline never
+    turns leaves everything but ``run_direction`` unstated.
+    """
+
+    run_direction: Direction | None
+    turn_direction: Direction | None
+    launch_coordinate: float | None
+    axis_coordinate: float | None
+
+    @property
+    def minimum_runway(self) -> float | None:
+        """How far the run travels before the turn, where both are stated."""
+        if self.launch_coordinate is None or self.axis_coordinate is None:
+            return None
+        return abs(self.axis_coordinate - self.launch_coordinate)
+
+
 @dataclass(frozen=True)
 class _LeftExitUnderTargetLoop:
     """The loop a LEFT exit draws to a far-side LEFT entry, plus its source seam.
 
     ``members`` carries each line's source and target offset against
     ``centreline``; a leg places its member at that offset along the leg's own
-    right-hand normal, which is what ``axis_coordinate`` reads for the descent.
-    ``lane_columns`` is that reading for the whole bundle.
+    right-hand normal, which is what the seam's ``axis_coordinate`` reads for
+    the descent.  ``lane_columns`` is that reading for the whole bundle.
     """
 
     centreline: tuple[tuple[float, float], ...]
@@ -900,10 +921,7 @@ class _LeftExitUnderTargetLoop:
     corner_x: float
     channel_y: float
     descent_x: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def left_exit_around_below_geometry(
@@ -1039,10 +1057,12 @@ def left_exit_around_below_geometry(
         cx,
         channel_y,
         vx,
-        run_direction,
-        turn_direction,
-        sx,
-        cx + lead_out * right_normal_axis_sign(turn_direction),
+        _SourceSeam(
+            run_direction,
+            turn_direction,
+            sx,
+            cx + lead_out * right_normal_axis_sign(turn_direction),
+        ),
     )
 
 
@@ -1244,15 +1264,6 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
     return _route_left_entry_wrap(edge, src, tgt, f.i, f.n, ctx)
 
 
-@dataclass(frozen=True)
-class _LeftEntryOverTopGeometry:
-    channel_y: float
-    pos_n: int
-    delta: float
-    corner_x: float
-    descent_x: float
-
-
 def _packed_cell_target_sibling(f: _InterFacts) -> tuple[Edge, Station, Section] | None:
     """A nearer same-line target packed immediately before this target."""
     target_port = f.graph.ports.get(f.edge.target)
@@ -1336,26 +1347,8 @@ def _packed_cell_handoff_plan(f: _InterFacts) -> _PackedCellHandoff | None:
         or sibling_facts.cellmate_blocks_source_row
     ):
         return None
-    sibling_descent = _bypass_geometry(
-        sibling_edge,
-        f.src,
-        sibling_target,
-        sibling_facts.i,
-        sibling_facts.src_col,
-        sibling_facts.tgt_col,
-        f.ctx,
-        sibling_facts.src_row,
-    )
-    sibling_route = _route_bypass(
-        sibling_edge,
-        f.src,
-        sibling_target,
-        sibling_facts.i,
-        sibling_facts.src_col,
-        sibling_facts.tgt_col,
-        f.ctx,
-        sibling_facts.src_row,
-    )
+    sibling_descent = _bypass_geometry(sibling_facts)
+    sibling_route = _route_bypass(sibling_facts, sibling_descent)
     if sibling_route is None or len(sibling_route.points) < 6:
         return None
 
@@ -1418,7 +1411,7 @@ def _route_packed_cell_same_line_handoff(f: _InterFacts) -> RoutedPath | None:
 
 def _left_entry_over_top_geometry(
     f: _InterFacts,
-) -> _LeftEntryOverTopGeometry | None:
+) -> _EntryWrapGeometry | None:
     """Resolve a clear row-top corridor for a same-row packed-cell bypass."""
     assert f.tgt_row is not None
     graph, src, tgt, ctx = f.graph, f.src, f.tgt, f.ctx
@@ -1452,17 +1445,20 @@ def _left_entry_over_top_geometry(
         and section.bbox_x + section.bbox_w > span_lo
     ]
     channel_y = min([channel_y, *crossed_header_caps])
-    return _LeftEntryOverTopGeometry(
-        channel_y=channel_y,
+    return _entry_wrap_record(
+        ctx,
+        f.edge,
+        src,
         pos_n=pos_n,
         delta=delta,
         corner_x=corner_x,
+        channel_y=channel_y,
         descent_x=descent_x,
     )
 
 
 def _route_left_entry_over_top(
-    f: _InterFacts, geometry: _LeftEntryOverTopGeometry
+    f: _InterFacts, geometry: _EntryWrapGeometry
 ) -> RoutedPath:
     """Route a same-row packed-cell bypass through the row-top corridor."""
     src, tgt, ctx = f.src, f.tgt, f.ctx
@@ -1609,9 +1605,7 @@ def _right_entry_plough_needs_bypass(f: _InterFacts) -> bool:
 def _route_right_entry_plough_bypass(f: _InterFacts) -> RoutedPath | None:
     # Columns are guaranteed non-None by _right_entry_plough_needs_bypass.
     assert f.src_col is not None and f.tgt_col is not None
-    return _route_bypass(
-        f.edge, f.src, f.tgt, f.i, f.src_col, f.tgt_col, f.ctx, f.src_row
-    )
+    return _route_bypass(f, _bypass_geometry(f))
 
 
 @dataclass(frozen=True)
@@ -1968,10 +1962,7 @@ class _TbBottomExitGeometry:
     points: tuple[tuple[float, float], ...]
     lane_offset: float
     bundle_offsets: tuple[float, ...] | None
-    run_direction: Direction
-    turn_direction: Direction | None
-    launch_coordinate: float | None
-    axis_coordinate: float | None
+    seam: _SourceSeam
 
 
 def _tb_bottom_exit_geometry(
@@ -1998,10 +1989,7 @@ def _tb_bottom_exit_geometry(
             ((src.x, src.y), (src.x, channel_y), (land_x, channel_y), (land_x, tgt.y)),
             0.0,
             None,
-            run_direction,
-            turn_direction,
-            src.y,
-            channel_y,
+            _SourceSeam(run_direction, turn_direction, src.y, channel_y),
         )
 
     x_offset = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
@@ -2012,10 +2000,7 @@ def _tb_bottom_exit_geometry(
             ((source_x, src.y), (target_x, tgt.y)),
             0.0,
             None,
-            run_direction,
-            None,
-            None,
-            None,
+            _SourceSeam(run_direction, None, None, None),
         )
 
     channel_y = inter_row_channel_y(
@@ -2053,10 +2038,7 @@ def _tb_bottom_exit_geometry(
         ),
         own_offset,
         tuple(lane_offset(line_id) for line_id in line_ids),
-        run_direction,
-        turn_direction,
-        src.y,
-        axis_coordinate,
+        _SourceSeam(run_direction, turn_direction, src.y, axis_coordinate),
     )
 
 
@@ -2088,7 +2070,7 @@ def _route_tb_bottom_exit(
         bundle_offsets=list(geometry.bundle_offsets)
         if geometry.bundle_offsets is not None
         else None,
-        normalize_exempt=False if geometry.turn_direction is None else True,
+        normalize_exempt=False if geometry.seam.turn_direction is None else True,
     )
 
 
@@ -2154,10 +2136,7 @@ class _AroundStackGeometry:
     channel_x: float
     channel_y_lo: float
     channel_y_hi: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
     cross_lo: float
     cross_hi: float
 
@@ -2254,10 +2233,12 @@ def _around_stack_geometry(
         channel_x,
         min(channel_y_start, channel_y_end),
         max(channel_y_start, channel_y_end),
-        run_direction,
-        turn_direction,
-        sy,
-        cy_down + own_offset * turn_direction.sign,
+        _SourceSeam(
+            run_direction,
+            turn_direction,
+            sy,
+            cy_down + own_offset * turn_direction.sign,
+        ),
         min(sx - own_offset, channel_x),
         max(sx - own_offset, channel_x),
     )
@@ -2292,10 +2273,7 @@ class _BottomExitJunctionGeometry:
     vx: float
     hy: float
     lane_offset: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def _bottom_exit_junction_exit_port(
@@ -2335,10 +2313,9 @@ def _bottom_exit_junction_geometry(
         vx,
         hy,
         lane_offset,
-        run_direction,
-        turn_direction,
-        src.y,
-        hy + lane_offset * turn_direction.sign,
+        _SourceSeam(
+            run_direction, turn_direction, src.y, hy + lane_offset * turn_direction.sign
+        ),
     )
 
 
@@ -2707,14 +2684,7 @@ class _MergeTrunkShape(NamedTuple):
     around_below_channel_y: float | None
 
 
-def _merge_trunk_shape(
-    edge: Edge,
-    tgt: Station,
-    src_col: int,
-    tgt_col: int,
-    ctx: _RoutingCtx,
-    src_row: int | None = None,
-) -> _MergeTrunkShape:
+def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
     """The shape the trunk carrier draws from its source to the entry port.
 
     Both X and Y of the entry port override the target coordinates because the
@@ -2748,6 +2718,8 @@ def _merge_trunk_shape(
     target edge (towards the previous column) so the two bundles occupy
     distinct columns within the gap.
     """
+    edge, tgt, ctx = f.edge, f.tgt, f.ctx
+    assert f.src_col is not None and f.tgt_col is not None
     ep_id = ctx.merge.entry_port_for.get(edge.target)
     ep = ctx.graph.stations.get(ep_id) if ep_id else None
     ep_port = ctx.graph.ports.get(ep_id) if ep_id else None
@@ -2778,9 +2750,9 @@ def _merge_trunk_shape(
         effective_ty,
         merge_trunk_force_cross_row(
             ctx.graph,
-            src_col,
-            tgt_col,
-            src_row,
+            f.src_col,
+            f.tgt_col,
+            f.src_row,
             _resolve_section_row(ctx.graph, tgt),
         ),
         ep is not None and _has_around_section_sibling(edge, ep, ep_port, ctx),
@@ -2788,17 +2760,7 @@ def _merge_trunk_shape(
     )
 
 
-def _route_merge_trunk(
-    edge: Edge,
-    src: Station,
-    tgt: Station,
-    i: int,
-    n: int,
-    src_col: int,
-    tgt_col: int,
-    ctx: _RoutingCtx,
-    src_row: int | None = None,
-) -> RoutedPath:
+def _route_merge_trunk(f: _InterFacts) -> RoutedPath:
     """Full U-shape bypass for the trunk carrier, ending at the entry port.
 
     Delegates to :func:`_route_bypass` with the entry port as the effective
@@ -2807,35 +2769,22 @@ def _route_merge_trunk(
     its port's own side.  :func:`_merge_trunk_shape` picks between the two and
     supplies the U's inputs.
     """
-    shape = _merge_trunk_shape(edge, tgt, src_col, tgt_col, ctx, src_row)
+    shape = _merge_trunk_shape(f)
     if shape.around_below:
         assert shape.entry_port is not None
         around = _route_around_section_below(
-            edge,
-            src,
-            tgt,
+            f.edge,
+            f.src,
+            f.tgt,
             shape.entry_port,
-            i,
-            n,
-            ctx,
+            f.i,
+            f.n,
+            f.ctx,
             channel_y=shape.around_below_channel_y,
         )
         assert around is not None  # the trunk is always its own bundle member
         return around
-    return _route_bypass(
-        edge,
-        src,
-        tgt,
-        i,
-        src_col,
-        tgt_col,
-        ctx,
-        src_row,
-        effective_tx=shape.effective_tx,
-        effective_ty=shape.effective_ty,
-        force_cross_row=shape.force_cross_row,
-        trunk_v_up_pull_away=shape.trunk_v_up_pull_away,
-    )
+    return _route_bypass(f, _bypass_geometry(f, shape))
 
 
 def _bottom_row_climb_corridor_clear(
@@ -2876,44 +2825,35 @@ class _BypassGeometry:
     g1_n: int
     g2_j: int
     g2_n: int
-    run_direction: Direction | None
-    turn_direction: Direction | None
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def _bypass_geometry(
-    edge: Edge,
-    src: Station,
-    tgt: Station,
-    i: int,
-    src_col: int,
-    tgt_col: int,
-    ctx: _RoutingCtx,
-    src_row: int | None = None,
-    effective_tx: float | None = None,
-    effective_ty: float | None = None,
-    force_cross_row: bool = False,
-    trunk_v_up_pull_away: bool = False,
+    f: _InterFacts,
+    shape: _MergeTrunkShape | None = None,
 ) -> _BypassGeometry:
     """Resolve the U-shaped bypass centreline around intervening sections.
 
-    When *effective_tx* / *effective_ty* are provided, they override
-    the target coordinates for gap2 placement (used by merge trunks to
-    reach the entry port instead of the merge junction, which sits at a
-    different Y inside the section).  When *force_cross_row* is True,
-    ``bypass_bottom_y`` is asked to route below ALL sections in the
-    column range regardless of whether src and tgt share a row.
-
-    When *trunk_v_up_pull_away* is True, gap2_x is placed in the half
-    of the inter-column gap CLOSER to the previous column (i.e. AWAY
-    from the target's edge) so it doesn't overlap with a sibling
-    around-section route that hugs the target's edge.  Only honoured
-    when the displacement keeps gap2_x at least SECTION_ROUTE_CLEARANCE
-    from the neighbouring section; otherwise the standard placement is
-    used (the bundles will overlap, but the alternative is to put
-    gap2_x INSIDE the neighbouring section bbox, which is worse).
+    *shape* is the merge trunk's reading of the same U, which overrides the
+    target coordinates for gap2 placement (the merge junction is virtual and
+    sits at a different Y inside the section from the entry port the trunk
+    actually reaches), asks ``bypass_bottom_y`` to route below ALL sections in
+    the column range whatever rows the endpoints are in, and can pull gap2_x
+    into the half of the inter-column gap AWAY from the target's edge so it
+    does not overlap a sibling around-section route hugging that edge.  The
+    pull-away is only honoured while it keeps gap2_x at least
+    SECTION_ROUTE_CLEARANCE from the neighbouring section; otherwise the
+    standard placement is used (the bundles will overlap, but the alternative
+    is to put gap2_x INSIDE the neighbouring section bbox, which is worse).
     """
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    i, src_row = f.i, f.src_row
+    assert f.src_col is not None and f.tgt_col is not None
+    src_col, tgt_col = f.src_col, f.tgt_col
+    effective_tx = shape.effective_tx if shape is not None else None
+    effective_ty = shape.effective_ty if shape is not None else None
+    force_cross_row = shape is not None and shape.force_cross_row
+    trunk_v_up_pull_away = shape is not None and shape.trunk_v_up_pull_away
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
     if effective_tx is None:
@@ -3309,10 +3249,12 @@ def _bypass_geometry(
         g1_n,
         g2_j,
         g2_n,
-        segment_direction((sx, emitted_source_y), (gap1_x, emitted_source_y)),
-        segment_direction((gap1_x, emitted_source_y), (gap1_x, by)),
-        sx,
-        gap1_x,
+        _SourceSeam(
+            segment_direction((sx, emitted_source_y), (gap1_x, emitted_source_y)),
+            segment_direction((gap1_x, emitted_source_y), (gap1_x, by)),
+            sx,
+            gap1_x,
+        ),
     )
 
 
@@ -3321,7 +3263,61 @@ def _bypass_geometry(
 BYPASS_DESCENT_RANK = 1
 
 
+@dataclass
+class _DescentMemo:
+    """Resolved U-bypass readings, held for as long as they can be re-read.
+
+    One reading is a full classify-and-place of the member's own shape, and the
+    seating questions ask for every co-traveller's reading once per
+    co-traveller, from the planner and again from the emitter.  The reading
+    depends on context state that
+    :func:`~nf_metro.layout.routing.member_geometry._append_compatibility_context`
+    swaps around a system's emission, so the memo is dropped the moment any of
+    that state moves rather than being held for the context's lifetime.
+    """
+
+    ctx: _RoutingCtx
+    compatibility_edges: frozenset[EdgeKey]
+    exit_turns: object
+    convergences: object
+    built_route_count: int
+    by_edge: dict[EdgeKey, _BypassGeometry | None]
+
+    def is_current_for(self, ctx: _RoutingCtx) -> bool:
+        return (
+            self.ctx is ctx
+            and self.compatibility_edges == ctx.compatibility_edges
+            and self.exit_turns is ctx.exit_turns
+            and self.convergences is ctx.convergences
+            and self.built_route_count == len(ctx.built_routes)
+        )
+
+
+_DESCENT_MEMO: _DescentMemo | None = None
+
+
 def u_bypass_descent_geometry(edge: Edge, ctx: _RoutingCtx) -> _BypassGeometry | None:
+    """The U-shaped bypass *edge*'s own handler builds, when it draws one."""
+    global _DESCENT_MEMO
+    memo = _DESCENT_MEMO
+    if memo is None or not memo.is_current_for(ctx):
+        memo = _DESCENT_MEMO = _DescentMemo(
+            ctx,
+            ctx.compatibility_edges,
+            ctx.exit_turns,
+            ctx.convergences,
+            len(ctx.built_routes),
+            {},
+        )
+    key = (edge.source, edge.target, edge.line_id)
+    if key not in memo.by_edge:
+        memo.by_edge[key] = _resolve_u_bypass_descent_geometry(edge, ctx)
+    return memo.by_edge[key]
+
+
+def _resolve_u_bypass_descent_geometry(
+    edge: Edge, ctx: _RoutingCtx
+) -> _BypassGeometry | None:
     """The U-shaped bypass *edge*'s own handler builds, when it draws one.
 
     Two families open on that U: the bypass family, and a merge trunk drawing
@@ -3339,40 +3335,16 @@ def u_bypass_descent_geometry(edge: Edge, ctx: _RoutingCtx) -> _BypassGeometry |
         return None
     family = classify_inter_section_family(edge, src, tgt, ctx)
     if family is RouteFamilyId.MERGE_TRUNK:
-        shape = _merge_trunk_shape(
-            edge, tgt, facts.src_col, facts.tgt_col, ctx, facts.src_row
-        )
+        shape = _merge_trunk_shape(facts)
         if shape.around_below:
             return None
-        return _bypass_geometry(
-            edge,
-            src,
-            tgt,
-            facts.i,
-            facts.src_col,
-            facts.tgt_col,
-            ctx,
-            facts.src_row,
-            shape.effective_tx,
-            shape.effective_ty,
-            shape.force_cross_row,
-            shape.trunk_v_up_pull_away,
-        )
+        return _bypass_geometry(facts, shape)
     if (
         family is not RouteFamilyId.BYPASS_FAMILY
         or _bypass_route_kind(facts) is not _BypassRoute.U_BYPASS
     ):
         return None
-    return _bypass_geometry(
-        edge,
-        src,
-        tgt,
-        facts.i,
-        facts.src_col,
-        facts.tgt_col,
-        ctx,
-        facts.src_row,
-    )
+    return _bypass_geometry(facts)
 
 
 def _bypass_descent_lanes(
@@ -3390,8 +3362,8 @@ def _bypass_descent_lanes(
     bundle's own claims.
     """
     lanes: list[tuple[EdgeKey, float]] = []
-    for member in ctx.graph.edges:
-        if (member.source, member.target) != (edge.source, edge.target):
+    for member in ctx.graph.edges_from(edge.source):
+        if member.target != edge.target:
             continue
         descent = u_bypass_descent_geometry(member, ctx)
         if descent is None:
@@ -3441,7 +3413,8 @@ def seated_left_exit_under_target_descent(
     reserved band.  Reading the same arithmetic here is what lets the emitted
     turn and the plan that names it stand on one column.
     """
-    return geometry.axis_coordinate + seat_bundle_in_claimed_bands(
+    assert geometry.seam.axis_coordinate is not None
+    return geometry.seam.axis_coordinate + seat_bundle_in_claimed_bands(
         ctx.reserved_bands, list(geometry.lane_columns), rank=BYPASS_DESCENT_RANK
     )
 
@@ -3470,6 +3443,8 @@ def _seat_left_exit_under_target_descent(
     start, end = route.points[BYPASS_DESCENT_RANK : BYPASS_DESCENT_RANK + 2]
     if abs(start[0] - end[0]) > COORD_TOLERANCE:
         return
+    drawn_column = geometry.seam.axis_coordinate
+    assert drawn_column is not None  # the loop always turns onto its descent
     columns = sorted({column for _key, column in geometry.lane_columns})
     _restack_channel(
         _VChannel(
@@ -3481,7 +3456,7 @@ def _seat_left_exit_under_target_descent(
             end[1] > start[1],
         ),
         seated_left_exit_under_target_descent(geometry, ctx),
-        columns.index(geometry.axis_coordinate),
+        columns.index(drawn_column),
         len(columns),
         ctx.offset_step,
         ctx.curve_radius,
@@ -3557,35 +3532,9 @@ def _seat_bypass_descent(
     )
 
 
-def _route_bypass(
-    edge: Edge,
-    src: Station,
-    tgt: Station,
-    i: int,
-    src_col: int,
-    tgt_col: int,
-    ctx: _RoutingCtx,
-    src_row: int | None = None,
-    effective_tx: float | None = None,
-    effective_ty: float | None = None,
-    force_cross_row: bool = False,
-    trunk_v_up_pull_away: bool = False,
-) -> RoutedPath:
+def _route_bypass(f: _InterFacts, geometry: _BypassGeometry) -> RoutedPath:
     """Build the U-shaped bypass its resolved geometry describes."""
-    geometry = _bypass_geometry(
-        edge,
-        src,
-        tgt,
-        i,
-        src_col,
-        tgt_col,
-        ctx,
-        src_row,
-        effective_tx,
-        effective_ty,
-        force_cross_row,
-        trunk_v_up_pull_away,
-    )
+    edge, ctx = f.edge, f.ctx
     route = route_tapered_anchored(
         (edge, edge.line_id, geometry.sigma1, geometry.sigma2),
         list(geometry.centreline),
@@ -3955,10 +3904,7 @@ class _PerpExitGeometry:
     target_offsets: tuple[float, ...] | None
     transition_leg: int | None
     aligned_drop: bool
-    run_direction: Direction
-    turn_direction: Direction | None
-    launch_coordinate: float | None
-    axis_coordinate: float | None
+    seam: _SourceSeam
     cross_lo: float
     cross_hi: float
 
@@ -4004,12 +3950,14 @@ def _perp_exit_record(
         target_offsets,
         transition_leg,
         aligned_drop,
-        run_direction,
-        turn_direction,
-        None if aligned_drop else points[0][1],
-        None
-        if turn_direction is None
-        else points[1][1] + member_offset * turn_direction.sign,
+        _SourceSeam(
+            run_direction,
+            turn_direction,
+            None if aligned_drop else points[0][1],
+            None
+            if turn_direction is None
+            else points[1][1] + member_offset * turn_direction.sign,
+        ),
         cross_lo,
         cross_hi,
     )
@@ -4640,10 +4588,7 @@ class _PerpEntryLGeometry:
     members: tuple[tuple[Edge, str, float, float], ...]
     transition_leg: int
     fan_source_offsets: tuple[float, ...] | None
-    run_direction: Direction | None
-    turn_direction: Direction | None
-    launch_coordinate: float | None
-    axis_coordinate: float | None
+    seam: _SourceSeam
 
 
 def _leg_direction(start: tuple[float, float], end: tuple[float, float]) -> Direction:
@@ -4677,10 +4622,7 @@ def _perp_entry_l_record(
             members,
             transition_leg,
             fan_source_offsets,
-            _leg_direction(points[0], points[-1]),
-            None,
-            None,
-            None,
+            _SourceSeam(_leg_direction(points[0], points[-1]), None, None, None),
         )
     source_offset, target_offset = next(
         (source, target)
@@ -4694,10 +4636,12 @@ def _perp_entry_l_record(
         members,
         transition_leg,
         fan_source_offsets,
-        _leg_direction(points[0], points[1]),
-        turn_direction,
-        points[0][0],
-        points[1][0] + right_normal_axis_sign(turn_direction) * member_offset,
+        _SourceSeam(
+            _leg_direction(points[0], points[1]),
+            turn_direction,
+            points[0][0],
+            points[1][0] + right_normal_axis_sign(turn_direction) * member_offset,
+        ),
     )
 
 
@@ -4723,11 +4667,7 @@ def _perp_entry_seated_corridor(
     of it, which is the closing guard's to report rather than this to pick a
     side of.
     """
-    section_ids = tuple(
-        station.section_id
-        for station in (src, tgt)
-        if station.section_id in ctx.graph.sections
-    )
+    section_ids = section_ids_of_stations(ctx.graph, src, tgt)
     if not section_ids:
         return coordinate
     lower: float | None = None
@@ -5524,10 +5464,7 @@ class _EntryWrapGeometry:
     corner_x: float
     channel_y: float
     descent_x: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def _entry_wrap_record(
@@ -5559,10 +5496,12 @@ def _entry_wrap_record(
         corner_x,
         channel_y,
         descent_x,
-        _leg_direction((src.x, src.y), (corner_x, src.y)),
-        turn_direction,
-        src.x,
-        corner_x - delta * right_normal_axis_sign(turn_direction),
+        _SourceSeam(
+            _leg_direction((src.x, src.y), (corner_x, src.y)),
+            turn_direction,
+            src.x,
+            corner_x - delta * right_normal_axis_sign(turn_direction),
+        ),
     )
 
 
@@ -5721,9 +5660,8 @@ def _route_left_entry_wrap(
 class _PerpExitFarSideWrapLoop:
     """The loop a trailing perp exit draws to a far-side side entry.
 
-    ``run_direction``/``turn_direction``/``launch_coordinate``/
-    ``axis_coordinate`` are the source seam: the drop down the exit column and
-    the inter-row channel it turns onto.
+    ``seam`` is the drop down the exit column and the inter-row channel it
+    turns onto.
     """
 
     entry_side: PortSide
@@ -5732,10 +5670,7 @@ class _PerpExitFarSideWrapLoop:
     corner_x: float
     channel_y: float
     descent_x: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def perp_exit_farside_entry_wrap_geometry(f: _InterFacts) -> _PerpExitFarSideWrapLoop:
@@ -5781,10 +5716,12 @@ def perp_exit_farside_entry_wrap_geometry(f: _InterFacts) -> _PerpExitFarSideWra
         corner_x,
         hy,
         vx,
-        Direction.D if dy > 0 else Direction.U,
-        Direction.R if vx > corner_x else Direction.L,
-        sy,
-        hy,
+        _SourceSeam(
+            Direction.D if dy > 0 else Direction.U,
+            Direction.R if vx > corner_x else Direction.L,
+            sy,
+            hy,
+        ),
     )
 
 
@@ -6314,10 +6251,7 @@ class _OverTopGeometry:
     descent_x: float
     source_y: float
     entry_y: float
-    run_direction: Direction
-    turn_direction: Direction
-    launch_coordinate: float
-    axis_coordinate: float
+    seam: _SourceSeam
 
 
 def _right_entry_over_top_geometry(
@@ -6417,10 +6351,12 @@ def _right_entry_over_top_geometry(
         descent_x,
         mid_sy,
         ey + src_center,
-        _leg_direction((sx, mid_sy), (lead_x, mid_sy)),
-        turn_direction,
-        sx,
-        lead_x + offset * right_normal_axis_sign(turn_direction),
+        _SourceSeam(
+            _leg_direction((sx, mid_sy), (lead_x, mid_sy)),
+            turn_direction,
+            sx,
+            lead_x + offset * right_normal_axis_sign(turn_direction),
+        ),
     )
 
 
@@ -6522,10 +6458,10 @@ class _RightEntryWrapGeometry:
     column, which the wrap collapses to when that corridor is clear; the staged
     wrap through the inter-row channel is the general case.  Both open on the
     same lead-out and differ only in the Y their source-side descent runs to,
-    which is what ``seam`` carries.
+    which is what ``wrap`` carries.
     """
 
-    seam: _EntryWrapGeometry
+    wrap: _EntryWrapGeometry
     drop_in: bool
 
 
@@ -6646,7 +6582,7 @@ def _route_right_entry_wrap(f: _InterFacts) -> RoutedPath:
         return over_top
 
     geometry = _right_entry_wrap_geometry(f)
-    seam = geometry.seam
+    seam = geometry.wrap
     if geometry.drop_in:
         return _route_right_entry_drop_in(
             edge,
