@@ -1307,12 +1307,24 @@
   "note": "_line_rail_y is only ever called with a real station id (on_rail.id, edge.source/target, or a sibling edge endpoint), all of which exist in graph.stations - the route loop pre-filters None endpoints at the src/tgt guard. The None arm is a contract guard no render-path call reaches.",
   "status": "defensive"
  },
+ "reserved_bands.py::if allocation_range[1] - allocation_range[0] > COORD_TOLERANCE:::#1": {
+  "note": "Repeated observations of one route-segment claim project the same declared gap coordinate through the same member translation. A wider allocation range therefore requires a fabricated or inconsistent reservation ledger; the raise protects the published claim view from contradictory exact allocations.",
+  "status": "defensive"
+ },
+ "reserved_bands.py::if band is None:::#2": {
+  "note": "Every record for one edge and segment rank observes the same physical route segment. Disjoint clearance intervals for that key therefore require a fabricated or inconsistent reservation ledger; the raise protects the published claim view from contradictory corridor bounds.",
+  "status": "defensive"
+ },
  "reserved_bands.py::if boundary is None:::#1": {
   "note": "Optional-boundary convenience for callers carrying an unresolved grid index (_left_exit_wrap_over_top_y takes tgt_row: int | None). Such a caller returns before it needs a band -- with no target row there is no gap above it to measure, so the wrap is rejected first -- leaving this arm a type-level accommodation no topology reaches.",
   "status": "defensive"
  },
  "reserved_bands.py::if realised is None:::#1": {
   "note": "realise_reservation returns None only for a canvas-side corridor measured without canvas bounds; this loop has already narrowed to row-gap or column-gap claims, which always measure. The arm satisfies the optional return type rather than a reachable state.",
+  "status": "defensive"
+ },
+ "reserved_bands.py::if self.allocation is not None and not math.isfinite(self.allocation):::#1": {
+  "note": "Published allocations originate from finite observed route coordinates plus finite reservation translations. A non-finite value can only reach ReservedBand through malformed direct construction; the guard keeps invalid coordinates out of planner seating.",
   "status": "defensive"
  },
  "reserved_bands.py::if self.hi < self.lo - COORD_TOLERANCE:::#1": {
