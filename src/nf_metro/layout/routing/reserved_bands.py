@@ -541,22 +541,19 @@ def _claim_views(
     per_claim: dict[ClaimSegmentKey, ReservedBand] = {}
     for key, (lo, hi) in spans.items():
         band = resolved_band(lo, hi)
+        if band is None:
+            raise ValueError(f"route segment {key!r} has conflicting clearance bands")
         allocation_range = allocations.get(key)
         if allocation_range is not None:
             if allocation_range[1] - allocation_range[0] > COORD_TOLERANCE:
                 raise ValueError(
                     f"declared gap channel {key!r} has conflicting allocations"
                 )
-            if band is None:
-                raise ValueError(
-                    f"declared gap channel {key!r} has no realised clearance band"
-                )
-        if band is not None:
-            per_claim[key] = ReservedBand(
-                band.lo,
-                band.hi,
-                None if allocation_range is None else sum(allocation_range) / 2,
-            )
+        per_claim[key] = ReservedBand(
+            band.lo,
+            band.hi,
+            None if allocation_range is None else sum(allocation_range) / 2,
+        )
     row_bands = {
         edge_key: tuple(
             band
