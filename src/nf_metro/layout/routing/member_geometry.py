@@ -61,6 +61,7 @@ from nf_metro.layout.routing.normalize import (
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
+from nf_metro.layout.routing.orientation import lateral_order_sign
 from nf_metro.layout.routing.reserved_bands import ReservedBand, bundle_travel
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.parser.route_topology import (
@@ -232,7 +233,8 @@ def _settled_exit_turns(
             _SettledTurnCohort,
             Direction,
             Direction,
-            float,
+            int,
+            int,
             float,
             float,
             float,
@@ -240,7 +242,6 @@ def _settled_exit_turns(
             bool,
         ]
     ] = []
-    cohort_translations: dict[_SettledTurnCohort, list[float]] = defaultdict(list)
 
     for route in routes:
         membership = ctx.exit_turns.membership_for_edge(route.edge)
@@ -274,19 +275,6 @@ def _settled_exit_turns(
             if assignment.minimum_runway is not None
             else runway
         )
-        planned_axis_coordinate = (
-            membership.axis.coordinate
-            if membership.axis is not None
-            else axis_coordinate
-        )
-        cohort_translations[cohort].extend(
-            (
-                axis_coordinate - planned_axis_coordinate,
-                launch_coordinate
-                + run_direction.sign * required_runway
-                - planned_axis_coordinate,
-            )
-        )
         validate_corner_radii = EmissionRole.TERMINAL in assignment.roles
         candidates.append(
             (
@@ -294,17 +282,97 @@ def _settled_exit_turns(
                 cohort,
                 run_direction,
                 turn_direction,
+                rank,
+                assignment.source_lane_rank,
                 launch_coordinate,
                 required_runway,
                 axis_coordinate,
-                planned_axis_coordinate,
                 corner_offsets,
                 validate_corner_radii,
             )
         )
-    settled_translations = {
-        cohort: (max(values) if cohort[2].sign > 0 else min(values))
-        for cohort, values in cohort_translations.items()
+    cohort_ranks = {
+        cohort: tuple(
+            sorted({candidate[5] for candidate in candidates if candidate[1] == cohort})
+        )
+        for cohort in {candidate[1] for candidate in candidates}
+    }
+    cohort_origins: dict[_SettledTurnCohort, float] = {}
+    for cohort, ranks in cohort_ranks.items():
+        cohort_rank = {rank: index for index, rank in enumerate(ranks)}
+        cohort_candidates = tuple(
+            candidate for candidate in candidates if candidate[1] == cohort
+        )
+        actual_origins: list[float] = []
+        required_origins: list[float] = []
+        for candidate in cohort_candidates:
+            run_direction = candidate[2]
+            turn_direction = candidate[3]
+            source_lane_rank = candidate[5]
+            launch_coordinate = candidate[6]
+            required_runway = candidate[7]
+            axis_coordinate = candidate[8]
+            lane_offset = (
+                lateral_order_sign(turn_direction)
+                * cohort_rank[source_lane_rank]
+                * ctx.offset_step
+            )
+            actual_origins.append(axis_coordinate - lane_offset)
+            required_origins.append(
+                launch_coordinate + run_direction.sign * required_runway - lane_offset
+            )
+        origins_disagree = any(
+            abs(origin - actual_origins[0]) > COORD_TOLERANCE
+            for origin in actual_origins[1:]
+        )
+        if origins_disagree:
+            origins = (*actual_origins, *required_origins)
+            cohort_origins[cohort] = (
+                max(origins) if cohort[2].sign > 0 else min(origins)
+            )
+            continue
+        reference_axis = min(
+            (candidate[8] for candidate in cohort_candidates),
+            key=lambda coordinate: coordinate * cohort[2].sign,
+        )
+        radius_deficit = max(
+            (
+                concentric_corner_radius_at(
+                    candidate[0].points[candidate[4] - 1],
+                    candidate[0].points[candidate[4]],
+                    candidate[0].points[candidate[4] + 1],
+                    candidate[8] - reference_axis,
+                    ctx.curve_radius,
+                )
+                - (candidate[8] - candidate[6]) * candidate[2].sign
+                for candidate in cohort_candidates
+            ),
+            default=0.0,
+        )
+        cohort_origins[cohort] = actual_origins[0] + cohort[2].sign * max(
+            0.0, radius_deficit
+        )
+    translated_axes: dict[tuple[str, str, str], float] = {}
+    for candidate in candidates:
+        route = candidate[0]
+        cohort = candidate[1]
+        turn_direction = candidate[3]
+        source_lane_rank = candidate[5]
+        lane_cohort_rank = cohort_ranks[cohort].index(source_lane_rank)
+        translated_axes[(route.edge.source, route.edge.target, route.line_id)] = (
+            cohort_origins[cohort]
+            + lateral_order_sign(turn_direction) * lane_cohort_rank * ctx.offset_step
+        )
+    reference_axes = {
+        cohort: min(
+            (
+                translated_axes[(route.edge.source, route.edge.target, route.line_id)]
+                for route, candidate_cohort, *_rest in candidates
+                if candidate_cohort == cohort
+            ),
+            key=lambda coordinate: coordinate * cohort[2].sign,
+        )
+        for cohort in cohort_ranks
     }
     settled: dict[tuple[str, str, str], SettledExitTurn] = {}
     for (
@@ -312,23 +380,49 @@ def _settled_exit_turns(
         cohort,
         run_direction,
         turn_direction,
+        rank,
+        source_lane_rank,
         launch_coordinate,
         required_runway,
         axis_coordinate,
-        planned_axis_coordinate,
         corner_offsets,
         validate_corner_radii,
     ) in candidates:
-        del axis_coordinate
-        translated_axis = planned_axis_coordinate + settled_translations[cohort]
+        del axis_coordinate, source_lane_rank
+        edge_key = (route.edge.source, route.edge.target, route.line_id)
+        translated_axis = translated_axes[edge_key]
+        translated_runway = abs(translated_axis - launch_coordinate)
+        existing_bases = route.concentric_corner_bases_by_segment.get(
+            rank, (None, None)
+        )
+        offset_out = corner_offsets[1] if corner_offsets[1] is not None else 0.0
+        base_radius_out = (
+            existing_bases[1]
+            if existing_bases[1] is not None
+            else (
+                route.curve_radii[rank]
+                if route.curve_radii is not None and rank < len(route.curve_radii)
+                else ctx.curve_radius
+            )
+        )
+        _reseat_concentric_flanking(
+            route,
+            rank,
+            translated_axis,
+            axis=0 if run_direction in {Direction.R, Direction.L} else 1,
+            offset_in=translated_axis - reference_axes[cohort],
+            offset_out=offset_out,
+            base_radius=ctx.curve_radius,
+            base_radius_out=base_radius_out,
+        )
         settled[(route.edge.source, route.edge.target, route.line_id)] = (
             SettledExitTurn(
                 run_direction,
                 turn_direction,
                 launch_coordinate,
-                required_runway,
+                translated_runway,
                 translated_axis,
-                corner_offsets,
+                route.concentric_corner_offsets_by_segment.get(rank, corner_offsets),
                 validate_corner_radii,
             )
         )
