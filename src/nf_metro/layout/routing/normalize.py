@@ -1766,7 +1766,11 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
         widest = widest_coincident_radius(desired)
         for route, i in members:
             assert route.curve_radii is not None
-            route.curve_radii[i] = widest
+            previous, corner, following = route.points[i : i + 3]
+            route.curve_radii[i] = concentric_corner_radius_at(
+                previous, corner, following, 0.0, widest
+            )
+            route.record_concentric_corner(i, 0.0, widest)
 
     # Lower only the members that resolve wider than the bucket's limiting leg.
     # A radius on an adjacent corner shares segment budget, so repeat until a
@@ -1802,7 +1806,11 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
                         low = candidate
                     else:
                         high = candidate
-                radii[i] = high
+                previous, corner, following = route.points[i : i + 3]
+                radii[i] = concentric_corner_radius_at(
+                    previous, corner, following, 0.0, high
+                )
+                route.record_concentric_corner(i, 0.0, high)
                 resolved_by_route.pop(id(route), None)
                 changed = True
         if not changed:

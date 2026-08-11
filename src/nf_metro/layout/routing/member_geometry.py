@@ -63,7 +63,12 @@ from nf_metro.layout.routing.normalize import (
 )
 from nf_metro.layout.routing.reserved_bands import ReservedBand, bundle_travel
 from nf_metro.parser.model import Edge, MetroGraph
-from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge, semantic_route_id
+from nf_metro.parser.route_topology import (
+    ConnectorId,
+    EndpointGroupId,
+    ResolvedEdge,
+    semantic_route_id,
+)
 
 
 class MemberGeometryDeclinedError(RuntimeError):
@@ -73,6 +78,13 @@ class MemberGeometryDeclinedError(RuntimeError):
 _IdT = TypeVar("_IdT")
 _IndexedItem = TypeVar("_IndexedItem")
 _SystemGapKey = tuple[RouteSystemId, tuple[int, int | None]]
+_SettledTurnCohort = tuple[
+    ExitTurnPlanId,
+    str,
+    Direction,
+    Direction,
+    EndpointGroupId | None,
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +226,21 @@ def _settled_exit_turns(
     """Read deferred source turns from the jointly seated route population."""
     if ctx.exit_turns is None or not pending_plan_ids:
         return MappingProxyType({})
-    settled: dict[tuple[str, str, str], SettledExitTurn] = {}
+    candidates: list[
+        tuple[
+            RoutedPath,
+            _SettledTurnCohort,
+            Direction,
+            Direction,
+            float,
+            float,
+            float,
+            float,
+            tuple[float | None, float | None],
+            bool,
+        ]
+    ] = []
+    cohort_translations: dict[_SettledTurnCohort, list[float]] = defaultdict(list)
 
     for route in routes:
         membership = ctx.exit_turns.membership_for_edge(route.edge)
@@ -236,14 +262,72 @@ def _settled_exit_turns(
         corner_offsets = route.concentric_corner_offsets_by_segment.get(
             rank, (None, None)
         )
+        cohort = (
+            membership.plan.id,
+            route.edge.source,
+            run_direction,
+            turn_direction,
+            membership.axis.pinning_group_id if membership.axis is not None else None,
+        )
+        required_runway = (
+            assignment.minimum_runway
+            if assignment.minimum_runway is not None
+            else runway
+        )
+        planned_axis_coordinate = (
+            membership.axis.coordinate
+            if membership.axis is not None
+            else axis_coordinate
+        )
+        cohort_translations[cohort].extend(
+            (
+                axis_coordinate - planned_axis_coordinate,
+                launch_coordinate
+                + run_direction.sign * required_runway
+                - planned_axis_coordinate,
+            )
+        )
         validate_corner_radii = EmissionRole.TERMINAL in assignment.roles
+        candidates.append(
+            (
+                route,
+                cohort,
+                run_direction,
+                turn_direction,
+                launch_coordinate,
+                required_runway,
+                axis_coordinate,
+                planned_axis_coordinate,
+                corner_offsets,
+                validate_corner_radii,
+            )
+        )
+    settled_translations = {
+        cohort: (max(values) if cohort[2].sign > 0 else min(values))
+        for cohort, values in cohort_translations.items()
+    }
+    settled: dict[tuple[str, str, str], SettledExitTurn] = {}
+    for (
+        route,
+        cohort,
+        run_direction,
+        turn_direction,
+        launch_coordinate,
+        required_runway,
+        axis_coordinate,
+        planned_axis_coordinate,
+        corner_offsets,
+        validate_corner_radii,
+    ) in candidates:
+        del axis_coordinate
+        translated_axis = planned_axis_coordinate + settled_translations[cohort]
         settled[(route.edge.source, route.edge.target, route.line_id)] = (
             SettledExitTurn(
                 run_direction,
                 turn_direction,
                 launch_coordinate,
-                min(assignment.minimum_runway or runway, runway),
-                axis_coordinate,
+                required_runway,
+                translated_axis,
                 corner_offsets,
                 validate_corner_radii,
             )

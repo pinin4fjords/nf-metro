@@ -67,6 +67,11 @@ def test_no_non_concentric_bundle_corners_in_gallery(path: Path) -> None:
         f"{path.name}: {len(violations)} non-concentric corner(s); "
         f"first: {violations[0].message() if violations else ''}"
     )
+    standard_violations = check_standard_source_bundle_corner_inputs(routes, offsets)
+    assert standard_violations == [], (
+        f"{path.name}: {len(standard_violations)} non-standard source corner(s); "
+        f"first: {standard_violations[0].message() if standard_violations else ''}"
+    )
 
 
 def test_source_seam_turns_are_concentric_across_destinations() -> None:

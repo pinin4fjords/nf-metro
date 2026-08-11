@@ -152,10 +152,21 @@ def _touched_corner_mismatches(
         new_y: float,
         offset_in: float = 0.0,
         offset_out: float = 0.0,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
-        _PROD_SET_HTRUNK_Y(rp, k, new_y, offset_in, offset_out)
-        touched[(id(rp), k - 1)] = (rp, offset_in, CURVE_RADIUS)
-        touched[(id(rp), k)] = (rp, offset_out, CURVE_RADIUS)
+        _PROD_SET_HTRUNK_Y(
+            rp,
+            k,
+            new_y,
+            offset_in,
+            offset_out,
+            base_radius,
+            base_radius_out,
+        )
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(rp), k - 1)] = (rp, offset_in, base_radius)
+        touched[(id(rp), k)] = (rp, offset_out, radius_out)
 
     def reseat_spy(
         rp: RoutedPath,

@@ -1808,16 +1808,10 @@ def _classify_assignment_seeds(
                 and requirement.launch_coordinate is not None
                 and requirement.minimum_runway is not None
             ):
-                available_runway = (
-                    settled.axis_coordinate - settled.launch_coordinate
-                ) * requirement.run_direction.sign
                 requirement = replace(
                     requirement,
                     launch_coordinate=settled.launch_coordinate,
-                    minimum_runway=min(
-                        settled.minimum_runway,
-                        max(0.0, available_runway),
-                    ),
+                    minimum_runway=settled.minimum_runway,
                     fixed_axis=settled.axis_coordinate,
                     legacy_reason=None,
                 )
@@ -2042,13 +2036,17 @@ def _plan_turn_axes(
     cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
     for seed in turning_seeds:
         key = cohort_key[seed.member_id]
-        if _edge_key(seed.edge) in ctx.settled_exit_turns:
+        membership = (
+            ctx.exit_turns.membership_for_edge(seed.edge)
+            if ctx.exit_turns is not None
+            and _edge_key(seed.edge) in ctx.settled_exit_turns
+            else None
+        )
+        if membership is not None and membership.axis is not None:
             key = (
                 key[0],
                 key[1],
-                EndpointGroupId(
-                    semantic_route_id("gap-allocated-turn", seed.edge.line_id)
-                ),
+                membership.axis.pinning_group_id,
             )
         cohorts[key].append(seed)
 
@@ -3581,19 +3579,63 @@ def consume_exit_turn_route(
         )
         > COORD_TOLERANCE
     )
-    if settled is not None or axis_changed:
-        planned_corner_offsets = planned_exit_turn_corner_offsets(
-            membership, ctx.offset_step
+    planned_corner_offsets = planned_exit_turn_corner_offsets(
+        membership, ctx.offset_step
+    )
+    if planned_corner_offsets is None:
+        raise ExitTurnInvariantError(
+            _failure(membership.plan, "planned turn has no standard corner offsets")
         )
-        assert planned_corner_offsets is not None
-        _reseat_concentric_flanking(
-            route,
-            segment_rank,
-            membership.axis.coordinate,
-            axis=0 if source_axis is DemandAxis.X else 1,
-            offset_in=planned_corner_offsets[0],
-            offset_out=planned_corner_offsets[1],
+    if route.curve_radii is None:
+        from nf_metro.layout.routing.corners import concentric_corner_radius_at
+
+        route.curve_radii = [
+            concentric_corner_radius_at(
+                route.points[index],
+                route.points[index + 1],
+                route.points[index + 2],
+                0.0,
+                ctx.curve_radius,
+            )
+            for index in range(len(route.points) - 2)
+        ]
+    existing_offsets = route.concentric_corner_offsets_by_segment.get(segment_rank)
+    existing_bases = route.concentric_corner_bases_by_segment.get(segment_rank)
+    offset_out = (
+        existing_offsets[1]
+        if existing_offsets is not None and existing_offsets[1] is not None
+        else 0.0
+    )
+    base_radius_out = (
+        existing_bases[1]
+        if existing_bases is not None and existing_bases[1] is not None
+        else (
+            route.curve_radii[segment_rank]
+            if route.curve_radii is not None and segment_rank < len(route.curve_radii)
+            else ctx.curve_radius
         )
+    )
+    radius_in = (
+        route.curve_radii[segment_rank - 1]
+        if route.curve_radii is not None and segment_rank - 1 < len(route.curve_radii)
+        else ctx.curve_radius
+    )
+    offset_in = (
+        planned_corner_offsets[0] if settled is not None or axis_changed else 0.0
+    )
+    base_radius_in = (
+        ctx.curve_radius if settled is not None or axis_changed else radius_in
+    )
+    _reseat_concentric_flanking(
+        route,
+        segment_rank,
+        membership.axis.coordinate,
+        axis=0 if source_axis is DemandAxis.X else 1,
+        offset_in=offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius_in,
+        base_radius_out=base_radius_out,
+    )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
     source_turn_changed = (
         abs(get_point_coordinate(lead, source_axis) - assignment.launch_coordinate)
