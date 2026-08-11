@@ -62,18 +62,21 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import (
+    BYPASS_ROUTE_FAMILY_VALUES,
+    RouteFamilyId,
+)
 from nf_metro.layout.routing.inter_section_handlers import (
     _around_section_below_geometry,
     _around_stack_geometry,
     _bottom_exit_junction_exit_port,
     _bottom_exit_junction_geometry,
-    _bottom_exit_junction_is_right_landings,
     _build_inter_facts,
     _bypass_geometry,
     _bypass_route_kind,
     _BypassGeometry,
     _BypassRoute,
+    _inter_section_rule_for_family,
     _InterFacts,
     _l_shape_fan_source_turn,
     _l_shape_mid_x,
@@ -105,10 +108,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     seated_left_exit_under_target_descent,
     u_bypass_descent_geometry,
 )
-from nf_metro.layout.routing.normalize import (
-    _h_segment_crosses_other_section,
-    _reseat_concentric_flanking,
-)
+from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 from nf_metro.layout.routing.offsets import (
     LinearEntryFrameOwnership,
     capture_linear_entry_frame_ownership,
@@ -146,13 +146,27 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TB_PERP_EXIT_OVER,
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         RouteFamilyId.BYPASS_FAMILY,
+        RouteFamilyId.BYPASS_L_SHAPE,
+        RouteFamilyId.BYPASS_LEFT_ENTRY,
+        RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
         RouteFamilyId.RIGHT_ENTRY_WRAP,
         RouteFamilyId.MERGE_TRUNK,
+        RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
         RouteFamilyId.RIGHT_ENTRY_PLOUGH_BYPASS,
         RouteFamilyId.SAME_X_VERTICAL_DROP,
         RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP,
         RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP,
+        RouteFamilyId.LEFT_ENTRY_CORRIDOR,
+        RouteFamilyId.MERGE_ENTRY_STRAIGHT,
+        RouteFamilyId.MERGE_ENTRY_CORRIDOR,
+        RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
+        RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
+        RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
+        RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
     }
 )
 
@@ -641,18 +655,7 @@ def _bottom_exit_junction_turn_requirement(
     src: Station,
     tgt: Station,
 ) -> _SourceTurnRequirement:
-    """The turn a bottom-exit-junction group opens with, by the leaf that draws it.
-
-    The junction's emitter draws one of three shapes for a given member: a fan
-    plan's own right-landings route, an inter-section-crossing detour through
-    the header gap, or the plain vertical-drop-then-turn L. Only the plain
-    shape has a stated turn sequence; the other two decline so the
-    established first-match dispatcher draws them.
-    """
-    if _bottom_exit_junction_is_right_landings(edge, ctx):
-        return _SourceTurnRequirement.declined(
-            "unsupported-subshape:bottom-exit-junction-right-landings"
-        )
+    """The source seam emitted by the plain bottom-exit-junction leaf."""
     exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
 
     def exit_x_offset(line_id: str) -> float:
@@ -662,13 +665,6 @@ def _bottom_exit_junction_turn_requirement(
     geometry = _bottom_exit_junction_geometry(
         edge, src, tgt, ctx, exit_x_offset, members, tgt_center
     )
-    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
-    if _h_segment_crosses_other_section(
-        ctx.graph, geometry.vx, tgt.x, geometry.hy, exclude
-    ):
-        return _SourceTurnRequirement.declined(
-            "unsupported-subshape:bottom-exit-junction-via-gap"
-        )
     return _SourceTurnRequirement.from_seam(geometry.seam)
 
 
@@ -788,6 +784,55 @@ def _straight_connector_turn_requirement(
     return _SourceTurnRequirement(actual_run, None, None, None, None)
 
 
+_ROUTE_DERIVED_LEAF_FAMILIES = frozenset(
+    {
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
+        RouteFamilyId.LEFT_ENTRY_CORRIDOR,
+        RouteFamilyId.MERGE_ENTRY_CORRIDOR,
+        RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
+        RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
+    }
+)
+
+
+def _route_derived_turn_requirement(
+    edge: Edge,
+    family_id: RouteFamilyId,
+    ctx: _RoutingCtx,
+) -> _SourceTurnRequirement:
+    """Read the opening turn from the exact named leaf production builds."""
+    src, tgt = ctx.graph.edge_endpoints(edge)
+    facts = _build_inter_facts(edge, src, tgt, ctx)
+    rule = _inter_section_rule_for_family(family_id)
+    assert rule is not None
+    route = rule.route(facts)
+    if route is None:
+        return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
+    points = apply_route_offsets(route, ctx.station_offsets or {})
+    if len(points) < 3:
+        return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
+    launch, corner, after = points[:3]
+    run_direction = segment_direction(launch, corner)
+    turn_direction = segment_direction(corner, after)
+    if run_direction is None or turn_direction is None:
+        return _SourceTurnRequirement.declined("invalid-source-turn-requirement")
+    launch_coordinate = (
+        launch[0] if run_direction in {Direction.R, Direction.L} else launch[1]
+    )
+    axis_coordinate = (
+        corner[0] if run_direction in {Direction.R, Direction.L} else corner[1]
+    )
+    return _SourceTurnRequirement(
+        run_direction,
+        turn_direction,
+        launch_coordinate,
+        abs(axis_coordinate - launch_coordinate),
+        axis_coordinate,
+    )
+
+
 def _source_turn_requirement(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -803,6 +848,25 @@ def _source_turn_requirement(
         Direction.D,
     }:
         return _SourceTurnRequirement.declined(off_column_decline)
+    if family_id is RouteFamilyId.MERGE_ENTRY_STRAIGHT:
+        return _SourceTurnRequirement.declined(
+            "unsupported-subshape:merge-entry-straight"
+        )
+    if family_id in _ROUTE_DERIVED_LEAF_FAMILIES:
+        return _route_derived_turn_requirement(edge, family_id, ctx)
+    if family_id in {
+        RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
+        RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
+    }:
+        return _bypass_turn_requirement(edge, source_run_direction, ctx, src, tgt)
+    if family_id is RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW:
+        return _right_entry_cross_row_turn_requirement(edge, ctx, src, tgt)
+    if family_id is RouteFamilyId.BYPASS_LEFT_ENTRY:
+        return _left_entry_wrap_turn_requirement(
+            edge, source_run_direction, ctx, src, tgt
+        )
+    if family_id is RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW:
+        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
     if family_id is RouteFamilyId.TB_BOTTOM_EXIT:
         geometry = _tb_bottom_exit_geometry(edge, src, tgt, ctx)
         if geometry.seam.turn_direction is None:
@@ -904,15 +968,7 @@ def _source_turn_requirement(
         facts = _build_inter_facts(edge, src, tgt, ctx)
         entry_port = facts.merge_ep
         assert entry_port is not None
-        kind = _merge_entry_route_kind(facts)
-        if kind is _MergeEntryRoute.STRAIGHT:
-            return _SourceTurnRequirement.declined(
-                "unsupported-subshape:merge-entry-straight"
-            )
-        if kind is not _MergeEntryRoute.L_SHAPE:
-            return _SourceTurnRequirement.declined(
-                f"unsupported-subshape:merge-entry-{kind.value}"
-            )
+        assert _merge_entry_route_kind(facts) is _MergeEntryRoute.L_SHAPE
         fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
         if fan is not None:
             fan_geometry = _l_shape_fan_source_turn(edge, src, entry_port, fan, ctx)
@@ -1107,10 +1163,7 @@ def _merge_trunk_turn_requirement(
             "entry-bundle-owns-the-shared-seam-lanes"
         )
     geometry = u_bypass_descent_geometry(edge, ctx)
-    if geometry is None:
-        return _SourceTurnRequirement.declined(
-            "unsupported-subshape:merge-trunk-around-below"
-        )
+    assert geometry is not None
     return _u_bypass_source_turn(edge, geometry, ctx)
 
 
@@ -1919,6 +1972,8 @@ def _plan_turn_axes(
                     RouteFamilyId.TOP_ENTRY_L_SHAPE,
                     RouteFamilyId.BOTTOM_ENTRY_L_SHAPE,
                     RouteFamilyId.BOTTOM_EXIT_JUNCTION,
+                    RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+                    RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
                 }
                 fixed_anchor_id = (
                     fixed_seed.edge.target
@@ -2858,6 +2913,22 @@ def _planned_axis_cross_range(
                 vertical_leg_x = bej_geometry.vx - bej_geometry.lane_offset
                 values.extend((vertical_leg_x, target.x))
                 continue
+            if assignment.planned_family_id in {
+                RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+                RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
+            }:
+                graph_edge = _graph_edge(ctx.edge_by_key, edge)
+                rule = _inter_section_rule_for_family(assignment.planned_family_id)
+                assert rule is not None
+                route = rule.route(
+                    _build_inter_facts(graph_edge, source, target, tentative_ctx)
+                )
+                if route is None:
+                    raise ExitTurnInvariantError(
+                        _failure(plan, "bottom-exit leaf has no production geometry")
+                    )
+                values.extend(point[0] for point in route.points)
+                continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
                 raise ExitTurnInvariantError(
                     _failure(plan, "vertical turn axis has no production geometry")
@@ -3297,7 +3368,7 @@ def snapshot_exit_turn_segments(
                 RouteFamilyId.RIGHT_ENTRY_WRAP.value,
                 RouteFamilyId.TOP_ENTRY_L_SHAPE.value,
                 RouteFamilyId.BOTTOM_ENTRY_L_SHAPE.value,
-                RouteFamilyId.BYPASS_FAMILY.value,
+                *BYPASS_ROUTE_FAMILY_VALUES,
             }
             values[
                 (
@@ -3596,6 +3667,9 @@ def validate_exit_turn_plans(
                 raise ExitTurnInvariantError(
                     _failure(
                         exit_turn_plan,
-                        "emitted turn differs from its planned axis or direction",
+                        "emitted turn differs from its planned axis or direction "
+                        f"(axis {actual:g}, expected {expected_axis:g}; "
+                        f"launch {lead_in!r}, expected "
+                        f"{assignment.launch_coordinate!r})",
                     )
                 )

@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from math import inf
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
@@ -34,7 +35,7 @@ from nf_metro.layout.constants import (
     NEXT_ROW_HEADER_BADGE_CLEARANCE,
     SECTION_ROUTE_CLEARANCE,
 )
-from nf_metro.layout.geometry import lanes_run_along_x
+from nf_metro.layout.geometry import cotravelling_lane_clearance, lanes_run_along_x
 from nf_metro.layout.pass_metrics import canvas_edge_clearance
 from nf_metro.layout.routing.bundle import build_tapered_bundle
 from nf_metro.layout.routing.centrelines import (
@@ -174,6 +175,22 @@ class _InterFacts:
     @property
     def graph(self) -> MetroGraph:
         return self.ctx.graph
+
+    @cached_property
+    def bypass_route(self) -> _BypassRoute:
+        return _bypass_route_kind(self)
+
+    @cached_property
+    def bottom_exit_junction_route(self) -> _BottomExitJunctionRoute:
+        return _bottom_exit_junction_route_kind(self)
+
+    @cached_property
+    def merge_entry_route(self) -> _MergeEntryRoute:
+        return _merge_entry_route_kind(self)
+
+    @cached_property
+    def merge_trunk_shape(self) -> _MergeTrunkShape:
+        return _merge_trunk_shape(self)
 
     @property
     def dx(self) -> float:
@@ -535,7 +552,9 @@ def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
 
 def _route_merge_trunk_feeder(f: _InterFacts) -> RoutedPath | None:
     """Dispatch wrapper: the trunk feeder's full bypass to the entry port."""
-    return _route_merge_trunk(f)
+    if f.merge_trunk_shape.around_below:
+        return _route_merge_trunk_around_below(f)
+    return _route_merge_trunk(f, f.merge_trunk_shape)
 
 
 def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
@@ -545,7 +564,7 @@ def _route_merge_branch_feeder(f: _InterFacts) -> RoutedPath | None:
 
 
 class _BypassRoute(Enum):
-    """Which shape :func:`_route_bypass_family` builds for a multi-column hop."""
+    """Leaf selected for a multi-column bypass hop."""
 
     L_SHAPE = "l_shape"
     CELLMATE_GAP_DROP = "cellmate_gap_drop"
@@ -554,6 +573,14 @@ class _BypassRoute(Enum):
     LEFT_EXIT_AROUND_BELOW = "left_exit_around_below"
     PACKED_CELL_SAME_ROW = "packed_cell_same_row"
     U_BYPASS = "u_bypass"
+
+
+class _BottomExitJunctionRoute(Enum):
+    """The named shape emitted from a bottom-exit junction."""
+
+    FAN_LANDINGS = "fan_landings"
+    VIA_GAP = "via_gap"
+    PLAIN = "plain"
 
 
 def _bypass_section_exclusions(f: _InterFacts) -> set[str]:
@@ -622,31 +649,24 @@ def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
     return _BypassRoute.U_BYPASS
 
 
-def _route_bypass_family(f: _InterFacts) -> RoutedPath | None:
-    """Build the shape :func:`_bypass_route_kind` selects for this hop."""
-    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
-    assert f.src_col is not None and f.tgt_col is not None
-    kind = _bypass_route_kind(f)
-    if kind is _BypassRoute.L_SHAPE:
-        return _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
-    if kind is _BypassRoute.CELLMATE_GAP_DROP:
-        clean = _route_cellmate_gap_drop(f)
-        if clean is not None:
-            return clean
-    elif kind is _BypassRoute.LEFT_ENTRY_FAMILY:
-        return _route_left_entry_family(f)
-    elif kind is _BypassRoute.RIGHT_ENTRY_CROSS_ROW:
-        return _route_right_entry_cross_row(f)
-    elif kind is _BypassRoute.LEFT_EXIT_AROUND_BELOW:
-        return _route_left_exit_around_below_left_entry(edge, src, tgt, ctx)
-    elif kind is _BypassRoute.PACKED_CELL_SAME_ROW:
-        shared_handoff = _route_packed_cell_same_line_handoff(f)
-        if shared_handoff is not None:
-            return shared_handoff
-        geometry = _left_entry_over_top_geometry(f)
-        if geometry is not None:
-            return _route_left_entry_over_top(f, geometry)
-        return _route_left_entry_family(f)
+def _route_bypass_cellmate_gap_drop(f: _InterFacts) -> RoutedPath | None:
+    """Use the clear cell-mate channel, or the U-bypass when it disappears."""
+    return _route_cellmate_gap_drop(f) or _route_bypass(f, _bypass_geometry(f))
+
+
+def _route_bypass_packed_cell_same_row(f: _InterFacts) -> RoutedPath | None:
+    """Reach a packed same-row LEFT entry through its first viable corridor."""
+    shared_handoff = _route_packed_cell_same_line_handoff(f)
+    if shared_handoff is not None:
+        return shared_handoff
+    geometry = _left_entry_over_top_geometry(f)
+    if geometry is not None:
+        return _route_left_entry_over_top(f, geometry)
+    return _route_left_entry_family(f)
+
+
+def _route_u_bypass_family(f: _InterFacts) -> RoutedPath:
+    """Build the U-shaped remainder of the bypass family."""
     return _route_bypass(f, _bypass_geometry(f))
 
 
@@ -1264,6 +1284,18 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
     return _route_left_entry_wrap(edge, src, tgt, f.i, f.n, ctx)
 
 
+def _route_left_entry_corridor(f: _InterFacts) -> RoutedPath | None:
+    """Build the corridor leaf selected for a cross-row LEFT entry."""
+    return _route_inter_row_gap_corridor(f.edge, f.src, f.tgt, f.tgt, f.i, f.n, f.ctx)
+
+
+def _takes_left_entry_corridor(f: _InterFacts) -> bool:
+    """Whether the route reaches the corridor leaf of the LEFT-entry family."""
+    direct = f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row
+    bypass = f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_ENTRY_FAMILY
+    return (direct or bypass) and _left_entry_route_kind(f) is _LeftEntryRoute.CORRIDOR
+
+
 def _packed_cell_target_sibling(f: _InterFacts) -> tuple[Edge, Station, Section] | None:
     """A nearer same-line target packed immediately before this target."""
     target_port = f.graph.ports.get(f.edge.target)
@@ -1491,7 +1523,7 @@ def _route_left_entry_over_top(
 
 
 class _MergeEntryRoute(Enum):
-    """Which shape :func:`_route_merge_entry_family` builds for a merge feeder."""
+    """Leaf selected for a merge feeder by the dispatch table."""
 
     STRAIGHT = "straight"
     CORRIDOR = "corridor"
@@ -1561,8 +1593,10 @@ def _route_perpendicular_entry_stair(
     return _route_bottom_entry_l_shape(edge, src, entry_port, n, ctx, channel_y)
 
 
-def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
-    """Non-bypass feed into a merge junction, routed to its entry port."""
+def _route_merge_entry_kind(
+    f: _InterFacts, kind: _MergeEntryRoute
+) -> RoutedPath | None:
+    """Build one already-classified merge-entry leaf."""
     edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
     ep = f.merge_ep
     assert ep is not None
@@ -1584,7 +1618,32 @@ def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
         ),
         _MergeEntryRoute.L_SHAPE: lambda: _route_l_shape(edge, src, ep, f.i, f.n, ctx),
     }
-    return builders[_merge_entry_route_kind(f)]()
+    return builders[kind]()
+
+
+def _route_merge_entry_family(f: _InterFacts) -> RoutedPath | None:
+    """Build the ordinary L-shape merge-entry remainder."""
+    return _route_merge_entry_kind(f, _MergeEntryRoute.L_SHAPE)
+
+
+def _route_merge_entry_straight(f: _InterFacts) -> RoutedPath | None:
+    return _route_merge_entry_kind(f, _MergeEntryRoute.STRAIGHT)
+
+
+def _route_merge_entry_corridor(f: _InterFacts) -> RoutedPath | None:
+    return _route_merge_entry_kind(f, _MergeEntryRoute.CORRIDOR)
+
+
+def _route_merge_entry_around_below(f: _InterFacts) -> RoutedPath | None:
+    return _route_merge_entry_kind(f, _MergeEntryRoute.AROUND_BELOW)
+
+
+def _route_merge_entry_perpendicular(f: _InterFacts) -> RoutedPath | None:
+    return _route_merge_entry_kind(f, _MergeEntryRoute.PERPENDICULAR_ENTRY)
+
+
+def _takes_merge_entry_kind(f: _InterFacts, kind: _MergeEntryRoute) -> bool:
+    return f.merge_ep is not None and f.merge_entry_route is kind
 
 
 def _right_entry_plough_needs_bypass(f: _InterFacts) -> bool:
@@ -1719,10 +1778,31 @@ _INTER_SECTION_RULES: list[_Rule] = [
         _route_straight_connector,
     ),
     _Rule(
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+        "bottom-exit junction right landings",
+        lambda f: (
+            f.edge.source in f.ctx.bottom_exit_junctions
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.FAN_LANDINGS
+        ),
+        lambda f: _route_bottom_exit_junction_right_landings(f),
+    ),
+    _Rule(
+        RouteFamilyId.BOTTOM_EXIT_JUNCTION_VIA_GAP,
+        "bottom-exit junction via gap",
+        lambda f: (
+            f.edge.source in f.ctx.bottom_exit_junctions
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.VIA_GAP
+        ),
+        lambda f: _route_bottom_exit_junction_via_gap_leaf(f),
+    ),
+    _Rule(
         RouteFamilyId.BOTTOM_EXIT_JUNCTION,
         "bottom-exit junction",
-        lambda f: f.edge.source in f.ctx.bottom_exit_junctions,
-        lambda f: _route_bottom_exit_junction(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
+        lambda f: (
+            f.edge.source in f.ctx.bottom_exit_junctions
+            and f.bottom_exit_junction_route is _BottomExitJunctionRoute.PLAIN
+        ),
+        lambda f: _route_bottom_exit_junction(f),
     ),
     # Every feeder of a merge that has a trunk routes through the merge
     # handlers so the converging line is a single stroke: the trunk carries the
@@ -1731,10 +1811,16 @@ _INTER_SECTION_RULES: list[_Rule] = [
     # would otherwise route a non-bypass feeder straight into the entry on its
     # own lateral slot (a second parallel stroke).
     _Rule(
+        RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
+        "merge trunk around below",
+        lambda f: f.is_merge_trunk and f.merge_trunk_shape.around_below,
+        lambda f: _route_merge_trunk_around_below(f),
+    ),
+    _Rule(
         RouteFamilyId.MERGE_TRUNK,
         "merge trunk",
-        lambda f: f.is_merge_trunk,
-        _route_merge_trunk_feeder,
+        lambda f: f.is_merge_trunk and not f.merge_trunk_shape.around_below,
+        lambda f: _route_merge_trunk(f, f.merge_trunk_shape),
     ),
     _Rule(
         RouteFamilyId.MERGE_BRANCH,
@@ -1743,10 +1829,58 @@ _INTER_SECTION_RULES: list[_Rule] = [
         _route_merge_branch_feeder,
     ),
     _Rule(
+        RouteFamilyId.LEFT_ENTRY_CORRIDOR,
+        "LEFT entry corridor",
+        _takes_left_entry_corridor,
+        _route_left_entry_corridor,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_L_SHAPE,
+        "bypass L-shape",
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.L_SHAPE,
+        lambda f: _route_l_shape(f.edge, f.src, f.tgt, f.i, f.n, f.ctx),
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
+        "bypass cell-mate gap drop",
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.CELLMATE_GAP_DROP,
+        _route_bypass_cellmate_gap_drop,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
+        "bypass packed-cell same row",
+        lambda f: (
+            f.needs_bypass and f.bypass_route is _BypassRoute.PACKED_CELL_SAME_ROW
+        ),
+        _route_bypass_packed_cell_same_row,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
+        "bypass RIGHT entry cross-row",
+        lambda f: (
+            f.needs_bypass and f.bypass_route is _BypassRoute.RIGHT_ENTRY_CROSS_ROW
+        ),
+        _route_right_entry_cross_row,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_LEFT_ENTRY,
+        "bypass LEFT entry",
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_ENTRY_FAMILY,
+        _route_left_entry_family,
+    ),
+    _Rule(
+        RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW,
+        "bypass LEFT exit around below",
+        lambda f: (
+            f.needs_bypass and f.bypass_route is _BypassRoute.LEFT_EXIT_AROUND_BELOW
+        ),
+        lambda f: _route_left_exit_around_below_left_entry(f.edge, f.src, f.tgt, f.ctx),
+    ),
+    _Rule(
         RouteFamilyId.BYPASS_FAMILY,
         "bypass family",
-        lambda f: f.needs_bypass,
-        _route_bypass_family,
+        lambda f: f.needs_bypass and f.bypass_route is _BypassRoute.U_BYPASS,
+        _route_u_bypass_family,
     ),
     _Rule(
         RouteFamilyId.NEAR_VERTICAL_JUNCTION,
@@ -1791,9 +1925,33 @@ _INTER_SECTION_RULES: list[_Rule] = [
         lambda f: _route_left_exit_around_below_left_entry(f.edge, f.src, f.tgt, f.ctx),
     ),
     _Rule(
+        RouteFamilyId.MERGE_ENTRY_STRAIGHT,
+        "merge entry straight",
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.STRAIGHT),
+        _route_merge_entry_straight,
+    ),
+    _Rule(
+        RouteFamilyId.MERGE_ENTRY_CORRIDOR,
+        "merge entry corridor",
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.CORRIDOR),
+        _route_merge_entry_corridor,
+    ),
+    _Rule(
+        RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
+        "merge entry around below",
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.AROUND_BELOW),
+        _route_merge_entry_around_below,
+    ),
+    _Rule(
+        RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        "merge entry perpendicular",
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.PERPENDICULAR_ENTRY),
+        _route_merge_entry_perpendicular,
+    ),
+    _Rule(
         RouteFamilyId.MERGE_ENTRY,
         "merge entry family",
-        lambda f: f.merge_ep is not None,
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.L_SHAPE),
         _route_merge_entry_family,
     ),
     # A higher-row L-shape to a RIGHT entry that would plough an intervening
@@ -2335,10 +2493,55 @@ def _bottom_exit_junction_is_right_landings(edge: Edge, ctx: _RoutingCtx) -> boo
     )
 
 
-def _route_bottom_exit_junction(
-    edge: Edge, src: Station, tgt: Station, i: int, n: int, ctx: _RoutingCtx
+def _bottom_exit_junction_parts(
+    f: _InterFacts,
+) -> tuple[
+    _BottomExitJunctionGeometry,
+    list[_TaperedMember],
+    list[_TaperedMember],
+    Callable[[str], float],
+]:
+    """Resolve the geometry and members shared by all junction leaves."""
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
+
+    def exit_x_offset(line_id: str) -> float:
+        if ctx.station_offsets:
+            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+        bi, bn = ctx.bundle_info.get((edge.source, edge.target, line_id), (f.i, f.n))
+        return l_shape_stagger(bi, bn, Direction.D, ctx.offset_step)
+
+    members, _, tgt_center = gather_tapered_bundle(ctx, edge)
+    geometry = _bottom_exit_junction_geometry(
+        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+    )
+    rigid = [(e, line_id, src_off, src_off) for e, line_id, src_off, _tgt in members]
+    return geometry, members, rigid, exit_x_offset
+
+
+def _bottom_exit_junction_route_kind(f: _InterFacts) -> _BottomExitJunctionRoute:
+    """Name the bottom-exit-junction geometry production will emit."""
+    if _bottom_exit_junction_is_right_landings(f.edge, f.ctx):
+        return _BottomExitJunctionRoute.FAN_LANDINGS
+    geometry, _members, rigid, _offset = _bottom_exit_junction_parts(f)
+    exclude = {sid for sid in (f.src.section_id, f.tgt.section_id) if sid is not None}
+    if (
+        _h_segment_crosses_other_section(
+            f.ctx.graph, geometry.vx, f.tgt.x, geometry.hy, exclude
+        )
+        and _route_bottom_exit_junction_via_gap(
+            f.edge, f.src, f.tgt, f.ctx, geometry.vx, rigid
+        )
+        is not None
+    ):
+        return _BottomExitJunctionRoute.VIA_GAP
+    return _BottomExitJunctionRoute.PLAIN
+
+
+def _route_bottom_exit_junction_leaf(
+    f: _InterFacts, kind: _BottomExitJunctionRoute
 ) -> RoutedPath | None:
-    """Vertical-first L-shape from bottom exit junction.
+    """Build one already-classified bottom-exit-junction leaf.
 
     The descent channel sits at the bundle's mean exit X (the fan above the
     junction), turns the corner, and runs to the entry at the mean entry Y.
@@ -2347,41 +2550,15 @@ def _route_bottom_exit_junction(
     -- so the bundle is built with each line's source offset on both ends and
     ``route_tapered`` sends it down its rigid (``route_along``) path.
     """
-    exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
-
-    def exit_x_offset(line_id: str) -> float:
-        if ctx.station_offsets:
-            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
-        bi, bn = ctx.bundle_info.get((edge.source, edge.target, line_id), (i, n))
-        return l_shape_stagger(bi, bn, Direction.D, ctx.offset_step)
-
-    members, _, tgt_center = gather_tapered_bundle(ctx, edge)
-    geometry = _bottom_exit_junction_geometry(
-        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
-    )
+    edge, src, tgt, ctx = f.edge, f.src, f.tgt, f.ctx
+    geometry, members, rigid, exit_x_offset = _bottom_exit_junction_parts(f)
     vx, hy = geometry.vx, geometry.hy
-
-    # Each line keeps its source offset on both legs: the channel is anchored
-    # on the exit fan, so a per-end taper would detach the descent from the
-    # entry offsets it never carried.
-    planned = _route_planned_bottom_exit_right_landings(
-        edge, src, tgt, ctx, members, exit_x_offset, hy
-    )
-    if planned is not None:
-        return planned
-
-    rigid = [(e, line_id, src_off, src_off) for e, line_id, src_off, _tgt in members]
-
-    # The plain L runs its horizontal leg at the target's entry row.  When a
-    # section sits between the descent column and the target that leg ploughs
-    # through the intervening box (an offset target one or more columns past a
-    # same-row neighbour); route it through the clear inter-row gap instead.
-    exclude = {sid for sid in (src.section_id, tgt.section_id) if sid is not None}
-    if _h_segment_crosses_other_section(ctx.graph, vx, tgt.x, hy, exclude):
-        detour = _route_bottom_exit_junction_via_gap(edge, src, tgt, ctx, vx, rigid)
-        if detour is not None:
-            return detour
-
+    if kind is _BottomExitJunctionRoute.FAN_LANDINGS:
+        return _route_planned_bottom_exit_right_landings(
+            edge, src, tgt, ctx, members, exit_x_offset, hy
+        )
+    if kind is _BottomExitJunctionRoute.VIA_GAP:
+        return _route_bottom_exit_junction_via_gap(edge, src, tgt, ctx, vx, rigid)
     return route_tapered(
         edge,
         rigid,
@@ -2389,6 +2566,18 @@ def _route_bottom_exit_junction(
         transition_leg=1,
         base_radius=ctx.curve_radius,
     )
+
+
+def _route_bottom_exit_junction(f: _InterFacts) -> RoutedPath | None:
+    return _route_bottom_exit_junction_leaf(f, _BottomExitJunctionRoute.PLAIN)
+
+
+def _route_bottom_exit_junction_right_landings(f: _InterFacts) -> RoutedPath | None:
+    return _route_bottom_exit_junction_leaf(f, _BottomExitJunctionRoute.FAN_LANDINGS)
+
+
+def _route_bottom_exit_junction_via_gap_leaf(f: _InterFacts) -> RoutedPath | None:
+    return _route_bottom_exit_junction_leaf(f, _BottomExitJunctionRoute.VIA_GAP)
 
 
 def _planned_fan_launch_y(
@@ -2628,11 +2817,7 @@ def _would_route_around_section_below(edge: Edge, ctx: _RoutingCtx) -> bool:
     src, tgt = ctx.graph.edge_endpoints(edge)
     f = _build_inter_facts(edge, src, tgt, ctx)
     rule = _match_inter_section_rule(f)
-    return (
-        rule is not None
-        and rule.route is _route_merge_entry_family
-        and _merge_entry_route_kind(f) is _MergeEntryRoute.AROUND_BELOW
-    )
+    return rule is not None and rule.family_id is RouteFamilyId.MERGE_ENTRY_AROUND_BELOW
 
 
 def _has_around_section_sibling(
@@ -2760,31 +2945,88 @@ def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
     )
 
 
-def _route_merge_trunk(f: _InterFacts) -> RoutedPath:
-    """Full U-shape bypass for the trunk carrier, ending at the entry port.
-
-    Delegates to :func:`_route_bypass` with the entry port as the effective
-    target so the route extends past the merge junction to the section entry,
-    or to :func:`_route_around_section_below` for the arm with no channel on
-    its port's own side.  :func:`_merge_trunk_shape` picks between the two and
-    supplies the U's inputs.
-    """
-    shape = _merge_trunk_shape(f)
-    if shape.around_below:
-        assert shape.entry_port is not None
-        around = _route_around_section_below(
-            f.edge,
-            f.src,
-            f.tgt,
-            shape.entry_port,
-            f.i,
-            f.n,
-            f.ctx,
-            channel_y=shape.around_below_channel_y,
-        )
-        assert around is not None  # the trunk is always its own bundle member
-        return around
+def _route_merge_trunk(
+    f: _InterFacts, shape: _MergeTrunkShape | None = None
+) -> RoutedPath:
+    """Full U-shape bypass for the trunk carrier, ending at the entry port."""
+    shape = shape or f.merge_trunk_shape
+    assert not shape.around_below
     return _route_bypass(f, _bypass_geometry(f, shape))
+
+
+def _merge_trunk_around_below_geometry(
+    f: _InterFacts, shape: _MergeTrunkShape
+) -> _EntryWrapGeometry:
+    """Resolve the around-below seam shared by trunk planning and emission."""
+    assert shape.around_below and shape.entry_port is not None
+    geometry = _around_section_below_geometry(
+        f.ctx,
+        f.edge,
+        f.src,
+        shape.entry_port,
+        f.i,
+        f.n,
+        shape.around_below_channel_y,
+    )
+    sibling_flanks: list[float] = []
+    for sibling in f.ctx.graph.edges_from(f.edge.source):
+        if sibling.target == f.edge.target or sibling.line_id != f.edge.line_id:
+            continue
+        trunk_source = f.ctx.merge.trunk_source.get(sibling.target)
+        trunk_edge = f.ctx.edge_by_key.get(
+            (trunk_source or "", sibling.target, sibling.line_id)
+        )
+        if trunk_edge is None:
+            continue
+        trunk_src, trunk_tgt = f.ctx.graph.edge_endpoints(trunk_edge)
+        trunk_facts = _build_inter_facts(trunk_edge, trunk_src, trunk_tgt, f.ctx)
+        trunk_shape = trunk_facts.merge_trunk_shape
+        if trunk_shape.around_below:
+            continue
+        trunk_route = _route_merge_trunk(trunk_facts, trunk_shape)
+        flank_xs = tuple(
+            start[0]
+            for start, end in zip(trunk_route.points, trunk_route.points[1:])
+            if abs(start[0] - end[0]) <= COORD_TOLERANCE
+            and abs(start[1] - end[1]) > COORD_TOLERANCE
+        )
+        if flank_xs:
+            target_x = f.ctx.graph.stations[sibling.target].x
+            sibling_flanks.append(min(flank_xs, key=lambda x: abs(x - target_x)))
+    if not sibling_flanks:
+        return geometry
+    corner_x = max(
+        geometry.corner_x,
+        max(sibling_flanks)
+        + cotravelling_lane_clearance(
+            same_line=True,
+            counter_running=True,
+            curve_radius=f.ctx.curve_radius,
+        ),
+    )
+    return _entry_wrap_record(
+        f.ctx,
+        f.edge,
+        f.src,
+        pos_n=geometry.pos_n,
+        delta=geometry.delta,
+        corner_x=corner_x,
+        channel_y=geometry.channel_y,
+        descent_x=geometry.descent_x,
+    )
+
+
+def _route_merge_trunk_around_below(f: _InterFacts) -> RoutedPath:
+    """Loop a merge trunk under a target with no port-side channel."""
+    shape = f.merge_trunk_shape
+    assert shape.entry_port is not None
+    return _emit_left_entry_wrap(
+        f.edge,
+        f.src,
+        shape.entry_port,
+        f.ctx,
+        _merge_trunk_around_below_geometry(f, shape),
+    )
 
 
 def _bottom_row_climb_corridor_clear(
@@ -5344,7 +5586,14 @@ def _fan_corner_x(
 
 
 def _wrap_fan_geometry(
-    ctx: _RoutingCtx, edge: Edge, src: Station, i: int, n: int, vertical: Direction
+    ctx: _RoutingCtx,
+    edge: Edge,
+    src: Station,
+    i: int,
+    n: int,
+    vertical: Direction,
+    *,
+    include_fan: bool = True,
 ) -> tuple[tuple[int, int] | None, int, float, float]:
     """Resolve an entry-wrap's bundle stagger and source-side first corner.
 
@@ -5356,7 +5605,11 @@ def _wrap_fan_geometry(
     lateral offset, and the first-corner X (lead-in right of the source, clear
     of its edge).
     """
-    fan = ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
+    fan = (
+        ctx.junction_fan_info.get((edge.source, edge.target, edge.line_id))
+        if include_fan
+        else None
+    )
     pos_i, pos_n = fan if fan is not None else (i, n)
     delta = l_shape_stagger(pos_i, pos_n, vertical, ctx.offset_step)
     resolve = _fan_corner_x if fan is not None else _fan_stand_off_x
@@ -6065,6 +6318,8 @@ def _around_section_below_geometry(
     i: int,
     n: int,
     channel_y: float | None = None,
+    *,
+    include_fan: bool = True,
 ) -> _EntryWrapGeometry:
     """Resolve the seam shared by around-below planning and emission.
 
@@ -6079,7 +6334,13 @@ def _around_section_below_geometry(
     # corner; merge-branch edges are excluded, so for the merge case the fan is
     # typically absent and the edge's own bundle position is used).
     _fan, pos_n, delta, corner_x = _wrap_fan_geometry(
-        ctx, edge, src, i, n, vertical_direction(ey - sy)
+        ctx,
+        edge,
+        src,
+        i,
+        n,
+        vertical_direction(ey - sy),
+        include_fan=include_fan,
     )
 
     # Bypass Y below all sections in the column range so the route
