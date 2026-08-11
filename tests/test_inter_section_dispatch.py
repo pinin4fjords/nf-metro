@@ -1,21 +1,21 @@
 """Dispatch-table selection tests for inter-section routing.
 
-``_route_inter_section`` chooses a route shape from the ordered
-``_INTER_SECTION_RULES`` table: the first rule whose predicate holds wins.  The
-order encodes routing precedence, so a predicate edit that silently steals an
-edge class from a neighbouring rule would reroute traffic without necessarily
-tripping a render diff.  These tests pin the selection directly:
+``_route_inter_section`` chooses a route shape from the pairwise-disjoint
+``_INTER_SECTION_RULES`` table. Canonical claim precedence is converted into
+exclusive predicates when the table is built, so table order cannot reroute
+traffic. These tests pin the selection directly:
 
 * synthetic ``_InterFacts`` cases assert which rule claims a constructed
-  scenario (a canonical example per rule, doubling as a precedence anchor since
-  several cases match more than one predicate);
+  scenario, including overlapping source claims that must resolve to one rule;
 * a corpus pass asserts the rules the fixtures exercise stay reachable.
 """
 
 from __future__ import annotations
 
+import ast
 import glob
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +30,49 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, PortSide, UnresolvedEndpointError
 
 _ROOT = Path(__file__).resolve().parents[1]
+_INTER_HANDLER_RAW_QUERY_LIMIT = 29
+_ROUTING_RAW_QUERY_LIMIT = 54
+
+
+def _route_corpus(before_fixture: Callable[[str], None] | None = None) -> None:
+    fixtures = sorted(
+        glob.glob(str(_ROOT / "examples/topologies/*.mmd"))
+        + glob.glob(str(_ROOT / "examples/*.mmd"))
+    )
+    for path in fixtures:
+        fixture = str(Path(path).relative_to(_ROOT))
+        if before_fixture is not None:
+            before_fixture(fixture)
+        graph = parse_metro_mermaid(Path(path).read_text())
+        compute_layout(graph)
+        route_edges(graph, station_offsets=compute_station_offsets(graph))
+
+
+def test_inter_facts_owns_raw_section_queries() -> None:
+    raw_queries = {
+        "_resolve_section_col",
+        "_resolve_section_row",
+        "_resolve_section_colrow",
+        "_h_segment_crosses_other_section",
+        "_v_segment_crosses_other_section",
+    }
+    counts: Counter[str] = Counter()
+    routing_dir = _ROOT / "src/nf_metro/layout/routing"
+    for path in routing_dir.glob("*.py"):
+        tree = ast.parse(path.read_text())
+        counts[path.name] = sum(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in raw_queries
+            for node in ast.walk(tree)
+        )
+
+    assert counts["inter_section_handlers.py"] <= _INTER_HANDLER_RAW_QUERY_LIMIT, (
+        f"inter-section raw-query ratchet exceeded: {dict(counts)}"
+    )
+    assert sum(counts.values()) <= _ROUTING_RAW_QUERY_LIMIT, (
+        f"routing raw-query ratchet exceeded: {dict(counts)}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,9 +194,9 @@ def _selected(**overrides: object) -> str:
     return rule.name if rule is not None else "<fall-through>"
 
 
-# Each case constructs a scenario and asserts the rule that claims it.  Several
-# cases satisfy more than one predicate; the expected rule is the earliest, so
-# the assertion is a precedence lock, not just a reachability check.
+# Each case constructs a scenario and asserts the exclusive rule that owns it.
+# Several cases exercise overlapping source claims whose canonical ownership is
+# fixed when the disjoint table is built.
 _CASES = [
     pytest.param(
         # Also same-Y; perp-exit (rule 1) must win over same-Y straight (rule 2).
@@ -512,8 +555,8 @@ _CORPUS_COVERED = {
 def test_corpus_keeps_rules_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every rule the corpus exercises stays reachable through the table.
 
-    Catches a precedence edit that makes a live rule unreachable (shadowed
-    wholly by a neighbour) - the gap a synthetic case cannot see.
+    Catches a claim edit that makes a live rule unreachable across the corpus,
+    the gap a synthetic case cannot see.
     """
     counts: Counter[str] = Counter()
     original = H._match_inter_section_rule
@@ -525,14 +568,63 @@ def test_corpus_keeps_rules_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(H, "_match_inter_section_rule", recording)
 
-    fixtures = sorted(
-        glob.glob(str(_ROOT / "examples/topologies/*.mmd"))
-        + glob.glob(str(_ROOT / "examples/*.mmd"))
-    )
-    for path in fixtures:
-        graph = parse_metro_mermaid(Path(path).read_text())
-        compute_layout(graph)
-        route_edges(graph, station_offsets=compute_station_offsets(graph))
+    _route_corpus()
 
     missing = sorted(name for name in _CORPUS_COVERED if counts[name] == 0)
     assert not missing, f"rules no longer reachable via the corpus: {missing}"
+
+
+def test_corpus_inter_section_predicates_are_pairwise_disjoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlaps: set[tuple[str, tuple[str, str, str], tuple[str, ...]]] = set()
+    predicate_errors: set[tuple[str, tuple[str, str, str], str, str]] = set()
+    original = H._match_inter_section_rule
+    current_fixture = ""
+
+    def recording(f: H._InterFacts) -> H._Rule | None:
+        matches: list[str] = []
+        for rule in H._INTER_SECTION_RULES:
+            try:
+                if rule.when(f):
+                    matches.append(rule.name)
+            except (AssertionError, ValueError) as error:
+                predicate_errors.add(
+                    (
+                        current_fixture,
+                        (f.edge.source, f.edge.target, f.edge.line_id),
+                        rule.name,
+                        type(error).__name__,
+                    )
+                )
+        if len(matches) > 1:
+            overlaps.add(
+                (
+                    current_fixture,
+                    (f.edge.source, f.edge.target, f.edge.line_id),
+                    tuple(matches),
+                )
+            )
+        return original(f)
+
+    monkeypatch.setattr(H, "_match_inter_section_rule", recording)
+
+    def set_current_fixture(fixture: str) -> None:
+        nonlocal current_fixture
+        current_fixture = fixture
+
+    _route_corpus(set_current_fixture)
+
+    failures = [
+        "predicate errors:",
+        *(
+            f"{fixture}: {edge}: {rule}: {error}"
+            for fixture, edge, rule, error in sorted(predicate_errors)
+        ),
+        "predicate overlaps:",
+        *(
+            f"{fixture}: {edge}: {', '.join(matches)}"
+            for fixture, edge, matches in sorted(overlaps)
+        ),
+    ]
+    assert not predicate_errors and not overlaps, "\n".join(failures)

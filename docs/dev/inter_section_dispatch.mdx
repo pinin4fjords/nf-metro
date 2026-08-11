@@ -17,8 +17,8 @@ member is classified from one `_InterFacts` snapshot. A planned route system
 freezes that family ID, calls it once to build an immutable
 `RouteMemberGeometryPlan`, and emits a fresh copy of that exact template. A
 compatibility system discards provisional templates, matches a fresh snapshot
-against the ordered rules at emission, and lets the first predicate that holds
-own the route.
+against the rules at emission, and lets the unique predicate that holds own the
+route.
 
 Every rule's handler builds its route from a centreline through the
 [bundle builder](/nf-metro/dev/routing/) (`build_concentric_bundle` /
@@ -41,12 +41,17 @@ mechanism that keeps the routes correct.
 - **Entry side** - `entry_side` is the target entry port's side
   (LEFT/RIGHT/TOP/BOTTOM) or `None` when the target is a junction; `merge_ep`
   is the resolved entry-port station when the target is a merge junction.
+- **Spatial queries** - section coordinates and horizontal/vertical crossing
+  checks are resolved through the snapshot. This keeps every predicate and
+  route builder on the same endpoint facts.
 
-## The rules, in order
+## The rules
 
-The table is ordered: earlier rules shadow later ones, so the order encodes the
-precedence between overlapping cases. The first matching rule wins during
-compatibility classification; if none match, the **standard L-shape** is the
+The source claims are listed below in their canonical classification order.
+Construction subtracts every earlier claim from each later predicate, giving
+every row an exclusive region of the fact space. As a result, the runtime rule
+table is pairwise disjoint and can be reordered without changing which family
+owns an edge. If no predicate matches, the **standard L-shape** is the
 fall-through. Planned template construction resolves its frozen family through
 the same table's stable rule ID without evaluating the predicates again.
 Production emission does not revisit the table or call the family.
