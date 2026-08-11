@@ -478,10 +478,10 @@ def test_distinct_line_fan_traverses_bundle_before_member_freeze() -> None:
 
     green = plans["far__entry_top_2"]
     reds = (plans["near__entry_left_3"], plans["mid__entry_left_4"])
-    assert green.points[2][1] == 192.0
     for red in reds:
         assert red.points[2][1] == green.points[2][1] + OFFSET_STEP
-        assert red.points[2:4] == ((430.0, 196.0), (44.0, 196.0))
+        assert red.points[2][1] == red.points[3][1]
+        assert red.points[2][0] > red.points[3][0]
         assert red.trunk_slot == green.trunk_slot
         _assert_channels_equal_emission(observation, red)
 

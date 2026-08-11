@@ -31,6 +31,7 @@ from nf_metro.layout.route_topology import (
     merge_fanout_junction_ids,
 )
 from nf_metro.layout.routing.common import (
+    Direction,
     RoutedPath,
     _h_segment_penetrates_section,
     bypass_bottom_y,
@@ -68,6 +69,19 @@ if TYPE_CHECKING:
     from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
 
 _EdgeKey = tuple[str, str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class SettledExitTurn:
+    """Source-turn geometry read from the jointly allocated route population."""
+
+    run_direction: Direction
+    turn_direction: Direction
+    launch_coordinate: float
+    minimum_runway: float
+    axis_coordinate: float
+    corner_offsets: tuple[float | None, float | None]
+    validate_corner_radii: bool
 
 
 def partial_flat_continuation_lines(
@@ -240,6 +254,7 @@ class _RoutingCtx:
     coordinates, and a verdict that flips there is settlement changing a
     disposition, which it does not own; ``None`` (the default) means this pass
     is the one that decides."""
+    settled_exit_turns: Mapping[_EdgeKey, SettledExitTurn] = field(default_factory=dict)
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     route_systems: RouteSystemEmissionExecution | None = None

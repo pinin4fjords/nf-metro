@@ -14,7 +14,7 @@ import dataclasses
 import json
 import math
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -73,6 +73,32 @@ RouteSystemId = NewType("RouteSystemId", str)
 EmissionMemberId = NewType("EmissionMemberId", str)
 EmittedPathId = NewType("EmittedPathId", str)
 RouteBranchId = NewType("RouteBranchId", str)
+
+_TurnCoordinateKey = tuple[Direction, Direction, EndpointGroupId | None]
+
+
+def exit_turn_coordinate_cohorts(
+    turns: Iterable[tuple[Direction, Direction, EndpointGroupId | None, float]],
+) -> Mapping[_TurnCoordinateKey, frozenset[float]]:
+    """Group turn-axis coordinates by heading and pinning owner."""
+    coordinates: defaultdict[_TurnCoordinateKey, set[float]] = defaultdict(set)
+    for run_direction, turn_direction, pinning_group_id, coordinate in turns:
+        coordinates[run_direction, turn_direction, pinning_group_id].add(coordinate)
+    return MappingProxyType(
+        {key: frozenset(values) for key, values in coordinates.items()}
+    )
+
+
+def ordered_turn_coordinate_span(
+    cohorts: Mapping[_TurnCoordinateKey, Collection[float]],
+) -> float:
+    """Return the widest coordinate extent owned by one turn cohort."""
+    return max(
+        (max(coordinates) - min(coordinates) for coordinates in cohorts.values()),
+        default=0.0,
+    )
+
+
 RouteFeederId = NewType("RouteFeederId", str)
 SharedReferenceId = NewType("SharedReferenceId", str)
 DemandId = NewType("DemandId", str)
@@ -159,6 +185,12 @@ class RouteMemberGeometryPlan:
     gap_slots: tuple[GapSlot, ...]
     trunk_slot: TrunkSlot | None
     gap_channels: tuple[RouteMemberGapChannel, ...]
+    concentric_corner_offsets_by_segment: tuple[
+        tuple[int, tuple[float | None, float | None]], ...
+    ] = ()
+    concentric_corner_bases_by_segment: tuple[
+        tuple[int, tuple[float | None, float | None]], ...
+    ] = ()
     exit_turn_plan_id: ExitTurnPlanId | None = None
     exit_turn_member_id: EmissionMemberId | None = None
     exit_turn_family_id: str | None = None
@@ -335,43 +367,6 @@ _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "claim can be taken as the one that holds.",
     _ISSUE.format(1441),
 )
-_GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION = CompatibilityFamily(
-    "The axis this plan would state is the coordinate its handler derives from "
-    "the grid edges it has to hand, and ``normalize._materialize_gap_slots`` "
-    "then seats the whole gap at once -- a population wider than the plan's own "
-    "bundle, so the seated column does not follow from the bundle's claims. On "
-    "``tests/fixtures/planned_compatibility_channel_collision.mmd`` the fan's "
-    "three axes are seated from 219/215/211 onto 226/222/218, the columns an "
-    "exempt around-stack handler owns in that gap for those same three lines; "
-    "the overlap the plan declines on is between the pre-seating guess and a "
-    "channel the seating moves it clear of. On "
-    "``examples/topologies/disjoint_sameline_trunks.mmd`` the two descents the "
-    "plan would freeze at 556 and 560 are seated at 552 and 556 by the centring "
-    "that also holds a third line's counter-running rise in that gap, and the "
-    "X spans that move is what re-packs the inter-row trunk band the one line's "
-    "two chained trunks share. The plan-time proxy for that seating, "
-    "``seat_bundle_in_claimed_bands``, reads no band over either bundle's "
-    "segment and so returns no travel. Recording the seated column for a later "
-    "pass to read back does not state it either, because the seating runs "
-    "twice over two different populations: the member-geometry freeze "
-    "materializes each gap over the planned candidates and their convergence "
-    "context alone, while the post-emission chain materializes it over every "
-    "emitted route, compatibility systems included. The two allocations answer "
-    "differently, so no single recorded column satisfies both, and the axis "
-    "ratchet turns each disagreement into an abort: handing the U-bypass "
-    "source-turn reading the column either pass produced retains 12 of the 26 "
-    "corpus verdicts and aborts 37 maps that render today. "
-    "The same seating owns the fixed-axis conflicts and the descent seating "
-    "groups: across the 76 members whose family pins disagree, 30 final "
-    "columns are produced by the gap centring and its successor passes rather "
-    "than by any builder (measured per member, deltas 1 to 138 px), and "
-    "widening a seated group to the gap's declared population still leaves "
-    "the handler's column wrong on every one of the eight systems it decides. "
-    "Stating any of these axes at plan time requires the two populations to be "
-    "one, so that the allocation a plan reads is the allocation emission "
-    "draws.",
-    _ISSUE.format(1441),
-)
 _INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
     "The routing API accepts explicit graphs and offset maps with no complete "
     "semantic ordering, and this group is one: its source order, outbound "
@@ -509,13 +504,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                     "overlapping-planned-turn-axes",
                     "shared-source-ownership-conflict",
                     "shared-station-lane-collision",
-                ),
-                _reasons(
-                    _GAP_BUNDLE_SEATS_THE_AXIS_AFTER_EMISSION,
-                    "fixed-axis-conflict",
-                    "seating-group-owns-the-descent-column",
-                    "planned-axis-overlaps-compatibility-channel",
-                    "trunk-band-owns-the-chained-same-line-trunk",
                 ),
                 _reasons(
                     _INCOMPLETE_AUTHORED_EXIT_GROUP,
@@ -3907,21 +3895,23 @@ def _validate_planned_exit_turn_resources(
         if named is None:
             raise ValueError("exit-turn assignment names an unknown axis")
         turning_axis[assignment.member_id] = named
-    cohort_ranks: dict[
-        tuple[Direction, Direction, EndpointGroupId | None], set[int]
-    ] = defaultdict(set)
+    turn_coordinates: list[
+        tuple[Direction, Direction, EndpointGroupId | None, float]
+    ] = []
     for assignment in turning_assignments:
         if assignment.run_direction is None or assignment.turn_direction is None:
             raise ValueError("exit-turn assignment has incomplete directions")
-        cohort_ranks[
-            assignment.run_direction,
-            assignment.turn_direction,
-            turning_axis[assignment.member_id].pinning_group_id,
-        ].add(assignment.source_lane_rank)
-    ordered_turn_span = max(
-        ((len(ranks) - 1) * exit_turn_plan.spacing for ranks in cohort_ranks.values()),
-        default=0.0,
-    )
+        axis = turning_axis[assignment.member_id]
+        turn_coordinates.append(
+            (
+                assignment.run_direction,
+                assignment.turn_direction,
+                axis.pinning_group_id,
+                axis.coordinate,
+            )
+        )
+    cohort_coordinates = exit_turn_coordinate_cohorts(turn_coordinates)
+    ordered_turn_span = ordered_turn_coordinate_span(cohort_coordinates)
     if any(
         member_id not in exit_turn_plan.member_ids
         or members[member_id].system_id != exit_turn_plan.system_id
@@ -3930,13 +3920,6 @@ def _validate_planned_exit_turn_resources(
         for member_id in transition.claimant_member_ids
     ):
         raise ValueError("exit-turn lane transition has inconsistent claimants")
-    _validate_exit_turn_demands(
-        exit_turn_plan,
-        expected_span,
-        turning_assignment_ids,
-        ordered_turn_span,
-        demands,
-    )
     axis_claimants = {
         axis.id: tuple(
             item.member_id
@@ -3976,11 +3959,7 @@ def _validate_planned_exit_turn_resources(
         )
     ):
         raise ValueError("exit-turn source lanes do not preserve travel order")
-    for (
-        run_direction,
-        turn_direction,
-        pinning_group_id,
-    ), _ranks in cohort_ranks.items():
+    for run_direction, turn_direction, pinning_group_id in cohort_coordinates:
         cohort_axes = tuple(
             turning_axis[assignment.member_id]
             for assignment in turning_assignments
@@ -4001,6 +3980,13 @@ def _validate_planned_exit_turn_resources(
             for left, right in zip(unique_axes, unique_axes[1:])
         ):
             raise ValueError("exit-turn axes do not preserve planned lane spacing")
+    _validate_exit_turn_demands(
+        exit_turn_plan,
+        expected_span,
+        turning_assignment_ids,
+        ordered_turn_span,
+        demands,
+    )
     if any(
         assignment.axis_id is not None
         and (

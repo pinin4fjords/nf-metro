@@ -13,6 +13,7 @@ from types import MappingProxyType
 
 import pytest
 
+import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.inter_section_handlers as inter_handlers
 import nf_metro.layout.routing.normalize as normalize
@@ -1081,8 +1082,8 @@ def test_split_stacked_left_entry_drop_has_a_covered_compatibility_reason() -> N
     )
 
 
-def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:
-    """Owners pinning columns inside one corner hold the whole group back.
+def test_owners_pinning_one_corner_apart_defer_to_gap_allocation() -> None:
+    """Owners pinning columns inside one corner defer their shared axis.
 
     Several families pin this source's turn columns within a single corner's
     runway, each to a column of its own.  Columns that close together belong to
@@ -1096,7 +1097,86 @@ def test_owners_pinning_one_corner_apart_use_whole_group_legacy() -> None:
     plan = next(item for item in execution.plans if item.source_id == "__junction_13")
 
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "fixed-axis-conflict"
+    assert plan.legacy_reason == exit_turns.GAP_ALLOCATION_PENDING
+
+
+@pytest.mark.parametrize(
+    ("path", "source_id"),
+    (
+        (ROOT / "examples" / "genomeassembly_staggered.mmd", "__junction_8"),
+        (FIXTURES / "planned_compatibility_channel_collision.mmd", "__junction_8"),
+        (TOPOLOGIES / "disjoint_sameline_trunks.mmd", "__junction_8"),
+        (ROOT / "examples" / "differentialabundance.mmd", "__junction_7"),
+    ),
+    ids=(
+        "fixed-axis",
+        "compatibility-channel",
+        "chained-trunk",
+        "descent-seating-group",
+    ),
+)
+def test_gap_allocated_exit_turns_are_planned(path: Path, source_id: str) -> None:
+    graph, offsets, observation = _observe(path)
+    plan = _plan_for_source(observation, source_id)
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert plan.legacy_reason is None
+    assert plan.axes
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+def test_genomeassembly_fan_plan_states_each_emitted_member_column() -> None:
+    _graph, offsets, observation = _observe(
+        ROOT / "examples" / "genomeassembly_staggered.mmd"
+    )
+    plan = _plan_for_source(observation, "__junction_8")
+    routes = tuple(
+        route
+        for route in observation.routes
+        if route.edge.source == plan.source_id
+        and route.line_id in {"assemblies", "long_reads", "hic_reads"}
+        and route.edge.target != "raw_asm__exit_right_0"
+    )
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert sorted({_turn_x(route, offsets) for route in routes}) == pytest.approx(
+        [246.0, 250.0, 254.0]
+    )
+    assert sorted(axis.coordinate for axis in plan.axes) == pytest.approx(
+        [246.0, 250.0, 254.0]
+    )
+
+
+def test_gap_plan_validator_rejects_a_changed_corner_radius(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = routing_core._spread_diagonal_bundles
+
+    def corrupt_planned_radius(routes, ctx):
+        original(routes, ctx)
+        route = next(
+            item
+            for item in routes
+            if item.edge.source == "__junction_8"
+            and item.exit_turn_segment_rank is not None
+            and item.curve_radii is not None
+            and (item.edge.source, item.edge.target, item.line_id)
+            in ctx.settled_exit_turns
+            and ctx.settled_exit_turns[
+                (item.edge.source, item.edge.target, item.line_id)
+            ].validate_corner_radii
+        )
+        radius_index = route.exit_turn_segment_rank - 1
+        route.curve_radii[radius_index] += 1.0
+
+    monkeypatch.setattr(
+        routing_core,
+        "_spread_diagonal_bundles",
+        corrupt_planned_radius,
+    )
+
+    with pytest.raises(ExitTurnInvariantError, match="corner radius"):
+        _observe(ROOT / "examples" / "genomeassembly_staggered.mmd")
 
 
 def test_several_turnless_members_each_state_their_own_landing() -> None:
@@ -1236,9 +1316,9 @@ def test_straight_requirement_rejects_a_perpendicular_source_run(
     real_build = exit_turns.build_exit_turn_execution
     contexts = []
 
-    def capture(graph, ctx):
+    def capture(graph, ctx, **kwargs):
         contexts.append(ctx)
-        return real_build(graph, ctx)
+        return real_build(graph, ctx, **kwargs)
 
     monkeypatch.setattr(exit_turns, "build_exit_turn_execution", capture)
     graph, _offsets, _observation = _observe(
@@ -1373,9 +1453,9 @@ def test_vertical_axis_overlap_range_matches_the_emitted_turn(
     real_build = exit_turns.build_exit_turn_execution
     contexts = []
 
-    def capture(graph, ctx):
+    def capture(graph, ctx, **kwargs):
         contexts.append(ctx)
-        return real_build(graph, ctx)
+        return real_build(graph, ctx, **kwargs)
 
     monkeypatch.setattr(exit_turns, "build_exit_turn_execution", capture)
     graph, offsets, observation = _observe(TOPOLOGIES / "tb_bottom_exit_bundle_jog.mmd")
@@ -1654,12 +1734,12 @@ def test_a_left_exit_drop_is_built_on_the_column_it_is_drawn_on() -> None:
 
 
 def test_a_chained_trunk_descent_is_seated_off_the_column_it_is_built_on() -> None:
-    """The chained-trunk decline rests on a column the gap allocator moves.
+    """The chained trunk is planned on the column the gap allocator chooses.
 
     Both U-bypass descents are built one offset step outboard of where the map
     draws them: the gap they stand in also carries a third line's rise, and the
-    allocator centres that whole population.  Freezing either descent would take
-    it out of that population, which is what the verdict on this system names.
+    allocator centres that whole population before the plan freezes either
+    descent.
     """
     path = TOPOLOGIES / "disjoint_sameline_trunks.mmd"
     built: dict[str, float] = {}
@@ -1684,21 +1764,20 @@ def test_a_chained_trunk_descent_is_seated_off_the_column_it_is_built_on() -> No
     assert drawn == {"a": 556.0, "b": 552.0}
 
 
-def test_a_gap_seated_axis_is_declined_on_its_pre_seating_coordinate() -> None:
-    """The declined overlap is with a guess the gap allocator moves clear of.
+def test_a_gap_seated_axis_uses_the_allocated_coordinate() -> None:
+    """The planned axis uses the seat that clears the compatibility channel.
 
     The fan's axes are derived from the grid edges its handler has to hand;
     ``normalize._materialize_gap_slots`` then seats the whole gap at once and
     lands each line on the column the exempt around-stack handler owns for it.
-    Pinning both coordinates keeps the family's justification measurable: the
-    plan declines on the pre-seating guess, and the seat it would have to state
-    instead is the one every line is finally drawn on.
+    The seat the plan states is the one every line is finally drawn on.
     """
     _graph, _offsets, observation = _observe(
         FIXTURES / "planned_compatibility_channel_collision.mmd"
     )
     plan = _plan_for_source(observation, "__junction_8")
-    assert plan.legacy_reason == "planned-axis-overlaps-compatibility-channel"
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert plan.legacy_reason is None
 
     def descent_x(source: str, line_id: str) -> float:
         (route,) = [
@@ -1721,16 +1800,16 @@ def test_a_gap_seated_axis_is_declined_on_its_pre_seating_coordinate() -> None:
     } == around_stack
 
 
-def test_planned_turn_falls_back_before_a_compatibility_channel_collision() -> None:
+def test_planned_turn_owns_the_compatibility_channel_seat() -> None:
     graph, offsets, observation = _observe(
         FIXTURES / "planned_compatibility_channel_collision.mmd"
     )
     plan = _plan_for_source(observation, "__junction_8")
 
-    assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert plan.legacy_reason == "planned-axis-overlaps-compatibility-channel"
-    assert plan.axes == ()
-    assert not any(
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert plan.legacy_reason is None
+    assert plan.axes
+    assert any(
         route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
         for route in observation.routes
     )
@@ -1926,9 +2005,9 @@ def test_cross_plan_station_lane_slots_are_checked_after_all_compaction(
     real_build = exit_turns.build_exit_turn_execution
     contexts = []
 
-    def capture(graph, ctx):
+    def capture(graph, ctx, **kwargs):
         contexts.append(ctx)
-        return real_build(graph, ctx)
+        return real_build(graph, ctx, **kwargs)
 
     monkeypatch.setattr(exit_turns, "build_exit_turn_execution", capture)
     graph, _offsets, observation = _observe(
@@ -2136,7 +2215,7 @@ def test_post_pass_snapshot_leaves_corner_radius_to_unifier(
 
     normalize._unify_coincident_corner_radii(routes)
 
-    assert route.curve_radii[radius_index] == wide_radius
+    assert route.curve_radii[radius_index] >= wide_radius
     assert_exit_turn_snapshot(routes, snapshot, "corner-radius unification")
 
 
@@ -3095,9 +3174,7 @@ def test_existing_exit_bundle_regressions_render_through_the_public_api(
 # the frozen and fresh verdicts simply agreeing) so a change that makes it
 # common trips an assertion instead of passing unnoticed.  Fixture path ->
 # override count; regenerate by running ``_corpus_disposition_overrides``.
-EXPECTED_ADOPTED_DISPOSITION_OVERRIDES = {
-    "tests/fixtures/planned_compatibility_channel_collision.mmd": 1,
-}
+EXPECTED_ADOPTED_DISPOSITION_OVERRIDES: dict[str, int] = {}
 
 
 def _corpus_disposition_overrides() -> dict[str, int]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 
 from nf_metro.layout.route_plan import (
@@ -24,6 +24,7 @@ from nf_metro.layout.routing.convergences import (
     settle_preliminary_convergence_execution,
 )
 from nf_metro.layout.routing.exit_turns import ExitTurnExecution
+from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     classify_inter_section_family,
 )
@@ -38,6 +39,7 @@ from nf_metro.layout.routing.system_emission import (
     classify_route_system_dispositions,
 )
 from nf_metro.parser.model import MetroGraph
+from nf_metro.parser.route_topology import ResolvedEdge
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +68,56 @@ def _allocation_eligible_system_ids(
     return preliminary_planned_ids - member_failure_ids
 
 
+def _with_settled_exit_turns(
+    execution: MemberGeometryExecution,
+    allocation: MemberGeometryExecution,
+    pending_member_ids: frozenset[EmissionMemberId],
+    ctx: _RoutingCtx,
+) -> MemberGeometryExecution:
+    """Apply each allocated source axis to the fully normalized member path."""
+    plans = []
+    for plan in execution.plans:
+        settled = ctx.settled_exit_turns.get(
+            (plan.edge.source, plan.edge.target, plan.edge.line_id)
+        )
+        rank = plan.exit_turn_segment_rank
+        if plan.member_id not in pending_member_ids or settled is None or rank is None:
+            plans.append(plan)
+            continue
+        axis = 0 if settled.run_direction.value in {"R", "L"} else 1
+        points = list(plan.points)
+        for point_rank, coordinate in (
+            (rank - 1, settled.launch_coordinate),
+            (rank, settled.axis_coordinate),
+            (rank + 1, settled.axis_coordinate),
+        ):
+            point = list(points[point_rank])
+            point[axis] = coordinate
+            points[point_rank] = (point[0], point[1])
+        gap_channels = tuple(
+            replace(
+                channel,
+                start=points[channel.segment_rank],
+                end=points[channel.segment_rank + 1],
+            )
+            for channel in plan.gap_channels
+        )
+        plans.append(
+            replace(
+                plan,
+                points=tuple(points),
+                gap_channels=gap_channels,
+            )
+        )
+    frozen_plans = tuple(plans)
+    return MemberGeometryExecution(
+        frozen_plans,
+        execution.failure_reasons,
+        MappingProxyType({plan.edge: plan for plan in frozen_plans}),
+        allocation.settled_exit_turns,
+    )
+
+
 def prepare_route_system_planning(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -80,90 +132,165 @@ def prepare_route_system_planning(
     member geometry to final shared allocation.  Resource publication happens
     after final disposition and follows ``include_convergence_resources``.
     """
-    exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
-    ctx.exit_turns = exit_turns.query
-    scaffold = exit_turns.scaffold
+    station_offsets = ctx.station_offsets
+    initial_station_offsets = dict(station_offsets or {})
+    provisional_exit_turns = exit_turn_routing.build_exit_turn_execution(
+        graph,
+        ctx,
+        adopt_prior_dispositions=False,
+    )
+    scaffold = provisional_exit_turns.scaffold
     if scaffold is None:
         empty_members = empty_member_geometry_execution()
         empty_convergences = empty_convergence_plan_execution()
         ctx.convergences = empty_convergences.query
         ctx.route_systems = None
         return RoutePlanningExecution(
-            exit_turns,
+            provisional_exit_turns,
             empty_convergences,
             empty_members,
             None,
             frozenset(),
-            tuple((plan.id, plan.legacy_reason) for plan in exit_turns.plans),
+            tuple(
+                (plan.id, plan.legacy_reason) for plan in provisional_exit_turns.plans
+            ),
         )
 
-    family_by_edge = MappingProxyType(
-        {
-            edge: family
-            for edge in scaffold.edge_order
-            if (
-                family := classify_inter_section_family(
-                    ctx.edge_by_key[(edge.source, edge.target, edge.line_id)],
-                    graph.stations[edge.source],
-                    graph.stations[edge.target],
-                    ctx,
+    def prepare_member_geometry(
+        exit_turns: ExitTurnExecution,
+        pending_plan_ids: frozenset[ExitTurnPlanId],
+        settled_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+    ) -> tuple[
+        Mapping[ResolvedEdge, RouteFamilyId],
+        ConvergencePlanExecution,
+        frozenset[RouteSystemId],
+        MemberGeometryExecution,
+    ]:
+        ctx.exit_turns = exit_turns.query
+        family_by_edge = MappingProxyType(
+            {
+                edge: family
+                for edge in scaffold.edge_order
+                if (
+                    family := classify_inter_section_family(
+                        ctx.edge_by_key[(edge.source, edge.target, edge.line_id)],
+                        graph.stations[edge.source],
+                        graph.stations[edge.target],
+                        ctx,
+                    )
                 )
-            )
-            is not None
-        }
-    )
-    convergences = build_convergence_plan_execution(
-        graph,
-        ctx,
-        scaffold,
-        exit_turn_plans=exit_turns.plans,
-        fan_plans=graph.fan_plans,
-        member_geometry=empty_member_geometry_execution(),
-        include_resources=False,
-    )
-    ctx.convergences = convergences.query
-    preliminary = classify_route_system_dispositions(
-        scaffold,
-        exit_turn_plans=exit_turns.plans,
-        fan_plans=graph.fan_plans,
-        convergence_plans=convergences.plans,
-    )
-    preliminary_compatibility_ids = frozenset(
-        decision.system_id
-        for decision in preliminary
-        if decision.disposition is RouteSystemDisposition.COMPATIBILITY
-    )
-    preliminary_planned_ids = frozenset(
-        decision.system_id
-        for decision in preliminary
-        if decision.disposition is RouteSystemDisposition.PLANNED
-    )
-    ctx.compatibility_edges = frozenset(
-        (edge.source, edge.target, edge.line_id)
-        for edge in scaffold.edge_order
-        if scaffold.system_for_edge(edge) in preliminary_compatibility_ids
-    )
-    convergences = settle_preliminary_convergence_execution(
-        convergences,
-        graph,
-        ctx,
-        exit_turn_plans=exit_turns.plans,
-        planned_system_ids=preliminary_planned_ids,
-    )
-    ctx.convergences = convergences.query
-    member_geometry = build_member_geometry_execution(
-        graph,
-        ctx,
-        scaffold,
-        family_by_edge=family_by_edge,
-        compatibility_system_ids=preliminary_compatibility_ids,
-        preliminary_gap_claims=preliminary_member_gap_claims(
+                is not None
+            }
+        )
+        convergences = build_convergence_plan_execution(
+            graph,
+            ctx,
+            scaffold,
+            exit_turn_plans=exit_turns.plans,
+            fan_plans=graph.fan_plans,
+            member_geometry=empty_member_geometry_execution(),
+            include_resources=False,
+        )
+        ctx.convergences = convergences.query
+        preliminary = classify_route_system_dispositions(
+            scaffold,
+            exit_turn_plans=exit_turns.plans,
+            fan_plans=graph.fan_plans,
+            convergence_plans=convergences.plans,
+        )
+        compatibility_ids = frozenset(
+            decision.system_id
+            for decision in preliminary
+            if decision.disposition is RouteSystemDisposition.COMPATIBILITY
+        )
+        planned_ids = frozenset(
+            decision.system_id
+            for decision in preliminary
+            if decision.disposition is RouteSystemDisposition.PLANNED
+        )
+        ctx.compatibility_edges = frozenset(
+            (edge.source, edge.target, edge.line_id)
+            for edge in scaffold.edge_order
+            if scaffold.system_for_edge(edge) in compatibility_ids
+        )
+        convergences = settle_preliminary_convergence_execution(
             convergences,
             graph,
-            preliminary_planned_ids,
-        ),
-        reservation_ids_by_member=reservation_ids_by_member,
+            ctx,
+            exit_turn_plans=exit_turns.plans,
+            planned_system_ids=planned_ids,
+        )
+        ctx.convergences = convergences.query
+        member_geometry = build_member_geometry_execution(
+            graph,
+            ctx,
+            scaffold,
+            family_by_edge=family_by_edge,
+            compatibility_system_ids=compatibility_ids,
+            preliminary_gap_claims=preliminary_member_gap_claims(
+                convergences,
+                graph,
+                planned_ids,
+            ),
+            reservation_ids_by_member=reservation_ids_by_member,
+            pending_exit_turn_plan_ids=pending_plan_ids,
+            settled_exit_turn_plan_ids=settled_plan_ids,
+        )
+        return family_by_edge, convergences, planned_ids, member_geometry
+
+    allocation_exit_turns, pending_plan_ids = (
+        exit_turn_routing.promote_pending_gap_allocation(provisional_exit_turns)
     )
+    if pending_plan_ids:
+        _, _, _, allocation_geometry = prepare_member_geometry(
+            allocation_exit_turns, pending_plan_ids
+        )
+        ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
+        if station_offsets is not None:
+            station_offsets.clear()
+            station_offsets.update(initial_station_offsets)
+        ctx.station_offsets = station_offsets
+        exit_turns = exit_turn_routing.build_exit_turn_execution(
+            graph,
+            ctx,
+            adopt_prior_dispositions=False,
+        )
+        unresolved = tuple(
+            plan
+            for plan in exit_turns.plans
+            if plan.legacy_reason == exit_turn_routing.GAP_ALLOCATION_PENDING
+        )
+        if unresolved:
+            exit_turns = exit_turn_routing.decline_unsettled_gap_allocation(exit_turns)
+        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
+            prepare_member_geometry(
+                exit_turns,
+                frozenset(),
+                pending_plan_ids,
+            )
+        )
+        pending_member_ids = frozenset(
+            member_id
+            for plan in provisional_exit_turns.plans
+            if plan.id in pending_plan_ids
+            for member_id in plan.member_ids
+        )
+        member_geometry = _with_settled_exit_turns(
+            member_geometry,
+            allocation_geometry,
+            pending_member_ids,
+            ctx,
+        )
+    elif ctx.prior_exit_turn_dispositions is not None:
+        exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
+        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
+            prepare_member_geometry(exit_turns, pending_plan_ids)
+        )
+    else:
+        exit_turns = provisional_exit_turns
+        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
+            prepare_member_geometry(exit_turns, pending_plan_ids)
+        )
     allocation_planned_ids = _allocation_eligible_system_ids(
         preliminary_planned_ids,
         frozenset(member_geometry.failure_reasons),

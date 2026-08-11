@@ -1393,20 +1393,25 @@ in pipeline order.
 - **Purpose**: Decide source-lane order and turn axes for every complete
   inter-section exit group before route emission.
 - **Helpers**: `compute_station_offsets` produces the base offset map.
-  `_route_edges` calls `build_exit_turn_execution` once, immediately before
-  dispatch. That call plans complete groups and commits their owned compact
-  offsets to the routing context.
+  `_route_edges` prepares exit-turn execution immediately before dispatch. A
+  turn that needs a shared gap seat enters member-geometry allocation as a
+  movable claim. The allocated axis and signed corner offsets are then supplied
+  to `build_exit_turn_execution`, which publishes the complete group and
+  commits its owned compact offsets to the routing context.
 - **Precondition**: Layout coordinates and topology resolution are settled and
   remain immutable. The mutable per-line offset map has completed all local,
   port, junction, and rail-boundary phases.
 - **Postcondition**: Each supported exit group has compact active lanes, one
   assignment per outbound member, and any needed ordered turn axes, lane
-  transitions, references, and runway demands. Any unsupported member places
-  the whole group on the legacy path.
+  transitions, references, and runway demands. Gap-allocated axes are fixed in
+  the plan before emission. Any unsupported member places the whole group on
+  the legacy path.
 - **Invariants preserved**: Station, port, junction, and section coordinates.
   The planner may commit per-line station offsets at its owned seam. Downstream
   passes may change unowned route geometry but cannot move, remove, or replace
-  a planner-owned source-turn segment or lane transition. Re-seating a planned
+  a planner-owned source-turn segment or lane transition. The general gap pass
+  validates a gap-allocated plan's exact axis and derives its expected radius
+  with `concentric_corner_radius_at`; it does not allocate that axis. Re-seating a planned
   axis derives the opening corner from the source-lane displacement; the corner
   at the other end of that axis belongs to its destination or transition family
   and keeps that family's radius.

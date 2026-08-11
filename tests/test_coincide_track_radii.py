@@ -197,9 +197,8 @@ def _touched_corner_mismatches(
     mismatches: list[tuple[str, int, float, float]] = []
     for (_rid, radius_idx), (rp, offset, reference) in touched.items():
         final = routes_by_edge.get((rp.edge.source, rp.edge.target, rp.line_id))
-        if final is None:
+        if final is not rp:
             continue
-        rp = final
         radii = rp.curve_radii
         if radii is None or not 0 <= radius_idx < len(radii):
             continue
@@ -392,9 +391,7 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
     assert touched, f"{fixture} no longer exercises the coincide pass"
 
 
-@pytest.mark.parametrize(
-    "fixture", ["variantbenchmarking.mmd", "topologies/divergent_fanout_split.mmd"]
-)
+@pytest.mark.parametrize("fixture", ["variantbenchmarking.mmd", "genomeassembly.mmd"])
 def test_reintroduced_hand_clobber_is_detected(
     fixture: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

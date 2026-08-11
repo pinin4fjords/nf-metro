@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TypeVar
 
@@ -18,6 +18,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
+    EmissionRole,
     ExitTurnAxisId,
     ExitTurnPlanId,
     FanPlanId,
@@ -33,8 +34,11 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     RoutedPath,
     column_gap_edges,
+    convergence_owns_segment_boundary,
+    segment_direction,
 )
-from nf_metro.layout.routing.context import _RoutingCtx
+from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
+from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.dispatch import route_edge_by_handler_priority
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
@@ -49,6 +53,7 @@ from nf_metro.layout.routing.normalize import (
     _locate_slot_channel,
     _materialize_gap_slots,
     _materialize_trunk_slots,
+    _reconcile_port_peeloff_risers,
     _reseat_concentric_flanking,
     _segment_claim_band,
     _separate_opposing_inter_row_trunks,
@@ -136,6 +141,9 @@ class MemberGeometryExecution:
     plans: tuple[RouteMemberGeometryPlan, ...]
     failure_reasons: Mapping[RouteSystemId, str]
     _by_edge: Mapping[ResolvedEdge, RouteMemberGeometryPlan]
+    settled_exit_turns: Mapping[tuple[str, str, str], SettledExitTurn] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
     def plan_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -161,6 +169,127 @@ class MemberGeometryExecution:
 
 def empty_member_geometry_execution() -> MemberGeometryExecution:
     return MemberGeometryExecution((), MappingProxyType({}), MappingProxyType({}))
+
+
+def _allocated_turn(
+    route: RoutedPath,
+    run_direction: Direction | None,
+    turn_direction: Direction | None,
+) -> tuple[Direction, Direction, int] | None:
+    if run_direction is None or turn_direction is None:
+        if len(route.points) < 3:
+            return None
+        run_direction = segment_direction(route.points[0], route.points[1])
+        turn_direction = segment_direction(route.points[1], route.points[2])
+    if run_direction is None or turn_direction is None:
+        return None
+    if (run_direction in {Direction.R, Direction.L}) == (
+        turn_direction in {Direction.R, Direction.L}
+    ):
+        return None
+    candidate_ranks = tuple(
+        index
+        for index in range(1, len(route.points) - 1)
+        if segment_direction(route.points[index - 1], route.points[index])
+        is run_direction
+        and segment_direction(route.points[index], route.points[index + 1])
+        is turn_direction
+    )
+    if not candidate_ranks:
+        return None
+    preferred_rank = route.exit_turn_segment_rank
+    rank = (
+        candidate_ranks[0]
+        if preferred_rank is None
+        else min(candidate_ranks, key=lambda item: abs(item - preferred_rank))
+    )
+    return run_direction, turn_direction, rank
+
+
+def _settled_exit_turns(
+    routes: Iterable[RoutedPath],
+    ctx: _RoutingCtx,
+    pending_plan_ids: frozenset[ExitTurnPlanId],
+) -> Mapping[tuple[str, str, str], SettledExitTurn]:
+    """Read deferred source turns from the jointly seated route population."""
+    if ctx.exit_turns is None or not pending_plan_ids:
+        return MappingProxyType({})
+    settled: dict[tuple[str, str, str], SettledExitTurn] = {}
+
+    for route in routes:
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if membership is None or membership.plan.id not in pending_plan_ids:
+            continue
+        assignment = membership.assignment
+        if assignment is None:
+            continue
+        allocated_turn = _allocated_turn(
+            route, assignment.run_direction, assignment.turn_direction
+        )
+        if allocated_turn is None:
+            continue
+        run_direction, turn_direction, rank = allocated_turn
+        axis = 0 if run_direction in {Direction.R, Direction.L} else 1
+        launch_coordinate = route.points[rank - 1][axis]
+        axis_coordinate = route.points[rank][axis]
+        runway = abs(axis_coordinate - launch_coordinate)
+        corner_offsets = route.concentric_corner_offsets_by_segment.get(
+            rank, (None, None)
+        )
+        validate_corner_radii = EmissionRole.TERMINAL in assignment.roles
+        settled[(route.edge.source, route.edge.target, route.line_id)] = (
+            SettledExitTurn(
+                run_direction,
+                turn_direction,
+                launch_coordinate,
+                min(assignment.minimum_runway or runway, runway),
+                axis_coordinate,
+                corner_offsets,
+                validate_corner_radii,
+            )
+        )
+    return MappingProxyType(settled)
+
+
+def _adopt_allocated_pending_paths(
+    candidates: Iterable[RoutedPath],
+    population: Iterable[RoutedPath],
+    ctx: _RoutingCtx,
+    pending_plan_ids: frozenset[ExitTurnPlanId],
+) -> None:
+    """Copy the gap population's final representative onto each pending member."""
+    assert ctx.exit_turns is not None
+    allocated: dict[tuple[str, str, str], RoutedPath] = {}
+    for route in population:
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if membership is None or membership.plan.id not in pending_plan_ids:
+            continue
+        assignment = membership.assignment
+        if (
+            assignment is None
+            or _allocated_turn(
+                route, assignment.run_direction, assignment.turn_direction
+            )
+            is None
+        ):
+            continue
+        allocated[(route.edge.source, route.edge.target, route.line_id)] = route
+    for route in candidates:
+        source = allocated.get((route.edge.source, route.edge.target, route.line_id))
+        if source is None or source is route:
+            continue
+        route.points[:] = source.points
+        route.curve_radii = (
+            None if source.curve_radii is None else list(source.curve_radii)
+        )
+        route.gap_slots[:] = source.gap_slots
+        route.trunk_slot = source.trunk_slot
+        route.concentric_corner_offsets_by_segment = dict(
+            source.concentric_corner_offsets_by_segment
+        )
+        route.concentric_corner_bases_by_segment = dict(
+            source.concentric_corner_bases_by_segment
+        )
 
 
 def _convergence_member_edges(
@@ -254,6 +383,52 @@ def _typed_id(factory: Callable[[str], _IdT], value: str | None) -> _IdT | None:
     return None if value is None else factory(value)
 
 
+def _complete_concentric_corner_description(
+    route: RoutedPath,
+) -> tuple[
+    dict[int, tuple[float | None, float | None]],
+    dict[int, tuple[float | None, float | None]],
+]:
+    """Describe every frozen radius through the standard corner inputs."""
+    offsets = dict(route.concentric_corner_offsets_by_segment)
+    bases = dict(route.concentric_corner_bases_by_segment)
+    for radius_index, radius in enumerate(route.curve_radii or ()):
+        prev, corner, nxt = route.points[radius_index : radius_index + 3]
+        primary_rank = radius_index + 1
+        offset = offsets.get(primary_rank, (None, None))[0]
+        base_radius = bases.get(primary_rank, (None, None))[0]
+        if (
+            offset is None
+            or base_radius is None
+            or abs(
+                concentric_corner_radius_at(
+                    prev,
+                    corner,
+                    nxt,
+                    offset,
+                    base_radius,
+                )
+                - radius
+            )
+            > COORD_TOLERANCE_FINE
+        ):
+            offset = 0.0
+            base_radius = radius
+        for segment_rank, tuple_index in (
+            (radius_index, 1),
+            (radius_index + 1, 0),
+        ):
+            if not 0 < segment_rank < len(route.points) - 1:
+                continue
+            pair = list(offsets.get(segment_rank, (None, None)))
+            references = list(bases.get(segment_rank, (None, None)))
+            pair[tuple_index] = offset
+            references[tuple_index] = base_radius
+            offsets[segment_rank] = (pair[0], pair[1])
+            bases[segment_rank] = (references[0], references[1])
+    return offsets, bases
+
+
 def _freeze_plan(
     scaffold: RouteSemanticScaffold,
     candidate: _MemberCandidate,
@@ -290,6 +465,7 @@ def _freeze_plan(
             "route-member-geometry", system_id, member_id, family_id.value
         )
     )
+    corner_offsets, corner_bases = _complete_concentric_corner_description(route)
     return RouteMemberGeometryPlan(
         plan_id,
         system_id,
@@ -304,6 +480,8 @@ def _freeze_plan(
         tuple(route.gap_slots),
         route.trunk_slot,
         tuple(channels),
+        tuple(sorted(corner_offsets.items())),
+        tuple(sorted(corner_bases.items())),
         exit_turn_plan_id=_typed_id(ExitTurnPlanId, route.exit_turn_plan_id),
         exit_turn_member_id=_typed_id(EmissionMemberId, route.exit_turn_member_id),
         exit_turn_family_id=route.exit_turn_family_id,
@@ -354,20 +532,22 @@ def _index_materialized_channels(
     )
 
 
-def _planner_owns_channel(route: RoutedPath, segment_rank: int) -> bool:
+def _planner_owns_channel(
+    route: RoutedPath,
+    segment_rank: int,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> bool:
     if route.exit_lane_transition_plan_id is not None:
         return True
     if route.fan_plan_id is not None or route.fan_route_emitter is not None:
         return True
-    owned_ranks = (
-        *route.convergence_owned_segment_ranks,
-        *(
-            ()
-            if route.exit_turn_segment_rank is None
-            else (route.exit_turn_segment_rank,)
-        ),
+    if convergence_owns_segment_boundary(route, segment_rank):
+        return True
+    return (
+        route.exit_turn_segment_rank is not None
+        and route.exit_turn_plan_id not in movable_exit_plan_ids
+        and abs(route.exit_turn_segment_rank - segment_rank) <= 1
     )
-    return any(abs(owned_rank - segment_rank) <= 1 for owned_rank in owned_ranks)
 
 
 def _channel_bounds(item: _MaterializedChannel, ctx: _RoutingCtx) -> _ChannelBounds:
@@ -458,12 +638,15 @@ def _align_same_line_channels(
         tuple[PreliminaryGapChannelClaim, ...],
     ],
     ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> None:
     seated: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
         route = item.candidate.route
         channel = item.channel
-        if item.key in seated or _planner_owns_channel(route, channel.idx):
+        if item.key in seated or _planner_owns_channel(
+            route, channel.idx, movable_exit_plan_ids
+        ):
             continue
         matching = tuple(
             claim
@@ -700,6 +883,7 @@ def _allocate_bundle_around_claims(
 
 def _channel_bundles(
     materialized: tuple[_MaterializedChannel, ...],
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> tuple[tuple[_MaterializedChannel, ...], ...]:
     """Group mutable members that share one semantic carrier and corridor."""
     buckets: defaultdict[
@@ -709,7 +893,7 @@ def _channel_bundles(
     seen: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
         if item.key in seen or _planner_owns_channel(
-            item.candidate.route, item.channel.idx
+            item.candidate.route, item.channel.idx, movable_exit_plan_ids
         ):
             continue
         seen.add(item.key)
@@ -775,6 +959,7 @@ def _allocate_member_gap_channels(
     candidates: tuple[_MemberCandidate, ...],
     preliminary_claims: tuple[PreliminaryGapChannelClaim, ...],
     ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> None:
     """Seat distinct semantic carriers jointly before their plans freeze."""
     materialized = _materialized_channels(candidates, ctx)
@@ -786,10 +971,12 @@ def _allocate_member_gap_channels(
         *(
             _claim_for_materialized_channel(item)
             for item in materialized
-            if _planner_owns_channel(item.candidate.route, item.channel.idx)
+            if _planner_owns_channel(
+                item.candidate.route, item.channel.idx, movable_exit_plan_ids
+            )
         ),
     ]
-    for bundle in _channel_bundles(materialized):
+    for bundle in _channel_bundles(materialized, movable_exit_plan_ids):
         _allocate_bundle_around_claims(tuple(bundle), obstacles, ctx)
         obstacles.extend(_claim_for_materialized_channel(item) for item in bundle)
 
@@ -863,12 +1050,15 @@ def _allocate_preliminary_gap_claims(
     claims: tuple[PreliminaryGapChannelClaim, ...],
     ctx: _RoutingCtx,
     system_rank: Mapping[RouteSystemId, int],
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> None:
     """Seat mutable member channels around preliminary convergence claims."""
     if not claims:
         return
     materialized = _materialized_channels(candidates, ctx)
-    _align_same_line_channels(materialized, _index_claims(claims), ctx)
+    _align_same_line_channels(
+        materialized, _index_claims(claims), ctx, movable_exit_plan_ids
+    )
     effective_claims = _effective_claims(
         claims, _index_materialized_channels(materialized)
     )
@@ -877,7 +1067,7 @@ def _allocate_preliminary_gap_claims(
         system_rank,
         tuple(item.gap for item in materialized),
     )
-    for bundle in _channel_bundles(materialized):
+    for bundle in _channel_bundles(materialized, movable_exit_plan_ids):
         item = bundle[0]
         obstacles = tuple(
             claim
@@ -928,6 +1118,8 @@ def build_member_geometry_execution(
     compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
     preliminary_gap_claims: tuple[PreliminaryGapChannelClaim, ...] = (),
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
+    pending_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+    settled_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> MemberGeometryExecution:
     """Freeze each eligible non-convergence member's sole production template."""
     convergence_edges = _convergence_member_edges(scaffold)
@@ -994,25 +1186,49 @@ def build_member_geometry_execution(
         # Each channel pass ranks a gap over its whole population, and the freeze
         # makes that rank permanent, so the immutable convergence strokes travel
         # with the candidates rather than being discovered after the fact.
-        co_resident = [*candidate_routes, *context_routes]
-        _materialize_gap_slots(co_resident, ctx)
-        _materialize_trunk_slots(co_resident, ctx)
+        member_population = [*candidate_routes, *context_routes]
+        deferred_exit_turn_ownership: list[
+            tuple[RoutedPath, str | None, int | None]
+        ] = []
+        if settled_exit_turn_plan_ids:
+            for route in candidate_routes:
+                if route.exit_turn_plan_id not in settled_exit_turn_plan_ids:
+                    continue
+                deferred_exit_turn_ownership.append(
+                    (route, route.exit_turn_axis_id, route.exit_turn_segment_rank)
+                )
+                route.exit_turn_axis_id = None
+                route.exit_turn_segment_rank = None
+        allocation_population = (
+            [*ctx.built_routes[built_start:], *context_routes]
+            if pending_exit_turn_plan_ids
+            else member_population
+        )
+        normalization_population = member_population
+        _materialize_gap_slots(
+            allocation_population,
+            ctx,
+            movable_exit_plan_ids=pending_exit_turn_plan_ids,
+        )
+        _materialize_trunk_slots(normalization_population, ctx)
         # Trunk-slot materialization compares dip groups, never two flows that
         # entered one inter-row gap from opposite rows, so counter-running
         # trunks leave it within bundle pitch of each other and read as one
         # bundle.  The freeze is the last word on an owned channel, so the
         # direction bands have to be settled here rather than by the same pass
         # running after emission, which skips a plan-owned trunk.
-        _separate_opposing_inter_row_trunks(co_resident, ctx)
-        _coincide_same_line_tracks(co_resident, ctx)
-        _coincide_fanout_opening_descents(co_resident, ctx, settle_frozen_arcs=True)
-        _coincide_same_line_fanout_traverses(co_resident, ctx)
+        _separate_opposing_inter_row_trunks(normalization_population, ctx)
+        _coincide_same_line_tracks(normalization_population, ctx)
+        _coincide_fanout_opening_descents(
+            normalization_population, ctx, settle_frozen_arcs=True
+        )
+        _coincide_same_line_fanout_traverses(normalization_population, ctx)
         _bundle_divergent_distinct_traverses(candidate_routes, ctx)
         # Feeders converging on one entry port from opposite sides only nest
         # concentrically once their descent lanes are ordered by the port lane
         # they land in; the freeze is final, so that order has to be settled
         # here rather than by the same pass running after emission.
-        _stagger_convergent_distinct_lines(co_resident, ctx)
+        _stagger_convergent_distinct_lines(normalization_population, ctx)
         eligible_claims = _eligible_preliminary_gap_claims(
             preliminary_gap_claims,
             failures,
@@ -1025,21 +1241,51 @@ def build_member_geometry_execution(
                 system_id: rank
                 for rank, system_id in enumerate(scaffold.ordered_system_ids)
             },
+            pending_exit_turn_plan_ids,
         )
-        _allocate_member_gap_channels(tuple(candidates), eligible_claims, ctx)
+        _allocate_member_gap_channels(
+            tuple(candidates), eligible_claims, ctx, pending_exit_turn_plan_ids
+        )
         # The freeze is the last word on an owned channel's coordinate: the
         # emission chain's own clearance hold reads the frozen ranks as
         # immovable.  So the corridor clearance has to be closed here, on every
         # pass, and over the same whole gap population the passes above ranked --
         # a bundle carrying an immutable convergence stroke is pinned by it, and
         # holding the candidates alone would slide them off that stroke.
-        _hold_runs_in_corridor_clearance(co_resident, ctx)
+        _hold_runs_in_corridor_clearance(normalization_population, ctx)
+        if pending_exit_turn_plan_ids:
+            _reconcile_port_peeloff_risers(allocation_population, ctx)
+            settled_exit_turns = _settled_exit_turns(
+                allocation_population,
+                ctx,
+                pending_exit_turn_plan_ids,
+            )
+            _adopt_allocated_pending_paths(
+                candidate_routes,
+                allocation_population,
+                ctx,
+                pending_exit_turn_plan_ids,
+            )
+            plans = tuple(
+                _freeze_plan(scaffold, candidate, ctx, reservation_ids)
+                for candidate in candidates
+            )
+            return MemberGeometryExecution(
+                plans,
+                MappingProxyType(failures),
+                MappingProxyType({plan.edge: plan for plan in plans}),
+                settled_exit_turns,
+            )
         if reservation_ids_by_member is not None:
             _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        for route, axis_id, segment_rank in deferred_exit_turn_ownership:
+            route.exit_turn_axis_id = axis_id
+            route.exit_turn_segment_rank = segment_rank
         plans = tuple(
             _freeze_plan(scaffold, candidate, ctx, reservation_ids)
             for candidate in candidates
         )
+        settled_exit_turns = MappingProxyType({})
     finally:
         del ctx.built_routes[built_start:]
 
@@ -1047,6 +1293,7 @@ def build_member_geometry_execution(
         plans,
         MappingProxyType(failures),
         MappingProxyType({plan.edge: plan for plan in plans}),
+        settled_exit_turns,
     )
 
 
@@ -1062,6 +1309,12 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
         normalize_exempt=plan.normalize_exempt,
         gap_slots=list(plan.gap_slots),
         trunk_slot=plan.trunk_slot,
+        concentric_corner_offsets_by_segment=dict(
+            plan.concentric_corner_offsets_by_segment
+        ),
+        concentric_corner_bases_by_segment=dict(
+            plan.concentric_corner_bases_by_segment
+        ),
         exit_turn_plan_id=plan.exit_turn_plan_id,
         exit_turn_member_id=plan.exit_turn_member_id,
         exit_turn_family_id=plan.exit_turn_family_id,

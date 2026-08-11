@@ -455,7 +455,15 @@ def _route_edges(  # noqa: C901
         validate_exit_turn_plans,
     )
 
-    emitted_exit_turn_plans = ctx.exit_turns.plans if ctx.exit_turns is not None else ()
+    emitted_exit_turn_plans = (
+        tuple(
+            plan
+            for plan in ctx.exit_turns.plans
+            if plan.system_id in planned_system_ids
+        )
+        if ctx.exit_turns is not None
+        else ()
+    )
     planned_segments = snapshot_exit_turn_segments(routes, emitted_exit_turn_plans)
     moves = _center_bubble_stations(routes, graph)
     assert_exit_turn_snapshot(routes, planned_segments, "bubble centring")

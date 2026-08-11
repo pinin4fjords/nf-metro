@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
+from typing import cast
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -44,7 +45,9 @@ from nf_metro.layout.route_plan import (
     _ordered_unique,
     _plan_provenance,
     build_route_semantic_scaffold,
+    exit_turn_coordinate_cohorts,
     grid_span_for_sections,
+    ordered_turn_coordinate_span,
     reservation_decision_refs,
     turn_handedness,
 )
@@ -170,6 +173,9 @@ PLANNED_EXIT_FAMILIES = frozenset(
     }
 )
 
+GAP_ALLOCATION_PENDING = "gap-allocation-pending"
+"""Internal first-pass verdict replaced after joint gap allocation."""
+
 # Families whose source seam is a perpendicular-exit centreline.
 _PERPENDICULAR_EXIT_FAMILIES = frozenset(
     {RouteFamilyId.PERP_EXIT, RouteFamilyId.TB_PERP_EXIT_OVER}
@@ -261,6 +267,35 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
+
+    def replacing_plans(
+        self, replacements: Mapping[ExitTurnPlanId, ExitTurnPlan]
+    ) -> ExitTurnPlanQuery:
+        """Return a query whose memberships reference replacement plan records."""
+
+        def replace_membership(
+            membership: _Membership | _TransitionMembership,
+        ) -> _Membership | _TransitionMembership:
+            return replace(
+                membership,
+                plan=replacements.get(membership.plan.id, membership.plan),
+            )
+
+        return ExitTurnPlanQuery(
+            tuple(replacements.get(plan.id, plan) for plan in self.plans),
+            MappingProxyType(
+                {
+                    key: cast(_Membership, replace_membership(membership))
+                    for key, membership in self._by_edge.items()
+                }
+            ),
+            MappingProxyType(
+                {
+                    key: cast(_TransitionMembership, replace_membership(membership))
+                    for key, membership in self._transition_by_edge.items()
+                }
+            ),
+        )
 
     def restrict_to_systems(
         self, system_ids: frozenset[RouteSystemId]
@@ -356,7 +391,11 @@ class ExitTurnExecution:
         plans = tuple(
             plan
             for plan in self.plans
-            if plan.system_id in system_ids or _owns_no_shared_resource(plan)
+            if plan.system_id in system_ids
+            or (
+                plan.disposition is ExitTurnDisposition.LEGACY
+                and _owns_no_shared_resource(plan)
+            )
         )
         owned = tuple(plan for plan in plans if plan.system_id in system_ids)
         reference_ids = {
@@ -381,6 +420,95 @@ class ExitTurnExecution:
             ),
             self.query.restrict_to_systems(system_ids),
         )
+
+
+def promote_pending_gap_allocation(
+    execution: ExitTurnExecution,
+) -> tuple[ExitTurnExecution, frozenset[ExitTurnPlanId]]:
+    """Make deferred groups provisional owners while their gap seats are found."""
+    pending = frozenset(
+        plan.id
+        for plan in execution.plans
+        if plan.legacy_reason == GAP_ALLOCATION_PENDING
+    )
+    if not pending:
+        return execution, pending
+    promoted = {
+        plan.id: replace(
+            plan,
+            disposition=ExitTurnDisposition.PLANNED,
+            legacy_reason=None,
+        )
+        for plan in execution.plans
+        if plan.id in pending
+    }
+    query = execution.query.replacing_plans(promoted)
+    pending_members = {
+        member_id
+        for plan in execution.plans
+        if plan.id in pending
+        for member_id in plan.member_ids
+    }
+    return (
+        ExitTurnExecution(
+            execution.scaffold,
+            query.plans,
+            execution.references,
+            execution.demands,
+            tuple(
+                diagnostic
+                for diagnostic in execution.diagnostics
+                if not (
+                    diagnostic.code == "exit-turn-legacy"
+                    and diagnostic.member_id in pending_members
+                )
+            ),
+            query,
+        ),
+        pending,
+    )
+
+
+def decline_unsettled_gap_allocation(
+    execution: ExitTurnExecution,
+) -> ExitTurnExecution:
+    """Keep placement-only observations routable when no turn can be measured."""
+    pending_members = {
+        plan.member_ids[0]
+        for plan in execution.plans
+        if plan.legacy_reason == GAP_ALLOCATION_PENDING and plan.member_ids
+    }
+    replacements = {
+        plan.id: replace(
+            plan,
+            disposition=ExitTurnDisposition.LEGACY,
+            legacy_reason="missing-source-turn",
+        )
+        for plan in execution.plans
+        if plan.legacy_reason == GAP_ALLOCATION_PENDING
+    }
+    if not replacements:
+        return execution
+    query = execution.query.replacing_plans(replacements)
+    return ExitTurnExecution(
+        execution.scaffold,
+        query.plans,
+        execution.references,
+        execution.demands,
+        tuple(
+            replace(
+                diagnostic,
+                message=diagnostic.message.replace(
+                    GAP_ALLOCATION_PENDING, "missing-source-turn"
+                ),
+            )
+            if diagnostic.code == "exit-turn-legacy"
+            and diagnostic.member_id in pending_members
+            else diagnostic
+            for diagnostic in execution.diagnostics
+        ),
+        query,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1108,15 +1236,13 @@ def _u_bypass_source_turn(
         # narrower than the gap's own population of the channel, neither where
         # the group lands nor the stagger the two flanking corners are sized
         # from follows from the member's own claim.
-        return _SourceTurnRequirement.declined("seating-group-owns-the-descent-column")
+        return _SourceTurnRequirement.declined(GAP_ALLOCATION_PENDING)
     if bypass_line_draws_a_chained_trunk(edge, ctx):
         # Freezing this descent takes it out of the gap's movable population,
         # and the gap allocator then seats the rest of that population one step
         # over.  The X spans that move re-pack the inter-row band this line's
         # two chained trunks share, onto tracks that fuse two of its strokes.
-        return _SourceTurnRequirement.declined(
-            "trunk-band-owns-the-chained-same-line-trunk"
-        )
+        return _SourceTurnRequirement.declined(GAP_ALLOCATION_PENDING)
     if geometry.seam.turn_direction is None:
         # The descent has no depth: the lead-out and the below-row traverse
         # stand on one level, so the seam's whole source-side geometry is a
@@ -1665,6 +1791,44 @@ def _classify_assignment_seeds(
                 ctx,
                 exit_port_id,
             )
+        settled = ctx.settled_exit_turns.get((edge.source, edge.target, edge.line_id))
+        if settled is not None:
+            if (
+                requirement.run_direction is None
+                or requirement.turn_direction is None
+                or requirement.launch_coordinate is None
+                or requirement.minimum_runway is None
+            ):
+                requirement = _route_derived_turn_requirement(
+                    graph_edge, family_id, ctx
+                )
+            if (
+                requirement.run_direction is not None
+                and requirement.turn_direction is not None
+                and requirement.launch_coordinate is not None
+                and requirement.minimum_runway is not None
+            ):
+                available_runway = (
+                    settled.axis_coordinate - settled.launch_coordinate
+                ) * requirement.run_direction.sign
+                requirement = replace(
+                    requirement,
+                    launch_coordinate=settled.launch_coordinate,
+                    minimum_runway=min(
+                        settled.minimum_runway,
+                        max(0.0, available_runway),
+                    ),
+                    fixed_axis=settled.axis_coordinate,
+                    legacy_reason=None,
+                )
+            else:
+                requirement = _SourceTurnRequirement(
+                    settled.run_direction,
+                    settled.turn_direction,
+                    settled.launch_coordinate,
+                    settled.minimum_runway,
+                    settled.axis_coordinate,
+                )
         if (
             family_id is RouteFamilyId.MERGE_BRANCH
             and requirement.turn_direction is not None
@@ -1877,7 +2041,16 @@ def _plan_turn_axes(
     cohort_key = _turn_cohort_key_by_member(turning_seeds, ctx.curve_radius)
     cohorts: dict[_TurnCohortKey, list[_AssignmentSeed]] = defaultdict(list)
     for seed in turning_seeds:
-        cohorts[cohort_key[seed.member_id]].append(seed)
+        key = cohort_key[seed.member_id]
+        if _edge_key(seed.edge) in ctx.settled_exit_turns:
+            key = (
+                key[0],
+                key[1],
+                EndpointGroupId(
+                    semantic_route_id("gap-allocated-turn", seed.edge.line_id)
+                ),
+            )
+        cohorts[key].append(seed)
 
     built_axes: list[ExitTurnAxis] = []
     axis_by_member: dict[EmissionMemberId, ExitTurnAxis] = {}
@@ -1898,10 +2071,14 @@ def _plan_turn_axes(
             abs(item - fixed_origins[0]) > COORD_TOLERANCE for item in fixed_origins[1:]
         ):
             return _AxisPlan(
-                (), MappingProxyType({}), minimum_runway, "fixed-axis-conflict"
+                (), MappingProxyType({}), minimum_runway, GAP_ALLOCATION_PENDING
             )
         if fixed_origins:
             origin = fixed_origins[0]
+            coordinates = {
+                rank: origin + progression * cohort_rank[rank] * ctx.offset_step
+                for rank in ranks
+            }
         else:
             required_origins = tuple(
                 seed.launch_coordinate
@@ -1916,10 +2093,10 @@ def _plan_turn_axes(
                 if run_direction.sign > 0
                 else min(required_origins)
             )
-        coordinates = {
-            rank: origin + progression * cohort_rank[rank] * ctx.offset_step
-            for rank in ranks
-        }
+            coordinates = {
+                rank: origin + progression * cohort_rank[rank] * ctx.offset_step
+                for rank in ranks
+            }
         insufficient_runway = tuple(
             seed
             for seed in cohort
@@ -1960,7 +2137,12 @@ def _plan_turn_axes(
             rank_seeds = tuple(seed for seed in cohort if seed.lane_rank == rank)
             claimant_ids = tuple(seed.member_id for seed in rank_seeds)
             fixed_seed = next(
-                (seed for seed in rank_seeds if seed.fixed_axis is not None),
+                (
+                    seed
+                    for seed in rank_seeds
+                    if seed.fixed_axis is not None
+                    and _edge_key(seed.edge) not in ctx.settled_exit_turns
+                ),
                 None,
             )
             coordinate = coordinates[rank]
@@ -2001,7 +2183,14 @@ def _plan_turn_axes(
                         lane_line,
                         run_direction.value,
                         turn_direction.value,
-                        pinning_group_id,
+                        (
+                            None
+                            if all(
+                                _edge_key(seed.edge) in ctx.settled_exit_turns
+                                for seed in rank_seeds
+                            )
+                            else pinning_group_id
+                        ),
                     )
                 ),
                 lane_line,
@@ -2352,15 +2541,19 @@ def _build_group_plan(
         turning_claimants = tuple(
             seed.member_id for seed in seeds if seed.turn_direction is not None
         )
-        cohort_key = _turn_cohort_key_by_member(seeds, ctx.curve_radius)
-        cohort_sizes: dict[_TurnCohortKey, set[int]] = defaultdict(set)
-        for seed in seeds:
-            if seed.member_id in cohort_key:
-                cohort_sizes[cohort_key[seed.member_id]].add(seed.lane_rank)
-        ordered_turn_span = max(
-            ((len(ranks) - 1) * ctx.offset_step for ranks in cohort_sizes.values()),
-            default=0.0,
+        cohort_coordinates = exit_turn_coordinate_cohorts(
+            (
+                seed.run_direction,
+                seed.turn_direction,
+                axis.pinning_group_id,
+                axis.coordinate,
+            )
+            for seed in seeds
+            if (axis := axis_plan.axis_by_member.get(seed.member_id)) is not None
+            and seed.run_direction is not None
+            and seed.turn_direction is not None
         )
+        ordered_turn_span = ordered_turn_coordinate_span(cohort_coordinates)
         reference = SharedReference(
             reference_id,
             system_id,
@@ -2656,7 +2849,7 @@ def _cross_plan_fallback_reasons(
             for axis in plan.axes
             for channel in compatibility_channels
         ):
-            reasons[plan.id] = "planned-axis-overlaps-compatibility-channel"
+            reasons[plan.id] = GAP_ALLOCATION_PENDING
             continue
         if any(
             first.line_id != second.line_id
@@ -2930,9 +3123,29 @@ def _planned_axis_cross_range(
                 values.extend(point[0] for point in route.points)
                 continue
             if assignment.planned_family_id is not RouteFamilyId.TB_BOTTOM_EXIT:
-                raise ExitTurnInvariantError(
-                    _failure(plan, "vertical turn axis has no production geometry")
+                graph_edge = _graph_edge(ctx.edge_by_key, edge)
+                rule = _inter_section_rule_for_family(assignment.planned_family_id)
+                route = (
+                    None
+                    if rule is None
+                    else rule.route(
+                        _build_inter_facts(
+                            graph_edge,
+                            source,
+                            target,
+                            tentative_ctx,
+                        )
+                    )
                 )
+                if route is None:
+                    raise ExitTurnInvariantError(
+                        _failure(
+                            plan,
+                            "vertical turn axis has no production geometry",
+                        )
+                    )
+                values.extend(point[0] for point in route.points)
+                continue
             geometry = _tb_bottom_exit_geometry(
                 _graph_edge(ctx.edge_by_key, edge),
                 source,
@@ -3023,7 +3236,12 @@ def _apply_cross_plan_fallbacks(
     return plans, references, demands
 
 
-def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnExecution:
+def build_exit_turn_execution(
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    *,
+    adopt_prior_dispositions: bool = True,
+) -> ExitTurnExecution:
     """Plan every complete exit group before the first handler emits geometry."""
     fan_execution = graph.fan_plan_execution
     scaffold = fan_execution.scaffold if fan_execution is not None else None
@@ -3069,7 +3287,11 @@ def build_exit_turn_execution(graph: MetroGraph, ctx: _RoutingCtx) -> ExitTurnEx
         assignments_by_plan,
         frame_ownership,
     )
-    overridden_dispositions = _adopt_prior_dispositions(ctx, plans, cross_plan_reasons)
+    overridden_dispositions = (
+        _adopt_prior_dispositions(ctx, plans, cross_plan_reasons)
+        if adopt_prior_dispositions
+        else frozenset()
+    )
     if overridden_dispositions:
         adopted_by_id = {plan.id: plan for plan in plans}
         for plan_id in overridden_dispositions:
@@ -3194,6 +3416,54 @@ def _fixed_axis_matches_plan(
     )
 
 
+def planned_exit_turn_corner_offsets(
+    membership: _Membership,
+) -> tuple[float, float] | None:
+    """Return the signed concentric offsets committed for a planned turn."""
+    assignment = membership.assignment
+    if (
+        assignment is None
+        or membership.axis is None
+        or assignment.run_direction is None
+        or assignment.turn_direction is None
+    ):
+        return None
+    run_direction = assignment.run_direction
+    axis_by_id = {axis.id: axis for axis in membership.plan.axes}
+    turn_cohort = tuple(
+        item
+        for item in membership.plan.assignments
+        if item.run_direction is assignment.run_direction
+        and item.turn_direction is assignment.turn_direction
+        and item.axis_id is not None
+    )
+    pinning_group_ids = {
+        item.entry_group_id
+        for item in turn_cohort
+        if item.axis_id is not None
+        and axis_by_id[item.axis_id].fixed_anchor_id is not None
+    }
+    if len(pinning_group_ids) > 1:
+        turn_cohort = tuple(
+            item
+            for item in turn_cohort
+            if item.entry_group_id == assignment.entry_group_id
+        )
+    cohort_axis_ids = {item.axis_id for item in turn_cohort}
+    reference_axis = min(
+        (axis for axis in membership.plan.axes if axis.id in cohort_axis_ids),
+        key=lambda item: item.coordinate * run_direction.sign,
+    )
+    offset = membership.axis.coordinate - reference_axis.coordinate
+    shares_terminal_destination_entry = any(
+        item.member_id != assignment.member_id
+        and item.entry_group_id == assignment.entry_group_id
+        and EmissionRole.TERMINAL in item.roles
+        for item in turn_cohort
+    )
+    return offset, offset if shares_terminal_destination_entry else 0.0
+
+
 def consume_exit_turn_route(
     route: RoutedPath,
     family_id: RouteFamilyId,
@@ -3257,7 +3527,10 @@ def consume_exit_turn_route(
         )
     source_axis = membership.axis.axis
     segment_start, segment_end = route.points[segment_rank : segment_rank + 2]
-    if (
+    settled = ctx.settled_exit_turns.get(
+        (route.edge.source, route.edge.target, route.line_id)
+    )
+    axis_changed = (
         abs(
             get_point_coordinate(segment_start, source_axis)
             - membership.axis.coordinate
@@ -3267,56 +3540,28 @@ def consume_exit_turn_route(
             get_point_coordinate(segment_end, source_axis) - membership.axis.coordinate
         )
         > COORD_TOLERANCE
-    ):
-        axis_by_id = {axis.id: axis for axis in membership.plan.axes}
-        turn_cohort = tuple(
-            item
-            for item in membership.plan.assignments
-            if item.run_direction is run
-            and item.turn_direction is turn
-            and item.axis_id is not None
-        )
-        # A heading more than one destination pins carries a ladder per pinning
-        # destination, and the nesting offset is measured within one ladder: a
-        # member read against a foreign ladder's reference reports the distance
-        # between two columns of the map as its own corner's offset.
-        pinning_group_ids = {
-            item.entry_group_id
-            for item in turn_cohort
-            if item.axis_id is not None
-            and axis_by_id[item.axis_id].fixed_anchor_id is not None
-        }
-        if len(pinning_group_ids) > 1:
-            turn_cohort = tuple(
-                item
-                for item in turn_cohort
-                if item.entry_group_id == assignment.entry_group_id
+    )
+    if settled is not None or axis_changed:
+        planned_corner_offsets = planned_exit_turn_corner_offsets(membership)
+        assert planned_corner_offsets is not None
+        corner_offsets = tuple(
+            planned if settled is None or allocated is None else allocated
+            for planned, allocated in zip(
+                planned_corner_offsets,
+                settled.corner_offsets if settled is not None else (None, None),
+                strict=True,
             )
-        cohort_axis_ids = {item.axis_id for item in turn_cohort}
-        cohort_axes = tuple(
-            axis for axis in membership.plan.axes if axis.id in cohort_axis_ids
-        )
-        reference_axis = min(
-            cohort_axes,
-            key=lambda item: item.coordinate * run.sign,
-        )
-        offset = membership.axis.coordinate - reference_axis.coordinate
-        shares_terminal_destination_entry = any(
-            item.member_id != assignment.member_id
-            and item.entry_group_id == assignment.entry_group_id
-            and EmissionRole.TERMINAL in item.roles
-            for item in turn_cohort
         )
         _reseat_concentric_flanking(
             route,
             segment_rank,
             membership.axis.coordinate,
             axis=0 if source_axis is DemandAxis.X else 1,
-            offset_in=offset,
-            offset_out=offset if shares_terminal_destination_entry else 0.0,
+            offset_in=corner_offsets[0],
+            offset_out=corner_offsets[1],
         )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
-    if (
+    source_turn_changed = (
         abs(get_point_coordinate(lead, source_axis) - assignment.launch_coordinate)
         > COORD_TOLERANCE
         or segment_direction(lead, start) is not run
@@ -3327,7 +3572,8 @@ def consume_exit_turn_route(
         * run.sign
         < assignment.minimum_runway - COORD_TOLERANCE
         or segment_direction(start, end) is not turn
-    ):
+    )
+    if source_turn_changed and settled is None:
         raise ExitTurnInvariantError(
             _failure(membership.plan, "source turn changed during dispatch")
         )
@@ -3353,6 +3599,8 @@ def snapshot_exit_turn_segments(
     """Capture every planner-owned segment and hand-off after template emission."""
     values: dict[tuple[str, ...], _ExitTurnGeometryState] = {}
     for route in routes:
+        if route.route_system_disposition == "compatibility":
+            continue
         if route.exit_turn_axis_id is not None:
             rank = route.exit_turn_segment_rank
             if rank is None:
@@ -3596,6 +3844,8 @@ def validate_exit_turn_plans(
                         "emitted route family differs from its assignment",
                     )
                 )
+            if route.route_system_disposition == "compatibility":
+                continue
             if assignment.axis_id is None:
                 if route.exit_turn_axis_id is not None:
                     raise ExitTurnInvariantError(
