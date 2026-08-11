@@ -1510,6 +1510,10 @@ def _observe_route_geometry(
         route = routes[binding.path_rank]
         points = apply_route_offsets(route, station_offsets)
         segments = _maximal_axis_segments(points)
+        declared_gap_channels = frozenset(
+            (slot.gap_lo_col, slot.gap_hi_col, slot.direction)
+            for slot in route.gap_slots
+        )
         landing_section = _route_landing_section(graph, route)
         launch_anchor = _route_launch_anchor(graph, route)
         for segment in segments:
@@ -1567,12 +1571,12 @@ def _observe_route_geometry(
                         segment.coordinate,
                         segment.orientation is CorridorOrientation.VERTICAL
                         and isinstance(region, ColumnGapRegion)
-                        and any(
-                            slot.gap_lo_col == region.left_column
-                            and slot.gap_hi_col == region.right_column
-                            and slot.direction is segment.direction
-                            for slot in route.gap_slots
-                        ),
+                        and (
+                            region.left_column,
+                            region.right_column,
+                            segment.direction,
+                        )
+                        in declared_gap_channels,
                     ),
                     kind,
                     segment.orientation,

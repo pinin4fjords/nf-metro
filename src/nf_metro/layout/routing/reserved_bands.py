@@ -505,6 +505,7 @@ def _claim_views(
     column_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
     for reservation, lo, hi in measured:
         is_row = isinstance(reservation.region, RowGapRegion)
+        allocation_axis = DemandAxis.Y if is_row else DemandAxis.X
         band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
         for claim in reservation.claims:
             edge = edge_by_member[claim.member_id]
@@ -514,7 +515,7 @@ def _claim_views(
             allocation = (
                 project_reservation_coordinate(
                     claim.allocation_coordinate,
-                    DemandAxis.X,
+                    allocation_axis,
                     claim.member_id,
                     translations,
                 )
