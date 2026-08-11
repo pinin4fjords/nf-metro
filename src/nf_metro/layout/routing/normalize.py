@@ -9,7 +9,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from math import inf, isfinite
-from typing import NamedTuple, TypeVar
+from typing import AbstractSet, NamedTuple, TypeVar
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -4030,7 +4030,7 @@ def _clear_channel_x_in_band(
     y_lo: float,
     y_hi: float,
     clearance: float,
-    exclude_section_ids: set[str],
+    exclude_section_ids: AbstractSet[str],
     bound_left: float | None = None,
     bound_right: float | None = None,
 ) -> float:
@@ -4081,7 +4081,7 @@ def _h_segment_crosses_other_section(
     x1: float,
     x2: float,
     y: float,
-    exclude_section_ids: set[str],
+    exclude_section_ids: AbstractSet[str],
     margin: float = 0.0,
 ) -> bool:
     """Return True if a horizontal segment at *y* crosses any section interior.
@@ -4105,7 +4105,7 @@ def _v_segment_crosses_other_section(
     x: float,
     y1: float,
     y2: float,
-    exclude_section_ids: set[str],
+    exclude_section_ids: AbstractSet[str],
     margin: float = 0.0,
 ) -> bool:
     """Return True if a vertical segment at *x* crosses any section interior.

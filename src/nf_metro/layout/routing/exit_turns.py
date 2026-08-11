@@ -761,7 +761,7 @@ def _perp_exit_family_geometry(
     """
     if family_id is RouteFamilyId.TB_PERP_EXIT_OVER:
         return _perp_exit_over_geometry(edge, src, tgt, ctx)
-    geometry = _perp_exit_geometry(edge, src, tgt, ctx)
+    geometry = _perp_exit_geometry(_build_inter_facts(edge, src, tgt, ctx))
     assert geometry is not None
     return geometry
 
@@ -995,7 +995,9 @@ def _source_turn_requirement(
             edge, source_run_direction, ctx, src, tgt
         )
     if family_id is RouteFamilyId.BYPASS_LEFT_EXIT_AROUND_BELOW:
-        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+        return _left_exit_around_below_turn_requirement(
+            _build_inter_facts(edge, src, tgt, ctx)
+        )
     if family_id is RouteFamilyId.TB_BOTTOM_EXIT:
         geometry = _tb_bottom_exit_geometry(edge, src, tgt, ctx)
         if geometry.seam.turn_direction is None:
@@ -1137,7 +1139,9 @@ def _source_turn_requirement(
     if family_id is RouteFamilyId.LEFT_EXIT_FAR_SIDE_WRAP:
         # The dispatch rule claims the single-hop reading of the loop the
         # bypass family draws for the multi-hop one, from the same builder.
-        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+        return _left_exit_around_below_turn_requirement(
+            _build_inter_facts(edge, src, tgt, ctx)
+        )
     if family_id is RouteFamilyId.PERP_EXIT_FAR_SIDE_WRAP:
         perp_wrap = perp_exit_farside_entry_wrap_geometry(
             _build_inter_facts(edge, src, tgt, ctx)
@@ -1325,7 +1329,7 @@ def _bypass_turn_requirement(
             return _u_bypass_turn_requirement(facts)
         return _plain_l_shape_turn_requirement(edge, src, tgt, ctx, column)
     if kind is _BypassRoute.LEFT_EXIT_AROUND_BELOW:
-        return _left_exit_around_below_turn_requirement(edge, src, tgt, ctx)
+        return _left_exit_around_below_turn_requirement(facts)
     if kind is _BypassRoute.PACKED_CELL_SAME_ROW:
         return _packed_cell_same_row_turn_requirement(
             edge, source_run_direction, ctx, src, tgt, facts
@@ -1334,14 +1338,14 @@ def _bypass_turn_requirement(
 
 
 def _left_exit_around_below_turn_requirement(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
+    facts: _InterFacts,
 ) -> _SourceTurnRequirement:
     """The turn a LEFT exit looping under a far-side LEFT entry opens with."""
-    geometry = left_exit_around_below_geometry(edge, src, tgt, ctx)
+    geometry = left_exit_around_below_geometry(facts)
     return _SourceTurnRequirement.from_seam(
         replace(
             geometry.seam,
-            axis_coordinate=seated_left_exit_under_target_descent(geometry, ctx),
+            axis_coordinate=seated_left_exit_under_target_descent(geometry, facts.ctx),
         )
     )
 
