@@ -1186,26 +1186,25 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
         "reconverge_reversed_fold.mmd",
     ),
 )
-def test_gap_allocated_turn_sizes_corner_within_its_contiguous_lane_cohort(
+def test_gap_allocated_turns_hold_each_destination_to_its_own_ladder(
     fixture: str,
 ) -> None:
-    _graph, _offsets, observation = _observe(TOPOLOGIES / fixture)
-    route = next(
-        item
-        for item in observation.routes
-        if item.edge.source == "__junction_15"
-        and item.edge.target == "tech_qc__entry_right_12"
-        and item.line_id == "protein"
-    )
-    rank = route.exit_turn_segment_rank
-    assert rank is not None
-    assert route.curve_radii is not None
+    """Two entry groups sharing no lane keep the depths their own ports draw."""
+    _graph, offsets, observation = _observe(TOPOLOGIES / fixture)
+    approaches: dict[str, list[float]] = {}
+    for route in observation.routes:
+        if route.edge.source != "__junction_15":
+            continue
+        approaches.setdefault(route.edge.target, []).append(
+            apply_route_offsets(route, offsets)[-1][1]
+        )
+    interpretation = sorted(approaches["bio_interp__entry_right_11"])
+    technical_qc = sorted(approaches["tech_qc__entry_right_12"])
 
-    expected = concentric_corner_radius_at(
-        *route.points[rank - 1 : rank + 2],
-        0.0,
-    )
-    assert route.curve_radii[rank - 1] == pytest.approx(expected)
+    assert len(interpretation) == 2
+    assert interpretation[1] - interpretation[0] == pytest.approx(OFFSET_STEP)
+    assert len(technical_qc) == 1
+    assert min(abs(technical_qc[0] - lane) for lane in interpretation) > OFFSET_STEP
 
 
 def test_several_turnless_members_each_state_their_own_landing() -> None:

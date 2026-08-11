@@ -110,9 +110,8 @@ def _touched_corner_mismatches(
     actual final bundle offset, not whichever pass touched it first.
 
     Only corners on the *final* routes are checked. A planned member is frozen
-    from its mutable seed into a fresh route, so touched seeds are resolved to
-    that final route by their unique edge identity. Superseded seeds whose edge
-    was not emitted cannot report a mismatch.
+    from its mutable seed into a fresh route, so a touched route that is not
+    itself the emitted final for its edge cannot report a mismatch.
     Returns any disagreement between the stored radius and the central derivation
     as ``(line_id, radius_index, stored, expected)``.
     """
@@ -207,8 +206,7 @@ def _touched_corner_mismatches(
 
     mismatches: list[tuple[str, int, float, float]] = []
     for (_rid, radius_idx), (rp, offset, reference) in touched.items():
-        final = routes_by_edge.get((rp.edge.source, rp.edge.target, rp.line_id))
-        if final is not rp:
+        if routes_by_edge.get((rp.edge.source, rp.edge.target, rp.line_id)) is not rp:
             continue
         radii = rp.curve_radii
         if radii is None or not 0 <= radius_idx < len(radii):

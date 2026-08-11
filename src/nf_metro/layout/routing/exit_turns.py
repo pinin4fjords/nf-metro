@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import cast
+from typing import TypeVar
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -252,6 +252,9 @@ class _TransitionMembership:
     transition: ExitLaneTransition
 
 
+_MembershipT = TypeVar("_MembershipT", _Membership, _TransitionMembership)
+
+
 @dataclass(frozen=True, slots=True)
 class ExitTurnPlanQuery:
     """Read-only lookup used by production dispatch and invariants."""
@@ -273,9 +276,7 @@ class ExitTurnPlanQuery:
     ) -> ExitTurnPlanQuery:
         """Return a query whose memberships reference replacement plan records."""
 
-        def replace_membership(
-            membership: _Membership | _TransitionMembership,
-        ) -> _Membership | _TransitionMembership:
+        def replace_membership(membership: _MembershipT) -> _MembershipT:
             return replace(
                 membership,
                 plan=replacements.get(membership.plan.id, membership.plan),
@@ -285,13 +286,13 @@ class ExitTurnPlanQuery:
             tuple(replacements.get(plan.id, plan) for plan in self.plans),
             MappingProxyType(
                 {
-                    key: cast(_Membership, replace_membership(membership))
+                    key: replace_membership(membership)
                     for key, membership in self._by_edge.items()
                 }
             ),
             MappingProxyType(
                 {
-                    key: cast(_TransitionMembership, replace_membership(membership))
+                    key: replace_membership(membership)
                     for key, membership in self._transition_by_edge.items()
                 }
             ),
@@ -3414,36 +3415,8 @@ def _fixed_axis_matches_plan(
     )
 
 
-def _contiguous_turn_axis_ids(
-    axes: Iterable[ExitTurnAxis],
-    target_axis_id: ExitTurnAxisId,
-    offset_step: float,
-) -> frozenset[ExitTurnAxisId]:
-    """Return the lane-pitch-connected turn axes containing the target axis."""
-    ordered = sorted(axes, key=lambda axis: axis.coordinate)
-    target_rank = next(
-        rank for rank, axis in enumerate(ordered) if axis.id == target_axis_id
-    )
-    lower = target_rank
-    while (
-        lower > 0
-        and ordered[lower].coordinate - ordered[lower - 1].coordinate
-        <= offset_step + COORD_TOLERANCE
-    ):
-        lower -= 1
-    upper = target_rank + 1
-    while (
-        upper < len(ordered)
-        and ordered[upper].coordinate - ordered[upper - 1].coordinate
-        <= offset_step + COORD_TOLERANCE
-    ):
-        upper += 1
-    return frozenset(axis.id for axis in ordered[lower:upper])
-
-
 def planned_exit_turn_corner_offsets(
     membership: _Membership,
-    offset_step: float,
 ) -> tuple[float, float] | None:
     """Return the signed concentric offsets committed for a planned turn."""
     assignment = membership.assignment
@@ -3479,14 +3452,6 @@ def planned_exit_turn_corner_offsets(
             for item in turn_cohort
             if item.entry_group_id == assignment.entry_group_id
         )
-    contiguous_axis_ids = _contiguous_turn_axis_ids(
-        (axis_by_id[item.axis_id] for item in turn_cohort if item.axis_id is not None),
-        membership.axis.id,
-        offset_step,
-    )
-    turn_cohort = tuple(
-        item for item in turn_cohort if item.axis_id in contiguous_axis_ids
-    )
     cohort_axis_ids = {item.axis_id for item in turn_cohort}
     reference_axis = min(
         (axis for axis in membership.plan.axes if axis.id in cohort_axis_ids),
@@ -3579,9 +3544,7 @@ def consume_exit_turn_route(
         )
         > COORD_TOLERANCE
     )
-    planned_corner_offsets = planned_exit_turn_corner_offsets(
-        membership, ctx.offset_step
-    )
+    planned_corner_offsets = planned_exit_turn_corner_offsets(membership)
     if planned_corner_offsets is None:
         raise ExitTurnInvariantError(
             _failure(membership.plan, "planned turn has no standard corner offsets")

@@ -630,13 +630,15 @@ def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
     """Whether a plan resolves this channel's coordinate outright.
 
     A fan emission and a planned exit turn each name the coordinate itself, so
-    no rank re-derivation can speak for it.  Convergence and member-geometry
-    ownership name it too, but a group already occupying adjacent tracks keeps
-    every coordinate, so those are answerable at that width.
+    no rank re-derivation can speak for it.  A compatibility system's turn
+    names nothing final, so its channel stays movable.  Convergence and
+    member-geometry ownership name the coordinate too, but a group already
+    occupying adjacent tracks keeps every coordinate, so those are answerable
+    at that width.
     """
     route = channel.route
     return route.fan_route_emitter is not None or (
-        route.route_system_disposition != "compatibility"
+        route.route_system_disposition != RouteSystemDisposition.COMPATIBILITY.value
         and route.exit_turn_axis_id is not None
         and route.exit_turn_segment_rank == channel.idx
     )
@@ -696,6 +698,11 @@ def _materialize_gap_slots(
     raw geometry; the concentric layout and flanking-radius recompute are the
     same per-gap logic a single handler cannot do alone (it needs every leg in
     the gap at once).
+
+    ``movable_exit_plan_ids`` names the exit-turn plans whose columns this pass
+    is free to move.  Given none, every planned corner is final, so the pass
+    closes by checking their radii against the standard corner inputs
+    (:func:`_validate_planned_exit_turn_radii`).
     """
     graph = ctx.graph
     by_gap: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
@@ -783,11 +790,11 @@ def _validate_planned_exit_turn_radii(
             or settled is None
             or channel_rank is None
             or membership is None
-            or route.route_system_disposition != "planned"
+            or route.route_system_disposition != RouteSystemDisposition.PLANNED.value
             or not settled.validate_corner_radii
         ):
             continue
-        planned_offsets = planned_exit_turn_corner_offsets(membership, ctx.offset_step)
+        planned_offsets = planned_exit_turn_corner_offsets(membership)
         if planned_offsets is None:
             continue
         allocated_offsets = route.concentric_corner_offsets_by_segment.get(

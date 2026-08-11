@@ -75,7 +75,7 @@ def _with_settled_exit_turns(
     ctx: _RoutingCtx,
 ) -> MemberGeometryExecution:
     """Apply each allocated source axis to the fully normalized member path."""
-    from nf_metro.layout.routing.common import RoutedPath
+    from nf_metro.layout.routing.common import Direction, RoutedPath
     from nf_metro.layout.routing.exit_turns import planned_exit_turn_corner_offsets
     from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 
@@ -95,7 +95,7 @@ def _with_settled_exit_turns(
         membership = ctx.exit_turns.membership_for_edge(plan.edge)
         if membership is None:
             raise RuntimeError(f"settled exit turn {plan.id} lost its plan membership")
-        corner_offsets = planned_exit_turn_corner_offsets(membership, ctx.offset_step)
+        corner_offsets = planned_exit_turn_corner_offsets(membership)
         if corner_offsets is None:
             raise RuntimeError(
                 f"settled exit turn {plan.id} has no standard corner offsets"
@@ -125,7 +125,7 @@ def _with_settled_exit_turns(
             if existing_bases is not None and existing_bases[1] is not None
             else (curve_radii[rank] if rank < len(curve_radii) else ctx.curve_radius)
         )
-        axis = 0 if settled.run_direction.value in {"R", "L"} else 1
+        axis = 0 if settled.run_direction in {Direction.R, Direction.L} else 1
         lead = list(route.points[rank - 1])
         lead[axis] = settled.launch_coordinate
         route.points[rank - 1] = (lead[0], lead[1])
