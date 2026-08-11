@@ -75,6 +75,10 @@ def _with_settled_exit_turns(
     ctx: _RoutingCtx,
 ) -> MemberGeometryExecution:
     """Apply each allocated source axis to the fully normalized member path."""
+    from nf_metro.layout.routing.common import RoutedPath
+    from nf_metro.layout.routing.exit_turns import planned_exit_turn_corner_offsets
+    from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
+
     plans = []
     for plan in execution.plans:
         settled = ctx.settled_exit_turns.get(
@@ -84,16 +88,58 @@ def _with_settled_exit_turns(
         if plan.member_id not in pending_member_ids or settled is None or rank is None:
             plans.append(plan)
             continue
+        if plan.curve_radii is None or ctx.exit_turns is None:
+            raise RuntimeError(
+                f"settled exit turn {plan.id} has no explicit corner geometry"
+            )
+        membership = ctx.exit_turns.membership_for_edge(plan.edge)
+        if membership is None:
+            raise RuntimeError(f"settled exit turn {plan.id} lost its plan membership")
+        corner_offsets = planned_exit_turn_corner_offsets(membership, ctx.offset_step)
+        if corner_offsets is None:
+            raise RuntimeError(
+                f"settled exit turn {plan.id} has no standard corner offsets"
+            )
+        curve_radii = list(plan.curve_radii)
+        route = RoutedPath(
+            ctx.edge_by_key[(plan.edge.source, plan.edge.target, plan.edge.line_id)],
+            plan.edge.line_id,
+            list(plan.points),
+            curve_radii=curve_radii,
+            concentric_corner_offsets_by_segment=dict(
+                plan.concentric_corner_offsets_by_segment
+            ),
+            concentric_corner_bases_by_segment=dict(
+                plan.concentric_corner_bases_by_segment
+            ),
+        )
+        existing_offsets = route.concentric_corner_offsets_by_segment.get(rank)
+        existing_bases = route.concentric_corner_bases_by_segment.get(rank)
+        offset_out = (
+            existing_offsets[1]
+            if existing_offsets is not None and existing_offsets[1] is not None
+            else 0.0
+        )
+        base_radius_out = (
+            existing_bases[1]
+            if existing_bases is not None and existing_bases[1] is not None
+            else (curve_radii[rank] if rank < len(curve_radii) else ctx.curve_radius)
+        )
         axis = 0 if settled.run_direction.value in {"R", "L"} else 1
-        points = list(plan.points)
-        for point_rank, coordinate in (
-            (rank - 1, settled.launch_coordinate),
-            (rank, settled.axis_coordinate),
-            (rank + 1, settled.axis_coordinate),
-        ):
-            point = list(points[point_rank])
-            point[axis] = coordinate
-            points[point_rank] = (point[0], point[1])
+        lead = list(route.points[rank - 1])
+        lead[axis] = settled.launch_coordinate
+        route.points[rank - 1] = (lead[0], lead[1])
+        _reseat_concentric_flanking(
+            route,
+            rank,
+            settled.axis_coordinate,
+            axis=axis,
+            offset_in=corner_offsets[0],
+            offset_out=offset_out,
+            base_radius=ctx.curve_radius,
+            base_radius_out=base_radius_out,
+        )
+        points = route.points
         gap_channels = tuple(
             replace(
                 channel,
@@ -106,7 +152,14 @@ def _with_settled_exit_turns(
             replace(
                 plan,
                 points=tuple(points),
+                curve_radii=tuple(curve_radii),
                 gap_channels=gap_channels,
+                concentric_corner_offsets_by_segment=tuple(
+                    sorted(route.concentric_corner_offsets_by_segment.items())
+                ),
+                concentric_corner_bases_by_segment=tuple(
+                    sorted(route.concentric_corner_bases_by_segment.items())
+                ),
             )
         )
     frozen_plans = tuple(plans)

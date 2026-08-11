@@ -3586,21 +3586,13 @@ def consume_exit_turn_route(
             membership, ctx.offset_step
         )
         assert planned_corner_offsets is not None
-        corner_offsets = tuple(
-            planned if settled is None or allocated is None else allocated
-            for planned, allocated in zip(
-                planned_corner_offsets,
-                settled.corner_offsets if settled is not None else (None, None),
-                strict=True,
-            )
-        )
         _reseat_concentric_flanking(
             route,
             segment_rank,
             membership.axis.coordinate,
             axis=0 if source_axis is DemandAxis.X else 1,
-            offset_in=corner_offsets[0],
-            offset_out=corner_offsets[1],
+            offset_in=planned_corner_offsets[0],
+            offset_out=planned_corner_offsets[1],
         )
     lead, start, end = route.points[segment_rank - 1 : segment_rank + 2]
     source_turn_changed = (

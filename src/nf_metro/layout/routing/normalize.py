@@ -2291,6 +2291,8 @@ def _set_htrunk_y(
     new_y: float,
     offset_in: float = 0.0,
     offset_out: float = 0.0,
+    base_radius: float = CURVE_RADIUS,
+    base_radius_out: float | None = None,
 ) -> None:
     """Move an interior horizontal trunk (``points[k]->[k+1]``) to *new_y*.
 
@@ -2308,7 +2310,14 @@ def _set_htrunk_y(
     to its own port, alone -- keeps the base radius (zero).
     """
     _reseat_concentric_flanking(
-        rp, k, new_y, axis=1, offset_in=offset_in, offset_out=offset_out
+        rp,
+        k,
+        new_y,
+        axis=1,
+        offset_in=offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius,
+        base_radius_out=base_radius_out,
     )
 
 
