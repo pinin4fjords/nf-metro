@@ -758,6 +758,13 @@ def _materialize_gap_slots(
 
     if movable_exit_plan_ids:
         return
+    _validate_planned_exit_turn_radii(routes, ctx)
+
+
+def _validate_planned_exit_turn_radii(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Validate settled exit-turn radii against their standard corner inputs."""
     if ctx.exit_turns is None:
         return
     from nf_metro.layout.routing.exit_turns import (
@@ -780,7 +787,7 @@ def _materialize_gap_slots(
             or not settled.validate_corner_radii
         ):
             continue
-        planned_offsets = planned_exit_turn_corner_offsets(membership)
+        planned_offsets = planned_exit_turn_corner_offsets(membership, ctx.offset_step)
         if planned_offsets is None:
             continue
         allocated_offsets = route.concentric_corner_offsets_by_segment.get(

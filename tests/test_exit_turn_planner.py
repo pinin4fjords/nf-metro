@@ -1179,6 +1179,35 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
         _observe(ROOT / "examples" / "genomeassembly_staggered.mmd")
 
 
+@pytest.mark.parametrize(
+    "fixture",
+    (
+        "fold_stacked_branch.mmd",
+        "reconverge_reversed_fold.mmd",
+    ),
+)
+def test_gap_allocated_turn_sizes_corner_within_its_contiguous_lane_cohort(
+    fixture: str,
+) -> None:
+    _graph, _offsets, observation = _observe(TOPOLOGIES / fixture)
+    route = next(
+        item
+        for item in observation.routes
+        if item.edge.source == "__junction_15"
+        and item.edge.target == "tech_qc__entry_right_12"
+        and item.line_id == "protein"
+    )
+    rank = route.exit_turn_segment_rank
+    assert rank is not None
+    assert route.curve_radii is not None
+
+    expected = concentric_corner_radius_at(
+        *route.points[rank - 1 : rank + 2],
+        0.0,
+    )
+    assert route.curve_radii[rank - 1] == pytest.approx(expected)
+
+
 def test_several_turnless_members_each_state_their_own_landing() -> None:
     """One lane's turn-less members land at different depths on one ray."""
     _graph, _offsets, _original_offsets, execution = _build_execution(
