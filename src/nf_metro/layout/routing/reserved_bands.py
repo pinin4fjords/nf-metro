@@ -26,6 +26,7 @@ rows or columns as a whole.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeAlias
@@ -45,14 +46,23 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ReservedBand:
-    """The clear span a boundary's reservations leave for a channel."""
+    """A corridor's clearance span and optional observed lane allocation.
+
+    ``lo`` and ``hi`` bound every legal placement.  ``allocation`` is the exact
+    lane chosen by gap materialisation, when the observed segment declared a gap
+    slot.  Geometry guards consume the clearance; planner seating replays the
+    allocation.
+    """
 
     lo: float
     hi: float
+    allocation: float | None = None
 
     def __post_init__(self) -> None:
         if self.hi < self.lo - COORD_TOLERANCE:
             raise ValueError("a reserved band cannot be narrower than nothing")
+        if self.allocation is not None and not math.isfinite(self.allocation):
+            raise ValueError("a reserved band allocation must be finite")
 
     def hold(self, coordinate: float) -> float:
         """*coordinate* itself when it is inside the band, else its nearer edge."""
@@ -255,7 +265,9 @@ class ReservedCorridors:
         return self.column_bands_by_edge.get((source, target, line_id), ())
 
 
-def bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
+def bundle_travel(
+    items: Sequence[tuple[ReservedBand, float]], *, consume_allocations: bool = False
+) -> float:
     """The least distance that carries every ``(band, coordinate)`` pair inside.
 
     Clamping lane by lane would seat two lanes on one coordinate wherever a band
@@ -264,16 +276,35 @@ def bundle_travel(items: Sequence[tuple[ReservedBand, float]]) -> float:
     nowhere to stand does not travel: which edge to overrun is the closing
     guard's report to make.
 
-    Stated once because the pass that applies the travel and the plan that names
-    the seated coordinate have to read the same number: a plan naming the
-    coordinate before the travel describes a lane the seating then vacates.
-    Applying it twice is applying it once, since a bundle already inside its
-    bands asks for no travel.
+    With ``consume_allocations``, a band carrying an observed allocation uses
+    that exact coordinate; other bands retain the freedom of their clearance
+    span.  Allocation replay is opt-in because publishing the observation must
+    not change a plan's disposition. Stated once because the pass that applies
+    the travel and the plan that names the seated coordinate have to read the
+    same number: a plan naming the coordinate before the travel describes a lane
+    the seating then vacates. Applying it twice is applying it once, since a
+    bundle already inside its bands asks for no travel.
     """
     if not items:
         return 0.0
-    lower = max(band.lo - coordinate for band, coordinate in items)
-    upper = min(band.hi - coordinate for band, coordinate in items)
+    lower = max(
+        (
+            band.allocation
+            if consume_allocations and band.allocation is not None
+            else band.lo
+        )
+        - coordinate
+        for band, coordinate in items
+    )
+    upper = min(
+        (
+            band.allocation
+            if consume_allocations and band.allocation is not None
+            else band.hi
+        )
+        - coordinate
+        for band, coordinate in items
+    )
     if lower > upper + COORD_TOLERANCE:
         return 0.0
     return min(max(0.0, lower), upper)
@@ -329,6 +360,7 @@ def seat_bundle_in_claimed_bands(
     lanes: Sequence[tuple[EdgeKey, float]],
     *,
     rank: int,
+    consume_allocations: bool = False,
 ) -> float:
     """The travel that seats every lane of one bundle inside its claimed band.
 
@@ -336,16 +368,19 @@ def seat_bundle_in_claimed_bands(
     realises its own band there.  This is the arithmetic the pre-freeze seating
     pass applies, so reading it here lets a plan owning the turn beside the run
     state the coordinate that pass would settle on, rather than being moved off
-    a coordinate it has already frozen.  A bundle no claim covers does not
-    travel: the ledger is published by a routing pass, so the first has none to
-    read and the live-geometry proxy speaks for the corridor instead.
+    a coordinate it has already frozen. ``consume_allocations`` replays the lane
+    chosen by the observation pass; callers that only consume corridor clearance
+    leave it false. A bundle no claim covers does not travel: the ledger is
+    published by a routing pass, so the first has none to read and the
+    live-geometry proxy speaks for the corridor instead.
     """
     return bundle_travel(
         [
             (band, coordinate)
             for key, coordinate in lanes
             if (band := corridors.for_segment(*key, rank)) is not None
-        ]
+        ],
+        consume_allocations=consume_allocations,
     )
 
 
@@ -441,20 +476,29 @@ class _ClaimViews:
 
 
 def _claim_views(
-    plan: RoutePlan, measured: Sequence[tuple[RouteReservation, float, float]]
+    plan: RoutePlan,
+    measured: Sequence[tuple[RouteReservation, float, float]],
+    translations: tuple[ReservationCoordinateTranslation, ...],
 ) -> _ClaimViews:
     """Each gap claim's own realised band, keyed by the segments it covers.
 
     Two claims naming one segment must both hold there, so a duplicate key keeps
     the intersection, and :func:`resolved_band` decides what an irreconcilable
-    pair publishes.  The per-edge view collects each edge's distinct row bands;
-    equal bands collapse, so an edge whose corridor several reservations describe
-    alike reads as one allocation.
+    pair publishes.  A declared gap channel publishes its observed allocation
+    coordinate: gap materialisation chooses an exact lane, while the enclosing
+    clearance band permits many positions and cannot replay that choice.  The
+    per-edge views retain each reservation's full clearance band for consumers
+    that place geometry without a segment claim.
     """
-    from nf_metro.layout.route_reservations import RowGapRegion
+    from nf_metro.layout.route_plan import DemandAxis
+    from nf_metro.layout.route_reservations import (
+        RowGapRegion,
+        project_reservation_coordinate,
+    )
 
     edge_by_member = {member.id: member.edge for member in plan.members}
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
+    allocations: dict[ClaimSegmentKey, tuple[float, float]] = {}
     # Keyed by the band quantised to the comparison tolerance, so two
     # reservations describing one corridor alike collapse to a single band.
     row_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
@@ -467,17 +511,51 @@ def _claim_views(
             edge_key = (edge.source, edge.target, edge.line_id)
             bands_by_edge = row_by_edge if is_row else column_by_edge
             bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
+            allocation = (
+                project_reservation_coordinate(
+                    claim.allocation_coordinate,
+                    DemandAxis.X,
+                    claim.member_id,
+                    translations,
+                )
+                if claim.is_declared_gap_channel
+                else None
+            )
             for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
                 key = (*edge_key, rank)
                 held = spans.get(key)
                 spans[key] = (
                     (lo, hi) if held is None else (max(held[0], lo), min(held[1], hi))
                 )
-    per_claim = {
-        key: band
-        for key, (lo, hi) in spans.items()
-        if (band := resolved_band(lo, hi)) is not None
-    }
+                if allocation is not None:
+                    held_allocation = allocations.get(key)
+                    allocations[key] = (
+                        (allocation, allocation)
+                        if held_allocation is None
+                        else (
+                            min(held_allocation[0], allocation),
+                            max(held_allocation[1], allocation),
+                        )
+                    )
+    per_claim: dict[ClaimSegmentKey, ReservedBand] = {}
+    for key, (lo, hi) in spans.items():
+        band = resolved_band(lo, hi)
+        allocation_range = allocations.get(key)
+        if allocation_range is not None:
+            if allocation_range[1] - allocation_range[0] > COORD_TOLERANCE:
+                raise ValueError(
+                    f"declared gap channel {key!r} has conflicting allocations"
+                )
+            if band is None:
+                raise ValueError(
+                    f"declared gap channel {key!r} has no realised clearance band"
+                )
+        if band is not None:
+            per_claim[key] = ReservedBand(
+                band.lo,
+                band.hi,
+                None if allocation_range is None else sum(allocation_range) / 2,
+            )
     row_bands = {
         edge_key: tuple(
             band
@@ -513,7 +591,7 @@ def build_reserved_corridors(
     from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 
     measured = tuple(_measured_gap_bands(graph, plan, translations))
-    views = _claim_views(plan, measured)
+    views = _claim_views(plan, measured, translations)
     return ReservedCorridors(
         _axis_bands(
             measured,

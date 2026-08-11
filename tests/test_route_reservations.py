@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import cotravelling_lane_clearance
 from nf_metro.layout.route_plan import (
     BindingKind,
+    DemandAxis,
     ExitTurnDisposition,
     GridSpan,
     ReservationDecisionKind,
@@ -35,6 +36,7 @@ from nf_metro.layout.route_reservations import (
     CorridorKind,
     CorridorMeasurementScope,
     CorridorOrientation,
+    ReservationCoordinateTranslation,
     RowGapRegion,
     realise_reservation,
 )
@@ -45,6 +47,10 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import Direction, apply_route_offsets
 from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.reserved_bands import (
+    build_reserved_corridors,
+    seat_bundle_in_claimed_bands,
+)
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import (
@@ -68,6 +74,7 @@ RESERVATION_CORPUS = tuple(
         "opposing_bypass_corridor.mmd",
         "opposing_return_row_pair.mmd",
         "lr_to_tb_top_near_vertical.mmd",
+        "disjoint_sameline_trunks.mmd",
     )
 ) + (ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",)
 
@@ -139,6 +146,20 @@ EXPECTED_RESERVATION_CLAIMS = {
         (11, 2),
     ),
     "lr_to_tb_top_near_vertical.mmd": ((4, 1), (4, 2)),
+    "disjoint_sameline_trunks.mmd": (
+        (17, 1),
+        (17, 2),
+        (17, 3),
+        (19, 1),
+        (19, 2),
+        (19, 3),
+        (21, 1),
+        (21, 2),
+        (21, 3),
+        (22, 1),
+        (22, 2),
+        (22, 3),
+    ),
     "stacked_collector_fanin.mmd": (
         *((rank, 1) for rank in (195, 197, 199, 209, 210, 211)),
         *((rank, 2) for rank in (195, 197, 199, 201, 203, *range(205, 215))),
@@ -606,6 +627,68 @@ def test_large_valid_slack_is_not_reported_as_waste() -> None:
         item.reservation_id != realised.reservation_id
         for item in plan.reservation_diagnostics
     )
+
+
+def test_disjoint_bypass_descents_read_their_observed_gap_allocation() -> None:
+    graph, routes, plan = _observe(TOPOLOGIES / "disjoint_sameline_trunks.mmd")
+    corridors = build_reserved_corridors(graph, plan)
+    descent_routes = tuple(
+        route for route in routes if route.edge.source == "secC__exit_right_2"
+    )
+    assert {route.line_id for route in descent_routes} == {"a", "b"}
+
+    built_columns = {"a": 560.0, "b": 556.0}
+    lanes = [
+        (
+            (route.edge.source, route.edge.target, route.line_id),
+            built_columns[route.line_id],
+        )
+        for route in descent_routes
+    ]
+    bands = {
+        route.line_id: corridors.for_segment(
+            route.edge.source, route.edge.target, route.line_id, 1
+        )
+        for route in descent_routes
+    }
+
+    assert all(band is not None for band in bands.values())
+    assert {line_id: band.allocation for line_id, band in bands.items()} == {
+        "a": 556.0,
+        "b": 552.0,
+    }
+    assert seat_bundle_in_claimed_bands(
+        corridors, lanes, rank=1, consume_allocations=True
+    ) == pytest.approx(-4.0)
+
+    claimant_ids = tuple(
+        member.id
+        for member in plan.members
+        if member.edge.source == "secC__exit_right_2"
+    )
+    translated = build_reserved_corridors(
+        graph,
+        plan,
+        (
+            ReservationCoordinateTranslation(
+                DemandAxis.X,
+                0.0,
+                12.0,
+                fully_owned_member_ids=claimant_ids,
+            ),
+        ),
+    )
+    translated_bands = {
+        route.line_id: translated.for_segment(
+            route.edge.source, route.edge.target, route.line_id, 1
+        )
+        for route in descent_routes
+    }
+    assert all(band is not None for band in translated_bands.values())
+    assert {line_id: band.allocation for line_id, band in translated_bands.items()} == {
+        "a": 568.0,
+        "b": 564.0,
+    }
 
 
 def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:

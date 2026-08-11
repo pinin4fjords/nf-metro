@@ -207,6 +207,7 @@ class RouteReservationClaim:
     longitudinal_start: float
     longitudinal_end: float
     allocation_coordinate: float
+    is_declared_gap_channel: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -1564,6 +1565,14 @@ def _observe_route_geometry(
                         segment.span_start,
                         segment.span_end,
                         segment.coordinate,
+                        segment.orientation is CorridorOrientation.VERTICAL
+                        and isinstance(region, ColumnGapRegion)
+                        and any(
+                            slot.gap_lo_col == region.left_column
+                            and slot.gap_hi_col == region.right_column
+                            and slot.direction is segment.direction
+                            for slot in route.gap_slots
+                        ),
                     ),
                     kind,
                     segment.orientation,
