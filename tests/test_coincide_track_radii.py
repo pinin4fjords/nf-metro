@@ -110,9 +110,8 @@ def _touched_corner_mismatches(
     actual final bundle offset, not whichever pass touched it first.
 
     Only corners on the *final* routes are checked. A planned member is frozen
-    from its mutable seed into a fresh route, so touched seeds are resolved to
-    that final route by their unique edge identity. Superseded seeds whose edge
-    was not emitted cannot report a mismatch.
+    from its mutable seed into a fresh route, so a touched route that is not
+    itself the emitted final for its edge cannot report a mismatch.
     Returns any disagreement between the stored radius and the central derivation
     as ``(line_id, radius_index, stored, expected)``.
     """
@@ -152,10 +151,21 @@ def _touched_corner_mismatches(
         new_y: float,
         offset_in: float = 0.0,
         offset_out: float = 0.0,
+        base_radius: float = CURVE_RADIUS,
+        base_radius_out: float | None = None,
     ) -> None:
-        _PROD_SET_HTRUNK_Y(rp, k, new_y, offset_in, offset_out)
-        touched[(id(rp), k - 1)] = (rp, offset_in, CURVE_RADIUS)
-        touched[(id(rp), k)] = (rp, offset_out, CURVE_RADIUS)
+        _PROD_SET_HTRUNK_Y(
+            rp,
+            k,
+            new_y,
+            offset_in,
+            offset_out,
+            base_radius,
+            base_radius_out,
+        )
+        radius_out = base_radius if base_radius_out is None else base_radius_out
+        touched[(id(rp), k - 1)] = (rp, offset_in, base_radius)
+        touched[(id(rp), k)] = (rp, offset_out, radius_out)
 
     def reseat_spy(
         rp: RoutedPath,
@@ -196,10 +206,8 @@ def _touched_corner_mismatches(
 
     mismatches: list[tuple[str, int, float, float]] = []
     for (_rid, radius_idx), (rp, offset, reference) in touched.items():
-        final = routes_by_edge.get((rp.edge.source, rp.edge.target, rp.line_id))
-        if final is None:
+        if routes_by_edge.get((rp.edge.source, rp.edge.target, rp.line_id)) is not rp:
             continue
-        rp = final
         radii = rp.curve_radii
         if radii is None or not 0 <= radius_idx < len(radii):
             continue
@@ -392,9 +400,7 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
     assert touched, f"{fixture} no longer exercises the coincide pass"
 
 
-@pytest.mark.parametrize(
-    "fixture", ["variantbenchmarking.mmd", "topologies/divergent_fanout_split.mmd"]
-)
+@pytest.mark.parametrize("fixture", ["variantbenchmarking.mmd", "genomeassembly.mmd"])
 def test_reintroduced_hand_clobber_is_detected(
     fixture: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

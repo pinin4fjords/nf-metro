@@ -523,6 +523,18 @@ def test_promoted_subcascade_reasons_are_retired() -> None:
     assert not retired & registered.keys()
 
 
+def test_gap_allocation_reasons_are_retired() -> None:
+    registered = ROUTE_SYSTEM_COMPATIBILITY_REASONS["exit-turn-plan"]
+    retired = {
+        "fixed-axis-conflict",
+        "seating-group-owns-the-descent-column",
+        "planned-axis-overlaps-compatibility-channel",
+        "trunk-band-owns-the-chained-same-line-trunk",
+    }
+
+    assert not retired & registered.keys()
+
+
 def test_a_retained_family_names_its_follow_up_or_states_why_it_is_permanent() -> None:
     """Every reason resolves to one authored family, not a generated sentence."""
     for owner, reasons in ROUTE_SYSTEM_COMPATIBILITY_REASONS.items():

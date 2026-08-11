@@ -99,6 +99,7 @@ from nf_metro.layout.routing.corners import (
     curve_tangents,
     resolve_curve_radii,
 )
+from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
 from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES
 from nf_metro.layout.routing.invariants import (
     CurveInvariantError,
@@ -623,6 +624,7 @@ def _build_render_plan_result(
         except (
             ConvergenceInvariantError,
             CurveInvariantError,
+            ExitTurnInvariantError,
             FanRouteInvariantError,
             SectionHeaderClashError,
         ) as exc:
@@ -818,7 +820,7 @@ def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
             route.offset_regime,
             route.normalize_exempt,
             tuple(route.gap_slots),
-            route.trunk_slot,
+            route.trunk_slot is not None,
             route.route_system_id,
             route.emission_member_id,
             route.route_system_disposition,
@@ -855,7 +857,7 @@ def _member_geometry_decision(
         plan.offset_regime,
         plan.normalize_exempt,
         plan.gap_slots,
-        plan.trunk_slot,
+        plan.trunk_slot is not None,
         tuple(
             (
                 channel.segment_rank,
@@ -896,6 +898,16 @@ def _exit_turn_decision(plan: ExitTurnPlan) -> tuple[object, ...]:
     corridor actually seats the axis; only the ownership and ordering facts
     around them are decisions.
     """
+    source_lanes = tuple(
+        (
+            item.line_id,
+            item.rank,
+            item.member_ids,
+            item.station_ids,
+            item.planned_offset,
+        )
+        for item in plan.source_lanes
+    )
     lane_transitions = tuple(
         (
             item.edge,
@@ -953,7 +965,7 @@ def _exit_turn_decision(plan: ExitTurnPlan) -> tuple[object, ...]:
         plan.connector_ids,
         plan.system_member_ids,
         plan.member_ids,
-        plan.source_lanes,
+        source_lanes,
         plan.lane_order_source,
         lane_transitions,
         axes,

@@ -3,10 +3,6 @@
   "note": "Single enforcement point for the bundle-centreline contract: a fanned bundle needs at least one leg, i.e. a >=2-vertex centreline. All three public builders (build_concentric_bundle / build_tapered_bundle / build_offset_bundle) funnel through _fan_bundle, which owns this one guard in place of the four per-builder re-checks the corpus never took (#1438). Every caller builds a >=2-vertex polyline by construction, so the raise arm stays un-exercised.",
   "status": "defensive"
  },
- "centrelines.py::if place_at_source:::#1": {
-  "note": "The else seats the hand-off diagonal against the target end, taken when a lane transition carries ExitLaneTransitionPlacement.TARGET. The only producer of TARGET is _source_lane_ownership (exit_turns.py), on the mismatched-offset path the corpus never takes either (see exit_turns.py::if not mismatched:::#1); every transition the corpus plans is a SOURCE placement from the continuation builders. One fixture closes both: an in-section station whose lane offset for the exiting line differs from the lane the exit-turn plan seats that line on at the port.",
-  "status": "needs-review"
- },
  "common.py::elif tgt_sec:::#1": {
   "note": "The else (col_key=round(sx)) needs an L-shaped (dx!=0,dy!=0) inter edge whose target resolves to no section. Only exit_port->junction edges lack a target section, and junction positioning makes those axis-aligned (same-X RIGHT exit or same-Y BOTTOM exit), never L-shaped, so the else is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
@@ -407,10 +403,6 @@
   "note": "The emission validation that raises when a rendered turn's axis, lead-in runway or direction differs from the assignment the route was bound to. The emitters derive all four from that same assignment, so the raise names an emitter ignoring its plan rather than a topology.",
   "status": "defensive"
  },
- "exit_turns.py::if (::#6": {
-  "note": "consume_exit_turn_route's fixed-axis check raises when a plan's fixed turn axis disagrees with the structural anchor recomputed at emission. Both sides read that anchor through _fixed_axis and _fixed_axis_matches_plan, so a plan and its emission agree by construction; the raise names a planner/emitter contradiction, not a graph a pipeline can express.",
-  "status": "defensive"
- },
  "exit_turns.py::if abs(turn_delta) <= COORD_TOLERANCE:::#2": {
   "note": "_plain_l_shape_turn_requirement's flat-hop guard, which both its callers exclude: _standard_l_shape_turn_requirement returns its own missing-source-turn for a flat delta before delegating, and the cell-mate gap drop only classifies when the target section sits one grid row below the source (_bypass_route_kind requires tgt_row == src_row + 1), which puts the two ports on different rows. The duplicated guard therefore never fires.",
   "status": "defensive"
@@ -422,10 +414,6 @@
  "exit_turns.py::if not _lane_arms_read_as_one_stroke(::#1": {
   "note": "The reject protects a planner seed set where an unpinned cohort lands within one curve radius of a same-rank axis already claimed by a pinned cohort. Production topology planning pins or separates those cohorts before this check. test_free_lane_arm_overlapping_a_pinned_corner_uses_legacy constructs the incomplete seed set directly and covers the fallback reason.",
   "status": "defensive"
- },
- "exit_turns.py::if not mismatched:::#1": {
-  "note": "The lane hand-off path of _source_lane_ownership, entered when a station feeding the exit port along the run axis carries a different lane offset for the line than the lane the plan seats at the port. Every corpus exit group agrees on its lane from the last station through to the port, so the ownership walk returns the stations unchanged. Reachable, and the fixture that closes it also closes centrelines.py::if place_at_source:::#1, whose TARGET placement only this branch produces.",
-  "status": "needs-review"
  },
  "exit_turns.py::if scaffold is None:::#2": {
   "note": "The second None check protects the manual or incomplete graph fallback after rebuilding a missing retained scaffold. Parsed render-path graphs publish one canonical scaffold during fan planning, so the fixture corpus never reaches a rebuild that can return None. Direct planner tests retain the fallback for graph construction without topology.",

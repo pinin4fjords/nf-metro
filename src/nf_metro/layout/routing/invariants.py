@@ -3742,6 +3742,131 @@ def check_concentric_bundle_corners(
                 )
                 if v is not None:
                     violations.append(v)
+    source_turns: dict[
+        tuple[str, str, tuple[float, float], tuple[float, float]],
+        list[tuple[RoutedPath, list[tuple[float, float]], list[float], int]],
+    ] = defaultdict(list)
+    for route in routes:
+        rank = route.exit_turn_segment_rank
+        if route.exit_turn_plan_id is None or rank is None:
+            continue
+        points = apply_route_offsets(route, offsets)
+        if not 0 < rank < len(points) - 1:
+            continue
+        incoming = _segment_unit(points[rank - 1], points[rank])
+        outgoing = _segment_unit(points[rank], points[rank + 1])
+        if incoming is None or outgoing is None:
+            continue
+        source_turns[
+            (route.exit_turn_plan_id, route.edge.source, incoming, outgoing)
+        ].append((route, points, _resolved_corner_radii(route, points), rank))
+    for (_plan_id, source_id, incoming, outgoing), cohort in source_turns.items():
+        for ai in range(len(cohort)):
+            route_a, points_a, radii_a, rank_a = cohort[ai]
+            for bi in range(ai + 1, len(cohort)):
+                route_b, points_b, radii_b, rank_b = cohort[bi]
+                if rank_a - 1 >= len(radii_a) or rank_b - 1 >= len(radii_b):
+                    continue
+                translated = _translated_corner(
+                    points_a[rank_a],
+                    radii_a[rank_a - 1],
+                    points_b[rank_b],
+                    radii_b[rank_b - 1],
+                    incoming,
+                    outgoing,
+                )
+                if (
+                    translated is not None
+                    and translated[2] > _CONCENTRIC_CENTRE_TOLERANCE
+                ):
+                    violations.append(
+                        NonConcentricCornerViolation(
+                            edge_source=source_id,
+                            edge_target="source seam",
+                            line_a=route_a.line_id,
+                            line_b=route_b.line_id,
+                            corner_index=rank_a,
+                            corner_xy=points_a[rank_a],
+                            centre_spread=translated[2],
+                        )
+                    )
+    return violations
+
+
+@dataclass(frozen=True)
+class NonStandardSourceCornerViolation:
+    """A bundled planned source corner lacks reproducible standard inputs."""
+
+    edge: tuple[str, str]
+    line_id: str
+    corner_index: int
+    detail: str
+
+    def message(self) -> str:
+        return (
+            f"planned source bundle corner {self.edge[0]!r}->{self.edge[1]!r} "
+            f"line {self.line_id!r} at index {self.corner_index} {self.detail}"
+        )
+
+
+def check_standard_source_bundle_corner_inputs(
+    routes: list[RoutedPath],
+    offsets: dict[tuple[str, str], float],
+) -> list[NonStandardSourceCornerViolation]:
+    """Require every multi-member planned source turn to state standard inputs."""
+    from nf_metro.layout.routing.corners import concentric_corner_radius_at
+
+    cohorts: dict[tuple[str, str], list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        if (
+            route.exit_turn_plan_id is not None
+            and route.exit_turn_segment_rank is not None
+        ):
+            cohorts[route.exit_turn_plan_id, route.edge.source].append(route)
+
+    violations: list[NonStandardSourceCornerViolation] = []
+    for cohort in cohorts.values():
+        if len(cohort) < 2:
+            continue
+        for route in cohort:
+            rank = route.exit_turn_segment_rank
+            assert rank is not None
+            radius_index = rank - 1
+            points = apply_route_offsets(route, offsets)
+            radii = _resolved_corner_radii(route, points)
+            inputs = route.concentric_corner_offsets_by_segment.get(rank)
+            bases = route.concentric_corner_bases_by_segment.get(rank)
+            if (
+                route.curve_radii is None
+                or radius_index >= len(radii)
+                or inputs is None
+                or bases is None
+                or inputs[0] is None
+                or bases[0] is None
+            ):
+                violations.append(
+                    NonStandardSourceCornerViolation(
+                        (route.edge.source, route.edge.target),
+                        route.line_id,
+                        radius_index,
+                        "has no complete standard radius calculation",
+                    )
+                )
+                continue
+            previous, corner, following = points[radius_index : radius_index + 3]
+            expected = concentric_corner_radius_at(
+                previous, corner, following, inputs[0], bases[0]
+            )
+            if abs(radii[radius_index] - expected) > COORD_TOLERANCE_FINE:
+                violations.append(
+                    NonStandardSourceCornerViolation(
+                        (route.edge.source, route.edge.target),
+                        route.line_id,
+                        radius_index,
+                        f"draws radius {radii[radius_index]:.1f} but its "
+                        f"standard inputs resolve to {expected:.1f}",
+                    )
+                )
     return violations
 
 
@@ -6089,6 +6214,10 @@ def assert_render_curve_invariants(
             check_concentric_bundle_corners(graph, routes, offsets),
         ),
         (
+            "planned source bundle corner outside standard machinery",
+            check_standard_source_bundle_corner_inputs(routes, offsets),
+        ),
+        (
             "doubled coincident corner (same-line legs disagree on radius)",
             check_coincident_corner_radii(graph, routes, offsets),
         ),
@@ -6253,6 +6382,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     # --- Tier A: the always-on render chokepoint set (in chokepoint order) ---
     _check_spec(check_bundle_order_preserved, "A"),
     _check_spec(check_concentric_bundle_corners, "A"),
+    _check_spec(check_standard_source_bundle_corner_inputs, "A"),
     _check_spec(check_coincident_corner_radii, "A"),
     _check_spec(check_collinear_distinct_lines, "A"),
     _check_spec(check_no_same_line_parallel_descents, "A"),
@@ -6438,6 +6568,7 @@ __all__ = [
     "check_opposing_entry_confluence_order",
     "check_trunks_declared",
     "check_concentric_bundle_corners",
+    "check_standard_source_bundle_corner_inputs",
     "check_coincident_corner_radii",
     "check_deferred_offsets_apply_laterally",
     "check_diamond_fan_in_diverges_together",

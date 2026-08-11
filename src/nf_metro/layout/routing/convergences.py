@@ -4455,6 +4455,17 @@ def _seat_planned_run(
     offset_out: float,
 ) -> None:
     """Move ``route.points[rank] -> [rank + 1]`` onto the coordinate *planned* names."""
+    base_radius = CURVE_RADIUS
+    base_radius_out = CURVE_RADIUS
+    if route.exit_turn_segment_rank == rank:
+        owned_offsets = route.concentric_corner_offsets_by_segment.get(rank)
+        owned_bases = route.concentric_corner_bases_by_segment.get(rank)
+        if owned_offsets is not None and owned_bases is not None:
+            owned_offset_in = owned_offsets[0]
+            owned_base_in = owned_bases[0]
+            if owned_offset_in is not None and owned_base_in is not None:
+                offset_in = owned_offset_in
+                base_radius = owned_base_in
     horizontal = abs(planned[0][1] - planned[1][1]) <= COORD_TOLERANCE
     coordinate = planned[0][1] if horizontal else planned[0][0]
     start, end = route.points[rank : rank + 2]
@@ -4467,6 +4478,8 @@ def _seat_planned_run(
             coordinate,
             offset_in=offset_in,
             offset_out=offset_out,
+            base_radius=base_radius,
+            base_radius_out=base_radius_out,
         )
         return
     from nf_metro.layout.routing.normalize import (
@@ -4484,7 +4497,14 @@ def _seat_planned_run(
         down=end[1] > start[1],
     )
     _reconcile_moved_gap_slot(channel, coordinate, graph)
-    _set_vchannel_x(channel, coordinate, offset_in, offset_out=offset_out)
+    _set_vchannel_x(
+        channel,
+        coordinate,
+        offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius,
+        base_radius_out=base_radius_out,
+    )
 
 
 def _seat_route_on_trunk_flanks(

@@ -25,7 +25,10 @@ from nf_metro.layout.routing import (
     route_edges,
 )
 from nf_metro.layout.routing.common import RoutedPath
-from nf_metro.layout.routing.invariants import check_concentric_bundle_corners
+from nf_metro.layout.routing.invariants import (
+    check_concentric_bundle_corners,
+    check_standard_source_bundle_corner_inputs,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge
 
@@ -64,6 +67,30 @@ def test_no_non_concentric_bundle_corners_in_gallery(path: Path) -> None:
         f"{path.name}: {len(violations)} non-concentric corner(s); "
         f"first: {violations[0].message() if violations else ''}"
     )
+    standard_violations = check_standard_source_bundle_corner_inputs(routes, offsets)
+    assert standard_violations == [], (
+        f"{path.name}: {len(standard_violations)} non-standard source corner(s); "
+        f"first: {standard_violations[0].message() if standard_violations else ''}"
+    )
+
+
+def test_source_seam_turns_are_concentric_across_destinations() -> None:
+    """One planned exit bundle keeps one arc centre as its members split."""
+    path = EXAMPLES / "topologies" / "merge_trunk_over_low_section.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    assert check_concentric_bundle_corners(graph, routes, offsets) == []
+    source_turns = {
+        route.line_id: route.curve_radii[route.exit_turn_segment_rank - 1]
+        for route in routes
+        if route.edge.source == "__junction_7"
+        and route.exit_turn_segment_rank is not None
+        and route.curve_radii is not None
+    }
+    assert source_turns == {"flow": 14.0, "side": 10.0}
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +133,34 @@ def test_non_concentric_wholesale_corner_is_caught() -> None:
     violations = check_concentric_bundle_corners(None, [_CONCENTRIC_A, bad_b], {})
     assert len(violations) == 1
     assert violations[0].centre_spread > 1.0
+
+
+def test_non_concentric_source_seam_corner_is_caught_across_destinations() -> None:
+    """A planned source bundle is one corner cohort across distinct targets."""
+    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
+    b = _route("b", [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)], [10.0])
+    b.edge = Edge(source="__src__", target="__other__", line_id="b")
+    for route in (a, b):
+        route.exit_turn_plan_id = "plan"
+        route.exit_turn_segment_rank = 1
+    assert len(check_concentric_bundle_corners(None, [a, b], {})) == 1
+
+
+def test_planned_source_bundle_requires_standard_corner_inputs() -> None:
+    """Missing source-turn radius metadata fails closed at the render guard."""
+    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
+    b = _route("b", [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)], [7.0])
+    for route, offset in ((a, 0.0), (b, 3.0)):
+        route.exit_turn_plan_id = "plan"
+        route.exit_turn_segment_rank = 1
+        route.concentric_corner_offsets_by_segment = {1: (offset, None)}
+        route.concentric_corner_bases_by_segment = {1: (10.0, None)}
+    assert check_standard_source_bundle_corner_inputs([a, b], {}) == []
+
+    b.concentric_corner_offsets_by_segment.clear()
+    violations = check_standard_source_bundle_corner_inputs([a, b], {})
+    assert len(violations) == 1
+    assert "no complete standard radius calculation" in violations[0].message()
 
 
 def test_transition_corner_with_one_pinned_leg_is_skipped() -> None:

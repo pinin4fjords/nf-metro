@@ -764,8 +764,45 @@ class RoutedPath:
     """Gap-channel segments frozen by the route-system member plan."""
     exit_turn_segment_rank: int | None = None
     """Index of the owned turn segment's first waypoint."""
+    concentric_corner_offsets_by_segment: dict[
+        int, tuple[float | None, float | None]
+    ] = field(default_factory=dict)
+    """Signed offsets supplied to the standard concentric corner machinery."""
+    concentric_corner_bases_by_segment: dict[int, tuple[float | None, float | None]] = (
+        field(default_factory=dict)
+    )
+    """Reference radii supplied with the standard concentric corner offsets."""
     exit_lane_transition_plan_id: str | None = None
     """Plan that owns this explicit compact-lane hand-off."""
+
+    def record_concentric_corner(
+        self, radius_index: int, offset: float, base_radius: float
+    ) -> None:
+        """Publish one standard corner input to both adjacent segment views."""
+        for segment_rank, tuple_index in (
+            (radius_index, 1),
+            (radius_index + 1, 0),
+        ):
+            if not 0 < segment_rank < len(self.points) - 1:
+                continue
+            pair = list(
+                self.concentric_corner_offsets_by_segment.get(
+                    segment_rank, (None, None)
+                )
+            )
+            pair[tuple_index] = offset
+            self.concentric_corner_offsets_by_segment[segment_rank] = (
+                pair[0],
+                pair[1],
+            )
+            bases = list(
+                self.concentric_corner_bases_by_segment.get(segment_rank, (None, None))
+            )
+            bases[tuple_index] = base_radius
+            self.concentric_corner_bases_by_segment[segment_rank] = (
+                bases[0],
+                bases[1],
+            )
 
     def declare_gap_slot(
         self,
@@ -2379,7 +2416,9 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or route.fan_route_emitter is not None
         or rank in route.route_system_owned_segment_ranks
         or (
-            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
+            route.route_system_disposition != "compatibility"
+            and route.exit_turn_axis_id is not None
+            and route.exit_turn_segment_rank == rank
         )
     )
 

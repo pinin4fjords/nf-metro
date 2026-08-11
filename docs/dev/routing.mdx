@@ -54,7 +54,10 @@ as interchange pills bridging the rails.
 fold X, bundle information, station offsets, fork stations, and other shared
 facts. Before dispatch, the exit-turn planner classifies every member in each
 complete exit group, and every inter-section member is classified once against
-the stable family table. The convergence planner first builds complete
+the stable family table. Exit turns that share a row or column gap with other
+routes enter the member allocator as movable claims. The allocator settles all
+resident channels together, then the exit-turn planner publishes the resulting
+axis, lane assignment, and corner offsets. The convergence planner first builds complete
 target-side candidates without routing non-convergence members. A preliminary
 system decision removes systems already owned by compatibility, then
 preliminary convergence settlement exposes fixed channel claims to the mutable
@@ -117,8 +120,10 @@ trunk slot materialization, and same-line coincidence. Source-turn segments,
 member-template gap channels, and convergence trunks and joins owned by the
 planners are immutable during these passes. Member-template gap slots were
 already materialized once before final convergence settlement; the general gap pass
-only allocates channels that remain unowned. A snapshot ratchet checks source
-turns after every relevant pass.
+only allocates channels that remain unowned. For a gap-allocated planned turn,
+that pass validates the planned column or row and recomputes its expected corner
+radius; it does not choose a new seat. A snapshot ratchet checks source turns
+after every relevant pass.
 The final invariants check every source assignment, lane offset, route family,
 turn direction, turn axis, convergence landing, and endpoint owner.
 The ordered [route emission inventory](/nf-metro/dev/route_emission_inventory/)

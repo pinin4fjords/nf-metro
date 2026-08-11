@@ -29,7 +29,7 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     spans_share_corridor,
 )
-from nf_metro.layout.route_plan import RouteSystemDisposition
+from nf_metro.layout.route_plan import ExitTurnPlanId, RouteSystemDisposition
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -630,13 +630,16 @@ def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
     """Whether a plan resolves this channel's coordinate outright.
 
     A fan emission and a planned exit turn each name the coordinate itself, so
-    no rank re-derivation can speak for it.  Convergence and member-geometry
-    ownership name it too, but a group already occupying adjacent tracks keeps
-    every coordinate, so those are answerable at that width.
+    no rank re-derivation can speak for it.  A compatibility system's turn
+    names nothing final, so its channel stays movable.  Convergence and
+    member-geometry ownership name the coordinate too, but a group already
+    occupying adjacent tracks keeps every coordinate, so those are answerable
+    at that width.
     """
     route = channel.route
     return route.fan_route_emitter is not None or (
-        route.exit_turn_axis_id is not None
+        route.route_system_disposition != RouteSystemDisposition.COMPATIBILITY.value
+        and route.exit_turn_axis_id is not None
         and route.exit_turn_segment_rank == channel.idx
     )
 
@@ -668,7 +671,12 @@ def _fused_sibling_spans(
     return spans
 
 
-def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _materialize_gap_slots(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Resolve every declared :class:`GapSlot` to a concentric channel X.
 
     Handlers annotate each vertical inter-section leg with the gap it occupies
@@ -690,6 +698,11 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     raw geometry; the concentric layout and flanking-radius recompute are the
     same per-gap logic a single handler cannot do alone (it needs every leg in
     the gap at once).
+
+    ``movable_exit_plan_ids`` names the exit-turn plans whose columns this pass
+    is free to move.  Given none, every planned corner is final, so the pass
+    closes by checking their radii against the standard corner inputs
+    (:func:`_validate_planned_exit_turn_radii`).
     """
     graph = ctx.graph
     by_gap: dict[tuple[int, int | None], list[_VChannel]] = defaultdict(list)
@@ -704,7 +717,18 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             ch = _locate_slot_channel(rp, slot, graph)
             if ch is None:
                 continue
-            if rp.normalize_exempt or _planner_owns_channel(ch):
+            exit_plan_is_movable = (
+                rp.exit_turn_plan_id is not None
+                and rp.exit_turn_plan_id in movable_exit_plan_ids
+            ) or ctx.is_compatibility_edge(rp.edge)
+            exit_plan_is_movable = exit_plan_is_movable and not (
+                convergence_owns_segment_boundary(rp, ch.idx)
+                or rp.fan_route_emitter is not None
+                or ch.idx in rp.route_system_owned_segment_ranks
+            )
+            if rp.normalize_exempt or (
+                _planner_owns_channel(ch) and not exit_plan_is_movable
+            ):
                 owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
             else:
                 by_gap[(slot.gap_lo_col, slot.row)].append(ch)
@@ -738,6 +762,79 @@ def _materialize_gap_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
             for corridor in _split_corridors(same):
                 bundles.append((down, corridor))
         _layout_gap_bundle(bundles, gap_left, gap_right, ctx, owned.get((lo, row)))
+
+    if movable_exit_plan_ids:
+        return
+    _validate_planned_exit_turn_radii(routes, ctx)
+
+
+def _validate_planned_exit_turn_radii(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Validate settled exit-turn radii against their standard corner inputs."""
+    if ctx.exit_turns is None:
+        return
+    from nf_metro.layout.routing.exit_turns import (
+        ExitTurnInvariantError,
+        planned_exit_turn_corner_offsets,
+    )
+
+    for route in routes:
+        settled = ctx.settled_exit_turns.get(
+            (route.edge.source, route.edge.target, route.line_id)
+        )
+        channel_rank = route.exit_turn_segment_rank
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if (
+            route.curve_radii is None
+            or settled is None
+            or channel_rank is None
+            or membership is None
+            or route.route_system_disposition != RouteSystemDisposition.PLANNED.value
+            or not settled.validate_corner_radii
+        ):
+            continue
+        planned_offsets = planned_exit_turn_corner_offsets(membership)
+        if planned_offsets is None:
+            continue
+        allocated_offsets = route.concentric_corner_offsets_by_segment.get(
+            channel_rank, settled.corner_offsets
+        )
+        allocated_bases = route.concentric_corner_bases_by_segment.get(
+            channel_rank, (ctx.curve_radius, ctx.curve_radius)
+        )
+        for radius_index, dx, base_radius in zip(
+            (channel_rank - 1, channel_rank),
+            (
+                allocated if allocated is not None else planned
+                for allocated, planned in zip(
+                    allocated_offsets, planned_offsets, strict=True
+                )
+            ),
+            allocated_bases,
+            strict=True,
+        ):
+            if (
+                dx is None
+                or base_radius is None
+                or not 0 <= radius_index < len(route.curve_radii)
+            ):
+                continue
+            prev, corner, nxt = route.points[radius_index : radius_index + 3]
+            expected_radius = concentric_corner_radius_at(
+                prev, corner, nxt, dx, base_radius
+            )
+            if (
+                abs(route.curve_radii[radius_index] - expected_radius)
+                > COORD_TOLERANCE_FINE
+            ):
+                raise ExitTurnInvariantError(
+                    f"planned gap channel {route.edge.source}->{route.edge.target} "
+                    f"line {route.line_id} corner radius "
+                    f"{route.curve_radii[radius_index]!r} at index {radius_index} "
+                    "differs from its "
+                    f"allocated bundle radius {expected_radius!r}"
+                )
 
 
 def _separate_declared_opposing_gap_bundles(
@@ -1676,7 +1773,11 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
         widest = widest_coincident_radius(desired)
         for route, i in members:
             assert route.curve_radii is not None
-            route.curve_radii[i] = widest
+            previous, corner, following = route.points[i : i + 3]
+            route.curve_radii[i] = concentric_corner_radius_at(
+                previous, corner, following, 0.0, widest
+            )
+            route.record_concentric_corner(i, 0.0, widest)
 
     # Lower only the members that resolve wider than the bucket's limiting leg.
     # A radius on an adjacent corner shares segment budget, so repeat until a
@@ -1712,7 +1813,11 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
                         low = candidate
                     else:
                         high = candidate
-                radii[i] = high
+                previous, corner, following = route.points[i : i + 3]
+                radii[i] = concentric_corner_radius_at(
+                    previous, corner, following, 0.0, high
+                )
+                route.record_concentric_corner(i, 0.0, high)
                 resolved_by_route.pop(id(route), None)
                 changed = True
         if not changed:
@@ -2152,6 +2257,7 @@ def _reseat_concentric_flanking(
         (k, offset_out, radius_out),
     ):
         if 0 <= radius_idx < len(rp.curve_radii):
+            rp.record_concentric_corner(radius_idx, offset, reference)
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
                 prev_pt, corner_pt, next_pt, offset, reference
@@ -2200,6 +2306,8 @@ def _set_htrunk_y(
     new_y: float,
     offset_in: float = 0.0,
     offset_out: float = 0.0,
+    base_radius: float = CURVE_RADIUS,
+    base_radius_out: float | None = None,
 ) -> None:
     """Move an interior horizontal trunk (``points[k]->[k+1]``) to *new_y*.
 
@@ -2217,7 +2325,14 @@ def _set_htrunk_y(
     to its own port, alone -- keeps the base radius (zero).
     """
     _reseat_concentric_flanking(
-        rp, k, new_y, axis=1, offset_in=offset_in, offset_out=offset_out
+        rp,
+        k,
+        new_y,
+        axis=1,
+        offset_in=offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius,
+        base_radius_out=base_radius_out,
     )
 
 
@@ -3854,6 +3969,7 @@ def _restack_channel(
             ux = 1.0 if nxt[0] > corner[0] else -1.0
         inner_rank = n - 1 if ux > 0 else 0
         dx = (i - inner_rank) * step
+        rp.record_concentric_corner(radius_idx, dx, base_radius)
         rp.curve_radii[radius_idx] = concentric_corner_radius_at(
             prev, corner, nxt, dx, base_radius
         )

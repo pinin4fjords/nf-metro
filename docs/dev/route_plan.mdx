@@ -129,12 +129,17 @@ disposition, not a render warning or render failure.
 
 Supported handlers consume the committed assignment during normal dispatch.
 They may build the rest of the path with their established family logic, but
-the source-side turn is seated on the planned axis. The planner owns lane
-order, axes, and transition requirements. Templates only realise those
-decisions as points and radii.
+the source-side turn is seated on the planned axis. When a turn competes for a
+row or column gap, its provisional axis participates in the same allocation as
+member channels and compatibility context. The settled axis and signed corner
+offset return to the exit-turn planner before it publishes the complete plan.
+The planner owns lane order, axes, and transition requirements. Templates only
+realise those decisions as points and radii.
 
 Every downstream route-mutating pass is ratcheted against a snapshot of the
-owned segments and transitions. Moving, dropping, or replacing one raises an
+owned segments and transitions. The general gap materializer treats a settled
+planned turn as validation-only: it verifies the declared seat and derives the
+expected radius with `concentric_corner_radius_at`. Moving, dropping, or replacing one raises an
 invariant error that names its route system and connectors. A lane transition
 must preserve every pairwise source-lane order at its target; otherwise the
 entire group uses legacy routing. The final runtime check uses the geometry
