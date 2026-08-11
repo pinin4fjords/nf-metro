@@ -50,7 +50,7 @@ pass restores something a plan owns.
 
 ## Observation boundary
 
-On the normal dispatcher path, the routing context and semantic scaffold are
+On the normal routing path, the routing context and semantic scaffold are
 built before the first production path is emitted. Ordinary routing and
 `observe_route_edges` run the same exit-turn, fan, convergence-classification,
 route-system, member-geometry, and final convergence-settlement stages. Each inter-section member is classified
@@ -68,21 +68,20 @@ radii, gap and trunk slots, offset regime, normalization policy, semantic plan
 references, and the exact segment identity and coordinates of every gap channel
 it owns. Production copies that seed
 into a fresh mutable route; it neither calls the family nor runs the ordered
-matcher again. A compatibility system discards any provisional templates and
-uses the ordered matcher for every member. These modes are atomic, so planned
-and compatibility members cannot coexist in one emitted system.
+matcher again. A complete convergence plan owns its members directly. Every
+production system is planned, and routing fails closed if a member has no
+geometry owner.
 
 Every emitted system member carries its route-system ID, emission-member ID,
 system disposition, owning plan IDs, and claimant-exact reservation IDs on the
-final `RoutedPath`. Compatibility members carry no plan IDs and name one or more
-explicit `RouteSystemCompatibilityReason` records instead. Rail members record
+final `RoutedPath`. Declined child-planner verdicts remain as superseded
+diagnostics instead of selecting another emitter. Rail members record
 the rail family at the rail call. Whole-graph rail mode freezes the same
 canonical system/member execution before invoking the direct rail geometry
 owner, then attributes and validates each returned path against that execution.
-A member skipped before dispatch has no family ID. If a compatibility inter-section builder declines to emit, the
-later TB, entry-runway, or general fallback that emits the member owns its
-family ID. After all normalization passes, the observer binds every member to
-the final route list.
+A covered member has no independent emitted path. TB, entry-runway, and general
+local handlers apply only when no inter-section family is relevant. After all
+normalization passes, the observer binds every member to the final route list.
 
 Reservation publication closes the attribution loop. The observer first
 publishes member-geometry plan IDs with the system and member bindings, then
@@ -112,26 +111,21 @@ owned approach and continuation stations.
 
 The disposition applies to the complete group:
 
-| Disposition | Routing behaviour                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------------------------- |
-| `PLANNED`   | Commits supported seam offsets, assignments, axes, and transitions before emission                                   |
-| `LEGACY`    | Keeps base offsets and established handlers when a member, source order, or geometry is unsupported or contradictory |
+| Disposition | Routing behaviour                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `PLANNED`   | Commits supported seam offsets, assignments, axes, and transitions before emission         |
+| `LEGACY`    | Records why this child planner declined ownership; it does not select a production emitter |
 
-Both dispositions use the same handler table and route templates. The planner
-adds shared decisions for a supported complete group; it does not introduce a
-second emitter or mix planned and compatibility members within one group.
+Exit-turn dispositions are planning verdicts, not alternate emitters. A
+supported complete group contributes shared axes and assignments to its member
+templates. An unsupported group produces a deterministic diagnostic and makes
+the route system fail closed before emission.
 
-Support is atomic. A partial plan is invalid. Direct routing without an
-unambiguous station-offset map cannot compact a group safely, so that group
-uses legacy routing. When observation is enabled, one deterministic,
-non-blocking diagnostic records the legacy reason. Legacy is a compatibility
-disposition, not a render warning or render failure.
-
-Supported handlers consume the committed assignment during normal dispatch.
+Supported handlers consume the committed assignment during planning.
 They may build the rest of the path with their established family logic, but
 the source-side turn is seated on the planned axis. When a turn competes for a
 row or column gap, its provisional axis participates in the same allocation as
-member channels and compatibility context. The settled axis and signed corner
+member channels. The settled axis and signed corner
 offset return to the exit-turn planner before it publishes the complete plan.
 The planner owns lane order, axes, and transition requirements. Templates only
 realise those decisions as points and radii.
@@ -141,8 +135,8 @@ owned segments and transitions. The general gap materializer treats a settled
 planned turn as validation-only: it verifies the declared seat and derives the
 expected radius with `concentric_corner_radius_at`. Moving, dropping, or replacing one raises an
 invariant error that names its route system and connectors. A lane transition
-must preserve every pairwise source-lane order at its target; otherwise the
-entire group uses legacy routing. The final runtime check uses the geometry
+must preserve every pairwise source-lane order at its target; otherwise
+planning fails. The final runtime check uses the geometry
 that the renderer will draw, verifies structural anchors and runway, and
 confirms that each assignment was consumed once.
 
@@ -180,11 +174,9 @@ edge might run. This distinction keeps valid convergence-internal construction
 while making the rest of the planned system a stable allocation input.
 
 If any non-convergence member is absent, has no classified production family,
-or its canonical family declines the template, the complete route system takes
-the registered `member-geometry-plan` compatibility disposition. Its
-provisional member templates are not production inputs. The compatibility
-system starts clean and uses the established first-match dispatcher for every
-member.
+or its canonical family declines the template, the complete route system fails
+closed with the registered `member-geometry-plan` reason. No provisional member
+template reaches production.
 
 ## Complete convergence plans
 
@@ -212,27 +204,26 @@ LR, RL, TB, and BT shapes use the same records under rotation and reversal.
 Coordinates use the final layout canvas and include settled lane offsets where
 the canonical route template bakes them into the path.
 
-Planning is atomic by route system. If a supported route family cannot produce
-a complete geometric decision, every convergence in that system is `LEGACY`,
-owns no geometry or resources, and records the same deterministic reason.
+Planning is atomic by route system. If a convergence cannot produce a complete
+geometric decision, it is `LEGACY`, owns no geometry or resources, and records
+the deterministic reason. Another complete planner may own the route system;
+otherwise production fails closed.
 Incomplete semantic membership and programming errors are invariant failures,
-not compatibility fallbacks. Planned and compatibility members cannot coexist
-in one system.
+not alternate routing choices. Every production member has one geometry owner.
 
 After member geometry and before final system disposition, global settlement
 visits preliminarily planned systems. It allocates convergence lanes against exact member gap
-channels, immutable claims from earlier planned convergences, and ordered
-compatibility routes. Every channel carries its own line and claimant-member
+channels and immutable claims from earlier planned convergences. Every channel
+carries its own line and claimant-member
 attribution. A final feasibility gate rejects unresolved same-line ambiguity,
 distinct-line crowding, or internal convergence conflict before production
 emission begins.
 
 The established route families remain the emitters. The planner exercises
-those templates before dispatch to freeze their exact decisions. During
-dispatch, a feeder consumes its landing and a covered continuation is skipped
+those templates before emission to freeze their exact decisions. During
+emission, a feeder consumes its landing and a covered continuation is skipped
 with its named carrier. Gap and coincidence passes exclude plan-owned trunks
-and joins. The merge landing and covered-hop passes remain only for legacy
-systems.
+and joins. No post-emission pass reconstructs either decision.
 
 The final convergence guard checks every feeder join, the complete trunk axis,
 flanks and terminal caps, emitted and covered continuation endpoints, and each
@@ -292,20 +283,18 @@ An `EmissionMember` is keyed by `(source, target, line_id)`. Its ordered
 occurrence, including duplicates and shared physical legs. Every member has
 exactly one final binding:
 
-| Binding             | Meaning                                                                                  |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| `EMITTED`           | One final `RoutedPath` carries the member.                                               |
-| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it.       |
-| `COVERED_MERGE_HOP` | The compatibility post-pass removed an emitted entry hop and recorded its exact carrier. |
-| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.                   |
+| Binding             | Meaning                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `EMITTED`           | One final `RoutedPath` carries the member.                                         |
+| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it. |
+| `COVERED_MERGE_HOP` | Reserved historical binding value; production does not create it.                  |
+| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.             |
 
-`MERGE_SKIP` and `COVERED_MERGE_HOP` are recorded at their actual production
-suppression sites. A planned covered continuation uses `MERGE_SKIP` before
-dispatch; `COVERED_MERGE_HOP` remains available to compatibility routing. They
-are not inferred by comparing input and output sets.
+`MERGE_SKIP` is recorded at its production suppression site, before emission.
+Bindings are not inferred by comparing input and output sets.
 Whole-graph rail routing binds matching inter-section members against the same
 final route list. Per-section rail-internal station-to-port and port-to-station
-legs do not enter the inter-section dispatcher, so they are outside this
+legs do not enter the inter-section route-system pipeline, so they are outside this
 schema.
 
 Family identity and binding disposition are separate. `MERGE_SKIP` and
@@ -619,15 +608,10 @@ convergence, a completely planned fan owns the system; otherwise the exit-turn
 and fan dispositions decide it. No planner may publish a partial demand and ask
 a later normalization pass to recover missing ownership.
 
-Compatibility is explicit and finite. Every compatibility system records the
-decisive planner (`exit-turn-plan`, `fan-plan`, `member-geometry-plan`, or
-`convergence-plan`), that
-planner's deterministic reason, and the justification that the established
-templates remain its emitter because no complete planned geometry exists. The
-reason is data, not a warning and not permission for a normalization pass to
-reconstruct plan-owned geometry. Adding support means extending the named
-planner until the whole system becomes planned. The complete production
-handler and pass ownership inventory is in
+Declined child-planner verdicts remain explicit diagnostics on the final
+system decision. They do not select an emitter or permit a normalization pass
+to reconstruct plan-owned geometry. Production requires one complete geometry
+owner. The complete production handler and pass ownership inventory is in
 [route emission inventory](/nf-metro/dev/route_emission_inventory/).
 
 ## Canonical order
@@ -637,7 +621,7 @@ group order and then entry group order. Divergences and convergences follow
 topology order. Members follow first physical-leg appearance in connector,
 resolved-path, and leg order. Branches and feeders follow topology order.
 Exit-turn plans follow exit-group order. Planned lanes follow physical
-station-offset order; legacy records may fall back to graph line order and name
+station-offset order; declined child records may use graph line order and name
 that choice in `lane_order_source`. Assignments follow member order. Axis
 cohorts follow the first `(run_direction, turn_direction)` appearance, then
 lane rank within each cohort. Bindings follow member order. Reservations,

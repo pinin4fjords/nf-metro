@@ -6372,7 +6372,7 @@ def _check_spec(
 # The routing invariants, classified with the same schema as the guard
 # registry (``phases/guards.py``).  Unlike ``_guard_*`` these return violation
 # lists rather than raising, so this is a *classification* registry, not a
-# dispatcher; the runtime chokepoint is :func:`assert_render_curve_invariants`.
+# routing pipeline; the runtime chokepoint is :func:`assert_render_curve_invariants`.
 #
 # Tier A == already always-on: run on every render via that chokepoint.
 # Tier B == validate-only: invoked by a ``_guard_*`` wrapper, so they reach
@@ -6507,7 +6507,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
         issue_pin=("#1597",),
         narrow_reason=(
             "An exact-coincidence oracle over the corpus rather than a render "
-            "guard: `_land_merge_feeders_on_trunk` establishes the property by "
+            "guard: the convergence emitter establishes the property by "
             "construction for the branch-feeder family, so on the render path "
             "the check could only fire for a feeder some other handler shaped, "
             "aborting a map that is imperfect rather than broken. "

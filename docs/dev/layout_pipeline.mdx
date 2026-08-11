@@ -334,14 +334,14 @@ The Stage and Pass labels line up cleanly:
 ## Post-layout routing boundary
 
 The numbered stages settle station, port, junction, and section coordinates.
-On the normal dispatcher path, routing then computes per-line station offsets,
+The routing pipeline then computes per-line station offsets,
 applies the exact slots owned by semantic fan plans, and builds complete
 exit-turn and convergence plans before building one atomic emission decision
 per route system. It then emits systems once in canonical scaffold order.
 Whole-graph rail mode takes its documented short circuit instead.
 
 `compute_station_offsets` first produces the ordinary offset map. Immediately
-before dispatch, `_route_edges` applies planned fan carriers and builds the
+before emission, `_route_edges` applies planned fan carriers and builds the
 exit-turn plan once. It then builds convergence plans from the same semantic
 scaffold and settled routing context. The exit-turn planner compacts each
 supported group onto its active lanes, commits the offsets it owns across the

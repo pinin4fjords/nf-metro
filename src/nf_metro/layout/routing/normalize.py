@@ -29,7 +29,7 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     spans_share_corridor,
 )
-from nf_metro.layout.route_plan import ExitTurnPlanId, RouteSystemDisposition
+from nf_metro.layout.route_plan import ExitTurnPlanId
 from nf_metro.layout.routing.centrelines import (
     fan_offsets,
 )
@@ -38,7 +38,6 @@ from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     HTrunkSeg,
-    OffsetRegime,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -70,7 +69,6 @@ from nf_metro.layout.routing.common import (
     trunk_segments_cross,
 )
 from nf_metro.layout.routing.context import (
-    _get_offset,
     _MergeRouting,
     _resolve_section_col,
     _RoutingCtx,
@@ -630,16 +628,15 @@ def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
     """Whether a plan resolves this channel's coordinate outright.
 
     A fan emission and a planned exit turn each name the coordinate itself, so
-    no rank re-derivation can speak for it.  A compatibility system's turn
-    names nothing final, so its channel stays movable.  Convergence and
-    member-geometry ownership name the coordinate too, but a group already
-    occupying adjacent tracks keeps every coordinate, so those are answerable
-    at that width.
+    no rank re-derivation can speak for it. A declined exit-turn plan names
+    nothing final, so another geometry owner may keep its channel movable.
+    Convergence and member-geometry ownership name the coordinate too, but a
+    group already occupying adjacent tracks keeps every coordinate, so those
+    are answerable at that width.
     """
     route = channel.route
     return route.fan_route_emitter is not None or (
-        route.route_system_disposition != RouteSystemDisposition.COMPATIBILITY.value
-        and route.exit_turn_axis_id is not None
+        route.exit_turn_axis_id is not None
         and route.exit_turn_segment_rank == channel.idx
     )
 
@@ -720,7 +717,7 @@ def _materialize_gap_slots(
             exit_plan_is_movable = (
                 rp.exit_turn_plan_id is not None
                 and rp.exit_turn_plan_id in movable_exit_plan_ids
-            ) or ctx.is_compatibility_edge(rp.edge)
+            )
             exit_plan_is_movable = exit_plan_is_movable and not (
                 convergence_owns_segment_boundary(rp, ch.idx)
                 or rp.fan_route_emitter is not None
@@ -790,7 +787,6 @@ def _validate_planned_exit_turn_radii(
             or settled is None
             or channel_rank is None
             or membership is None
-            or route.route_system_disposition != RouteSystemDisposition.PLANNED.value
             or not settled.validate_corner_radii
         ):
             continue
@@ -941,11 +937,24 @@ def _collect_htrunks(
     return out
 
 
-def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _bundle_same_destination_tails(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    movable_route_ids: frozenset[int] | None = None,
+) -> frozenset[tuple[int, int]]:
     """Seat eligible same-port destination tails on one eager concentric band."""
+    settled_segments: set[tuple[int, int]] = set()
     for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
+        if movable_route_ids is not None and not any(
+            id(trunk.route) in movable_route_ids for trunk in trunks.values()
+        ):
+            continue
+        settled_segments.update(
+            (id(trunk.route), trunk.idx) for trunk in trunks.values()
+        )
         for line_id, trunk in trunks.items():
             if route_system_owns_segment_boundary(trunk.route, trunk.idx):
                 continue
@@ -959,6 +968,7 @@ def _bundle_same_destination_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 offset_in=0.0,
                 offset_out=0.0,
             )
+    return frozenset(settled_segments)
 
 
 def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
@@ -1339,17 +1349,12 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     for group in _convergent_port_groups(routes, ctx):
         _snap_group(group, ctx)
     for group in _merge_feeder_groups(routes, ctx):
-        # Attribution stamps the disposition after the pre-freeze chain has
-        # run, so on that path every route carries None and nothing qualifies.
-        compatibility_channels = [
-            channel
-            for channel in group.channels
-            if channel.route.route_system_disposition
-            == RouteSystemDisposition.COMPATIBILITY.value
+        movable_channels = [
+            channel for channel in group.channels if not _planner_owns_channel(channel)
         ]
-        if compatibility_channels:
+        if movable_channels:
             _snap_merge_feeder_group(
-                _Coincidence(compatibility_channels, group.ref_x), ctx.graph
+                _Coincidence(movable_channels, group.ref_x), ctx.graph
             )
     _join_fanout_upstream_tails(routes, ctx)
 
@@ -1506,23 +1511,17 @@ def _coincide_same_line_fanout_traverses(
                     _set_htrunk_y(member.route, member.idx, target)
 
 
-def _clear_compatibility_entry_wrap_leadouts(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+def _settle_entry_wrap_leadouts(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
-    """Seat wrap openings beyond same-line descents regardless of emit order.
-
-    Compatibility-only: a planned system's wrap opening is a coordinate its
-    member-geometry or convergence plan states, so the emission disposition is
-    what admits a route here.  Reading ownership off the segment instead would
-    admit a planned member whose opening happens to carry neither an owned
-    segment rank nor a reservation.
-    """
+    """Seat movable wrap openings beyond overlapping same-line descents."""
     for route in routes:
-        if (
-            len(route.points) != 6
-            or not route.is_inter_section
-            or not ctx.is_compatibility_edge(route.edge)
-        ):
+        if movable_route_ids is not None and id(route) not in movable_route_ids:
+            continue
+        if len(route.points) != 6 or not route.is_inter_section:
             continue
         p0, p1, p2, p3 = route.points[:4]
         if (
@@ -1663,69 +1662,6 @@ def _bundle_divergent_distinct_traverses(
         for m, ty, off in moves:
             _set_htrunk_y(m.route, m.idx, ty, off, 0.0)
             _reconcile_moved_trunk_slot(m.route, m.idx, ty, ctx.graph)
-
-
-def _drop_covered_merge_entry_hops(
-    routes: list[RoutedPath],
-    ctx: _RoutingCtx,
-) -> tuple[tuple[tuple[str, str, str], tuple[str, str, str]], ...]:
-    """Drop a compatibility merge -> entry hop covered by its feeders.
-
-    The merge station is placed at ``max(feeder.x) + margin``, which is not the
-    column the feeders' channels finally converge in, so the hop drawn from it
-    starts short of their shared corner and overhangs it.  The hop earns its
-    place only while some feeder stops at the merge station rather than carrying
-    on to the port; once they all reach the port, the overhang is the only part
-    of the hop that is not already drawn.
-
-    A feeder that stops at the merge station is the evidence that keeps the hop,
-    and the hop's own two ends are where to look for it: it runs from the merge
-    station to the port on the converging line's own track, so a feeder arriving
-    at either lands on one of them without any offset arithmetic.  Dropping it
-    needs both -- no feeder waiting at the merge station, and one already at the
-    port to carry the line in.
-
-    Runs after the coincidence passes, since only the settled channels say where
-    the feeders converge.
-    """
-    if not ctx.merge.junctions:
-        return ()
-    feeders_by_merge: dict[str, list[RoutedPath]] = defaultdict(list)
-    hop_by_merge: dict[str, RoutedPath] = {}
-    for rp in routes:
-        if rp.edge.target in ctx.merge.junctions:
-            feeders_by_merge[rp.edge.target].append(rp)
-        elif ctx.merge.entry_port_for.get(rp.edge.source) == rp.edge.target:
-            hop_by_merge[rp.edge.source] = rp
-
-    def ends_at(rp: RoutedPath, point: tuple[float, float]) -> bool:
-        return (
-            abs(rp.points[-1][0] - point[0]) <= COORD_TOLERANCE
-            and abs(rp.points[-1][1] - point[1]) <= COORD_TOLERANCE
-        )
-
-    covered: set[int] = set()
-    coverage_records: list[tuple[tuple[str, str, str], tuple[str, str, str]]] = []
-    for merge_id, hop in hop_by_merge.items():
-        feeders = feeders_by_merge.get(merge_id)
-        if not feeders or any(ends_at(route, hop.points[0]) for route in feeders):
-            continue
-        carrier = next(
-            (route for route in feeders if ends_at(route, hop.points[-1])), None
-        )
-        if carrier is None:
-            continue
-        covered.add(id(hop))
-        coverage_records.append(
-            (
-                (hop.edge.source, hop.edge.target, hop.line_id),
-                (carrier.edge.source, carrier.edge.target, carrier.line_id),
-            )
-        )
-    if not covered:
-        return ()
-    routes[:] = [route for route in routes if id(route) not in covered]
-    return tuple(coverage_records)
 
 
 def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
@@ -1869,7 +1805,10 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
 
 
 def _stagger_convergent_distinct_lines(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Seat distinct-line final port descents in destination lane order.
 
@@ -1895,7 +1834,9 @@ def _stagger_convergent_distinct_lines(
         list
     )
     for rp in routes:
-        if not rp.is_inter_section:
+        if not rp.is_inter_section or (
+            movable_route_ids is not None and id(rp) not in movable_route_ids
+        ):
             continue
         ch = _final_port_approach(rp)
         if ch is None:
@@ -2729,73 +2670,6 @@ def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> Non
     _set_vchannel_x(ch, run.xb)
 
 
-def _land_lane_changing_feeder_on_trunk_riser(
-    rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx
-) -> None:
-    """Terminate a lane-changing straight feeder on the trunk's riser.
-
-    An adjacent feeder that would only detour to reach the trunk's channel runs
-    into the merge station instead (:func:`_adjacent_feeder_reaches_merge_directly`),
-    as a straight two-vertex run.  The merge station sits one margin past the
-    feeder junction, so when the converging line rides a different lane at the
-    junction than at the merge, that run has to change lane within the margin --
-    far less than the two corners of a lane change need -- and degenerates into a
-    bare sloped segment.
-
-    The trunk's riser out of *run* crosses the feeder's lane on its way to the
-    entry level, so the feeder keeps its lane and terminates on the riser: the
-    converging line reads as one stroke from the join onward, and no direction
-    change is asked of a run that has no room to turn.  The merge -> entry hop is
-    then redundant -- the trunk covers the entry approach from the riser on -- and
-    :func:`_drop_covered_merge_entry_hops` retires it, since no feeder waits at
-    the merge station.
-    """
-    if len(rp.points) != 2:
-        return
-    lane = _get_offset(ctx, rp.edge.source, rp.line_id)
-    if abs(lane - _get_offset(ctx, rp.edge.target, rp.line_id)) <= COORD_TOLERANCE:
-        return
-    (sx, sy), (tx, _ty) = rp.points
-    lane_y = sy + lane
-    lo, hi = sorted((run.y, run.after_y))
-    riser_spans_lane = lo + COORD_TOLERANCE < lane_y < hi - COORD_TOLERANCE
-    riser_ahead = (run.xb - sx) * (tx - sx) > 0
-    if not (riser_spans_lane and riser_ahead):
-        return
-    rp.points = [(sx, lane_y), (run.xb, lane_y)]
-    rp.offset_regime = OffsetRegime.BAKED
-
-
-def _land_merge_feeders_on_trunk(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
-    """Land compatibility merge feeders on the trunk leg they converge onto.
-
-    A merge with a trunk routes its other feeders as branches dropping toward the
-    trunk's bypass channel (:func:`_route_merge_branch`), aimed at the level the
-    context published rather than the one the trunk ends up on: the slot
-    materialisation and coincidence passes re-stack the channel and slide the
-    descent columns afterwards, each moving one leg of the feeder without the
-    other.  A feeder therefore lands an offset step off the trunk's centreline,
-    or carries its tail past the corner where the trunk has already turned away,
-    and either way ends in a stroke cap over nothing.
-
-    Compatibility systems settle where a feeder meets its trunk here, after
-    every pass that can move either route. Planned systems are immutable and
-    bypass this pass.
-    """
-    merge = ctx.merge
-    for mjid, trunk_rp, others in _merge_trunks_and_feeders(routes, merge):
-        if trunk_rp.convergence_plan_id is not None:
-            continue
-        run = _merge_convergence_run(trunk_rp, merge.trunk_by[mjid])
-        if run is None:
-            continue
-        for rp in others:
-            if (rp.edge.source, rp.edge.target, rp.line_id) in merge.branch_edges:
-                _land_feeder_on_run(rp, run, ctx)
-            else:
-                _land_lane_changing_feeder_on_trunk_riser(rp, run, ctx)
-
-
 def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Resolve every declared :class:`TrunkSlot` to a concentric channel Y.
 
@@ -3518,7 +3392,10 @@ def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
 
 
 def _separate_fused_cotravelling_runs(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Restore the nesting step between co-travelling tracks of distinct lines.
 
@@ -3554,7 +3431,13 @@ def _separate_fused_cotravelling_runs(
     lanes = corridor_lanes(
         run for rp in routes if rp.is_inter_section for run in corridor_runs(rp)
     )
-    pending = deque(_reseating_order(lanes))
+    movable_lane_ids = {
+        i
+        for i, lane in enumerate(lanes)
+        if movable_route_ids is None
+        or all(id(run.route) in movable_route_ids for run in lane.runs)
+    }
+    pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)
     relocated: set[int] = set()
     while pending:
         i = pending.popleft()
@@ -3579,7 +3462,8 @@ def _separate_fused_cotravelling_runs(
         pending.extend(
             j
             for j, other in enumerate(lanes)
-            if j not in relocated
+            if j in movable_lane_ids
+            and j not in relocated
             and not other.pinned
             and lanes[i].fuses_with(other, step)
         )
@@ -4263,7 +4147,12 @@ def _corridor_run_band(
     return None if band is None else (band.lo, band.hi)
 
 
-def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_CorridorRun]:
+def _corridor_runs(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    fixed_segment_keys: frozenset[tuple[int, int]] = frozenset(),
+) -> list[_CorridorRun]:
     """Every straight leg of every inter-section route, with the band it may hold.
 
     Legs outside any gap, and legs nothing may reseat, are collected without a
@@ -4282,7 +4171,7 @@ def _corridor_runs(routes: list[RoutedPath], ctx: _RoutingCtx) -> list[_Corridor
                 _corridor_run_band(
                     ctx, rp, idx, axis, section_ids, coordinate, run_lo, run_hi
                 )
-                if turning
+                if turning and (id(rp), idx) not in fixed_segment_keys
                 else None
             )
             out.append(
@@ -4394,7 +4283,10 @@ def _bundle_shift_range(bundle: list[_CorridorRun]) -> tuple[float, float] | Non
 
 
 def _hold_runs_in_corridor_clearance(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    *,
+    fixed_segment_keys: frozenset[tuple[int, int]] = frozenset(),
 ) -> None:
     """Hold every gap-crossing run inside the clearance its corridor owes.
 
@@ -4422,7 +4314,7 @@ def _hold_runs_in_corridor_clearance(
     fuse two lanes nor reorder them.
     """
     by_axis: defaultdict[int, list[_CorridorRun]] = defaultdict(list)
-    for run in _corridor_runs(routes, ctx):
+    for run in _corridor_runs(routes, ctx, fixed_segment_keys=fixed_segment_keys):
         by_axis[run.axis].append(run)
     for runs in by_axis.values():
         bundles = _corridor_bundles(runs, ctx.offset_step)

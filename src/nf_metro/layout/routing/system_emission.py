@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -34,6 +35,14 @@ if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
 
 
+class RouteSystemGeometryOwner(str, Enum):
+    """Planner that supplies a route system's complete production geometry."""
+
+    MEMBER_GEOMETRY = "member-geometry-plan"
+    CONVERGENCE = "convergence-plan"
+    FAN = "fan-plan"
+
+
 @dataclass(frozen=True, slots=True)
 class RouteSystemEmissionMember:
     member_id: EmissionMemberId
@@ -51,12 +60,15 @@ class RouteSystemEmission:
     disposition: RouteSystemDisposition
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
     plan_ids: tuple[str, ...]
+    geometry_owner: RouteSystemGeometryOwner
     superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
     def __post_init__(self) -> None:
         compatible = self.disposition is RouteSystemDisposition.COMPATIBILITY
         if compatible != bool(self.compatibility_reasons):
             raise ValueError("route-system disposition and compatibility disagree")
+        if not isinstance(self.geometry_owner, RouteSystemGeometryOwner):
+            raise TypeError("route-system geometry owner is not typed")
 
     @property
     def reservation_ids(self) -> tuple[str, ...]:
@@ -131,6 +143,7 @@ class RouteSystemDispositionDecision:
     system_id: RouteSystemId
     disposition: RouteSystemDisposition
     compatibility_reasons: tuple[RouteSystemCompatibilityReason, ...]
+    geometry_owner: RouteSystemGeometryOwner
     superseded_verdicts: tuple[RouteSystemSupersededVerdict, ...] = ()
 
 
@@ -183,7 +196,7 @@ def _constrains_geometry(owner: str, reason: str) -> bool:
     """Whether *owner*'s verdict on *reason* names geometry a plan could own.
 
     The registry states this per reason, so a verdict that constrains nothing
-    neither escalates its system to compatibility emission nor makes it mixed.
+    remains a superseded diagnostic when another planner owns the system.
     """
     return compatibility_family(owner, reason).constrains_geometry
 
@@ -245,11 +258,9 @@ def _classify_route_system_dispositions(
         )
         superseded = tuple(
             dict.fromkeys(
-                RouteSystemSupersededVerdict(owner, reason, decided_by)
+                RouteSystemSupersededVerdict(owner, reason, decided_by.value)
                 for owner, owner_reasons in declined.items()
-                if decided_by is not None
-                and owner not in decisive
-                and owner != decided_by
+                if owner not in decisive and owner != decided_by.value
                 for reason in owner_reasons
                 if _constrains_geometry(owner, reason)
             )
@@ -263,6 +274,7 @@ def _classify_route_system_dispositions(
                     else RouteSystemDisposition.PLANNED
                 ),
                 reasons,
+                decided_by,
                 superseded,
             )
         )
@@ -274,7 +286,7 @@ def _system_decider(
     geometry_failure: str | None,
     convergences: Sequence[ConvergencePlan],
     fans: Sequence[FanPlan],
-) -> tuple[tuple[str, ...], str | None]:
+) -> tuple[tuple[str, ...], RouteSystemGeometryOwner]:
     """Resolve which owners settle one system's disposition, in precedence order.
 
     A member holding no geometry decision at all leaves nothing for a later
@@ -282,22 +294,23 @@ def _system_decider(
     states the geometry of the members it joins and member-geometry plans state
     the rest; a completely planned fan names every member of the system.  Either
     way the members are partitioned before an exit-turn or fan verdict is
-    consulted, so such a verdict constrains none of them.  Otherwise the
-    exit-turn and fan owners decide together.
+    consulted, so such a verdict constrains none of them. Member geometry owns
+    every remaining complete system.
 
-    The second value names the owner whose precedence the first expresses, and
-    so the owner that supersedes every verdict outside it.  It is ``None`` where
-    exit-turn and fan decide jointly, because no verdict is set aside there.
+    The second value names the complete geometry owner whose precedence the
+    first expresses, and therefore supersedes every verdict outside it.
     """
     if geometry_failure is not None:
-        return ("member-geometry-plan",), "member-geometry-plan"
-    if convergences:
-        return ("convergence-plan",), "convergence-plan"
+        return ("member-geometry-plan",), RouteSystemGeometryOwner.MEMBER_GEOMETRY
+    if convergences and all(
+        plan.disposition is ConvergenceDisposition.PLANNED for plan in convergences
+    ):
+        return ("convergence-plan",), RouteSystemGeometryOwner.CONVERGENCE
     if fans and all(
         fan_plan.disposition is FanPlanDisposition.PLANNED for fan_plan in fans
     ):
-        return (), "fan-plan"
-    return ("exit-turn-plan", "fan-plan"), None
+        return (), RouteSystemGeometryOwner.FAN
+    return (), RouteSystemGeometryOwner.MEMBER_GEOMETRY
 
 
 def build_route_system_emission_execution(
@@ -340,6 +353,23 @@ def build_route_system_emission_execution(
             member_geometry_failures,
         )
     }
+    declined = tuple(
+        decision
+        for decision in decisions.values()
+        if decision.disposition is RouteSystemDisposition.COMPATIBILITY
+    )
+    if declined and require_member_geometry:
+        detail = ", ".join(
+            f"{decision.system_id}:"
+            + "/".join(
+                f"{reason.owner}:{reason.reason}"
+                for reason in decision.compatibility_reasons
+            )
+            for decision in declined
+        )
+        raise RuntimeError(
+            f"route-system planning declined canonical geometry: {detail}"
+        )
 
     members_by_system: dict[RouteSystemId, list[RouteSystemEmissionMember]] = (
         defaultdict(list)
@@ -373,11 +403,9 @@ def build_route_system_emission_execution(
         compatibility_reasons = decision.compatibility_reasons
         disposition = decision.disposition
         system_members = tuple(members_by_system.get(system_id, ()))
-        if disposition is RouteSystemDisposition.COMPATIBILITY:
-            system_members = tuple(
-                replace(member, geometry_plan=None, reservation_ids=())
-                for member in system_members
-            )
+        member_geometry_owns_system = (
+            decision.geometry_owner is RouteSystemGeometryOwner.MEMBER_GEOMETRY
+        )
         systems.append(
             RouteSystemEmission(
                 system_id,
@@ -390,16 +418,19 @@ def build_route_system_emission_execution(
                         *tuple(
                             str(exit_plan.id)
                             for exit_plan in exit_plans
+                            if not member_geometry_owns_system
                             if exit_plan.disposition is ExitTurnDisposition.PLANNED
                         ),
                         *tuple(
                             str(fan_plan.id)
                             for fan_plan in system_fans
+                            if not member_geometry_owns_system
                             if fan_plan.disposition is FanPlanDisposition.PLANNED
                         ),
                         *tuple(
                             str(convergence_plan.id)
                             for convergence_plan in convergences
+                            if not member_geometry_owns_system
                             if convergence_plan.disposition
                             is ConvergenceDisposition.PLANNED
                         ),
@@ -412,6 +443,7 @@ def build_route_system_emission_execution(
                     if disposition is RouteSystemDisposition.PLANNED
                     else ()
                 ),
+                decision.geometry_owner,
                 decision.superseded_verdicts,
             )
         )
@@ -428,6 +460,8 @@ def build_route_system_emission_execution(
                 for edge in plan.resolved_member_edges
             }
             for member in system.members:
+                if member.member_id in covered_by_member:
+                    continue
                 owners = int(member.geometry_plan is not None) + int(
                     member.edge in convergence_edges
                 )

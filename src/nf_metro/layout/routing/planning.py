@@ -35,6 +35,7 @@ from nf_metro.layout.routing.member_geometry import (
 )
 from nf_metro.layout.routing.system_emission import (
     RouteSystemEmissionExecution,
+    RouteSystemGeometryOwner,
     build_route_system_emission_execution,
     classify_route_system_dispositions,
 )
@@ -251,21 +252,13 @@ def prepare_route_system_planning(
             fan_plans=graph.fan_plans,
             convergence_plans=convergences.plans,
         )
-        compatibility_ids = frozenset(
+        complete_path_system_ids = frozenset(
             decision.system_id
             for decision in preliminary
-            if decision.disposition is RouteSystemDisposition.COMPATIBILITY
+            if decision.geometry_owner is RouteSystemGeometryOwner.MEMBER_GEOMETRY
+            and decision.superseded_verdicts
         )
-        planned_ids = frozenset(
-            decision.system_id
-            for decision in preliminary
-            if decision.disposition is RouteSystemDisposition.PLANNED
-        )
-        ctx.compatibility_edges = frozenset(
-            (edge.source, edge.target, edge.line_id)
-            for edge in scaffold.edge_order
-            if scaffold.system_for_edge(edge) in compatibility_ids
-        )
+        planned_ids = frozenset(scaffold.ordered_system_ids)
         convergences = settle_preliminary_convergence_execution(
             convergences,
             graph,
@@ -279,7 +272,8 @@ def prepare_route_system_planning(
             ctx,
             scaffold,
             family_by_edge=family_by_edge,
-            compatibility_system_ids=compatibility_ids,
+            convergence_plans=convergences.plans,
+            complete_path_system_ids=complete_path_system_ids,
             preliminary_gap_claims=preliminary_member_gap_claims(
                 convergences,
                 graph,
@@ -374,34 +368,19 @@ def prepare_route_system_planning(
         for system in route_systems.systems
         if system.disposition is RouteSystemDisposition.PLANNED
     )
-    compatibility_system_ids = frozenset(
-        system.system_id
-        for system in route_systems.systems
-        if system.disposition is RouteSystemDisposition.COMPATIBILITY
-    )
     ctx.route_systems = route_systems
-    ctx.compatibility_edges = frozenset(
-        (member.edge.source, member.edge.target, member.edge.line_id)
-        for system in route_systems.systems
-        if system.disposition is RouteSystemDisposition.COMPATIBILITY
-        for member in system.members
-    )
     convergences = restrict_convergence_execution(
         convergences,
         graph,
         planned_system_ids=planned_system_ids,
-        compatibility_system_ids=compatibility_system_ids,
         include_resources=include_convergence_resources,
     )
     exit_turn_dispositions = tuple(
         (plan.id, plan.legacy_reason) for plan in exit_turns.plans
     )
-    # A compatibility system emits through the established templates, and those
-    # consult the exit-turn query for the axis a turn opens on.  Emission
-    # therefore reads every plan, while only the published record narrows to
-    # planned ownership: a member whose axis the query hides emits a coordinate
-    # no plan fixes, which every gap pass is then free to move and every guard
-    # is then free to accept.
+    # Member templates consume exit-turn axes even when another planner owns the
+    # complete system. Publishing only system-owned records would hide those
+    # coordinates from the templates that must freeze them.
     emission_exit_turns = exit_turns.query
     exit_turns = exit_turns.restrict_to_systems(planned_system_ids)
     ctx.exit_turns = emission_exit_turns

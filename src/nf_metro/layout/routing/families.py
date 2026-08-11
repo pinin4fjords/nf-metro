@@ -4,7 +4,7 @@ from enum import Enum
 
 
 class RouteFamilyId(str, Enum):
-    """A dispatcher or rail family that emitted an inter-section route."""
+    """A classified or rail family that emitted an inter-section route."""
 
     PERP_EXIT = "perp-exit"
     TB_PERP_EXIT_OVER = "tb-perp-exit-over"

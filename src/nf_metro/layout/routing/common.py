@@ -749,7 +749,7 @@ class RoutedPath:
     emission_member_id: str | None = None
     """Canonical physical member represented by this route."""
     route_system_disposition: str | None = None
-    """Whole-system planned or compatibility disposition used for emission."""
+    """Whole-system disposition attributed at emission."""
     route_plan_ids: tuple[str, ...] = ()
     """Immutable child plans contributing to the route-system decision."""
     route_reservation_ids: tuple[str, ...] = ()
@@ -1062,7 +1062,7 @@ def iter_opposing_entry_confluences(
 
     The routes must enter one side port through the same vertical direction,
     occupy one contiguous channel band, and share a substantial vertical run.
-    Requiring the complete port line set keeps compatibility ownership atomic.
+    Requiring the complete port line set keeps route-system ownership atomic.
     """
     by_shape: dict[
         tuple[str, int, int],
@@ -2208,7 +2208,7 @@ def inter_row_channel_y(
             )
 
         # Multi-row crossing: an intervening row sits between source and
-        # target.  Keep the legacy midpoint so ``_route_around_section_below``
+        # target. Keep the midpoint so ``_route_around_section_below``
         # still detects the section in the channel's path and routes around
         # it rather than the run being lifted into a gap it can't reach.
         if dy > 0:
@@ -2416,9 +2416,7 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or route.fan_route_emitter is not None
         or rank in route.route_system_owned_segment_ranks
         or (
-            route.route_system_disposition != "compatibility"
-            and route.exit_turn_axis_id is not None
-            and route.exit_turn_segment_rank == rank
+            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
     )
 

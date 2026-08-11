@@ -1,7 +1,7 @@
 """Edge routing subpackage for metro map layout.
 
 Public API:
-- route_edges: Main edge routing dispatcher (placement-pure)
+- route_edges: Main edge routing coordinator (placement-pure)
 - route_edges_centred: route_edges + applied bubble-centring marker moves
 - RoutedPath: Routed path dataclass
 - OffsetRegime: Which line-separation regime a route is in

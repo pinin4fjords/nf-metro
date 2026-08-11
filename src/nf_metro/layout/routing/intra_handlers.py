@@ -4,7 +4,7 @@
 edge inside (or leaving) a section can take -- a fold gutter, a perpendicular
 exit, two straight cases -- with the horizontal-diagonal-horizontal run as the
 fall-through.  ``_route_entry_runway`` is a sibling shape kept as its own
-first-match handler in ``core.py`` because it claims an edge before the
+ordered local handler in ``core.py`` because it claims an edge before the
 section's internal handlers run.
 """
 

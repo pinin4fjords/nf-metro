@@ -13,12 +13,10 @@ Inter-section edges (port/junction to port/junction) are routed by
 [`routing/inter_section_handlers.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/routing/inter_section_handlers.py).
 It chooses the route's shape from a **declarative table**, `_INTER_SECTION_RULES`,
 rather than a hand-written if-ladder. Before emission, every inter-section
-member is classified from one `_InterFacts` snapshot. A planned route system
-freezes that family ID, calls it once to build an immutable
-`RouteMemberGeometryPlan`, and emits a fresh copy of that exact template. A
-compatibility system discards provisional templates, matches a fresh snapshot
-against the rules at emission, and lets the unique predicate that holds own the
-route.
+member is classified from one `_InterFacts` snapshot. The route system freezes
+that family ID, calls it once to build an immutable
+`RouteMemberGeometryPlan`, and emits a fresh copy of that exact template.
+Production never takes a second pass through this table.
 
 Every rule's handler builds its route from a centreline through the
 [bundle builder](/nf-metro/dev/routing/) (`build_concentric_bundle` /
@@ -107,9 +105,9 @@ external inputs while it freezes every supported merge trunk, feeder join,
 continuation, and endpoint owner. It may construct canonical trial routes for
 the convergence members it owns, but it does not route other members again.
 Rules 9 and 14 consume those convergence decisions. A continuation covered by
-a named feeder is suppressed before production dispatch. Post-routing merge
-landing and covered-hop removal apply only to convergence systems on the
-compatibility path.
+a named feeder is suppressed before production emission, with the carrier
+recorded in the route-system binding. Merge landing and covered-hop cleanup are
+therefore unnecessary.
 
 This page is the exhaustive inter-section handler inventory. The complete
 emission and post-pass ownership inventory, including fallbacks and validators,
