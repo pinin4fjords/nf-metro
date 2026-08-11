@@ -555,6 +555,7 @@
   "member_geometry.py::if key in ctx.skip_edges:::#1",
   "member_geometry.py::if movable_run:::#1",
   "member_geometry.py::if not candidate_ranks:::#1",
+  "member_geometry.py::if not section_ids:::#1",
   "member_geometry.py::if overlap <= MIN_CORRIDOR_Y_OVERLAP:::#1",
   "member_geometry.py::if radii is not None:::#1",
   "member_geometry.py::if rank < len(radii):::#1",

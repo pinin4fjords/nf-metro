@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -55,6 +56,7 @@ from nf_metro.layout.routing.normalize import (
     _materialize_trunk_slots,
     _reconcile_port_peeloff_risers,
     _reseat_concentric_flanking,
+    _route_endpoint_section_ids,
     _segment_claim_band,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
@@ -62,7 +64,12 @@ from nf_metro.layout.routing.normalize import (
     _VChannel,
 )
 from nf_metro.layout.routing.orientation import direction_axis, lateral_order_sign
-from nf_metro.layout.routing.reserved_bands import ReservedBand, bundle_travel
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    bundle_travel,
+    corridor_clearance_band,
+    resolved_band,
+)
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.parser.route_topology import (
     ConnectorId,
@@ -70,6 +77,9 @@ from nf_metro.parser.route_topology import (
     ResolvedEdge,
     semantic_route_id,
 )
+
+if TYPE_CHECKING:
+    from nf_metro.layout.route_reservations import GapCorridorBand
 
 
 class MemberGeometryDeclinedError(RuntimeError):
@@ -308,6 +318,120 @@ def _settled_turn_ladders(
     }
 
 
+def _turn_corridor_band(
+    candidate: _SettledTurnCandidate, coordinate: float, ctx: _RoutingCtx
+) -> ReservedBand | GapCorridorBand | None:
+    """The clearance band the run leaving *candidate*'s turn owes its corridor.
+
+    A claim over the leg is read ahead of live geometry, because settlement
+    sized the boundary for that corridor and re-deriving from the drawn
+    coordinate would spend the allocation instead of consuming it.
+
+    The run leaving the turn travels along the turn direction, so the
+    coordinate it holds is the one the *run into* the turn advances along --
+    hence the band's axis is the run's, and its extent the perpendicular.
+    """
+    claimed = _segment_claim_band(ctx, candidate.route, candidate.rank)
+    if claimed is not None:
+        return claimed
+    axis = direction_axis(candidate.run_direction).point_index
+    section_ids = _route_endpoint_section_ids(ctx.graph, candidate.route)
+    if not section_ids:
+        return None
+    span = (
+        candidate.route.points[candidate.rank][1 - axis],
+        candidate.route.points[candidate.rank + 1][1 - axis],
+    )
+    return corridor_clearance_band(
+        ctx.graph,
+        axis=axis,
+        section_ids=section_ids,
+        coordinate=coordinate,
+        run_start=min(span),
+        run_end=max(span),
+    )
+
+
+def _ladder_origin(
+    ladder: _SettledTurnLadder,
+    candidates: Sequence[_SettledTurnCandidate],
+    lane_offsets: Mapping[tuple[str, str, str], float],
+    ctx: _RoutingCtx,
+) -> float:
+    """The coordinate a ladder's lane offsets are measured out from.
+
+    Members whose seated axes already read as one ladder state the origin
+    between them, and it travels only far enough to give the deepest corner its
+    radius.  Members whose axes disagree describe no single ladder, so the
+    origin is the furthest of what any of them holds or requires.
+    """
+    run_sign = ladder.heading.run_direction.sign
+    actual_origins = [
+        candidate.axis_coordinate - lane_offsets[candidate.edge_key]
+        for candidate in candidates
+    ]
+    if any(
+        abs(origin - actual_origins[0]) > COORD_TOLERANCE
+        for origin in actual_origins[1:]
+    ):
+        required_origins = [
+            candidate.launch_coordinate
+            + run_sign * candidate.required_runway
+            - lane_offsets[candidate.edge_key]
+            for candidate in candidates
+        ]
+        origins = (*actual_origins, *required_origins)
+        return max(origins) if run_sign > 0 else min(origins)
+    reference_axis = min(
+        (candidate.axis_coordinate for candidate in candidates),
+        key=lambda coordinate: coordinate * run_sign,
+    )
+    radius_deficit = max(
+        (
+            concentric_corner_radius_at(
+                candidate.route.points[candidate.rank - 1],
+                candidate.route.points[candidate.rank],
+                candidate.route.points[candidate.rank + 1],
+                candidate.axis_coordinate - reference_axis,
+                ctx.curve_radius,
+            )
+            - (candidate.axis_coordinate - candidate.launch_coordinate) * run_sign
+            for candidate in candidates
+        ),
+        default=0.0,
+    )
+    return actual_origins[0] + run_sign * max(0.0, radius_deficit)
+
+
+def _corridor_hold_shift(
+    candidates: Sequence[_SettledTurnCandidate],
+    origin: float,
+    lane_offsets: Mapping[tuple[str, str, str], float],
+    ctx: _RoutingCtx,
+) -> float:
+    """How far a ladder must travel to stand inside its members' corridors.
+
+    The general corridor hold runs over this population moments earlier and
+    declines a planned turn (:func:`planner_owns_segment`), so the ladder's
+    origin is the only point at which the clearance can be applied.
+
+    The ladder travels rigidly, so one shift has to satisfy every member.
+    Where none does, the corridors it crosses are sized for fewer lanes than
+    they carry, and the origin stands as the ladder's own geometry states it.
+    """
+    lo_shift = -math.inf
+    hi_shift = math.inf
+    for candidate in candidates:
+        seated = origin + lane_offsets[candidate.edge_key]
+        band = _turn_corridor_band(candidate, seated, ctx)
+        if band is None:
+            continue
+        lo_shift = max(lo_shift, band.lo - seated)
+        hi_shift = min(hi_shift, band.hi - seated)
+    allowed = resolved_band(lo_shift, hi_shift)
+    return 0.0 if allowed is None else allowed.hold(0.0)
+
+
 def _settled_exit_turns(
     routes: Iterable[RoutedPath],
     ctx: _RoutingCtx,
@@ -390,45 +514,9 @@ def _settled_exit_turns(
             )
     origin_by_ladder: dict[_SettledTurnLadder, float] = {}
     for ladder, cohort_candidates in members.items():
-        run_sign = ladder.heading.run_direction.sign
-        actual_origins = [
-            candidate.axis_coordinate - lane_offsets[candidate.edge_key]
-            for candidate in cohort_candidates
-        ]
-        origins_disagree = any(
-            abs(origin - actual_origins[0]) > COORD_TOLERANCE
-            for origin in actual_origins[1:]
-        )
-        if origins_disagree:
-            required_origins = [
-                candidate.launch_coordinate
-                + run_sign * candidate.required_runway
-                - lane_offsets[candidate.edge_key]
-                for candidate in cohort_candidates
-            ]
-            origins = (*actual_origins, *required_origins)
-            origin_by_ladder[ladder] = max(origins) if run_sign > 0 else min(origins)
-            continue
-        reference_axis = min(
-            (candidate.axis_coordinate for candidate in cohort_candidates),
-            key=lambda coordinate: coordinate * run_sign,
-        )
-        radius_deficit = max(
-            (
-                concentric_corner_radius_at(
-                    candidate.route.points[candidate.rank - 1],
-                    candidate.route.points[candidate.rank],
-                    candidate.route.points[candidate.rank + 1],
-                    candidate.axis_coordinate - reference_axis,
-                    ctx.curve_radius,
-                )
-                - (candidate.axis_coordinate - candidate.launch_coordinate) * run_sign
-                for candidate in cohort_candidates
-            ),
-            default=0.0,
-        )
-        origin_by_ladder[ladder] = actual_origins[0] + run_sign * max(
-            0.0, radius_deficit
+        origin = _ladder_origin(ladder, cohort_candidates, lane_offsets, ctx)
+        origin_by_ladder[ladder] = origin + _corridor_hold_shift(
+            cohort_candidates, origin, lane_offsets, ctx
         )
     translated_axes = {
         candidate.edge_key: (
