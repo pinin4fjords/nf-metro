@@ -223,14 +223,6 @@
   "note": "The second operand of the same condition. A landing that states an opening turn coordinate states its segment with it, so on an X approach the operand is true wherever the first is; it narrows the Optional _reseat_landing_opening requires.",
   "status": "defensive"
  },
- "convergences.py::and plan.trunk_axis is not None::#1": {
-  "note": "_settle_opposing_landing_channels carries the trunk flank only when the landing it re-seated is the plan's primary trunk member. A plan naming a primary trunk member always states the trunk axis that member travels, so the false arm is unreachable through this conjunction; it narrows the Optional for the flank move below.",
-  "status": "defensive"
- },
- "convergences.py::and plan.trunk_axis.axis is landing.approach_axis::#1": {
-  "note": "The flank follows a re-seated landing only where flank and landing are measured on one axis. Every primary-trunk landing the corpus re-seats approaches on its own trunk's axis, so the false arm wants a fixture whose trunk travels one axis while its primary trunk member's landing approaches on the other -- a perpendicular approach into a convergence, which is the class the widened scope newly admits. Reachable.",
-  "status": "needs-review"
- },
  "convergences.py::for candidate_coordinate in direct_candidates:::#1": {
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
@@ -327,10 +319,6 @@
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
- "convergences.py::if not moved_channels or any(::#1": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
-  "status": "needs-review"
- },
  "convergences.py::if not obstacles:::#2": {
   "note": "The ordinal moved when the endpoint check left this condition; the arm is the ordinary no-crowding case _lane_trunk_flanks takes on most plans.",
   "status": "defensive"
@@ -365,22 +353,6 @@
  },
  "convergences.py::landing.approach_axis is DemandAxis.X::#1": {
   "note": "_reseat_landing_cross moves a stated opening turn only on an X approach, because the opening turn names a column and _landing_cross_segment reads a perpendicular approach's crossing row off the runway whatever opening turn the landing carries. The false arm is the perpendicular class the widened _settle_opposing_landing_channels scope newly admits; corpus-wide every counter-running same-line pair that conflicts approaches on X. Reachable.",
-  "status": "needs-review"
- },
- "convergences.py::landing.member_id == plan.primary_trunk_member_id::#1": {
-  "note": "The first conjunct of the widened flank-carry condition. Its false arm is the ordinary feeder landing, which every fixture re-seating a landing takes; the coverage tool reports the operand separately from the conjunction above it.",
-  "status": "defensive"
- },
- "convergences.py::obstacle_segment is None::#1": {
-  "note": "A resident is read back from `settled` on every comparison, and laning moves its cross run rather than removing it, so the segment is drawable whenever it is read. The operand guards the Optional that read returns.",
-  "status": "defensive"
- },
- "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
-  "note": "Mirror of the leading-flank reject: an interior horizontal whose trailing flank is not vertical. Same H-D-H evidence and the same reason it is not covered by the common.py precedent. Wants a fixture.",
-  "status": "needs-review"
- },
- "convergences.py::or abs(before[0] - start[0]) > COORD_TOLERANCE::#1": {
-  "note": "Rejects an interior horizontal whose leading flank is not vertical. Reachable: _member_corridor_runs walks raw plan.points with no normalize filter, and the corpus already freezes an H-D-H member polyline (examples/topologies/rail_boundary_bundle_fan.mmd), so one extra leg makes a horizontal run diagonal-flanked. Not the same contract as the look-alike defensive pair in common.py::iter_horizontal_trunks, which is fed only normalize-filtered bypass U-shapes. Wants a fixture.",
   "status": "needs-review"
  },
  "core.py::if result is not None:::#1": {

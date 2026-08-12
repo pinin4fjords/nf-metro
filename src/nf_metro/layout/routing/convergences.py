@@ -1862,20 +1862,48 @@ def _packed_lane(run: _CotravellingRun, seated: list[_CotravellingRun]) -> float
 
 
 def _plan_segments(
-    plan: ConvergencePlan,
+    plan: ConvergencePlan, coordinate: float | None = None
 ) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
-    """Segments whose geometry follows a convergence trunk when it moves."""
+    """Segments at a candidate trunk coordinate, without rebuilding the plan."""
     axis = plan.trunk_axis
     assert axis is not None
+    candidate = axis.coordinate if coordinate is None else coordinate
+    lateral = 1 if axis.axis is DemandAxis.X else 0
+    central = _trunk_segments(axis)[0]
+
+    def lifted(point: tuple[float, float]) -> tuple[float, float]:
+        return (point[0], candidate) if lateral == 1 else (candidate, point[1])
+
+    def on_central(point: tuple[float, float]) -> bool:
+        return point_to_polyline_distance(point, central) <= COORD_TOLERANCE
+
+    opening_segments = []
+    for landing in plan.landings:
+        segment = landing.opening_turn_segment
+        if segment is None:
+            continue
+        if on_central(landing.join_point):
+            start, end = segment
+            segment = (
+                lifted(start)
+                if abs(start[lateral] - axis.coordinate) <= COORD_TOLERANCE
+                else start,
+                lifted(end)
+                if abs(end[lateral] - axis.coordinate) <= COORD_TOLERANCE
+                else end,
+            )
+        opening_segments.append(segment)
+
     return (
-        *_trunk_segments(axis),
+        *_trunk_segments(axis, coordinate=candidate),
+        *opening_segments,
         *(
-            segment
-            for landing in plan.landings
-            if (segment := landing.opening_turn_segment) is not None
-        ),
-        *(
-            (continuation.start_point, continuation.end_point)
+            (
+                lifted(continuation.start_point)
+                if on_central(continuation.start_point)
+                else continuation.start_point,
+                continuation.end_point,
+            )
             for continuation in plan.outgoing_continuations
         ),
     )
@@ -2005,10 +2033,9 @@ def _crossing_minimal_lane(
     )
 
     def crossing_count(candidate: float) -> int:
-        candidate_segments = _plan_segments(_move_trunk_axis(plan, candidate))
         return sum(
             _orthogonal_segments_cross(moving, fixed)
-            for moving in candidate_segments
+            for moving in _plan_segments(plan, candidate)
             for neighbour in neighbours
             for fixed in neighbour.segments
         )
@@ -4368,8 +4395,9 @@ def _route_covers_segment(
 
 
 def _trunk_segments(
-    axis: ConvergenceTrunkAxis,
+    axis: ConvergenceTrunkAxis, *, coordinate: float | None = None
 ) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    lateral_coordinate = axis.coordinate if coordinate is None else coordinate
     source_longitudinal, target_longitudinal = (
         (axis.extent_start, axis.extent_end)
         if axis.direction in {Direction.R, Direction.D}
@@ -4388,11 +4416,11 @@ def _trunk_segments(
     if axis.axis is DemandAxis.X:
         return (
             (
-                (axis.extent_start, axis.coordinate),
-                (axis.extent_end, axis.coordinate),
+                (axis.extent_start, lateral_coordinate),
+                (axis.extent_end, lateral_coordinate),
             ),
             (
-                (source_longitudinal, axis.coordinate),
+                (source_longitudinal, lateral_coordinate),
                 (source_longitudinal, axis.source_flank_coordinate),
             ),
             (
@@ -4400,7 +4428,7 @@ def _trunk_segments(
                 (source_endpoint, axis.source_flank_coordinate),
             ),
             (
-                (target_longitudinal, axis.coordinate),
+                (target_longitudinal, lateral_coordinate),
                 (target_longitudinal, axis.target_flank_coordinate),
             ),
             (
@@ -4410,11 +4438,11 @@ def _trunk_segments(
         )
     return (
         (
-            (axis.coordinate, axis.extent_start),
-            (axis.coordinate, axis.extent_end),
+            (lateral_coordinate, axis.extent_start),
+            (lateral_coordinate, axis.extent_end),
         ),
         (
-            (axis.coordinate, source_longitudinal),
+            (lateral_coordinate, source_longitudinal),
             (axis.source_flank_coordinate, source_longitudinal),
         ),
         (
@@ -4422,7 +4450,7 @@ def _trunk_segments(
             (axis.source_flank_coordinate, source_endpoint),
         ),
         (
-            (axis.coordinate, target_longitudinal),
+            (lateral_coordinate, target_longitudinal),
             (axis.target_flank_coordinate, target_longitudinal),
         ),
         (
