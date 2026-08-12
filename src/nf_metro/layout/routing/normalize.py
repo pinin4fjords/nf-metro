@@ -1465,6 +1465,14 @@ def _fanout_traverse_legs(
     return _group_channels_by(routes, _fanout_traverse_spans)
 
 
+def _fanout_traverse_group_is_movable(members: Sequence[_TraverseLeg]) -> bool:
+    """Whether one normalisation decision may re-rank the complete fan."""
+    return not any(
+        convergence_owns_segment_boundary(member.route, member.idx)
+        for member in members
+    )
+
+
 def _coincide_same_line_fanout_traverses(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
@@ -1625,12 +1633,11 @@ def _bundle_divergent_distinct_traverses(
     mirrors it), holding a constant bundle width until each line turns off.
     """
     step = ctx.offset_step
-    for members in _fanout_traverse_legs(routes).values():
-        if any(
-            convergence_owns_segment_boundary(member.route, member.idx)
-            for member in members
-        ):
-            continue
+    groups = filter(
+        _fanout_traverse_group_is_movable,
+        _fanout_traverse_legs(routes).values(),
+    )
+    for members in groups:
         by_line: dict[str, list[_TraverseLeg]] = defaultdict(list)
         for m in members:
             by_line[m.route.line_id].append(m)
@@ -2020,6 +2027,11 @@ def _stack_distinct_port_descents(
                 _set_vchannel_x(ch, x, offset)
 
 
+def _bypass_nesting_leg_is_movable(route: RoutedPath, rank: int) -> bool:
+    """Whether bypass nesting owns the horizontal leg and its flanking corners."""
+    return not convergence_owns_segment_boundary(route, rank)
+
+
 def _nest_bypass_above_over_top_wrap(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
@@ -2056,7 +2068,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not convergence_owns_segment_boundary(r, k):
+                elif is_through and _bypass_nesting_leg_is_movable(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
