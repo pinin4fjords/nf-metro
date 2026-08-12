@@ -48,7 +48,7 @@ _EXEMPT = frozenset({"layout/geometry.py"})
 
 # Lower these (never raise them) when a call site migrates onto AxisFrame.
 _LITERAL_BASELINE = 60
-_NAMED_BASELINE = 268
+_NAMED_BASELINE = 266
 
 _FLOWS = frozenset(FLOW_DIRECTIONS)
 _FLOW_NAME_TOKENS = frozenset(flow.lower() for flow in _FLOWS)
