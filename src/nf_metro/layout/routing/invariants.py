@@ -3886,7 +3886,11 @@ def check_concentric_bundle_corners(
         if translated is not None and translated[2] > _CONCENTRIC_CENTRE_TOLERANCE:
             violations.append(
                 NonConcentricCornerViolation(
-                    edge_source=route_a.edge.source,
+                    edge_source=(
+                        route_a.edge.source
+                        if route_a.edge.source == route_b.edge.source
+                        else "target seam"
+                    ),
                     edge_target=(
                         route_a.edge.target
                         if route_a.edge.target == route_b.edge.target

@@ -189,6 +189,8 @@ def test_same_edge_corner_matches_across_different_waypoint_counts() -> None:
     violations = check_concentric_bundle_corners(None, [a, b], {})
 
     assert len(violations) == 1
+    assert violations[0].edge_source == "target seam"
+    assert violations[0].edge_target == "__landing__"
     assert violations[0].centre_spread == pytest.approx(3.0 * 2**0.5)
 
 
@@ -229,7 +231,10 @@ def test_non_concentric_source_seam_corner_is_caught_across_destinations() -> No
     for route in (a, b):
         route.exit_turn_plan_id = "plan"
         route.exit_turn_segment_rank = 1
-    assert len(check_concentric_bundle_corners(None, [a, b], {})) == 1
+    violations = check_concentric_bundle_corners(None, [a, b], {})
+    assert len(violations) == 1
+    assert violations[0].edge_source == "__src__"
+    assert violations[0].edge_target == "source seam"
 
 
 def test_planned_source_bundle_requires_standard_corner_inputs() -> None:
