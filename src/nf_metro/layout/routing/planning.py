@@ -178,6 +178,7 @@ def prepare_route_system_planning(
     *,
     include_convergence_resources: bool,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
+    allow_convergence_clearance_requirements: bool = False,
 ) -> RoutePlanningExecution:
     """Run the canonical planning phases without emitting production paths.
 
@@ -244,6 +245,7 @@ def prepare_route_system_planning(
             fan_plans=graph.fan_plans,
             member_geometry=empty_member_geometry_execution(),
             include_resources=False,
+            allow_clearance_requirements=(allow_convergence_clearance_requirements),
         )
         ctx.convergences = convergences.query
         preliminary = classify_route_system_dispositions(
@@ -350,6 +352,7 @@ def prepare_route_system_planning(
         member_geometry=member_geometry,
         planned_system_ids=allocation_planned_ids,
         include_resources=False,
+        allow_clearance_requirements=allow_convergence_clearance_requirements,
     )
     ctx.convergences = convergences.query
     route_systems = build_route_system_emission_execution(

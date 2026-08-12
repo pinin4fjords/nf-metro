@@ -18,7 +18,6 @@ import textwrap
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
-from functools import partial
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -33,6 +32,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.envelope_settlement import (
     attach_reroute_ledger_delta,
     attach_settlement_diagnostics,
+    measure_boundary_clearance_requirements,
     settle_route_envelopes,
 )
 from nf_metro.layout.fan_plans import FanRouteInvariantError
@@ -110,6 +110,7 @@ from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.layout.routing.system_emission import (
     validate_published_route_attribution,
 )
+from nf_metro.layout.settlement_demand import BoundaryClearanceDemand
 from nf_metro.manifest import node_data_attrs
 from nf_metro.parser.model import (
     ICON_TYPE_DIR,
@@ -1382,6 +1383,7 @@ def _settle_render_geometry(
             offset_step=offset_step,
             reservations=reservations,
             reservation_translations=reservation_translations,
+            allow_convergence_clearance_requirements=reservations is None,
         )
         return observation.routes, observation.plan
 
@@ -1451,53 +1453,74 @@ def _settle_render_geometry(
 
     frozen_routes = routes
     frozen_plan = route_plan
+
     # A rail layout pitches its rows to the interchange idiom rather than to
     # ``section_y_gap``, and holds runs between them collinear; widening one of
     # its row boundaries to the declared gap turns a flat run into a staircase.
     # So the clearance a boundary owes is a demand only where the gap is what
     # sets the pitch.
-    clearance = (
-        None
-        if graph.has_rail_sections
-        else partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
+    def _measure_clearance(
+        graph: MetroGraph,
+    ) -> tuple[BoundaryClearanceDemand, ...]:
+        row_demands = (
+            ()
+            if graph.has_rail_sections
+            else measure_row_gap_clearance(graph, section_y_gap)
+        )
+        return row_demands + measure_boundary_clearance_requirements(
+            graph, frozen_plan.boundary_clearance_requirements
+        )
+
+    settlement = settle_route_envelopes(
+        graph, frozen_plan, clearance=_measure_clearance
     )
-    settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
     if settlement.translations or _ledger_changes_live_derived_band(
         graph,
         frozen_plan,
         frozen_routes,
         settlement.coordinate_translations,
     ):
+        pending_clearance = bool(frozen_plan.boundary_clearance_requirements)
         station_offsets, routes, routed_plan = _resettle(
-            frozen_plan, settlement.coordinate_translations
+            None if pending_clearance else frozen_plan,
+            settlement.coordinate_translations,
         )
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
-        _assert_settlement_decisions_frozen(
-            frozen_routes, frozen_plan, routes, routed_plan
-        )
+        if not pending_clearance:
+            _assert_settlement_decisions_frozen(
+                frozen_routes, frozen_plan, routes, routed_plan
+            )
         # The published ledger is the one settlement consumed.  Re-observing
         # would let corridors appear, vanish, and change their required width
         # across the very step whose contract is coordinate translation only.
         # The routed observation exists to draw and to prove the decisions
         # frozen.
-        route_plan = attach_reroute_ledger_delta(
-            adopt_route_reservation_ledger(
+        route_plan = (
+            routed_plan
+            if pending_clearance
+            else attach_reroute_ledger_delta(
+                adopt_route_reservation_ledger(
+                    frozen_plan,
+                    graph,
+                    coordinate_translations=settlement.coordinate_translations,
+                ),
                 frozen_plan,
-                graph,
-                coordinate_translations=settlement.coordinate_translations,
-            ),
-            frozen_plan,
-            routed_plan,
+                routed_plan,
+            )
         )
         # adopt_route_reservation_ledger rebuilds the published plan from the
         # frozen pass, which never saw the re-route's own diagnostics; carry
         # forward the one class that names a decision the re-route was itself
         # forced to discard (_adopt_prior_dispositions).
-        adopted_dispositions = tuple(
-            item
-            for item in routed_plan.diagnostics
-            if item.code == "exit-turn-disposition-adopted"
+        adopted_dispositions = (
+            ()
+            if pending_clearance
+            else tuple(
+                item
+                for item in routed_plan.diagnostics
+                if item.code == "exit-turn-disposition-adopted"
+            )
         )
         if adopted_dispositions:
             route_plan = replace(

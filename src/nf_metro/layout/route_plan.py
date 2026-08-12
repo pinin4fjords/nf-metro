@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.layout.routing.context import _EdgeKey, _RoutingCtx
     from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
+    from nf_metro.layout.settlement_demand import BoundaryClearanceRequirement
 
 
 RouteSystemId = NewType("RouteSystemId", str)
@@ -2329,6 +2330,7 @@ class RoutePlan:
     Carries the verdicts of plans whose record ``exit_turn_plans`` omits, so a
     settlement re-route replays the frozen decision instead of re-deriving one
     from moved geometry."""
+    boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
 
 
 @dataclass(slots=True)
@@ -2577,6 +2579,7 @@ class RoutePlanObserver:
     convergence_references: tuple[SharedReference, ...] = ()
     convergence_demands: tuple[SymbolicDemand, ...] = ()
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
+    boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
@@ -2626,6 +2629,7 @@ def build_route_plan_observer(
     convergence_references: tuple[SharedReference, ...] = (),
     convergence_demands: tuple[SymbolicDemand, ...] = (),
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
+    boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = (),
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = (),
 ) -> RoutePlanObserver:
@@ -2643,6 +2647,7 @@ def build_route_plan_observer(
         convergence_references=convergence_references,
         convergence_demands=convergence_demands,
         convergence_diagnostics=convergence_diagnostics,
+        boundary_clearance_requirements=boundary_clearance_requirements,
         member_geometry_plans=member_geometry_plans,
         exit_turn_dispositions=exit_turn_dispositions,
     )
@@ -3416,6 +3421,7 @@ def _build_route_plan(
             + observer.exit_turn_diagnostics
             + observer.convergence_diagnostics
         ),
+        boundary_clearance_requirements=observer.boundary_clearance_requirements,
     )
     from nf_metro.layout.route_reservations import attach_route_reservations
 

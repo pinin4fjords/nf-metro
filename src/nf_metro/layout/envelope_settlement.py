@@ -84,8 +84,12 @@ import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 
-from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
-from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    SAME_COORD_TOLERANCE,
+    SETTLEMENT_QUANTUM,
+)
+from nf_metro.layout.geometry import measured_distance, shift_section
 from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
     DemandAxis,
@@ -106,6 +110,7 @@ from nf_metro.layout.route_reservations import (
 )
 from nf_metro.layout.settlement_demand import (
     BoundaryClearanceDemand,
+    BoundaryClearanceRequirement,
     ClearanceMeasurement,
     SettlementAxis,
 )
@@ -115,6 +120,7 @@ __all__ = [
     "COLUMN_AXIS",
     "ROW_AXIS",
     "BoundaryClearanceDemand",
+    "BoundaryClearanceRequirement",
     "ClearanceMeasurement",
     "EnvelopeSettlement",
     "SettlementAxis",
@@ -125,9 +131,42 @@ __all__ = [
     "apply_translation",
     "attach_reroute_ledger_delta",
     "attach_settlement_diagnostics",
+    "measure_boundary_clearance_requirements",
     "settle_route_envelopes",
     "translation_ownership",
 ]
+
+
+def measure_boundary_clearance_requirements(
+    graph: MetroGraph,
+    requirements: tuple[BoundaryClearanceRequirement, ...],
+) -> tuple[BoundaryClearanceDemand, ...]:
+    """Measure stable pairwise section requirements on the live graph."""
+    demands: list[BoundaryClearanceDemand] = []
+    for requirement in requirements:
+        negative = [graph.sections[item] for item in requirement.negative_section_ids]
+        positive = [graph.sections[item] for item in requirement.positive_section_ids]
+        if requirement.axis is SettlementAxis.ROW:
+            negative_edge = max(item.bbox_y + item.bbox_h for item in negative)
+            positive_edge = min(item.bbox_y for item in positive)
+        else:
+            negative_edge = max(item.bbox_x + item.bbox_w for item in negative)
+            positive_edge = min(item.bbox_x for item in positive)
+        deficit = requirement.required - measured_distance(negative_edge, positive_edge)
+        if deficit <= SAME_COORD_TOLERANCE:
+            continue
+        demands.append(
+            BoundaryClearanceDemand(
+                requirement.axis,
+                requirement.boundary,
+                requirement.required,
+                deficit,
+                requirement.negative_section_ids,
+                requirement.description,
+                owner_id=requirement.owner_id,
+            )
+        )
+    return tuple(demands)
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,21 +406,17 @@ def _clearance_at(
     axis: SettlementAxisGeometry,
     clearance: ClearanceMeasurement | None,
 ) -> dict[int, BoundaryClearanceDemand]:
-    """This axis's clearance demands, keyed by boundary, on the live boxes.
-
-    Axis-neutral because the demand vocabulary is, not because both axes carry
-    one: every ``ClearanceMeasurement`` in the tree states row demands only, so
-    the column call returns nothing and no column boundary settles a clearance.
-    A render-time box grow that eats a column gap is therefore unmeasured, which
-    ``CONTRACT.md`` states as the scope of this demand.
-    """
+    """This axis's clearance demands, keyed by boundary, on the live boxes."""
     if clearance is None:
         return {}
-    return {
-        demand.boundary: demand
-        for demand in clearance(graph)
-        if demand.axis is axis.axis
-    }
+    demands: dict[int, BoundaryClearanceDemand] = {}
+    for demand in clearance(graph):
+        current = demands.get(demand.boundary)
+        if demand.axis is axis.axis and (
+            current is None or demand.deficit > current.deficit
+        ):
+            demands[demand.boundary] = demand
+    return demands
 
 
 def quantised_allocation(deficit: float) -> float:
