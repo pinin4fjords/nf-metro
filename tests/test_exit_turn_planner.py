@@ -1208,6 +1208,74 @@ def test_gap_plan_radius_validator_skips_members_owned_elsewhere(
 
 
 @pytest.mark.parametrize(
+    "failure",
+    (
+        "radii",
+        "membership",
+        "planned-offsets",
+        "allocated-offsets",
+        "allocated-bases",
+        "offset",
+        "base",
+        "radius-index",
+    ),
+)
+def test_gap_plan_radius_validator_rejects_incomplete_ownership(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    edge = SimpleNamespace(source="source", target="target", line_id="line")
+    channel_rank = 2 if failure == "radius-index" else 1
+    route = SimpleNamespace(
+        edge=edge,
+        line_id=edge.line_id,
+        exit_turn_segment_rank=channel_rank,
+        curve_radii=None if failure == "radii" else [CURVE_RADIUS, CURVE_RADIUS],
+        points=[(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0)],
+        concentric_corner_offsets_by_segment=(
+            {}
+            if failure == "allocated-offsets"
+            else {
+                channel_rank: (
+                    None if failure == "offset" else 0.0,
+                    0.0,
+                )
+            }
+        ),
+        concentric_corner_bases_by_segment=(
+            {}
+            if failure == "allocated-bases"
+            else {
+                channel_rank: (
+                    None if failure == "base" else CURVE_RADIUS,
+                    CURVE_RADIUS,
+                )
+            }
+        ),
+    )
+    membership = None if failure == "membership" else object()
+    ctx = SimpleNamespace(
+        exit_turns=SimpleNamespace(membership_for_edge=lambda _edge: membership),
+        settled_exit_turns={
+            (edge.source, edge.target, edge.line_id): SimpleNamespace(
+                validate_corner_radii=True
+            )
+        },
+    )
+    monkeypatch.setattr(
+        exit_turns,
+        "planned_exit_turn_corner_offsets",
+        lambda _membership: (
+            None
+            if failure == "planned-offsets"
+            else (None if failure == "offset" else 0.0, 0.0)
+        ),
+    )
+
+    with pytest.raises(ExitTurnInvariantError):
+        normalize._validate_planned_exit_turn_radii([route], ctx)
+
+
+@pytest.mark.parametrize(
     "fixture",
     (
         "fold_stacked_branch.mmd",

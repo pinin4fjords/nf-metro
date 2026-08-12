@@ -476,6 +476,49 @@ def test_member_geometry_validator_rejects_changed_flanking_radius(
         member_geometry.validate_member_geometry_emission([route], execution)
 
 
+@pytest.mark.parametrize(
+    "missing",
+    ("offsets", "bases", "offset", "base"),
+)
+def test_member_geometry_validator_rejects_missing_corner_inputs(
+    missing: str,
+) -> None:
+    points = ((0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0))
+    channel = RouteMemberGapChannel(1, points[1], points[2], 0, 0, Direction.D)
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        points,
+        (CURVE_RADIUS, CURVE_RADIUS),
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (channel,),
+        (
+            ()
+            if missing == "offsets"
+            else ((1, (None if missing == "offset" else 0.0, 0.0)),)
+        ),
+        (
+            ()
+            if missing == "bases"
+            else ((1, (None if missing == "base" else CURVE_RADIUS, CURVE_RADIUS)),)
+        ),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+
+    with pytest.raises(RuntimeError, match="has no concentric inputs"):
+        member_geometry.validate_member_geometry_emission([route], execution)
+
+
 def test_member_plans_persist_exact_connector_ownership() -> None:
     graph, observation = _observe(
         ROOT / "examples" / "topologies" / "funcprofiler_upstream.mmd"

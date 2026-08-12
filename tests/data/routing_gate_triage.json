@@ -735,6 +735,10 @@
   "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
   "status": "defensive"
  },
+ "member_geometry.py::if abs(actual_radius - expected_radius) > COORD_TOLERANCE_FINE:::#1": {
+  "note": "Final member-plan validation aborts when a plan-owned channel corner disagrees with its recorded concentric inputs. Valid production geometry derives that radius from the same inputs; both failure flanks are exercised by test_member_geometry_validator_rejects_changed_flanking_radius.",
+  "status": "defensive"
+ },
  "member_geometry.py::if abs(channel.x - target) <= COORD_TOLERANCE:::#1": {
   "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped. Bisecting the range shows 0f58d60c -- ranking member channels over a gap's whole population -- is what makes the claim and the channel coincide on arrival, not the bundle-pitch packing. Reachable; the frozen render corpus means no fixture was authored.",
   "status": "needs-review"
@@ -759,12 +763,32 @@
   "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
   "status": "candidate-dead"
  },
+ "member_geometry.py::offsets is None::#1": {
+  "note": "Plan freezing publishes concentric inputs for every radius flanking an owned gap channel. This operand reports a malformed plan or lost emission metadata; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
+  "status": "defensive"
+ },
+ "member_geometry.py::or bases is None::#1": {
+  "note": "Plan freezing publishes a base radius with every concentric offset flanking an owned gap channel. This operand reports a malformed plan or lost emission metadata; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
+  "status": "defensive"
+ },
+ "member_geometry.py::or bases[0] is None::#1": {
+  "note": "A published corner offset without its paired base radius violates the member-plan contract. Valid emission cannot take this arm; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
+  "status": "defensive"
+ },
+ "member_geometry.py::or offsets[0] is None::#1": {
+  "note": "A published base radius without its paired corner offset violates the member-plan contract. Valid emission cannot take this arm; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
+  "status": "defensive"
+ },
  "normalize.py::and crossed[0] < span[1]::#1": {
   "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
   "status": "defensive"
  },
  "normalize.py::and span[0] < crossed[1]::#1": {
   "note": "Crossed-axis overlap test in _run_enters_section, reached only for a target already bracketed on the held axis. No corpus separation target is, so this operand's short-circuit arm never fires.",
+  "status": "defensive"
+ },
+ "normalize.py::dx is None::#1": {
+  "note": "Every validation-eligible settled exit-turn corner must retain its allocated or planned offset. An absent value is incomplete engine ownership, exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
   "status": "defensive"
  },
  "normalize.py::elif above_ok:::#1": {
@@ -807,6 +831,10 @@
   "note": "Held-axis bracket in _run_enters_section, the section-intrusion veto's first test. No corpus separation target lands within a section's extent on the held axis, so the inside arm never fires; the same defensive reasoning as the veto it serves.",
   "status": "defensive"
  },
+ "normalize.py::if (::#1": {
+  "note": "The settled exit-turn radius mismatch raises only after construction or a later pass changes a recorded planned corner without updating its concentric inputs. Valid production derives both values together; test_gap_plan_validator_rejects_a_changed_corner_radius exercises both failure flanks.",
+  "status": "defensive"
+ },
  "normalize.py::if 0 <= k - 1 < len(rp.curve_radii):::#1": {
   "note": "Bounds guard in _restack_htrunk: trunk index k >= 1 so k-1 >= 0 is always in range; the skip arm is defensive.",
   "status": "defensive"
@@ -837,6 +865,10 @@
  },
  "normalize.py::if actual - common <= COORD_TOLERANCE_FINE:::#1": {
   "note": "Production coincident turns have enough shared runway after planning and already resolve to the same radius. The correction arm is a defensive repair for directly supplied or future route geometry and is exercised by the coincident-corner unit tests.",
+  "status": "defensive"
+ },
+ "normalize.py::if allocated_offsets is None or allocated_bases is None:::#1": {
+  "note": "A validation-eligible settled exit turn must publish both offset and base tuples before emission. Missing either is an engine-contract violation exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
   "status": "defensive"
  },
  "normalize.py::if anchor_section_id is not None and anchor_side is not None:::#1": {
@@ -947,6 +979,10 @@
   "note": "Both bisection directions belong to the defensive coincident-radius repair rather than ordinary topology dispatch. The short-runway unit case exercises the search and verifies the final common effective radius.",
   "status": "defensive"
  },
+ "normalize.py::if route.curve_radii is None or membership is None:::#1": {
+  "note": "A validation-eligible settled exit-turn route is emitted from its member plan with explicit radii and membership in the same exit-turn execution. Missing either reports incomplete engine ownership; both arms are exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
+  "status": "defensive"
+ },
  "normalize.py::if route.curve_radii is None:::#1": {
   "note": "Fan-opening channels are selected from a real horizontal-to-vertical turn, and production turn builders attach radius metadata to that shape. The None arm protects a synthetic or incomplete RoutedPath.",
   "status": "defensive"
@@ -985,6 +1021,14 @@
  },
  "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {
   "note": "_clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines.",
+  "status": "defensive"
+ },
+ "normalize.py::or base_radius is None::#1": {
+  "note": "Every validation-eligible exit-turn corner must retain the base radius paired with its offset. An absent base is incomplete engine ownership, exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
+  "status": "defensive"
+ },
+ "normalize.py::or not 0 <= radius_index < len(route.curve_radii)::#1": {
+  "note": "A settled channel rank identifies the two flanking radii on its emitted route. An out-of-range index is malformed ownership metadata, exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
   "status": "defensive"
  },
  "offsets.py::elif feeding_exit != edge.source:::#1": {
