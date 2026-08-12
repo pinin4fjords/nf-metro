@@ -68,8 +68,6 @@ def _bridges(path: Path):
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
-    line_priority = {lid: i for i, lid in enumerate(graph.lines)}
-    routes = sorted(routes, key=lambda r: -line_priority.get(r.line_id, -1))
     polylines = [apply_route_offsets(r, offsets) for r in routes]
     bridges = compute_bridges(graph, routes, polylines, curve_radius=CURVE_RADIUS)
     return graph, routes, polylines, bridges

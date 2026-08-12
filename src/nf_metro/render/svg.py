@@ -1611,21 +1611,13 @@ def _build_render_plan_scaled(
         offset_step,
         section_y_gap,
     )
-    line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
-    edge_routes = sorted(
-        routes, key=lambda route: -line_priority.get(route.line_id, -1)
-    )
-    route_indices = {id(route): index for index, route in enumerate(routes)}
-    edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
-    edge_polylines = [route_polylines[index] for index in edge_route_indices]
+    edge_route_indices = tuple(range(len(routes)))
     bridges = (
-        compute_bridges(
-            graph, edge_routes, edge_polylines, curve_radius=SVG_CURVE_RADIUS
-        )
+        compute_bridges(graph, routes, route_polylines, curve_radius=SVG_CURVE_RADIUS)
         if theme.bridge_glyph
         else {}
     )
-    bridge_breaks = tuple(tuple(bridges.get(id(route), ())) for route in edge_routes)
+    bridge_breaks = tuple(tuple(bridges.get(id(route), ())) for route in routes)
 
     header_polylines = route_polylines
 

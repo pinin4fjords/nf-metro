@@ -88,6 +88,8 @@ It uses the per-station offsets from `compute_station_offsets` in
    curves at corners (radius computed by `routing/corners.py`). Where
    `compute_bridges` identifies a non-merging crossing, `_render_bridged_edge`
    draws the under-route with a gap (see [Bridges](#bridges-bridgespy) below).
+   Paths retain routing emission order, so a later route paints above an
+   earlier route where distinct lines cross.
 3. **Station markers** - pill-shaped rectangles (or circles/squares for
    alternative marker styles). Rail-mode interchange stations span multiple
    rails and are drawn by `_render_rail_pill`.

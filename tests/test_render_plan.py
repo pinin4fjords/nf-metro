@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import xml.etree.ElementTree as ET
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -105,6 +106,28 @@ def test_bridge_gaps_are_settled_in_plan() -> None:
 
     assert any(plan.bridge_breaks)
     assert len(plan.bridge_breaks) == len(plan.edge_routes)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "examples/topologies/plan_owned_distinct_lane_separation.mmd",
+        "examples/topologies/complex_multipath.mmd",
+        "examples/guide/03b_fan_in_merge.mmd",
+    ],
+)
+def test_svg_paint_order_preserves_router_emission_order(path: str) -> None:
+    """Later route emissions must paint above earlier crossing routes."""
+    _, plan = _plan(path)
+    root = ET.fromstring(emit_render_plan(plan))
+    painted_line_ids = [
+        element.get("data-line-id")
+        for element in root.iter()
+        if element.tag.rsplit("}", 1)[-1] in {"line", "path"}
+        and element.get("data-line-id") is not None
+    ]
+
+    assert painted_line_ids == [route.line_id for route in plan.routes]
 
 
 def test_repeated_html_emission_is_byte_identical() -> None:
