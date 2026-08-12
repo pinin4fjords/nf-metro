@@ -58,11 +58,13 @@ from nf_metro.layout.route_topology import (
     merge_fanout_junction_ids,
 )
 from nf_metro.layout.routing.common import (
+    CorridorLane,
     Direction,
     OffsetRegime,
     RoutedPath,
     _vert_horiz_cross,
     apply_route_offsets,
+    convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
     gap_lo_for_x,
@@ -2323,9 +2325,16 @@ class FusedCotravellingLanes:
     separation: float
     required: float
     span: tuple[float, float]
+    route_system_ids: tuple[str, ...] = ()
+    plan_ids: tuple[str, ...] = ()
 
     def message(self) -> str:
         """Human-readable summary suitable for the engine error message."""
+        ownership = ""
+        if self.route_system_ids or self.plan_ids:
+            systems = ", ".join(self.route_system_ids) or "unattributed"
+            plans = ", ".join(self.plan_ids) or "unattributed"
+            ownership = f"; route systems [{systems}], owning plans [{plans}]"
         return (
             f"fused co-travelling lines: {self.first_line!r} at "
             f"{self.axis}={self.first_coord:.2f} and {self.second_line!r} at "
@@ -2333,8 +2342,39 @@ class FusedCotravellingLanes:
             f"{self.separation:.2f}px apart, under the {self.required:.2f}px "
             f"nesting step, over the "
             f"{self.span[1] - self.span[0]:.1f}px they share from "
-            f"{self.span[0]:.1f} to {self.span[1]:.1f}"
+            f"{self.span[0]:.1f} to {self.span[1]:.1f}{ownership}"
         )
+
+
+def _lane_owner_ids(
+    lane: CorridorLane,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Route-system and exact plan IDs that freeze one corridor lane."""
+    systems: dict[str, None] = {}
+    plans: dict[str, None] = {}
+    for run in lane.runs:
+        route = run.route
+        if route.route_system_id is not None:
+            systems[route.route_system_id] = None
+        if (
+            convergence_owns_segment_boundary(route, run.idx)
+            and route.convergence_plan_id is not None
+        ):
+            plans[route.convergence_plan_id] = None
+        if (
+            run.idx in route.route_system_owned_segment_ranks
+            and route.member_geometry_plan_id is not None
+        ):
+            plans[route.member_geometry_plan_id] = None
+        if route.fan_route_emitter is not None and route.fan_plan_id is not None:
+            plans[str(route.fan_plan_id)] = None
+        if (
+            route.exit_turn_axis_id is not None
+            and route.exit_turn_segment_rank == run.idx
+            and route.exit_turn_plan_id is not None
+        ):
+            plans[route.exit_turn_plan_id] = None
+    return tuple(systems), tuple(plans)
 
 
 def check_no_fused_cotravelling_lines(
@@ -2353,10 +2393,9 @@ def check_no_fused_cotravelling_lines(
     stripe and hide a line.
 
     Scanned on the offset-applied polylines, which is what the renderer draws.
-    Reported only where at least one of the two tracks can be re-seated: two
-    plan-owned tracks hold the coordinate their plans state, which nothing on
-    this path may move, so reporting them would abort every render carrying a
-    defect the chokepoint cannot get repaired.
+    Plan-owned tracks are reported with their route-system and plan attribution.
+    Their coordinates cannot be repaired at this post-freeze chokepoint, so a
+    violation identifies the pre-freeze owner that failed to seat them.
     """
     step = graph_offset_step(graph)
     lanes = corridor_lanes(
@@ -2368,11 +2407,11 @@ def check_no_fused_cotravelling_lines(
     violations: list[FusedCotravellingLanes] = []
     for i, first in enumerate(lanes):
         for second in lanes[i + 1 :]:
-            if first.pinned and second.pinned:
-                continue
             span = first.fused_span(second, step)
             if span is None:
                 continue
+            first_systems, first_plans = _lane_owner_ids(first)
+            second_systems, second_plans = _lane_owner_ids(second)
             violations.append(
                 FusedCotravellingLanes(
                     first_line=first.line_id,
@@ -2383,6 +2422,10 @@ def check_no_fused_cotravelling_lines(
                     separation=abs(first.coord - second.coord),
                     required=step,
                     span=span,
+                    route_system_ids=tuple(
+                        dict.fromkeys((*first_systems, *second_systems))
+                    ),
+                    plan_ids=tuple(dict.fromkeys((*first_plans, *second_plans))),
                 )
             )
     return violations

@@ -1755,6 +1755,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
         fan_route_emitter=plan.fan_route_emitter,
         exit_turn_segment_rank=plan.exit_turn_segment_rank,
         exit_lane_transition_plan_id=plan.exit_lane_transition_plan_id,
+        member_geometry_plan_id=str(plan.id),
         route_system_owned_segment_ranks=plan.owned_segment_ranks,
     )
     return route

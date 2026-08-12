@@ -15,6 +15,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     OFFSET_STEP,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
@@ -1942,6 +1943,52 @@ def _pack_cotravelling_corridor_runs(
             continue
         coordinate = _packed_lane(run, seated)
         if coordinate is not None:
+            settled[plan_rank] = _move_trunk_axis(plan, coordinate)
+            moved = _trunk_corridor_run(settled[plan_rank], graph)
+            assert moved is not None
+            run = moved
+        seated.append(run)
+    return tuple(settled)
+
+
+def _separate_distinct_cotravelling_trunks(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    member_runs: tuple[_CotravellingRun, ...],
+) -> tuple[ConvergencePlan, ...]:
+    """Seat distinct-line planned trunks before their coordinates freeze."""
+    step = graph_offset_step(graph)
+    settled = list(plans)
+    seated = list(member_runs)
+    for plan_rank, plan in enumerate(settled):
+        run = _trunk_corridor_run(plan, graph)
+        if run is None:
+            continue
+        neighbours = tuple(
+            item
+            for item in seated
+            if item.direction is run.direction
+            and item.line_ids != run.line_ids
+            and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
+        )
+        obstacles = tuple(
+            item
+            for item in neighbours
+            if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
+        )
+        if obstacles:
+            axis = plan.trunk_axis
+            assert axis is not None
+            toward = (
+                axis.source_flank_coordinate + axis.target_flank_coordinate
+            ) / 2.0 - run.coordinate
+            coordinate = _nearest_lane(
+                run.coordinate,
+                tuple(item.coordinate for item in neighbours),
+                step,
+                1.0 if toward >= 0.0 else -1.0,
+            )
+            assert coordinate is not None
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
             moved = _trunk_corridor_run(settled[plan_rank], graph)
             assert moved is not None
@@ -4009,6 +4056,7 @@ def _settle_convergence_geometry(
 ) -> tuple[ConvergencePlan, ...]:
     """Apply the shared convergence channel-settlement sequence."""
     settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
+    settled = _separate_distinct_cotravelling_trunks(settled, graph, member_runs)
     settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
     settled = _settle_shared_opening_pivots(settled, graph)
     settled = _settle_shared_source_openings(settled, ctx.curve_radius)

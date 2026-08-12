@@ -1875,21 +1875,15 @@ They are design evidence, not part of this specification.
   restoring the step across every corridor at once, moving a whole track (each
   run of one line on one lane through one corridor) so a fused fan-out cannot
   be split, and never moving a track a plan owns.
-  `check_no_fused_cotravelling_lines` is its postcondition on the render
-  chokepoint, **for every pair with a re-seatable track**. A pair both of whose
-  tracks a plan owns (`CorridorLane.pinned`, i.e. `planner_owns_segment` holds
-  for one of the lane's runs) is exempt and reported by nothing: the pass may not
-  move either track, so the chokepoint would abort a render on a defect it has no
-  route to a repair for. The exemption is a gap in the guarantee, not a
-  refinement of it: the corpus draws **4 such pairs at 0.00px separation against
-  a 4.00px nesting step**, over 76px, 228px, 727px and 762px of shared corridor,
-  in `tests/fixtures/hash_seed_determinism/seed_15.mmd`, `seed_41.mmd` and
-  `seed_77.mmd`. All three abort on `CurveInvariantError` before a render reaches
-  a caller, so nothing shipped draws a hidden line today. `EXEMPT_FUSED_PAIRS` in
-  `tests/test_fused_cotravelling_lines_invariant.py` pins that population by
-  identity over the whole corpus, measured as the fused pairs the checker itself
-  declines to report, so a new one reds wherever it appears and one that
-  separates has to be removed.
+  Plan-owned trunks take the same distinct-line pitch during global convergence
+  settlement, before member geometry and convergence geometry freeze.
+  `check_no_fused_cotravelling_lines` is the final postcondition on every track,
+  including a pair where both coordinates are immutable. Such a violation names
+  its route system and exact owning plans, which identifies the construction
+  stage that failed instead of inviting a post-freeze repair. The empty
+  `EXEMPT_FUSED_PAIRS` ledger in
+  `tests/test_fused_cotravelling_lines_invariant.py` asserts that the corpus has
+  no silent pair outside this live contract.
 - **Containment is closed on the drawn geometry, not in the handlers**:
   `ReservedCorridors` answers "what is clear at this boundary", which is the
   intersection of every claim crossing it. That cannot separate two corridors

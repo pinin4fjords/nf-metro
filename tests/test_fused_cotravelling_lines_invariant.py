@@ -10,12 +10,9 @@ both stages place tracks inside shared reservation bands. The reported fixtures
 are exercised through the render chokepoint rather than a single
 ``route_edges`` call.
 
-The checker reports a pair only where at least one of the two tracks can be
-re-seated.  A pair both of whose tracks a pre-routing plan owns holds the
-coordinates those plans state, which nothing on the render path may move, so
-reporting it would abort every render carrying a defect the chokepoint has no way
-to get repaired.  That exemption hides a real population, which is pinned below
-by identity so it can only shrink.
+The checker observes plan-owned tracks as well as tracks that can be re-seated.
+An immutable violation is attributed to the route system and plans that should
+have separated it before geometry froze.
 
 Covers:
 
@@ -26,8 +23,7 @@ Covers:
 * Meaningfulness: on the fixtures whose bands leave the pair short of the step
   the tracks fuse once both separation stages are disabled, and settlement
   lands each pair exactly on the step rather than merely clear of the check.
-* Exemption: the fused pairs the checker declines to report are exactly the
-  recorded ones, over the whole fixture corpus.
+* Corpus ratchet: the checker has no silent fused-pair exemptions.
 """
 
 from __future__ import annotations
@@ -37,14 +33,21 @@ from pathlib import Path
 
 import pytest
 
+import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.invariants as invariants
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    observe_route_edges,
+    route_edges,
+)
+from nf_metro.layout.routing.common import OffsetRegime, RoutedPath
 from nf_metro.layout.routing.invariants import check_no_fused_cotravelling_lines
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import Edge, MetroGraph
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
@@ -53,6 +56,7 @@ EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
 REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
 THROUGH_SECTION = REPO_ROOT / "tests" / "fixtures" / "through_section"
+FROZEN_FUZZ = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 REPORTED = {
     CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
@@ -96,27 +100,9 @@ _CORPUS = _corpus()
 
 _ExemptPair = tuple[str, str, str, str, float, float]
 
-# Every pair of distinct lines the corpus draws as one stroke and the checker
-# stays silent about, because a pre-routing plan owns both of their coordinates.
-# Recorded as ``(fixture, axis, the two line ids sorted, and each line's
-# coordinate)``: two lines painted over each other is a line the reader cannot
-# see, so the population the exemption covers is enumerated rather than trusted
-# to stay small.  The one entry sits at 0.00px separation against a 4.00px
-# nesting step, over 727px of shared corridor, and its fixture aborts on
-# `CurveInvariantError` before a render of it reaches a caller.  An entry may
-# be removed when its pair separates; adding one is a decision to argue for.
-EXEMPT_FUSED_PAIRS: frozenset[_ExemptPair] = frozenset(
-    {
-        (
-            "tests/fixtures/hash_seed_determinism/seed_41.mmd",
-            "Y",
-            "l0",
-            "l2",
-            840.0,
-            840.0,
-        ),
-    }
-)
+# The live checker has no semantic exemptions. The empty ledger makes any silent
+# corpus pair a test failure.
+EXEMPT_FUSED_PAIRS: frozenset[_ExemptPair] = frozenset()
 
 
 def _route(path: Path):
@@ -309,6 +295,126 @@ def test_every_recorded_exempt_pair_names_a_corpus_fixture() -> None:
     corpus = {str(item.relative_to(REPO_ROOT)) for item in _CORPUS}
     named = {item[0] for item in EXEMPT_FUSED_PAIRS}
     assert named <= corpus, named - corpus
+
+
+def test_seed_41_plan_owned_trunks_keep_the_nesting_step() -> None:
+    """Global convergence settlement separates independently planned trunks."""
+    path = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_41.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    observed = observe_route_edges(graph, station_offsets=offsets)
+    separations = _pair_separations(observed.routes, offsets)
+
+    assert separations[("l0", "l2", "Y")] >= graph_offset_step(graph)
+
+
+@pytest.mark.parametrize(
+    "path",
+    tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
+    ids=lambda path: path.stem,
+)
+def test_stable_generated_inputs_have_no_plan_owned_fused_pair(path: Path) -> None:
+    """The frozen fuzz seeds bound the live invariant's generated-input rate."""
+    graph, routes, offsets = _route(path)
+    violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
+    plan_owned = [item for item in violations if item.plan_ids]
+    assert not plan_owned, (
+        "generated input contains a plan-owned fused pair:\n"
+        + "\n".join(item.message() for item in plan_owned)
+    )
+
+
+def test_novel_plan_owned_corridor_is_settled_before_freeze(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gallery reproducer needs pre-freeze planning to remain renderable."""
+    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
+    monkeypatch.setattr(
+        convergences,
+        "_separate_distinct_cotravelling_trunks",
+        lambda plans, graph, member_runs: plans,
+    )
+    graph, routes, offsets = _route(path)
+    violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
+    assert any(
+        {item.first_line, item.second_line} == {"primary", "secondary"}
+        and item.separation == pytest.approx(0.0)
+        for item in violations
+    )
+
+    monkeypatch.undo()
+    graph, routes, offsets = _route(path)
+    assert not check_no_fused_cotravelling_lines(graph, routes, offsets)
+    assert _pair_separations(routes, offsets)[("primary", "secondary", "Y")] == (
+        pytest.approx(graph_offset_step(graph))
+    )
+
+
+@pytest.mark.parametrize(
+    ("first_points", "second_points", "axis"),
+    (
+        (
+            [(0.0, -20.0), (0.0, 0.0), (100.0, 0.0), (100.0, 20.0)],
+            [(0.0, -16.0), (0.0, 2.0), (100.0, 2.0), (100.0, 24.0)],
+            "Y",
+        ),
+        (
+            [(100.0, -20.0), (100.0, 0.0), (0.0, 0.0), (0.0, 20.0)],
+            [(100.0, -16.0), (100.0, 2.0), (0.0, 2.0), (0.0, 24.0)],
+            "Y",
+        ),
+        (
+            [(-20.0, 0.0), (0.0, 0.0), (0.0, 100.0), (20.0, 100.0)],
+            [(-16.0, 0.0), (2.0, 0.0), (2.0, 100.0), (24.0, 100.0)],
+            "X",
+        ),
+        (
+            [(-20.0, 100.0), (0.0, 100.0), (0.0, 0.0), (20.0, 0.0)],
+            [(-16.0, 100.0), (2.0, 100.0), (2.0, 0.0), (24.0, 0.0)],
+            "X",
+        ),
+    ),
+    ids=("right", "left", "down", "up"),
+)
+def test_plan_owned_fused_lanes_are_attributed_in_every_direction(
+    first_points: list[tuple[float, float]],
+    second_points: list[tuple[float, float]],
+    axis: str,
+) -> None:
+    """The live check reports immutable fused lanes on either routing axis."""
+
+    def planned_route(
+        line_id: str,
+        points: list[tuple[float, float]],
+        plan_id: str,
+    ) -> RoutedPath:
+        return RoutedPath(
+            Edge(f"{line_id}_source", f"{line_id}_target", line_id),
+            line_id,
+            points,
+            is_inter_section=True,
+            offset_regime=OffsetRegime.BAKED,
+            route_system_id="route-system:test",
+            convergence_plan_id=plan_id,
+            convergence_owned_segment_ranks=(1,),
+        )
+
+    violations = check_no_fused_cotravelling_lines(
+        MetroGraph(),
+        [
+            planned_route("first", first_points, "convergence-plan:first"),
+            planned_route("second", second_points, "convergence-plan:second"),
+        ],
+        {},
+    )
+
+    assert len(violations) == 1
+    assert violations[0].axis == axis
+    message = violations[0].message()
+    assert "route-system:test" in message
+    assert "convergence-plan:first" in message
+    assert "convergence-plan:second" in message
 
 
 @pytest.mark.parametrize(

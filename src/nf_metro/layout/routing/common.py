@@ -752,6 +752,8 @@ class RoutedPath:
     """Whole-system disposition attributed at emission."""
     route_plan_ids: tuple[str, ...] = ()
     """Immutable child plans contributing to the route-system decision."""
+    member_geometry_plan_id: str | None = None
+    """Member-geometry plan that owns this route's frozen channel segments."""
     route_reservation_ids: tuple[str, ...] = ()
     """Realised reservation records claimed by this emission member."""
     convergence_plan_id: str | None = None

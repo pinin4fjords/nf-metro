@@ -463,6 +463,14 @@ gallery:
       dogleg around an intervening section and an exempt continuation into a
       reverse-flow target; both routes must leave through one ordered fan frame
       without crossing.
+  - id: plan_owned_distinct_lane_separation
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      Two independently planned primary convergence trunks share a long
+      leftward corridor with a secondary route. Planning seats the primary
+      track one full nesting step away before its geometry freezes, so both
+      colours remain readable through the shared span (#1729).
   - id: bottom_exit_stacked_right_entry_fan
     source_dir: examples/topologies
     category: Fan-out and Fan-in
