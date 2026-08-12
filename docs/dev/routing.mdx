@@ -228,7 +228,9 @@ sees every corridor at once and restores the step; the unit it moves is a
 _track_ (every run of one line drawn on one lane through one corridor), so
 re-seating cannot split a fused fan-out into two parallel same-colour runs.
 `check_no_fused_cotravelling_lines` is its postcondition on the render
-chokepoint.
+chokepoint. Plans seat distinct co-travelling trunks against frozen member
+corridors before ownership begins. The final check includes immutable tracks
+and attributes a violation to its route system and exact owning plans.
 
 ## Render-time guards
 
