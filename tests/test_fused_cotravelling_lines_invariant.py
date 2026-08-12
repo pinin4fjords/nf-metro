@@ -200,6 +200,15 @@ def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
     return out  # type: ignore[return-value]
 
 
+def _longest_horizontal_run_y(points: list[tuple[float, float]]) -> float:
+    horizontal = (
+        (abs(end[0] - start[0]), start[1])
+        for start, end in zip(points, points[1:], strict=False)
+        if start[1] == end[1]
+    )
+    return max(horizontal)[1]
+
+
 def _pair_identity(
     axis: str, first: tuple[str, float], second: tuple[str, float]
 ) -> tuple[str, str, str, float, float]:
@@ -387,8 +396,8 @@ def test_plan_owned_distinct_lanes_preserve_emission_order_without_crossings(
     )
     primary_points = apply_route_offsets(primary, offsets)
     secondary_points = apply_route_offsets(secondary, offsets)
-    primary_trunk_y = primary_points[2][1]
-    secondary_trunk_y = secondary_points[2][1]
+    primary_trunk_y = _longest_horizontal_run_y(primary_points)
+    secondary_trunk_y = _longest_horizontal_run_y(secondary_points)
 
     assert secondary_trunk_y < primary_trunk_y
     assert not tuple(_routes_crossings(primary_points, secondary_points))

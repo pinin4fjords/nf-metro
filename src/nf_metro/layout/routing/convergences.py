@@ -1993,10 +1993,13 @@ def _separate_distinct_cotravelling_trunks(
             if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
         )
         if obstacles:
-            obstacle_ranks = tuple(item.canonical_edge_rank for item in obstacles)
-            if all(rank > run.canonical_edge_rank for rank in obstacle_ranks):
+            if all(
+                item.canonical_edge_rank > run.canonical_edge_rank for item in obstacles
+            ):
                 toward = 1.0
-            elif all(rank < run.canonical_edge_rank for rank in obstacle_ranks):
+            elif all(
+                item.canonical_edge_rank < run.canonical_edge_rank for item in obstacles
+            ):
                 toward = -1.0
             else:
                 axis = plan.trunk_axis
