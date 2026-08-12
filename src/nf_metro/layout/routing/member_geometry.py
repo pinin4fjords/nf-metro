@@ -1505,6 +1505,9 @@ def build_member_geometry_execution(
             )
             in complete_path_system_ids
         ]
+        complete_path_route_ids = frozenset(
+            id(route) for route in complete_path_population
+        )
         _materialize_gap_slots(
             allocation_population,
             ctx,
@@ -1513,9 +1516,7 @@ def build_member_geometry_execution(
         _settle_entry_wrap_leadouts(
             normalization_population,
             ctx,
-            movable_route_ids=frozenset(
-                id(route) for route in complete_path_population
-            ),
+            movable_route_ids=complete_path_route_ids,
         )
         _materialize_trunk_slots(normalization_population, ctx)
         # Trunk-slot materialization compares dip groups, never two flows that
@@ -1554,9 +1555,7 @@ def build_member_geometry_execution(
         _allocate_member_gap_channels(
             tuple(candidates), eligible_claims, ctx, pending_exit_turn_plan_ids
         )
-        complete_path_route_ids = frozenset(
-            id(route) for route in complete_path_population
-        )
+        candidate_route_ids = frozenset(id(route) for route in candidate_routes)
         # The freeze is the last word on an owned channel's coordinate: the
         # emission chain's own clearance hold reads the frozen ranks as
         # immovable.  So the corridor clearance has to be closed here, on every
@@ -1599,7 +1598,9 @@ def build_member_geometry_execution(
             normalization_population,
             ctx,
             movable_route_ids=complete_path_route_ids,
+            secondary_movable_route_ids=candidate_route_ids,
             station_offsets=ctx.station_offsets,
+            fixed_segment_keys=settled_tail_segments,
         )
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id

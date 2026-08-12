@@ -107,7 +107,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
-    _settle_entry_wrap_leadouts,
     _stagger_convergent_distinct_lines,
     _suboptimal_trunk_bands,
     _unify_coincident_corner_radii,
@@ -175,23 +174,10 @@ def _route_classified_edge(
             observer=observer,
             planned_family_id=selected_family,
         )
-    fallback_handlers = (
-        (_route_tb_section, RouteFamilyId.TB_SECTION_FALLBACK),
-        (_route_entry_runway, RouteFamilyId.ENTRY_RUNWAY_FALLBACK),
-        (_route_intra_section, RouteFamilyId.INTRA_SECTION_FALLBACK),
-    )
-    for handler, fallback_family in fallback_handlers:
+    for handler in (_route_tb_section, _route_entry_runway, _route_intra_section):
         route = handler(edge, source, target, ctx)
         if route is None:
             continue
-        if (
-            observer is not None
-            and (source.is_port or edge.source in ctx.junction_ids)
-            and (target.is_port or edge.target in ctx.junction_ids)
-        ):
-            observer.record_dispatch(
-                (edge.source, edge.target, edge.line_id), fallback_family
-            )
         return route
     return None
 
@@ -500,8 +486,6 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "diagonal spreading")
     _materialize_gap_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "gap-slot materialization")
-    _settle_entry_wrap_leadouts(routes, ctx)
-    assert_exit_turn_snapshot(routes, planned_segments, "wrap-leadout clearance")
     _materialize_trunk_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "trunk-slot materialization")
     # Counter-running flows that entered one inter-row gap from opposite rows
@@ -566,8 +550,8 @@ def _route_edges(  # noqa: C901
     # A reserved corridor band says how much room a corridor is left, not which
     # lane in it the corridor takes, so runs held in one band settle without
     # seeing each other and two distinct lines can close to less than the
-    # nesting step.  Restore that step before the feeder landing reads the
-    # settled channels.
+    # nesting step. Restore that step before corridor containment closes the
+    # final reservation geometry.
     _separate_fused_cotravelling_runs(routes, ctx, station_offsets=ctx.station_offsets)
     assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
     # Same-line legs a coincidence pass fused onto one channel each kept their

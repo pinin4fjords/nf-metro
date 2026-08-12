@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import functools
 import itertools
-import math
 from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -2612,20 +2611,6 @@ def _merge_feeder_groups(
     return groups
 
 
-def _merge_convergence_run(trunk_rp: RoutedPath, level: float) -> HTrunkSeg | None:
-    """The trunk leg a merge's feeders converge onto, or ``None``.
-
-    The feeders were routed toward the channel level the context published
-    (``trunk_by``); the leg the trunk finally runs it on is whichever of its
-    horizontal trunks sits nearest that level, since the slot materialisation
-    that re-stacks the channel reassigns the Y but not which leg it is.
-    """
-    trunks = [seg for _k, seg in iter_horizontal_trunks(trunk_rp)]
-    if not trunks:
-        return None
-    return min(trunks, key=lambda seg: abs(seg.y - level))
-
-
 def _land_feeder_on_run(rp: RoutedPath, run: HTrunkSeg, ctx: _RoutingCtx) -> None:
     """Terminate one merge feeder on *run*, the trunk leg it converges onto.
 
@@ -3370,7 +3355,9 @@ def _run_enters_section(
     return False
 
 
-def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
+def _reseat_lane(
+    lane: CorridorLane, coord: float, *, projected: bool = False
+) -> CorridorLane:
     """Move every run on *lane* to *coord*, re-forming its flanking corners.
 
     Each run keeps its own corner radius as the reference the central concentric
@@ -3379,36 +3366,22 @@ def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
     """
     for run in lane.runs:
         radius_in, radius_out = run.radii
-        _reseat_concentric_flanking(
-            run.route,
-            run.idx,
-            coord,
-            axis=run.axis,
-            base_radius=radius_in,
-            base_radius_out=radius_out,
-        )
-    return replace(
-        lane, coord=coord, runs=tuple(replace(run, coord=coord) for run in lane.runs)
-    )
-
-
-def _translate_lane(lane: CorridorLane, delta: float) -> CorridorLane:
-    """Translate a projected lane while preserving each stored track offset."""
-    for run in lane.runs:
-        radius_in, radius_out = run.radii
         stored_coord = run.route.points[run.idx][run.axis]
+        target = stored_coord + coord - lane.coord if projected else coord
         _reseat_concentric_flanking(
             run.route,
             run.idx,
-            stored_coord + delta,
+            target,
             axis=run.axis,
             base_radius=radius_in,
             base_radius_out=radius_out,
         )
     return replace(
         lane,
-        coord=lane.coord + delta,
-        runs=tuple(replace(run, coord=run.coord + delta) for run in lane.runs),
+        coord=coord,
+        runs=tuple(
+            replace(run, coord=run.coord + coord - lane.coord) for run in lane.runs
+        ),
     )
 
 
@@ -3417,7 +3390,9 @@ def _separate_fused_cotravelling_runs(
     ctx: _RoutingCtx,
     *,
     movable_route_ids: frozenset[int] | None = None,
+    secondary_movable_route_ids: frozenset[int] = frozenset(),
     station_offsets: Mapping[tuple[str, str], float] | None = None,
+    fixed_segment_keys: frozenset[tuple[int, int]] = frozenset(),
 ) -> None:
     """Restore the nesting step between co-travelling tracks of distinct lines.
 
@@ -3465,11 +3440,19 @@ def _separate_fused_cotravelling_runs(
             else None,
         )
     )
+    eligible_route_ids = (
+        None
+        if movable_route_ids is None
+        else movable_route_ids | secondary_movable_route_ids
+    )
     movable_lane_ids = {
         i
         for i, lane in enumerate(lanes)
-        if movable_route_ids is None
-        or all(id(run.route) in movable_route_ids for run in lane.runs)
+        if (
+            eligible_route_ids is None
+            or all(id(run.route) in eligible_route_ids for run in lane.runs)
+        )
+        and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)
     }
     pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)
     relocated: set[int] = set()
@@ -3478,24 +3461,52 @@ def _separate_fused_cotravelling_runs(
         if i in relocated:
             continue
         lane = lanes[i]
-        obstacle = min(
-            (other for other in lanes if lane.fuses_with(other, step)),
-            key=lambda other: abs(other.coord - lane.coord),
-            default=None,
-        )
-        if obstacle is None or abs(lane.coord - obstacle.coord) <= COORD_TOLERANCE_FINE:
+        obstacles = [other for other in lanes if lane.fuses_with(other, step)]
+        if not obstacles:
             continue
-        target = obstacle.coord + math.copysign(step, lane.coord - obstacle.coord)
-        if any(
-            _run_enters_section(ctx.graph, run.axis, target, run.span)
-            for run in lane.runs
+        if any(other.pinned for other in obstacles):
+            continue
+        primary = movable_route_ids is None or all(
+            id(run.route) in movable_route_ids for run in lane.runs
+        )
+        if not primary and any(
+            any((id(run.route), run.idx) in fixed_segment_keys for run in other.runs)
+            for other in obstacles
         ):
             continue
-        lanes[i] = (
-            _translate_lane(lane, target - lane.coord)
-            if station_offsets is not None
-            else _reseat_lane(lane, target)
+        candidates = {
+            obstacle.coord + direction * step
+            for obstacle in obstacles
+            for direction in (-1, 1)
+        }
+
+        def feasible(target: float) -> bool:
+            delta = target - lane.coord
+            if any(
+                _run_enters_section(ctx.graph, run.axis, target, run.span)
+                for run in lane.runs
+            ):
+                return False
+            if any(
+                (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
+                and abs(band.hold(run.coord + delta) - (run.coord + delta))
+                > COORD_TOLERANCE_FINE
+                for run in lane.runs
+            ):
+                return False
+            moved = replace(lane, coord=target)
+            return not any(
+                moved.fuses_with(other, step) for other in lanes if other is not lane
+            )
+
+        target = min(
+            (candidate for candidate in candidates if feasible(candidate)),
+            key=lambda candidate: (abs(candidate - lane.coord), candidate),
+            default=None,
         )
+        if target is None:
+            continue
+        lanes[i] = _reseat_lane(lane, target, projected=station_offsets is not None)
         relocated.add(i)
         pending.extend(
             j

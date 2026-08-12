@@ -256,7 +256,7 @@ def test_every_member_has_one_emitted_or_explicit_covered_binding(
         and 0 <= binding.path_rank < len(routes)
         and binding.path_id is not None
         if binding.kind is BindingKind.EMITTED
-        else binding.kind in {BindingKind.MERGE_SKIP, BindingKind.COVERED_MERGE_HOP}
+        else binding.kind is BindingKind.MERGE_SKIP
         and binding.covering_member_id is not None
         and binding.coverage_reason is CoverageReason.MERGE_TRUNK_COVERS_ENTRY_HOP
         for binding in plan.bindings

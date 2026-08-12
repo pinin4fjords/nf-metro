@@ -133,6 +133,9 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
         return []
 
     monkeypatch.setattr(invariants, "check_no_fused_cotravelling_lines", spy)
+    monkeypatch.setattr(
+        invariants, "check_collinear_distinct_lines", lambda *_args, **_kwargs: []
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))

@@ -283,12 +283,11 @@ An `EmissionMember` is keyed by `(source, target, line_id)`. Its ordered
 occurrence, including duplicates and shared physical legs. Every member has
 exactly one final binding:
 
-| Binding             | Meaning                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `EMITTED`           | One final `RoutedPath` carries the member.                                         |
-| `MERGE_SKIP`        | The production edge loop skipped the member because a named merge trunk covers it. |
-| `COVERED_MERGE_HOP` | Reserved historical binding value; production does not create it.                  |
-| `UNROUTED`          | No route or valid coverage was found. This also produces a diagnostic.             |
+| Binding      | Meaning                                                                            |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `EMITTED`    | One final `RoutedPath` carries the member.                                         |
+| `MERGE_SKIP` | The production edge loop skipped the member because a named merge trunk covers it. |
+| `UNROUTED`   | No route or valid coverage was found. This also produces a diagnostic.             |
 
 `MERGE_SKIP` is recorded at its production suppression site, before emission.
 Bindings are not inferred by comparing input and output sets.

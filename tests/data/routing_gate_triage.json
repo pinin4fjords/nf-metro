@@ -931,10 +931,6 @@
   "note": "The production corpus reaches the immediate fixed point because coincident members already share an effective radius. The continue-for-propagation arm is a defensive repair path covered by test_unify_refreshes_a_shared_route_after_changing_one_corner.",
   "status": "defensive"
  },
- "normalize.py::if not trunks:::#1": {
-  "note": "Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597).",
-  "status": "defensive"
- },
  "normalize.py::if not verticals:::#1": {
   "note": "Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597).",
   "status": "defensive"

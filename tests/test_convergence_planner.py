@@ -298,10 +298,7 @@ def test_convergence_endpoint_ownership_matches_final_bindings() -> None:
     for ownership in plan.endpoint_ownership:
         (binding,) = query.bindings_for(ownership.member_id)
         if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
-            assert binding.kind in {
-                BindingKind.MERGE_SKIP,
-                BindingKind.COVERED_MERGE_HOP,
-            }
+            assert binding.kind is BindingKind.MERGE_SKIP
         else:
             assert binding.kind is BindingKind.EMITTED
 

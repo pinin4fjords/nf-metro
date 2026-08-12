@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 import nf_metro.layout.routing.core as routing_core
+import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.invariants import (
@@ -81,12 +82,15 @@ def test_checker_fires_without_coincidence_pass(
 ) -> None:
     """Disabling same-line track coincidence reproduces the doubled descents the
     invariant is meant to catch, proving the check is not vacuous."""
-    monkeypatch.setattr(
-        routing_core, "_coincide_same_line_tracks", lambda routes, ctx: None
-    )
-    monkeypatch.setattr(
-        routing_core, "_coincide_fanout_opening_descents", lambda routes, ctx: None
-    )
+    for module in (routing_core, member_geometry):
+        monkeypatch.setattr(
+            module, "_coincide_same_line_tracks", lambda routes, ctx: None
+        )
+        monkeypatch.setattr(
+            module,
+            "_coincide_fanout_opening_descents",
+            lambda routes, ctx, **_kwargs: None,
+        )
     graph, routes, offsets = _route(EXAMPLES / fixture)
     violations = check_no_same_line_parallel_descents(graph, routes, offsets)
     assert violations, "expected doubled same-line descents with merge passes off"

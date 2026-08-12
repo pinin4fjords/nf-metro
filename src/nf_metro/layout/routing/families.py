@@ -42,9 +42,6 @@ class RouteFamilyId(str, Enum):
     RIGHT_ENTRY_PLOUGH_BYPASS = "right-entry-plough-bypass"
     RIGHT_ENTRY_CROSS_ROW_WRAP = "right-entry-cross-row-wrap"
     STANDARD_L_SHAPE = "standard-l-shape"
-    TB_SECTION_FALLBACK = "tb-section-fallback"
-    ENTRY_RUNWAY_FALLBACK = "entry-runway-fallback"
-    INTRA_SECTION_FALLBACK = "intra-section-fallback"
     RAIL_INTER_SECTION = "rail-inter-section"
 
 

@@ -747,7 +747,6 @@ class BindingKind(str, Enum):
 
     EMITTED = "emitted"
     MERGE_SKIP = "merge-skip"
-    COVERED_MERGE_HOP = "covered-merge-hop"
     UNROUTED = "unrouted"
 
 
@@ -2289,10 +2288,7 @@ class EmissionBinding:
 
     def __post_init__(self) -> None:
         emitted = self.kind is BindingKind.EMITTED
-        covered = self.kind in {
-            BindingKind.MERGE_SKIP,
-            BindingKind.COVERED_MERGE_HOP,
-        }
+        covered = self.kind is BindingKind.MERGE_SKIP
         if emitted:
             valid = (
                 self.path_id is not None
@@ -2974,16 +2970,7 @@ def _bind_member(
                 covering_member_id=covering_member_id,
                 coverage_reason=CoverageReason.MERGE_TRUNK_COVERS_ENTRY_HOP,
             )
-            if kind is not BindingKind.COVERED_MERGE_HOP or family is not None:
-                return binding, ()
-            return binding, (
-                RoutePlanDiagnostic(
-                    member_id,
-                    "production-family",
-                    f"{edge.source}->{edge.target} ({edge.line_id}) was removed "
-                    "after dispatch without a recorded family",
-                ),
-            )
+            return binding, ()
         return EmissionBinding(member_id, BindingKind.UNROUTED), (
             RoutePlanDiagnostic(
                 member_id,
@@ -4659,11 +4646,7 @@ def _validate_convergence_records(
                     )
                 if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
                     if (
-                        binding.kind
-                        not in {
-                            BindingKind.MERGE_SKIP,
-                            BindingKind.COVERED_MERGE_HOP,
-                        }
+                        binding.kind is not BindingKind.MERGE_SKIP
                         or binding.covering_member_id != ownership.covered_by_member_id
                     ):
                         raise ValueError(
@@ -4983,10 +4966,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
                 f"binding has unknown carrier {binding.covering_member_id!r}"
             )
         member = members[binding.member_id]
-        family_required = binding.kind in {
-            BindingKind.EMITTED,
-            BindingKind.COVERED_MERGE_HOP,
-        }
+        family_required = binding.kind is BindingKind.EMITTED
         if family_required != (member.family_id is not None):
             raise ValueError(
                 f"{binding.kind.value} member has inconsistent production family"
