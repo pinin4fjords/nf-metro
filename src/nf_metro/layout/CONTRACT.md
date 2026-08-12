@@ -1722,9 +1722,11 @@ They are design evidence, not part of this specification.
   `{grid_row(s) >= b}` and holds everything else. Those are the same inequality,
   so a translation raises the corridor's `end` by its full amount and leaves
   `start` fixed: the corridor widens by exactly what was asked. Columns are the
-  same statement on `grid_col`. The premises are that `amount = ceil(deficit /
-  SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM >= deficit` (`quantised_allocation`)
-  with translations unbounded above; that no directive pins a canvas coordinate
+  same statement on `grid_col`. The premises are that an actionable
+  `amount = max(2, ceil(deficit / SETTLEMENT_QUANTUM)) * SETTLEMENT_QUANTUM >=
+  deficit` (`quantised_allocation`), so the allocation clears the coordinate
+  tolerance that `ReservationCoordinateTranslation` refuses; that translations
+  are unbounded above; that no directive pins a canvas coordinate
   or a maximum separation (`grid:` fixes grid indices,
   `section_x_gap`/`section_y_gap` are floors, `width`/`height` size the viewport,
   and `legend:` is not a corridor

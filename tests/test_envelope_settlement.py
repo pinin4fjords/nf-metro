@@ -27,6 +27,7 @@ from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
     SettlementShortfall,
+    measure_boundary_clearance_requirements,
     quantised_allocation,
     settle_route_envelopes,
 )
@@ -372,6 +373,7 @@ def test_a_gap_is_its_width_not_the_coordinates_it_lies_between() -> None:
 
     assert quantised_allocation(14.000000000000057) == 15.0
     assert quantised_allocation(14.0) == 14.0
+    assert quantised_allocation(1.0) == 2.0
 
 
 @pytest.mark.parametrize("delta", ORIGIN_OFFSETS)
@@ -1524,6 +1526,22 @@ def test_a_convergence_pair_shortfall_widens_its_column_boundary(
     assert requirement.axis is SettlementAxis.COLUMN
     assert requirement.boundary == boundary
     assert requirement.required == pytest.approx(41.0)
+
+    isolated = settle_route_envelopes(
+        graph,
+        replace(observed.plan, reservations=()),
+        clearance=partial(
+            measure_boundary_clearance_requirements,
+            requirements=observed.plan.boundary_clearance_requirements,
+        ),
+    )
+    assert len(isolated.translations) == 1
+    isolated_move = isolated.translations[0]
+    assert isolated_move.amount == pytest.approx(2.0)
+    assert isolated_move.clearance is not None
+    assert isolated_move.clearance.owner_id == requirement.owner_id
+    left, right = column_gap_edges(graph, boundary - 1, boundary, row=0)
+    assert right - left == pytest.approx(42.0)
 
     render_graph = prepare_graph(
         path.read_text(),

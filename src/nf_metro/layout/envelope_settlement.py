@@ -505,8 +505,10 @@ def quantised_allocation(deficit: float) -> float:
     Two claims are on this, and both are needed.  It never allocates less than
     it was asked for, which is the premise of the ownership lemma: a boundary
     widened by this much has met the demand outright, so the pass visits each
-    boundary once and stops.  And it is a function of the deficit alone, so the
-    same arrangement allocates the same width wherever on the canvas it sits.
+    boundary once and stops.  A positive allocation is at least two quanta so
+    it clears the coordinate-tolerance floor enforced by the translation
+    ledger.  And it is a function of the deficit alone, so the same arrangement
+    allocates the same width wherever on the canvas it sits.
 
     The second does not come from here -- a ceiling amplifies whatever it is
     handed, turning a 1e-13 arithmetic residue into a whole quantum of map -- but
@@ -515,7 +517,10 @@ def quantised_allocation(deficit: float) -> float:
     :func:`nf_metro.layout.route_reservations.measured_distance` is where that is
     established.
     """
-    return math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+    quanta = math.ceil(deficit / SETTLEMENT_QUANTUM)
+    if quanta <= 0:
+        return 0.0
+    return max(2, quanta) * SETTLEMENT_QUANTUM
 
 
 def _settle_axis(
