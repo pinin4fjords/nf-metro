@@ -43,7 +43,9 @@ from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
+    _build_inter_facts,
     _route_inter_section,
+    packed_cell_handoff_carrier,
 )
 from nf_metro.layout.routing.normalize import (
     _bundle_divergent_distinct_traverses,
@@ -116,6 +118,7 @@ class _MemberCandidate:
     system_id: RouteSystemId
     carrier_id: str
     connector_ids: tuple[ConnectorId, ...]
+    packed_cell_handoff: tuple[ResolvedEdge, float, bool] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -641,6 +644,24 @@ def _route_template(
     return route
 
 
+def _packed_cell_handoff_metadata(
+    edge: Edge, family_id: RouteFamilyId, ctx: _RoutingCtx
+) -> tuple[ResolvedEdge, float, bool] | None:
+    """Resolve the carrier descent copied by a packed-cell handoff template."""
+    if family_id is not RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW:
+        return None
+    source, target = ctx.graph.edge_endpoints(edge)
+    handoff = packed_cell_handoff_carrier(_build_inter_facts(edge, source, target, ctx))
+    if handoff is None:
+        return None
+    carrier, descent = handoff
+    return (
+        ResolvedEdge(carrier.source, carrier.target, carrier.line_id),
+        descent.gap2_x,
+        descent.gap2_vertical is Direction.D,
+    )
+
+
 def _convergence_context_route(
     ctx: _RoutingCtx,
     key: tuple[str, str, str],
@@ -917,6 +938,61 @@ def _seat_channel(channel: _VChannel, coordinate: float) -> None:
     """
     _set_vchannel_x(channel, coordinate)
     channel.x = coordinate
+
+
+def _align_packed_cell_handoffs(
+    candidates: tuple[_MemberCandidate, ...],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
+    """Keep each packed-cell handoff on its canonical carrier descent."""
+    by_edge = {
+        ResolvedEdge(
+            candidate.route.edge.source,
+            candidate.route.edge.target,
+            candidate.route.line_id,
+        ): candidate
+        for candidate in candidates
+    }
+    materialized = _materialized_channels(candidates, ctx)
+    for candidate in candidates:
+        if candidate.family_id is not RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW:
+            continue
+        route = candidate.route
+        handoff = candidate.packed_cell_handoff
+        if handoff is None:
+            continue
+        carrier_edge, descent_x, down = handoff
+        carrier = by_edge.get(carrier_edge)
+        assert carrier is not None, "packed-cell carrier has no member candidate"
+        handoff_channels = tuple(
+            item
+            for item in materialized
+            if item.candidate is candidate and item.channel.down is not down
+        )
+        assert handoff_channels, "packed-cell handoff has no vertical channel"
+        handoff_channel = min(
+            handoff_channels,
+            key=lambda item: abs(item.channel.x - descent_x),
+        )
+        carrier_channels = tuple(
+            item
+            for item in materialized
+            if item.candidate is carrier and item.channel.down is down
+        )
+        assert carrier_channels, "packed-cell carrier has no materialized descent"
+        carrier_channel = min(
+            carrier_channels,
+            key=lambda item: abs(item.channel.x - descent_x),
+        )
+        assert not _planner_owns_channel(
+            route, handoff_channel.channel.idx, movable_exit_plan_ids
+        ), "packed-cell handoff descent has a conflicting plan owner"
+        bounds = _channel_bounds(handoff_channel, ctx)
+        assert _candidate_clears_runway(
+            handoff_channel, bounds, carrier_channel.channel.x, ctx
+        ), "packed-cell handoff lies outside its carrier's feasible corridor"
+        _seat_channel(handoff_channel.channel, carrier_channel.channel.x)
 
 
 def _align_same_line_channels(
@@ -1465,6 +1541,7 @@ def build_member_geometry_execution(
                             resolved.target,
                         ),
                         tuple(scaffold.connector_ids_for_edge(resolved)),
+                        _packed_cell_handoff_metadata(edge, family_id, ctx),
                     )
                 )
                 ctx.built_routes.append(route)
@@ -1555,6 +1632,7 @@ def build_member_geometry_execution(
         _allocate_member_gap_channels(
             tuple(candidates), eligible_claims, ctx, pending_exit_turn_plan_ids
         )
+        _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
         candidate_route_ids = frozenset(id(route) for route in candidate_routes)
         # The freeze is the last word on an owned channel's coordinate: the
         # emission chain's own clearance hold reads the frozen ranks as

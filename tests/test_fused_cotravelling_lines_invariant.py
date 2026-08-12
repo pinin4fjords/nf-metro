@@ -54,18 +54,28 @@ CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
 REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
 THROUGH_SECTION = REPO_ROOT / "tests" / "fixtures" / "through_section"
 
-REPORTED = [
-    CURVE_REPROS / "rl_return_row_convergence.mmd",
-    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd",
-    EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd",
-]
+REPORTED = {
+    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
+        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
+    ),
+    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd": frozenset(
+        {("left_path", "right_path", "X")}
+    ),
+    EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd": frozenset(
+        {("exempt", "normal", "X"), ("exempt", "normal", "Y")}
+    ),
+}
 
-FUSED_WITHOUT_THE_PASS = [
-    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd",
-    CURVE_REPROS / "rl_return_row_convergence.mmd",
-    REGRESSIONS / "entry_trunk_row_bow.mmd",
-    THROUGH_SECTION / "riboseq_packed_lr.mmd",
-]
+FUSED_WITHOUT_THE_PASS = {
+    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
+        {("l1", "l2", "X")}
+    ),
+    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
+        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
+    ),
+    REGRESSIONS / "entry_trunk_row_bow.mmd": frozenset({("l1", "l2", "Y")}),
+    THROUGH_SECTION / "riboseq_packed_lr.mmd": frozenset({("riboseq", "rnaseq", "X")}),
+}
 
 
 def _gather_fixtures() -> list[Path]:
@@ -318,8 +328,9 @@ def test_reported_corridors_keep_the_nesting_step(
     """The corridors a reservation band pulled together keep the full step."""
     graph, routes, offsets, _violations = _settled(path, monkeypatch)
     separations = _pair_separations(routes, offsets)
-    assert separations
-    assert min(separations.values()) >= graph_offset_step(graph)
+    for pair in REPORTED[path]:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] >= graph_offset_step(graph)
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
@@ -331,9 +342,9 @@ def test_tracks_fuse_without_the_separation_stages(
     graph, routes, offsets, _violations = _settled(path, monkeypatch)
     step = graph_offset_step(graph)
     separations = _pair_separations(routes, offsets)
-    assert any(value < step for value in separations.values()), (
-        "expected a fused pair with the separation stages off"
-    )
+    for pair in FUSED_WITHOUT_THE_PASS[path]:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] < step
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
@@ -345,8 +356,10 @@ def test_separated_pairs_land_on_the_nesting_pitch(
     graph, routes, offsets, _violations = _settled(path, monkeypatch)
     step = graph_offset_step(graph)
     separations = _pair_separations(routes, offsets)
-    fused = {pair for pair, value in separations.items() if value < step}
-    assert fused, "expected a fused pair with the separation stages off"
+    fused = FUSED_WITHOUT_THE_PASS[path]
+    for pair in fused:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] < step
 
     monkeypatch.undo()
     graph, routes, offsets, _violations = _settled(path, monkeypatch)

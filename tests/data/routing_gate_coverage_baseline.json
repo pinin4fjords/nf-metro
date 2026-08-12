@@ -543,7 +543,6 @@
   "member_geometry.py::if abs(coordinate - claim.coordinate) > COORD_TOLERANCE:::#1",
   "member_geometry.py::if actual != (channel.start, channel.end):::#1",
   "member_geometry.py::if any(::#1",
-  "member_geometry.py::if band is not None:::#1",
   "member_geometry.py::if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:::#1",
   "member_geometry.py::if context is not None:::#1",
   "member_geometry.py::if convergence_owns_segment_boundary(route, segment_rank):::#1",
