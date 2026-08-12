@@ -45,6 +45,7 @@ class BoundaryClearanceDemand:
     deficit: float
     blocker_section_ids: tuple[str, ...]
     description: str
+    owner_id: str = ""
 
     def __post_init__(self) -> None:
         if self.boundary < 1:
@@ -55,6 +56,31 @@ class BoundaryClearanceDemand:
             raise ValueError("a boundary clearance demand states a finite requirement")
         if not self.description:
             raise ValueError("a boundary clearance demand states what it is owed for")
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryClearanceRequirement:
+    """Stable clearance target measured between two section sets."""
+
+    axis: SettlementAxis
+    boundary: int
+    owner_id: str
+    required: float
+    negative_section_ids: tuple[str, ...]
+    positive_section_ids: tuple[str, ...]
+    description: str
+
+    def __post_init__(self) -> None:
+        if self.boundary < 1:
+            raise ValueError("a boundary clearance requirement needs two sides")
+        if not self.owner_id:
+            raise ValueError("a boundary clearance requirement names its owner")
+        if not math.isfinite(self.required) or self.required < 0:
+            raise ValueError("a boundary clearance requirement is finite")
+        if not self.negative_section_ids or not self.positive_section_ids:
+            raise ValueError("a boundary clearance requirement names both sides")
+        if not self.description:
+            raise ValueError("a boundary clearance requirement states its cause")
 
 
 ClearanceMeasurement = Callable[[MetroGraph], tuple[BoundaryClearanceDemand, ...]]

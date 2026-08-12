@@ -193,6 +193,7 @@ def _route_edges(  # noqa: C901
     reservations: RoutePlan | None = None,
     reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     validate_final_route_frames: bool = True,
+    allow_convergence_clearance_requirements: bool = False,
 ) -> tuple[list[RoutedPath], dict[str, float], RoutePlan | None]:
     """Route all edges, returning the paths and the bubble-centring moves.
 
@@ -322,6 +323,9 @@ def _route_edges(  # noqa: C901
         ctx,
         include_convergence_resources=observe_plan,
         reservation_ids_by_member=reservation_ids_by_member,
+        allow_convergence_clearance_requirements=(
+            allow_convergence_clearance_requirements
+        ),
     )
     execution = planning.exit_turns
     member_geometry = planning.member_geometry
@@ -355,6 +359,9 @@ def _route_edges(  # noqa: C901
                 if demand.system_id in planned_system_ids
             ),
             convergence_diagnostics=convergence_execution.diagnostics,
+            boundary_clearance_requirements=(
+                convergence_execution.clearance_requirements
+            ),
             member_geometry_plans=published_member_geometry,
             exit_turn_dispositions=planning.exit_turn_dispositions,
         )
@@ -585,6 +592,7 @@ def _route_edges(  # noqa: C901
         routes,
         emitted_exit_turn_plans,
         ctx.station_offsets or {},
+        convergence_execution.query.clearance_requirement_system_ids,
     )
     from nf_metro.layout.fan_plans import validate_fan_route_emissions
 
@@ -743,6 +751,7 @@ def observe_route_edges_centred(
     offset_step: float | None = None,
     reservations: RoutePlan | None = None,
     reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+    allow_convergence_clearance_requirements: bool = False,
 ) -> RouteObservation:
     """Route drawn geometry and return its context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -756,6 +765,9 @@ def observe_route_edges_centred(
         offset_step=offset_step,
         reservations=reservations,
         reservation_translations=reservation_translations,
+        allow_convergence_clearance_requirements=(
+            allow_convergence_clearance_requirements
+        ),
     )
     _settle_station_moves(graph, moves)
     assert plan is not None

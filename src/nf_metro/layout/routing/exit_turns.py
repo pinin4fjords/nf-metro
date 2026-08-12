@@ -3741,6 +3741,7 @@ def validate_exit_turn_plans(
     routes: list[RoutedPath],
     plan: RoutePlan | tuple[ExitTurnPlan, ...],
     station_offsets: dict[tuple[str, str], float],
+    skip_system_ids: frozenset[RouteSystemId] = frozenset(),
 ) -> None:
     """Validate planned membership, compact lanes, and final owned geometry."""
     routes_by_member = defaultdict(list)
@@ -3756,7 +3757,10 @@ def validate_exit_turn_plans(
     }
     exit_turn_plans = plan.exit_turn_plans if isinstance(plan, RoutePlan) else plan
     for exit_turn_plan in exit_turn_plans:
-        if exit_turn_plan.disposition is not ExitTurnDisposition.PLANNED:
+        if (
+            exit_turn_plan.disposition is not ExitTurnDisposition.PLANNED
+            or exit_turn_plan.system_id in skip_system_ids
+        ):
             continue
         for lane in exit_turn_plan.source_lanes:
             for station_id in lane.station_ids:

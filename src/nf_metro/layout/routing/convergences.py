@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TypeAlias
@@ -15,10 +15,12 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     EDGE_TO_BUNDLE_CLEARANCE,
     OFFSET_STEP,
+    SAME_COORD_TOLERANCE,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
+    measured_distance,
     point_to_polyline_distance,
     spans_share_corridor,
 )
@@ -86,6 +88,10 @@ from nf_metro.layout.routing.member_geometry import (
 )
 from nf_metro.layout.routing.orientation import direction_axis, lateral_axis
 from nf_metro.layout.routing.reserved_bands import ReservedBand
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceRequirement,
+    SettlementAxis,
+)
 from nf_metro.parser.model import Edge, MetroGraph, Station
 from nf_metro.parser.route_topology import (
     ResolvedConvergenceView,
@@ -156,6 +162,7 @@ class ConvergencePlanExecutionQuery:
     _by_edge: Mapping[ResolvedEdge, ConvergenceRouteMembership]
     _edge_order: tuple[ResolvedEdge, ...]
     _vertical_channels: tuple[PlannedConvergenceVerticalChannel, ...]
+    clearance_requirement_system_ids: frozenset[RouteSystemId] = frozenset()
     _edge_rank: Mapping[ResolvedEdge, int] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -217,6 +224,7 @@ class ConvergencePlanExecutionQuery:
             MappingProxyType(by_edge),
             self._edge_order,
             vertical_channels,
+            self.clearance_requirement_system_ids & system_ids,
         )
 
 
@@ -227,6 +235,7 @@ class ConvergencePlanExecution:
     demands: tuple[SymbolicDemand, ...]
     diagnostics: tuple[RoutePlanDiagnostic, ...]
     query: ConvergencePlanExecutionQuery
+    clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
 
 
 def empty_convergence_plan_execution() -> ConvergencePlanExecution:
@@ -3598,19 +3607,15 @@ def _landing_trunk_flank_conflict(
                 flank,
                 (landing.edge.line_id, *trunk_plan.line_ids),
             )
-            for landing_plan in plans
-            for landing in landing_plan.landings
-            if (landing_segment := _landing_cross_segment(landing, graph)) is not None
-            for trunk_plan in plans
-            if trunk_plan.trunk_axis is not None
-            for rank, flank in enumerate(_trunk_segments(trunk_plan.trunk_axis))
-            if rank in {1, 3}
-            and landing_plan.id != trunk_plan.id
-            and landing.edge.line_id in trunk_plan.line_ids
-            and _direction(*landing_segment)
-            is not _trunk_run_travel_direction(trunk_plan.trunk_axis, rank)
-            and _parallel_segments_conflict(landing_segment, flank, curve_radius)
-            and not (
+            for (
+                landing_plan,
+                landing,
+                landing_segment,
+                trunk_plan,
+                rank,
+                flank,
+            ) in _landing_trunk_flank_candidates(plans, graph, curve_radius)
+            if not (
                 (
                     _forked_flank(landing, trunk_plan, rank)
                     and _segments_coincide(landing_segment, flank)
@@ -3635,6 +3640,153 @@ def _landing_trunk_flank_conflict(
         ),
         None,
     )
+
+
+def _landing_trunk_flank_candidates(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> Iterator[
+    tuple[
+        ConvergencePlan,
+        ConvergenceLanding,
+        _Segment,
+        ConvergencePlan,
+        int,
+        _Segment,
+    ]
+]:
+    """Landing/flank pairs close enough to need one ownership decision."""
+    for landing_plan in plans:
+        for landing in landing_plan.landings:
+            landing_segment = _landing_cross_segment(landing, graph)
+            if landing_segment is None:
+                continue
+            for trunk_plan in plans:
+                axis = trunk_plan.trunk_axis
+                if axis is None or landing_plan.id == trunk_plan.id:
+                    continue
+                for rank in (1, 3):
+                    flank = _trunk_segments(axis)[rank]
+                    if (
+                        landing.edge.line_id in trunk_plan.line_ids
+                        and _direction(*landing_segment)
+                        is not _trunk_run_travel_direction(axis, rank)
+                        and _parallel_segments_conflict(
+                            landing_segment, flank, curve_radius
+                        )
+                    ):
+                        yield (
+                            landing_plan,
+                            landing,
+                            landing_segment,
+                            trunk_plan,
+                            rank,
+                            flank,
+                        )
+
+
+def _landing_trunk_flank_clearance_requirements(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> tuple[BoundaryClearanceRequirement, ...]:
+    """Column widths that would make an unseated landing/flank pair feasible."""
+    clearance = cotravelling_lane_clearance(
+        same_line=True, counter_running=True, curve_radius=curve_radius
+    )
+    lookup = gap_lookup_geometry(graph)
+    widest: dict[int, BoundaryClearanceRequirement] = {}
+    for (
+        landing_plan,
+        landing,
+        landing_segment,
+        trunk_plan,
+        rank,
+        flank,
+    ) in _landing_trunk_flank_candidates(plans, graph, curve_radius):
+        if _direction(*landing_segment) not in (Direction.U, Direction.D):
+            continue
+        axis = trunk_plan.trunk_axis
+        assert axis is not None
+        endpoint = _flank_endpoint(axis, rank)
+        if endpoint is None or _shared_source_bundle_stroke(
+            landing_plan,
+            landing,
+            trunk_plan,
+            rank,
+            landing_segment,
+            flank,
+        ):
+            continue
+        landing_coordinate = landing_segment[0][0]
+        shortfall = (
+            clearance + curve_radius - measured_distance(landing_coordinate, endpoint)
+        )
+        if shortfall <= SAME_COORD_TOLERANCE:
+            continue
+        y_lo, y_hi = sorted(
+            (
+                min(point[1] for point in landing_segment),
+                max(point[1] for point in flank),
+            )
+        )
+        gap = gap_lo_for_x(
+            graph,
+            landing_coordinate,
+            y_lo,
+            y_hi,
+            lookup=lookup,
+        )
+        if gap is None:
+            continue
+        lower_col, row = gap
+        boundary = lower_col + 1
+        negative = [
+            section
+            for section in graph.sections.values()
+            if section.grid_col + section.grid_col_span - 1 == lower_col
+            and (
+                row is None
+                or section.grid_row <= row < section.grid_row + section.grid_row_span
+            )
+        ]
+        positive = [
+            section
+            for section in graph.sections.values()
+            if section.grid_col == boundary
+            and (
+                row is None
+                or section.grid_row <= row < section.grid_row + section.grid_row_span
+            )
+        ]
+        if not negative or not positive:
+            continue
+        negative_edge = max(section.bbox_x + section.bbox_w for section in negative)
+        positive_edge = min(section.bbox_x for section in positive)
+        requirement = BoundaryClearanceRequirement(
+            SettlementAxis.COLUMN,
+            boundary,
+            str(landing_plan.system_id),
+            measured_distance(negative_edge, positive_edge) + shortfall,
+            tuple(
+                sorted(
+                    section.id
+                    for section in negative
+                    if measured_distance(section.bbox_x + section.bbox_w, negative_edge)
+                    <= COORD_TOLERANCE
+                )
+            ),
+            tuple(
+                sorted(
+                    section.id
+                    for section in positive
+                    if measured_distance(section.bbox_x, positive_edge)
+                    <= COORD_TOLERANCE
+                )
+            ),
+            f"convergence system {landing_plan.system_id} runway",
+        )
+        current = widest.get(boundary)
+        if current is None or requirement.required > current.required:
+            widest[boundary] = requirement
+    return tuple(widest[key] for key in sorted(widest))
 
 
 def _segments_coincide(first: _Segment, second: _Segment) -> bool:
@@ -3792,14 +3944,28 @@ def _validate_final_convergence_feasibility(
     graph: MetroGraph,
     ctx: _RoutingCtx,
     fixed_channels: tuple[_PlanGapChannel, ...],
-) -> None:
+    *,
+    allow_clearance_requirements: bool = False,
+) -> tuple[BoundaryClearanceRequirement, ...]:
     """Reject unresolved geometry after every movable decision is frozen."""
+    clearance_requirements: list[BoundaryClearanceRequirement] = []
     plans_by_system: dict[RouteSystemId, list[ConvergencePlan]] = defaultdict(list)
     for plan in plans:
         plans_by_system[plan.system_id].append(plan)
     for system_id, system_plans in plans_by_system.items():
         conflict = _system_conflict(tuple(system_plans), ctx)
         if conflict is not None:
+            requirements = (
+                _landing_trunk_flank_clearance_requirements(
+                    tuple(system_plans), graph, ctx.curve_radius
+                )
+                if allow_clearance_requirements
+                and conflict.kind is ConvergenceConflictKind.NO_APPROACH_SETTLEMENT_ROOM
+                else ()
+            )
+            if requirements:
+                clearance_requirements.extend(requirements)
+                continue
             raise FinalConvergenceFeasibilityError(
                 f"final convergence system {system_id} has unresolved "
                 f"{conflict.kind.name.lower().replace('_', '-')} geometry: "
@@ -3861,6 +4027,7 @@ def _validate_final_convergence_feasibility(
                     f"final convergence plan {plan.id} crowds a planned "
                     f"member channel in gap {channel.gap}"
                 )
+    return tuple(clearance_requirements)
 
 
 def _resources(
@@ -3994,6 +4161,7 @@ def _fixed_x_channel_claims(
 def _query(
     plans: tuple[ConvergencePlan, ...],
     edge_order: tuple[ResolvedEdge, ...],
+    clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = (),
 ) -> ConvergencePlanExecutionQuery:
     by_edge: dict[ResolvedEdge, ConvergenceRouteMembership] = {}
     for plan in plans:
@@ -4024,6 +4192,7 @@ def _query(
         MappingProxyType(by_edge),
         edge_order,
         _fixed_x_channel_claims(plans, edge_order),
+        frozenset(RouteSystemId(item.owner_id) for item in clearance_requirements),
     )
 
 
@@ -4036,6 +4205,7 @@ def build_convergence_plan_execution(
     fan_plans: tuple[FanPlan, ...],
     member_geometry: MemberGeometryExecution,
     include_resources: bool = True,
+    allow_clearance_requirements: bool = False,
 ) -> ConvergencePlanExecution:
     """Plan every semantic convergence atomically by route system."""
     member_geometry = member_geometry or empty_member_geometry_execution()
@@ -4054,6 +4224,7 @@ def build_convergence_plan_execution(
         if fan_plan.system_id is not None:
             fan_plans_by_system[fan_plan.system_id].append(fan_plan)
     plans: list[ConvergencePlan] = []
+    clearance_requirements: list[BoundaryClearanceRequirement] = []
     diagnostics: list[RoutePlanDiagnostic] = []
     for system_id in scaffold.ordered_system_ids:
         views = views_by_system.get(system_id, [])
@@ -4104,6 +4275,12 @@ def build_convergence_plan_execution(
             system_plans = _settle_opposing_landing_channels(
                 system_plans, graph, upstream_exit_plans, ctx.curve_radius
             )
+            if allow_clearance_requirements:
+                clearance_requirements.extend(
+                    _landing_trunk_flank_clearance_requirements(
+                        system_plans, graph, ctx.curve_radius
+                    )
+                )
             system_plans = _settle_landing_trunk_flanks(
                 system_plans, graph, ctx.curve_radius
             )
@@ -4153,7 +4330,8 @@ def build_convergence_plan_execution(
         references,
         demands,
         tuple(diagnostics),
-        _query(frozen_plans, scaffold.edge_order),
+        _query(frozen_plans, scaffold.edge_order, tuple(clearance_requirements)),
+        tuple(clearance_requirements),
     )
 
 
@@ -4216,6 +4394,7 @@ def _settle_convergence_execution(
     planned_system_ids: frozenset[RouteSystemId],
     member_geometry: MemberGeometryExecution | None = None,
     include_resources: bool = False,
+    allow_clearance_requirements: bool = False,
 ) -> ConvergencePlanExecution:
     """Settle the eligible owners of *planned_system_ids* back into *execution*.
 
@@ -4243,8 +4422,21 @@ def _settle_convergence_execution(
             else ()
         ),
     )
+    clearance_requirements = execution.clearance_requirements
     if member_geometry is not None:
-        _validate_final_convergence_feasibility(settled, graph, ctx, fixed_channels)
+        measured_requirements = _validate_final_convergence_feasibility(
+            settled,
+            graph,
+            ctx,
+            fixed_channels,
+            allow_clearance_requirements=allow_clearance_requirements,
+        )
+        clearance_requirements = tuple(
+            {
+                (item.axis, item.boundary, item.owner_id): item
+                for item in (*clearance_requirements, *measured_requirements)
+            }.values()
+        )
     settled_by_id = {plan.id: plan for plan in settled}
     plans = tuple(settled_by_id.get(plan.id, plan) for plan in execution.plans)
     references, demands = _resources(graph, plans) if include_resources else ((), ())
@@ -4253,7 +4445,8 @@ def _settle_convergence_execution(
         references,
         demands,
         execution.diagnostics,
-        _query(plans, execution.query._edge_order),
+        _query(plans, execution.query._edge_order, clearance_requirements),
+        clearance_requirements,
     )
 
 
@@ -4266,6 +4459,7 @@ def settle_global_convergence_execution(
     member_geometry: MemberGeometryExecution,
     planned_system_ids: frozenset[RouteSystemId],
     include_resources: bool,
+    allow_clearance_requirements: bool = False,
 ) -> ConvergencePlanExecution:
     """Settle post-member eligible owners before final atomic disposition."""
     return _settle_convergence_execution(
@@ -4276,6 +4470,7 @@ def settle_global_convergence_execution(
         planned_system_ids=planned_system_ids,
         member_geometry=member_geometry,
         include_resources=include_resources,
+        allow_clearance_requirements=allow_clearance_requirements,
     )
 
 
@@ -4333,13 +4528,19 @@ def restrict_convergence_execution(
     plans = tuple(
         plan for plan in execution.plans if plan.system_id in planned_system_ids
     )
+    clearance_requirements = tuple(
+        item
+        for item in execution.clearance_requirements
+        if RouteSystemId(item.owner_id) in planned_system_ids
+    )
     references, demands = _resources(graph, plans) if include_resources else ((), ())
     return ConvergencePlanExecution(
         plans,
         references,
         demands,
         execution.diagnostics,
-        _query(plans, execution.query._edge_order),
+        _query(plans, execution.query._edge_order, clearance_requirements),
+        clearance_requirements,
     )
 
 
@@ -4737,6 +4938,7 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
     plan = membership.plan
     if not plan.owns_geometry:
         return
+    clearance_pending = plan.system_id in query.clearance_requirement_system_ids
     route.convergence_plan_id = str(plan.id)
     route.convergence_member_id = str(membership.member_id)
     landing = membership.landing
@@ -4744,13 +4946,17 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
         continuation = membership.continuation
         if continuation is not None and continuation.covered_by_member_id is not None:
             return
-        if continuation is not None and (
-            point_to_polyline_distance(continuation.start_point, route.points)
-            > COORD_TOLERANCE
-            or any(
-                abs(actual - expected) > COORD_TOLERANCE
-                for actual, expected in zip(
-                    route.points[-1], continuation.end_point, strict=True
+        if (
+            not clearance_pending
+            and continuation is not None
+            and (
+                point_to_polyline_distance(continuation.start_point, route.points)
+                > COORD_TOLERANCE
+                or any(
+                    abs(actual - expected) > COORD_TOLERANCE
+                    for actual, expected in zip(
+                        route.points[-1], continuation.end_point, strict=True
+                    )
                 )
             )
         ):
@@ -4782,11 +4988,13 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
         )
         opening = _opening_fanout_descent(route)
         if opening is None:
-            raise ConvergenceInvariantError(
-                f"convergence system {plan.system_id} feeder {landing.member_id} "
-                "has no emitted opening turn"
-            )
-        opening_rank = opening.idx
+            if not clearance_pending:
+                raise ConvergenceInvariantError(
+                    f"convergence system {plan.system_id} feeder {landing.member_id} "
+                    "has no emitted opening turn"
+                )
+        else:
+            opening_rank = opening.idx
     if plan.primary_trunk_member_id == membership.member_id:
         if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:
             _bake_route(route, ctx)
@@ -4804,7 +5012,7 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
             _trunk_segment_ranks(route, plan.trunk_axis)
             + (() if opening_rank is None else (opening_rank,))
         )
-        if ctx.validate_final_route_frames:
+        if ctx.validate_final_route_frames and not clearance_pending:
             _assert_landing_geometry(route, plan, landing)
         return
     elif plan.primary_trunk_reason is ConvergenceTrunkReason.LONGEST_BYPASS:
@@ -4821,12 +5029,12 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
         (len(route.points) - 2,) + (() if opening_rank is None else (opening_rank,))
     )
     endpoint = route.points[-1]
-    if any(
+    if not clearance_pending and any(
         abs(actual - expected) > COORD_TOLERANCE
         for actual, expected in zip(endpoint, landing.join_point, strict=True)
     ):
         raise ConvergenceInvariantError(convergence_failure(membership, endpoint))
-    if ctx.validate_final_route_frames:
+    if ctx.validate_final_route_frames and not clearance_pending:
         _assert_landing_geometry(route, plan, landing)
 
 
@@ -4841,6 +5049,8 @@ def validate_convergence_plans(
     }
     for plan in execution.plans:
         if not plan.owns_geometry:
+            continue
+        if plan.system_id in execution.query.clearance_requirement_system_ids:
             continue
         assert plan.trunk_axis is not None
         primary_ownership = next(

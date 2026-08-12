@@ -47,12 +47,14 @@ stays put while a crossing run lengthens.  That single exception is checked
 rather than assumed: every row corridor is re-measured after the column phase
 and a narrowed one fails.  Nothing is retried.
 
-Re-routing the settled geometry produces a *different* ledger -- corridors
-appear, vanish, and change their required width -- so iterating settlement
-against successive ledgers would be a fixpoint search over a moving constraint
-set, with no convergence argument behind it.  Settlement therefore runs once,
-against the ledger it was handed.  A demand that only the re-routed geometry
-reveals is reported, not chased.
+Re-routing the settled geometry can produce a *different* ledger -- corridors
+appear, vanish, and change their required width -- so this function never
+iterates over successive ledgers.  Each invocation settles exactly the ledger
+it was handed.  The renderer has one bounded exception around a provisional
+convergence-clearance grant: it performs a strict fresh observation after the
+grant, measures that observation's drawn containment once, and settles that
+final ledger before a consuming re-route.  No clearance requirement may be
+published by either strict observation.
 
 Every row- and column-gap claim this stage is handed is therefore allocatable:
 the measurement bounds a boundary by the sections that lie wholly on each side
@@ -81,11 +83,15 @@ geometry nothing vouches for.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 
-from nf_metro.layout.constants import COORD_TOLERANCE, SETTLEMENT_QUANTUM
-from nf_metro.layout.geometry import shift_section
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    SAME_COORD_TOLERANCE,
+    SETTLEMENT_QUANTUM,
+)
+from nf_metro.layout.geometry import measured_distance, shift_section
 from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
     DemandAxis,
@@ -102,10 +108,12 @@ from nf_metro.layout.route_reservations import (
     RouteReservation,
     RouteReservationId,
     RowGapRegion,
+    drawn_corridor_containment,
     realise_reservation,
 )
 from nf_metro.layout.settlement_demand import (
     BoundaryClearanceDemand,
+    BoundaryClearanceRequirement,
     ClearanceMeasurement,
     SettlementAxis,
 )
@@ -115,7 +123,9 @@ __all__ = [
     "COLUMN_AXIS",
     "ROW_AXIS",
     "BoundaryClearanceDemand",
+    "BoundaryClearanceRequirement",
     "ClearanceMeasurement",
+    "DrawnCorridorClearanceRequirement",
     "EnvelopeSettlement",
     "SettlementAxis",
     "SettlementAxisGeometry",
@@ -125,9 +135,110 @@ __all__ = [
     "apply_translation",
     "attach_reroute_ledger_delta",
     "attach_settlement_diagnostics",
+    "drawn_corridor_clearance_requirements",
+    "measure_boundary_clearance_requirements",
+    "measure_drawn_corridor_clearance",
     "settle_route_envelopes",
     "translation_ownership",
 ]
+
+
+def measure_boundary_clearance_requirements(
+    graph: MetroGraph,
+    requirements: tuple[BoundaryClearanceRequirement, ...],
+) -> tuple[BoundaryClearanceDemand, ...]:
+    """Measure stable pairwise section requirements on the live graph."""
+    demands: list[BoundaryClearanceDemand] = []
+    for requirement in requirements:
+        negative = [graph.sections[item] for item in requirement.negative_section_ids]
+        positive = [graph.sections[item] for item in requirement.positive_section_ids]
+        if requirement.axis is SettlementAxis.ROW:
+            negative_edge = max(item.bbox_y + item.bbox_h for item in negative)
+            positive_edge = min(item.bbox_y for item in positive)
+        else:
+            negative_edge = max(item.bbox_x + item.bbox_w for item in negative)
+            positive_edge = min(item.bbox_x for item in positive)
+        deficit = requirement.required - measured_distance(negative_edge, positive_edge)
+        if deficit <= SAME_COORD_TOLERANCE:
+            continue
+        demands.append(
+            BoundaryClearanceDemand(
+                requirement.axis,
+                requirement.boundary,
+                requirement.required,
+                deficit,
+                requirement.negative_section_ids,
+                requirement.description,
+                owner_id=requirement.owner_id,
+            )
+        )
+    return tuple(demands)
+
+
+@dataclass(frozen=True, slots=True)
+class DrawnCorridorClearanceRequirement:
+    """Stable width required by one strict route's drawn corridor."""
+
+    reservation: RouteReservation
+    required: float
+
+
+def drawn_corridor_clearance_requirements(
+    graph: MetroGraph,
+    plan: RoutePlan,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+) -> tuple[DrawnCorridorClearanceRequirement, ...]:
+    """Freeze widths owed by strict routes drawn past a corridor edge."""
+    requirements: list[DrawnCorridorClearanceRequirement] = []
+    for reservation in plan.reservations:
+        region = reservation.region
+        if not isinstance(region, RowGapRegion | ColumnGapRegion):
+            continue
+        realised = realise_reservation(graph, reservation)
+        if realised is None:
+            continue
+        containment = drawn_corridor_containment(
+            reservation, realised, route_polylines, reservation.claims
+        )
+        deficit = -containment.positive_side_slack
+        if deficit <= COORD_TOLERANCE:
+            continue
+        requirements.append(
+            DrawnCorridorClearanceRequirement(
+                reservation, realised.available_width + deficit
+            )
+        )
+    return tuple(requirements)
+
+
+def measure_drawn_corridor_clearance(
+    graph: MetroGraph,
+    requirements: Iterable[DrawnCorridorClearanceRequirement],
+) -> tuple[BoundaryClearanceDemand, ...]:
+    """Re-measure strict drawn-corridor requirements on live box edges."""
+    demands: list[BoundaryClearanceDemand] = []
+    for requirement in requirements:
+        reservation = requirement.reservation
+        realised = realise_reservation(graph, reservation)
+        if realised is None:
+            continue
+        deficit = requirement.required - realised.available_width
+        if deficit <= COORD_TOLERANCE:
+            continue
+        region = reservation.region
+        axis = ROW_AXIS if isinstance(region, RowGapRegion) else COLUMN_AXIS
+        demands.append(
+            BoundaryClearanceDemand(
+                axis.axis,
+                axis.boundary_of(reservation),
+                requirement.required,
+                deficit,
+                (),
+                f"the drawn corridor claimed by {reservation.id}",
+                owner_id=str(reservation.id),
+            )
+        )
+    return tuple(demands)
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,21 +478,25 @@ def _clearance_at(
     axis: SettlementAxisGeometry,
     clearance: ClearanceMeasurement | None,
 ) -> dict[int, BoundaryClearanceDemand]:
-    """This axis's clearance demands, keyed by boundary, on the live boxes.
-
-    Axis-neutral because the demand vocabulary is, not because both axes carry
-    one: every ``ClearanceMeasurement`` in the tree states row demands only, so
-    the column call returns nothing and no column boundary settles a clearance.
-    A render-time box grow that eats a column gap is therefore unmeasured, which
-    ``CONTRACT.md`` states as the scope of this demand.
-    """
+    """This axis's clearance demands, keyed by boundary, on the live boxes."""
     if clearance is None:
         return {}
-    return {
-        demand.boundary: demand
-        for demand in clearance(graph)
-        if demand.axis is axis.axis
-    }
+    return _clearance_demands_at(clearance(graph), axis)
+
+
+def _clearance_demands_at(
+    measured: Iterable[BoundaryClearanceDemand],
+    axis: SettlementAxisGeometry,
+) -> dict[int, BoundaryClearanceDemand]:
+    """Select the largest measured deficit at each boundary on one axis."""
+    demands: dict[int, BoundaryClearanceDemand] = {}
+    for demand in measured:
+        current = demands.get(demand.boundary)
+        if demand.axis is axis.axis and (
+            current is None or demand.deficit > current.deficit
+        ):
+            demands[demand.boundary] = demand
+    return demands
 
 
 def quantised_allocation(deficit: float) -> float:
@@ -390,8 +505,10 @@ def quantised_allocation(deficit: float) -> float:
     Two claims are on this, and both are needed.  It never allocates less than
     it was asked for, which is the premise of the ownership lemma: a boundary
     widened by this much has met the demand outright, so the pass visits each
-    boundary once and stops.  And it is a function of the deficit alone, so the
-    same arrangement allocates the same width wherever on the canvas it sits.
+    boundary once and stops.  A positive allocation is at least two quanta so
+    it clears the coordinate-tolerance floor enforced by the translation
+    ledger.  And it is a function of the deficit alone, so the same arrangement
+    allocates the same width wherever on the canvas it sits.
 
     The second does not come from here -- a ceiling amplifies whatever it is
     handed, turning a 1e-13 arithmetic residue into a whole quantum of map -- but
@@ -400,7 +517,10 @@ def quantised_allocation(deficit: float) -> float:
     :func:`nf_metro.layout.route_reservations.measured_distance` is where that is
     established.
     """
-    return math.ceil(deficit / SETTLEMENT_QUANTUM) * SETTLEMENT_QUANTUM
+    quanta = math.ceil(deficit / SETTLEMENT_QUANTUM)
+    if quanta <= 0:
+        return 0.0
+    return max(2, quanta) * SETTLEMENT_QUANTUM
 
 
 def _settle_axis(
@@ -828,13 +948,16 @@ def _assert_clearance_demands_are_met(
     argued, because the two predicates staying in step is a property a later edit
     could break.
     """
-    outstanding = _clearance_at(graph, ROW_AXIS, clearance) | _clearance_at(
-        graph, COLUMN_AXIS, clearance
+    measured = () if clearance is None else clearance(graph)
+    outstanding = tuple(_clearance_demands_at(measured, ROW_AXIS).values()) + tuple(
+        _clearance_demands_at(measured, COLUMN_AXIS).values()
     )
     if outstanding:
         stated = "; ".join(
             f"{item.description} is still {item.deficit:.2f}px short"
-            for item in sorted(outstanding.values(), key=lambda item: item.boundary)
+            for item in sorted(
+                outstanding, key=lambda item: (item.axis.value, item.boundary)
+            )
         )
         raise PhaseInvariantError(
             f"envelope settlement left a boundary owing clearance: {stated}"

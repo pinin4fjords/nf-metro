@@ -18,7 +18,6 @@ import textwrap
 import warnings
 from collections.abc import Iterable
 from dataclasses import replace
-from functools import partial
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -31,8 +30,12 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.layout.envelope_settlement import (
+    EnvelopeSettlement,
     attach_reroute_ledger_delta,
     attach_settlement_diagnostics,
+    drawn_corridor_clearance_requirements,
+    measure_boundary_clearance_requirements,
+    measure_drawn_corridor_clearance,
     settle_route_envelopes,
 )
 from nf_metro.layout.fan_plans import FanRouteInvariantError
@@ -110,6 +113,7 @@ from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 from nf_metro.layout.routing.system_emission import (
     validate_published_route_attribution,
 )
+from nf_metro.layout.settlement_demand import BoundaryClearanceDemand
 from nf_metro.manifest import node_data_attrs
 from nf_metro.parser.model import (
     ICON_TYPE_DIR,
@@ -1375,6 +1379,8 @@ def _settle_render_geometry(
         station_offsets: dict[tuple[str, str], float],
         reservations: RoutePlan | None = None,
         reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+        *,
+        allow_clearance_requirements: bool = False,
     ) -> tuple[list[RoutedPath], RoutePlan]:
         observation = observe_route_edges_centred(
             graph,
@@ -1382,12 +1388,15 @@ def _settle_render_geometry(
             offset_step=offset_step,
             reservations=reservations,
             reservation_translations=reservation_translations,
+            allow_convergence_clearance_requirements=allow_clearance_requirements,
         )
         return observation.routes, observation.plan
 
     def _resettle(
         reservations: RoutePlan | None = None,
         reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+        *,
+        allow_clearance_requirements: bool = False,
     ) -> tuple[dict[tuple[str, str], float], list[RoutedPath], RoutePlan]:
         nonlocal carried_ports
         # The shift moved section-anchored geometry; refresh the bypass-label
@@ -1397,7 +1406,10 @@ def _settle_render_geometry(
         reanchor_junctions(graph)
         offsets = compute_station_offsets(graph, offset_step=offset_step)
         moved_routes, moved_plan = _route(
-            offsets, reservations, reservation_translations
+            offsets,
+            reservations,
+            reservation_translations,
+            allow_clearance_requirements=allow_clearance_requirements,
         )
         carried_ports = ()
         return offsets, moved_routes, moved_plan
@@ -1423,14 +1435,18 @@ def _settle_render_geometry(
         (:func:`hold_port_anchored_edges`).
         """
         if carried_ports:
-            station_offsets, routes, route_plan = _resettle()
+            station_offsets, routes, route_plan = _resettle(
+                allow_clearance_requirements=bool(
+                    route_plan.boundary_clearance_requirements
+                )
+            )
             labels = _place(station_offsets, routes)
             assert_render_curve_invariants(graph, routes, station_offsets)
         return station_offsets, routes, route_plan, labels
 
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-    routes, route_plan = _route(station_offsets)
+    routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
     effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
         graph.permissive
     )
@@ -1442,7 +1458,11 @@ def _settle_render_geometry(
     )
     _reserve_group_band_space(graph, theme, station_offsets, labels)
     if render_header_collision(graph) and not graph.has_rail_sections:
-        station_offsets, routes, route_plan = _resettle()
+        station_offsets, routes, route_plan = _resettle(
+            allow_clearance_requirements=bool(
+                route_plan.boundary_clearance_requirements
+            )
+        )
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
         station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
@@ -1451,53 +1471,112 @@ def _settle_render_geometry(
 
     frozen_routes = routes
     frozen_plan = route_plan
+
     # A rail layout pitches its rows to the interchange idiom rather than to
     # ``section_y_gap``, and holds runs between them collinear; widening one of
     # its row boundaries to the declared gap turns a flat run into a staircase.
     # So the clearance a boundary owes is a demand only where the gap is what
     # sets the pitch.
-    clearance = (
-        None
-        if graph.has_rail_sections
-        else partial(measure_row_gap_clearance, section_y_gap=section_y_gap)
+    def _measure_clearance(
+        graph: MetroGraph,
+    ) -> tuple[BoundaryClearanceDemand, ...]:
+        row_demands = (
+            ()
+            if graph.has_rail_sections
+            else measure_row_gap_clearance(graph, section_y_gap)
+        )
+        return row_demands + measure_boundary_clearance_requirements(
+            graph, frozen_plan.boundary_clearance_requirements
+        )
+
+    grant_settlement: EnvelopeSettlement | None = None
+    settlement = settle_route_envelopes(
+        graph, frozen_plan, clearance=_measure_clearance
     )
-    settlement = settle_route_envelopes(graph, frozen_plan, clearance=clearance)
     if settlement.translations or _ledger_changes_live_derived_band(
         graph,
         frozen_plan,
         frozen_routes,
         settlement.coordinate_translations,
     ):
+        grant_settlement = settlement
+        pending_clearance = bool(frozen_plan.boundary_clearance_requirements)
         station_offsets, routes, routed_plan = _resettle(
-            frozen_plan, settlement.coordinate_translations
+            frozen_plan,
+            settlement.coordinate_translations,
         )
+        if pending_clearance and routed_plan.boundary_clearance_requirements:
+            raise LayoutInvariantError(
+                "envelope settlement did not satisfy convergence boundary "
+                "clearance requirements"
+            )
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
-        _assert_settlement_decisions_frozen(
-            frozen_routes, frozen_plan, routes, routed_plan
-        )
+        if pending_clearance:
+            granted_routes = routes
+            granted_plan = routed_plan
+            granted_polylines = [
+                apply_route_offsets(route, station_offsets) for route in granted_routes
+            ]
+            containment_requirements = drawn_corridor_clearance_requirements(
+                graph, granted_plan, granted_polylines
+            )
+            settlement = settle_route_envelopes(
+                graph,
+                granted_plan,
+                clearance=lambda live_graph: measure_drawn_corridor_clearance(
+                    live_graph, containment_requirements
+                ),
+            )
+            station_offsets, routes, consumed_plan = _resettle(
+                granted_plan, settlement.coordinate_translations
+            )
+            labels = _place(station_offsets, routes)
+            assert_render_curve_invariants(graph, routes, station_offsets)
+            _assert_settlement_decisions_frozen(
+                granted_routes, granted_plan, routes, consumed_plan
+            )
+            route_plan = attach_reroute_ledger_delta(
+                adopt_route_reservation_ledger(
+                    granted_plan,
+                    graph,
+                    coordinate_translations=settlement.coordinate_translations,
+                ),
+                granted_plan,
+                consumed_plan,
+            )
+            routed_plan = consumed_plan
+        else:
+            _assert_settlement_decisions_frozen(
+                frozen_routes, frozen_plan, routes, routed_plan
+            )
         # The published ledger is the one settlement consumed.  Re-observing
         # would let corridors appear, vanish, and change their required width
         # across the very step whose contract is coordinate translation only.
         # The routed observation exists to draw and to prove the decisions
         # frozen.
-        route_plan = attach_reroute_ledger_delta(
-            adopt_route_reservation_ledger(
+        if not pending_clearance:
+            route_plan = attach_reroute_ledger_delta(
+                adopt_route_reservation_ledger(
+                    frozen_plan,
+                    graph,
+                    coordinate_translations=settlement.coordinate_translations,
+                ),
                 frozen_plan,
-                graph,
-                coordinate_translations=settlement.coordinate_translations,
-            ),
-            frozen_plan,
-            routed_plan,
-        )
+                routed_plan,
+            )
         # adopt_route_reservation_ledger rebuilds the published plan from the
         # frozen pass, which never saw the re-route's own diagnostics; carry
         # forward the one class that names a decision the re-route was itself
         # forced to discard (_adopt_prior_dispositions).
-        adopted_dispositions = tuple(
-            item
-            for item in routed_plan.diagnostics
-            if item.code == "exit-turn-disposition-adopted"
+        adopted_dispositions = (
+            ()
+            if pending_clearance
+            else tuple(
+                item
+                for item in routed_plan.diagnostics
+                if item.code == "exit-turn-disposition-adopted"
+            )
         )
         if adopted_dispositions:
             route_plan = replace(
@@ -1511,6 +1590,8 @@ def _settle_render_geometry(
     if carried_ports:
         hold_port_anchored_edges(graph, carried_from, carried_ports)
     route_plan = attach_settlement_diagnostics(route_plan, settlement)
+    if grant_settlement is not None and grant_settlement is not settlement:
+        route_plan = attach_settlement_diagnostics(route_plan, grant_settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     assert_reservations_are_settled(
         graph,
