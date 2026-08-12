@@ -14,8 +14,8 @@ handlers (handedness-aware radii at each turn); the runtime
 guard catches any regression.
 
 Same-row L-shapes and the TB ``(BOTTOM, TOP, 1, 0)`` straight drop
-are absent because they're degenerate cases the wrap handlers
-don't fire on; the dispatcher's if-cascade handles them directly.
+are absent because they are degenerate cases represented by dedicated
+classified families.
 """
 
 from __future__ import annotations
@@ -280,7 +280,7 @@ _TOP_ENTRY_L_DOWN_FROM_LEFT = TurnSequence(
 # is ``None`` when the source is a junction without a port side; entry
 # sides are always known (every inter-section edge terminates at a port).
 WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
-    # ------- Cross-row L-shapes (dispatcher fallback line 635) ----------
+    # ------- Cross-row L-shapes ------------------------------------------
     # Descending L: source exits RIGHT (LR section), target entry on
     # LEFT, one row down.
     (PortSide.RIGHT, PortSide.LEFT, 1, 1): WrapDescriptor(
@@ -294,7 +294,7 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
         turn_sequence=_L_RIGHT_UP_RIGHT,
         channel_kind=ChannelKind.L_SHAPE,
     ),
-    # ------- TOP entry L-shape (dispatcher line 528-529) ----------------
+    # ------- TOP entry L-shape -------------------------------------------
     # TB section reached from an LR predecessor on the LEFT.
     (PortSide.RIGHT, PortSide.TOP, 1, 1): WrapDescriptor(
         kind=RouteKind.TOP_ENTRY_L_SHAPE,
@@ -307,7 +307,7 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
         turn_sequence=_TOP_ENTRY_L_DOWN_FROM_LEFT,
         channel_kind=ChannelKind.L_SHAPE,
     ),
-    # ------- LEFT-entry cross-row wrap (dispatcher line 608-617) --------
+    # ------- LEFT-entry cross-row wrap -----------------------------------
     # Source row above, target row below, entry on LEFT, source column
     # to the RIGHT of the target column (dx < 0).  Four-corner zigzag.
     (PortSide.RIGHT, PortSide.LEFT, 1, -1): WrapDescriptor(
@@ -321,7 +321,7 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
         turn_sequence=_LEFT_ENTRY_WRAP_DOWN,
         channel_kind=ChannelKind.WRAP,
     ),
-    # ------- RIGHT-entry cross-row wrap (dispatcher line 598-599) -------
+    # ------- RIGHT-entry cross-row wrap ----------------------------------
     # Source to the LEFT of the target column, entry on RIGHT.  Wraps
     # over the top of the target section and drops in from the right.
     (PortSide.LEFT, PortSide.RIGHT, 1, 1): WrapDescriptor(
@@ -329,7 +329,7 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
         turn_sequence=_RIGHT_ENTRY_WRAP_DOWN,
         channel_kind=ChannelKind.WRAP,
     ),
-    # ------- TB BOTTOM exit to side-entry (dispatcher line 521-522) -----
+    # ------- TB BOTTOM exit to side-entry --------------------------------
     # TB section exits via BOTTOM, target entry on LEFT side.  Vertical
     # drop with X offsets terminating in an L-shape into the side port.
     (PortSide.BOTTOM, PortSide.LEFT, 1, 1): WrapDescriptor(

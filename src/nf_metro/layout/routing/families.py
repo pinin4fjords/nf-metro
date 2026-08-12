@@ -4,7 +4,7 @@ from enum import Enum
 
 
 class RouteFamilyId(str, Enum):
-    """A dispatcher or rail family that emitted an inter-section route."""
+    """A classified or rail family that emitted an inter-section route."""
 
     PERP_EXIT = "perp-exit"
     TB_PERP_EXIT_OVER = "tb-perp-exit-over"
@@ -42,9 +42,6 @@ class RouteFamilyId(str, Enum):
     RIGHT_ENTRY_PLOUGH_BYPASS = "right-entry-plough-bypass"
     RIGHT_ENTRY_CROSS_ROW_WRAP = "right-entry-cross-row-wrap"
     STANDARD_L_SHAPE = "standard-l-shape"
-    TB_SECTION_FALLBACK = "tb-section-fallback"
-    ENTRY_RUNWAY_FALLBACK = "entry-runway-fallback"
-    INTRA_SECTION_FALLBACK = "intra-section-fallback"
     RAIL_INTER_SECTION = "rail-inter-section"
 
 

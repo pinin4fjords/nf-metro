@@ -411,8 +411,8 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
     )
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert system.compatibility_reasons
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert not system.compatibility_reasons
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("l6", "l2")
     axes = {axis.line_id: axis.coordinate for axis in plan.axes}
     assert axes["l6"] < axes["l2"]
@@ -421,9 +421,7 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
         for route in observation.routes
         if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
     }
-    assert all(
-        route.route_system_disposition == "compatibility" for route in routes.values()
-    )
+    assert all(route.route_system_disposition == "planned" for route in routes.values())
     turn_x = {
         line_id: apply_route_offsets(route, offsets)[1][0]
         for line_id, route in routes.items()
@@ -1048,38 +1046,36 @@ def test_free_lane_arm_overlapping_a_pinned_corner_uses_legacy(
     assert result.legacy_reason == "lane-arms-pinned-to-overlapping-corners"
 
 
-def test_multiline_stacked_left_exit_drop_has_a_covered_compatibility_reason() -> None:
-    _graph, _offsets, observation = _observe(
+def test_multiline_stacked_left_exit_drop_is_planned() -> None:
+    graph, offsets, observation = _observe(
         TOPOLOGIES / "stacked_multiline_left_exit_drop.mmd"
     )
 
     (system,) = observation.plan.systems
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert tuple(
-        (reason.owner, reason.reason) for reason in system.compatibility_reasons
-    ) == (
-        (
-            "exit-turn-plan",
-            "unsupported-family:serpentine-left-exit-left-entry",
-        ),
-    )
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert system.compatibility_reasons == ()
+    assert {
+        member.family_id
+        for member in observation.plan.members
+        if member.id in system.member_ids
+    } == {RouteFamilyId.SERPENTINE_LEFT}
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
-def test_split_stacked_left_entry_drop_has_a_covered_compatibility_reason() -> None:
-    _graph, _offsets, observation = _observe(
+def test_split_stacked_left_entry_drop_is_planned() -> None:
+    graph, offsets, observation = _observe(
         TOPOLOGIES / "stacked_split_left_entry_drop.mmd"
     )
 
     (system,) = observation.plan.systems
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert tuple(
-        (reason.owner, reason.reason) for reason in system.compatibility_reasons
-    ) == (
-        (
-            "exit-turn-plan",
-            "unsupported-subshape:left-entry-left_exit_drop",
-        ),
-    )
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert system.compatibility_reasons == ()
+    assert {
+        member.family_id
+        for member in observation.plan.members
+        if member.id in system.member_ids
+    } == {RouteFamilyId.SERPENTINE_LEFT}
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
 def test_owners_pinning_one_corner_apart_defer_to_gap_allocation() -> None:
@@ -1563,7 +1559,8 @@ def test_noncontiguous_source_lanes_compact_the_turning_cohort() -> None:
     system = next(
         item for item in observation.plan.systems if item.id == plan.system_id
     )
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert not system.compatibility_reasons
     turn_gap = abs(
         apply_route_offsets(routes["standard"], offsets)[1][0]
         - apply_route_offsets(routes["legacy"], offsets)[1][0]
@@ -2882,7 +2879,8 @@ def test_custom_spacing_is_shared_by_offsets_plan_and_routes() -> None:
     system = next(
         item for item in observation.plan.systems if item.id == plan.system_id
     )
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert not system.compatibility_reasons
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 

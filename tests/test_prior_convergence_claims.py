@@ -26,11 +26,10 @@ def _decision(ctx, edge: Edge) -> bool:
     )
 
 
-def _ctx(built_routes, query, *, compatibility: bool):
+def _ctx(built_routes, query):
     return SimpleNamespace(
         built_routes=built_routes,
         convergences=query,
-        is_compatibility_edge=lambda _edge: compatibility,
     )
 
 
@@ -76,26 +75,10 @@ def test_planned_convergence_claim_precedes_wrap_in_both_passes() -> None:
         (prior_claim, future_claim),
     )
     edge = Edge(wrap_edge.source, wrap_edge.target, wrap_edge.line_id)
-    planning_ctx = _ctx([], query, compatibility=False)
-    production_ctx = _ctx([], query, compatibility=False)
+    planning_ctx = _ctx([], query)
+    production_ctx = _ctx([], query)
 
     assert query.prior_channel_claims_for_edge(edge) == (prior_claim,)
-    assert _decision(planning_ctx, edge)
-    assert _decision(production_ctx, edge) == _decision(planning_ctx, edge)
-
-
-def test_compatibility_convergence_route_precedes_wrap_in_both_passes() -> None:
-    convergence_edge = ResolvedEdge("merge-source", "merge-target", "main")
-    wrap_edge = ResolvedEdge("wrap-source", "wrap-target", "main")
-    query = ConvergencePlanExecutionQuery(
-        (), MappingProxyType({}), (convergence_edge, wrap_edge), ()
-    )
-    compatibility_route = _descent_route(convergence_edge, 20.0)
-    edge = Edge(wrap_edge.source, wrap_edge.target, wrap_edge.line_id)
-    planning_ctx = _ctx([compatibility_route], query, compatibility=True)
-    production_ctx = _ctx([compatibility_route], query, compatibility=True)
-
-    assert query.prior_channel_claims_for_edge(edge) == ()
     assert _decision(planning_ctx, edge)
     assert _decision(production_ctx, edge) == _decision(planning_ctx, edge)
 
@@ -109,5 +92,4 @@ def test_planned_wrap_reads_no_fact_from_previously_emitted_siblings() -> None:
     sibling = _descent_route(convergence_edge, 20.0)
     edge = Edge(wrap_edge.source, wrap_edge.target, wrap_edge.line_id)
 
-    assert not _decision(_ctx([sibling], query, compatibility=False), edge)
-    assert _decision(_ctx([sibling], query, compatibility=True), edge)
+    assert not _decision(_ctx([sibling], query), edge)

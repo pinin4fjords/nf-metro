@@ -1393,7 +1393,7 @@ in pipeline order.
 - **Purpose**: Decide source-lane order and turn axes for every complete
   inter-section exit group before route emission.
 - **Helpers**: `compute_station_offsets` produces the base offset map.
-  `_route_edges` prepares exit-turn execution immediately before dispatch. A
+  `_route_edges` prepares exit-turn execution immediately before emission. A
   turn that needs a shared gap seat enters member-geometry allocation as a
   movable claim. The allocated axis and signed corner offsets are then supplied
   to `build_exit_turn_execution`, which publishes the complete group and
@@ -1404,8 +1404,8 @@ in pipeline order.
 - **Postcondition**: Each supported exit group has compact active lanes, one
   assignment per outbound member, and any needed ordered turn axes, lane
   transitions, references, and runway demands. Gap-allocated axes are fixed in
-  the plan before emission. Any unsupported member places the whole group on
-  the legacy path.
+  the plan before emission. Any unsupported member records a declined child
+  verdict; the route system must obtain complete ownership elsewhere or fail.
 - **Invariants preserved**: Station, port, junction, and section coordinates.
   The planner may commit per-line station offsets at its owned seam. Downstream
   passes may change unowned route geometry but cannot move, remove, or replace
@@ -1427,7 +1427,7 @@ in pipeline order.
   frozen one from this record, and the diagnostic it emits survives that
   narrowing because it is the only evidence the replay ran. A plan claiming no
   reference, demand, or turn axis is published whatever its system's disposition:
-  it is inert, and the compatibility census needs its verdict.
+  it is inert, and the planning diagnostics retain its verdict.
 - **Lifecycle:** invariant - every planned lane, lane transition, route family,
   and turn axis matches the final routed paths, and every assignment is
   consumed exactly once at the render boundary.
@@ -1467,10 +1467,9 @@ in pipeline order.
   channels remain exact; other seed geometry may enter named global passes.
   Convergence planning may construct candidates for members it owns. Final
   global settlement consumes non-convergence channels only from these frozen
-  records. If one
-  eligible member cannot produce a complete template, the whole system uses
-  the registered `member-geometry-plan` compatibility reason and none of its
-  provisional templates reaches production.
+  records. If one eligible member cannot produce a complete template, the
+  system fails closed with the registered `member-geometry-plan` reason and
+  none of its provisional templates reaches production.
 - **Related tests**: `tests/test_member_geometry.py`,
   `tests/test_route_system_emission.py`, and `tests/test_route_plan.py`.
 - **Lifecycle:** invariant - `validate_member_geometry_emission` checks that
@@ -1498,7 +1497,7 @@ in pipeline order.
   port, and either one named inter-row gap or a separation already inside
   `BUNDLE_TO_BUNDLE_CLEARANCE`.
 - **Precondition**: The semantic route scaffold, exit-turn decisions, station
-  offsets, layout coordinates, topology resolution, compatibility merge
+  offsets, layout coordinates, topology resolution, merge
   classification, and stable member family IDs are settled. Final global
   settlement additionally requires preliminary system dispositions and
   immutable planned member channels.
@@ -1506,12 +1505,12 @@ in pipeline order.
   resolved membership, its merge and entry bundle, primary trunk and structural
   reason, axis, extent, flanks and terminal caps, stable feeder and lane order,
   opening-turn coordinate, exact joins, handedness, runway, continuation,
-  resource conflicts, and endpoint ownership. Unsupported geometry places
-  every convergence in the route system on the legacy path. Incomplete
-  semantic membership and programming errors fail the invariant.
+  resource conflicts, and endpoint ownership. Unsupported geometry records a
+  declined convergence verdict. Incomplete semantic membership and programming
+  errors fail the invariant.
 - **Invariants preserved**: Planning does not move stations, ports, junctions,
   section boxes, or unrelated offsets. Templates consume plan-owned joins and
-  covered continuations during dispatch. Coincidence and normalization passes
+  covered continuations during emission. Coincidence and normalization passes
   may inspect but cannot move or replace plan-owned convergence geometry.
 - **Related tests**: `tests/test_convergence_planner.py`,
   `tests/test_merge_branch_trunk_invariant.py`, `tests/test_route_plan.py`, and
@@ -1526,30 +1525,26 @@ in pipeline order.
 - **Purpose**: Emit one complete semantic route system under one ownership
   disposition, in canonical system and member order.
 - **Helpers**: `_route_edges` calls `classify_route_system_dispositions` after
-  convergence classification to suppress member construction for known
-  compatibility systems. After member planning and convergence settlement it
-  calls `build_route_system_emission_execution` once to freeze the final atomic
-  dispositions. The system loop calls `fresh_member_route` for
-  each planned non-convergence member. Compatibility members alone enter
-  `_route_inter_section`'s ordered first-match dispatcher.
+  convergence classification to identify the complete geometry owner. After
+  member planning and convergence settlement it calls
+  `build_route_system_emission_execution` once to freeze the final atomic
+  dispositions. The system loop calls `fresh_member_route` for each planned
+  non-convergence member; convergence members consume their complete plan.
   Whole-graph rail mode freezes a dedicated execution before its direct rail
   emitter runs, then attributes and validates the returned rail paths against
   those canonical identities without synthesizing member-geometry plans.
 - **Precondition**: The semantic scaffold, exit-turn, fan, member-geometry, and
   convergence decisions are complete. Layout geometry and route reservations
   are read-only.
-- **Postcondition**: Every system is wholly `PLANNED` or wholly
-  `COMPATIBILITY` and is emitted exactly once. Every canonical member has
+- **Postcondition**: Every production system is wholly `PLANNED` and is emitted
+  exactly once. Every canonical member has
   exactly one emitted path or one explicit valid coverage binding. Every final
   system path carries
   its route-system ID, emission-member ID, disposition, plan IDs, and
   claimant-exact reservation IDs. The system record carries their reservation
-  union. Compatibility systems carry explicit owner, reason, and
-  justification records and no plan IDs.
+  union. A compatibility disposition is rejected before production emission.
 - **Invariants preserved**: A planned family ID and its production seed are
-  canonical input to emission, not hints to the first-match table.
-  Compatibility routing cannot consume a planned exit-turn assignment or a
-  provisional member template. Post-passes may treat planned channels as fixed
+  canonical input to emission. Post-passes may treat planned channels as fixed
   anchors but cannot move or replace their owned segments.
 - **Related tests**: `tests/test_route_system_emission.py`,
   `tests/test_route_plan.py`, and the planner-specific suites above.
@@ -1979,8 +1974,8 @@ They are design evidence, not part of this specification.
   (`_bundled_sibling_owns_opening_column`): `_divergent_source_groups` draws its
   reference from the bundled members, and a lone feeder's own handler column is
   not the plan's to freeze.
-  **The convergence family states its own geometry.** No convergence plan
-  reaches emission through the compatibility path, and none can: a
+  **The convergence family states its own geometry.** No declined convergence
+  verdict reaches emission as an alternate path: a
   `ConvergenceConflictKind` is not a registered compatibility reason. Three of
   the six conditions were retired for being unable to state a case at all.
   `CHAINED_SAME_LINE` compared two same-line trunks and asked them to sit within
@@ -1997,9 +1992,9 @@ They are design evidence, not part of this specification.
   The four that remain state real cases, and each names a **pair** of runs the
   settlement passes could seat no lane between. They are refused by
   `_validate_final_convergence_feasibility` once every movable decision is
-  frozen, rather than sending the system to the compatibility templates: those
-  templates draw the same two runs in the same gap, so emitting through them
-  states nothing the plan did not and loses the attribution it carried.
+  frozen. The classified templates draw the same two runs in the same gap, so
+  retrying them would state nothing the plan did not and lose the attribution
+  it carried.
   Reaching one is a statement that the map has no room, which is section
   placement's to give; [#1712](https://github.com/seqeralabs/nf-metro/issues/1712)
   carries the grant that would.

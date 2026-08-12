@@ -17,7 +17,11 @@ from math import inf
 from types import MappingProxyType
 from typing import TYPE_CHECKING, AbstractSet, NamedTuple
 
-from nf_metro.layout.route_plan import ExitTurnDisposition, FanRouteEmitter
+from nf_metro.layout.route_plan import (
+    ExitTurnDisposition,
+    FanPlanDisposition,
+    FanRouteEmitter,
+)
 from nf_metro.layout.routing.families import RouteFamilyId
 
 if TYPE_CHECKING:
@@ -1933,7 +1937,12 @@ _INTER_SECTION_CLAIMS: tuple[_Rule, ...] = (
     _Rule(
         RouteFamilyId.LEFT_ENTRY_WRAP,
         "LEFT entry wrap family",
-        lambda f: f.entry_side is PortSide.LEFT and f.dx < 0 and f.cross_row,
+        lambda f: (
+            f.entry_side is PortSide.LEFT
+            and f.dx < 0
+            and f.cross_row
+            and not f.is_serpentine_left_exit_left_entry
+        ),
         _route_left_entry_family,
     ),
     _Rule(
@@ -2025,12 +2034,10 @@ CLASSIFIABLE_INTER_SECTION_FAMILIES = frozenset(_INTER_SECTION_RULE_BY_FAMILY) |
 }
 """Every family :func:`classify_inter_section_family` can name before emission.
 
-A dispatch rule's own family, or the standard L-shape the classifier falls to
-when no rule claims the edge.  The fallback handlers in
-:mod:`~nf_metro.layout.routing.dispatch` label a route only once
-``_route_inter_section`` has already declined it, and rail mode fixes its
-families from its own route table, so neither is a family any caller can be
-handed ahead of the emitter.
+A rule's own family, or the standard L-shape the classifier falls to when no
+rule claims the edge. Local fallback handlers and rail mode fix their families
+outside the inter-section classifier, so neither is a family this classifier
+can return.
 """
 if len(_INTER_SECTION_RULE_BY_FAMILY) != len(_INDEXED_INTER_SECTION_RULES):
     raise RuntimeError("inter-section route families are not unique")
@@ -2052,15 +2059,13 @@ def _route_inter_section(
     tgt: Station,
     ctx: _RoutingCtx,
     *,
+    planned_family_id: RouteFamilyId,
     observer: RoutePlanObserver | None = None,
-    planned_family_id: RouteFamilyId | None = None,
 ) -> RoutedPath | None:
-    """Route an edge between ports/junctions via the dispatch table.
+    """Build an inter-section edge from its frozen family.
 
     Returns ``None`` when the edge is not inter-section (both endpoints must be
-    a port or junction). Otherwise the unique rule in ``_INTER_SECTION_RULES``
-    whose predicate holds builds the route; the standard L-shape is the
-    fall-through when no rule matches.
+    a port or junction) or when the frozen family declines its member.
     """
     is_inter = (src.is_port or edge.source in ctx.junction_ids) and (
         tgt.is_port or edge.target in ctx.junction_ids
@@ -2069,17 +2074,13 @@ def _route_inter_section(
         return None
 
     f = _build_inter_facts(edge, src, tgt, ctx)
-    rule = (
-        _match_inter_section_rule(f)
-        if planned_family_id is None
-        else _inter_section_rule_for_family(planned_family_id)
-    )
+    rule = _inter_section_rule_for_family(planned_family_id)
     if rule is not None:
         family_id = rule.family_id
         route = rule.route(f)
     else:
         # Standard L-shape: the default when no rule above claims the edge.
-        family_id = planned_family_id or RouteFamilyId.STANDARD_L_SHAPE
+        family_id = planned_family_id
         if family_id is not RouteFamilyId.STANDARD_L_SHAPE:
             raise RuntimeError(f"planned route family {family_id.value!r} is unknown")
         route = _route_l_shape(edge, src, tgt, f.i, f.n, ctx)
@@ -2511,8 +2512,6 @@ def _bottom_exit_junction_geometry(
 
 def _bottom_exit_junction_is_right_landings(edge: Edge, ctx: _RoutingCtx) -> bool:
     """Whether a fan plan's right-landings emitter, not the plain L, draws *edge*."""
-    if ctx.is_compatibility_edge(edge):
-        return False
     query = ctx.graph.fan_plan_query
     if query is None:
         return False
@@ -2521,6 +2520,7 @@ def _bottom_exit_junction_is_right_landings(edge: Edge, ctx: _RoutingCtx) -> boo
     )
     return (
         binding is not None
+        and binding[0].disposition is FanPlanDisposition.PLANNED
         and binding[2].emitter is FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
     )
 
@@ -2644,8 +2644,6 @@ def _route_planned_bottom_exit_right_landings(
     exit_x_offset: Callable[[str], float],
     target_y: float,
 ) -> RoutedPath | None:
-    if ctx.is_compatibility_edge(edge):
-        return None
     query = ctx.graph.fan_plan_query
     if query is None:
         return None
@@ -2656,7 +2654,8 @@ def _route_planned_bottom_exit_right_landings(
     plan, _branch, emission = binding
     target_port = ctx.graph.ports.get(edge.target)
     if (
-        emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
+        plan.disposition is not FanPlanDisposition.PLANNED
+        or emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS
         or plan.fork_station_id != edge.source
         or target_port is None
         or target_port.side is not PortSide.RIGHT
@@ -3539,15 +3538,12 @@ class _DescentMemo:
 
     One reading is a full classify-and-place of the member's own shape, and the
     seating questions ask for every co-traveller's reading once per
-    co-traveller, from the planner and again from the emitter.  The reading
-    depends on context state that
-    :func:`~nf_metro.layout.routing.member_geometry._append_compatibility_context`
-    swaps around a system's emission, so the memo is dropped the moment any of
-    that state moves rather than being held for the context's lifetime.
+    co-traveller, from the planner and again from the emitter. The reading
+    depends on active plan queries and the routes constructed so far, so the
+    memo is dropped when any of that state moves.
     """
 
     ctx: _RoutingCtx
-    compatibility_edges: frozenset[EdgeKey]
     exit_turns: object
     convergences: object
     built_route_count: int
@@ -3556,7 +3552,6 @@ class _DescentMemo:
     def is_current_for(self, ctx: _RoutingCtx) -> bool:
         return (
             self.ctx is ctx
-            and self.compatibility_edges == ctx.compatibility_edges
             and self.exit_turns is ctx.exit_turns
             and self.convergences is ctx.convergences
             and self.built_route_count == len(ctx.built_routes)
@@ -3573,7 +3568,6 @@ def u_bypass_descent_geometry(edge: Edge, ctx: _RoutingCtx) -> _BypassGeometry |
     if memo is None or not memo.is_current_for(ctx):
         memo = _DESCENT_MEMO = _DescentMemo(
             ctx,
-            ctx.compatibility_edges,
             ctx.exit_turns,
             ctx.convergences,
             len(ctx.built_routes),
@@ -3594,7 +3588,7 @@ def _resolve_u_bypass_descent_geometry(
     it to the entry port standing behind its junction instead of to the
     junction itself.  They share the gap-1 channel a bundle is seated in, so
     one reading of the shape has to serve both -- and it has to be the reading
-    the dispatcher's own choice of family gives, since a member some earlier
+    the classified family's own reading gives, since a member claimed by an earlier
     rule claims draws no U at all.
 
     ``None`` where the member draws something else.
@@ -6167,7 +6161,7 @@ def _corridor_is_viable(ctx: _RoutingCtx, src: Station, entry_port: Station) -> 
     * a LEFT entry port (the corridor descends just left of the target);
     * the target section sits in a row strictly *below* the source's row
       (a downward cross-row feeder; same-row fan-ins U-route in the gap
-      below the row and must keep the legacy handler);
+      below the row and use their dedicated handler);
     * an inter-row gap below the source row exists in the source's column;
     * a clear inter-column channel exists left of the target column.
     """
@@ -6696,29 +6690,12 @@ def _leadout_self_meets_sibling_descent(
     Y span, would render as one merged corner with this lead-out.  When one is
     there the caller carries the horizontal on and turns down clear to its right.
 
-    A planned wrap answers this from published channel claims alone.  Its turn
-    axis is a coordinate its own plan states, and a fact read off the routes
-    built so far would make that coordinate depend on which sibling the emitter
-    reached first.  The claims are selected by canonical edge rank, so they say
-    the same thing in either construction order and in either pass.
-
-    A compatibility wrap also reads the routes already built, because a
-    convergence plan demoted with its whole system keeps its route while losing
-    the trunk axis and landings it would have published a claim from, and that
-    route is then the only statement of the descent that exists.
+    The wrap answers this from published channel claims alone. Its turn axis is
+    a coordinate its own plan states, and a fact read off the routes built so
+    far would make that coordinate depend on emission order. The claims are
+    selected by canonical edge rank, so they say the same thing in either pass.
     """
     lo, hi = (y_lo, y_hi) if y_lo <= y_hi else (y_hi, y_lo)
-    emitted_siblings = ctx.built_routes if ctx.is_compatibility_edge(edge) else ()
-    for route in emitted_siblings:
-        if not route.is_inter_section or route.line_id != edge.line_id:
-            continue
-        if route.edge.source == edge.source:
-            continue
-        for _k, x, seg_lo, seg_hi, _down in iter_vertical_segments(route):
-            if not (corner_x - COORD_TOLERANCE <= x <= gap_right + COORD_TOLERANCE):
-                continue
-            if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:
-                return True
     if ctx.convergences is None:
         return False
     for claim in ctx.convergences.prior_channel_claims_for_edge(edge):

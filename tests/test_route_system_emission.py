@@ -7,7 +7,6 @@ from types import MappingProxyType
 
 import pytest
 
-import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.normalize as normalize
 import nf_metro.layout.routing.planning as planning
 import nf_metro.layout.routing.system_emission as system_emission
@@ -18,7 +17,6 @@ from nf_metro.layout.route_plan import (
     RouteSystemDisposition,
     RouteSystemId,
     build_route_semantic_scaffold,
-    compatibility_family,
 )
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.common import RoutedPath
@@ -60,6 +58,7 @@ def _atomic_execution():
         RouteSystemDisposition.PLANNED,
         (),
         (),
+        system_emission.RouteSystemGeometryOwner.MEMBER_GEOMETRY,
     )
     execution = system_emission.RouteSystemEmissionExecution(
         (system,),
@@ -110,6 +109,7 @@ def test_atomic_emission_rejects_cross_system_coverage() -> None:
         RouteSystemDisposition.PLANNED,
         (),
         (),
+        system_emission.RouteSystemGeometryOwner.MEMBER_GEOMETRY,
     )
     cross_system_execution = system_emission.RouteSystemEmissionExecution(
         (carrier_system, foreign_system),
@@ -215,49 +215,20 @@ def test_migrated_convergence_systems_have_one_planned_emission(path: Path) -> N
         )
 
 
-def test_compatibility_emission_has_one_explicit_reason_and_no_plan_owner() -> None:
+def test_corpus_systems_have_one_planned_emission_path() -> None:
     observation = _observe(
         ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
     )
-    reservation_ids_by_member = reservation_ids_by_claimant_member(
-        observation.plan.reservations
-    )
-    compatible = tuple(
-        system
+    assert observation.plan.systems
+    assert all(
+        system.disposition is RouteSystemDisposition.PLANNED
+        and not system.compatibility_reasons
         for system in observation.plan.systems
-        if system.disposition is RouteSystemDisposition.COMPATIBILITY
-    )
-
-    assert compatible
-    assert all(system.compatibility_reasons for system in compatible)
-    assert all(not system.member_geometry_plan_ids for system in compatible)
-    compatibility_system_ids = {system.id for system in compatible}
-    assert all(
-        plan.system_id not in compatibility_system_ids
-        for plan in observation.plan.member_geometry_plans
     )
     assert all(
-        (reason.justification, reason.follow_up)
-        == (
-            compatibility_family(reason.owner, reason.reason).justification,
-            compatibility_family(reason.owner, reason.reason).follow_up,
-        )
-        for system in compatible
-        for reason in system.compatibility_reasons
-    )
-    compatible_ids = {str(system.id) for system in compatible}
-    routes = tuple(
-        route for route in observation.routes if route.route_system_id in compatible_ids
-    )
-    assert routes
-    assert all(route.route_system_disposition == "compatibility" for route in routes)
-    assert all(not route.route_plan_ids for route in routes)
-    assert all(
-        route.route_reservation_ids
-        == reservation_ids_by_member.get(
-            EmissionMemberId(route.emission_member_id or ""), ()
-        )
-        for route in routes
+        route.route_system_disposition == RouteSystemDisposition.PLANNED.value
+        for route in observation.routes
+        if route.route_system_id is not None
     )
 
 
@@ -396,36 +367,14 @@ def test_a_planned_system_records_the_child_verdict_its_owner_supersedes() -> No
     assert recorded
     for system, verdict in recorded:
         assert system.disposition is RouteSystemDisposition.PLANNED
-        assert verdict.superseded_by == "convergence-plan"
+        assert verdict.superseded_by in {
+            "member-geometry-plan",
+            "convergence-plan",
+        }
         assert verdict.owner in {"exit-turn-plan", "fan-plan"}
         assert verdict.reason in ROUTE_SYSTEM_COMPATIBILITY_REASONS[verdict.owner]
     declining_owners = {verdict.owner for _system, verdict in recorded}
     assert declining_owners == {"exit-turn-plan", "fan-plan"}
-
-
-def test_the_wrap_leadout_pass_moves_only_compatibility_members(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original = routing_core._clear_compatibility_entry_wrap_leadouts
-    moved_dispositions: list[str | None] = []
-
-    def record(routes, ctx):
-        before = {id(route): list(route.points) for route in routes}
-        original(routes, ctx)
-        moved_dispositions.extend(
-            route.route_system_disposition
-            for route in routes
-            if before[id(route)] != list(route.points)
-        )
-
-    monkeypatch.setattr(
-        routing_core, "_clear_compatibility_entry_wrap_leadouts", record
-    )
-
-    _observe(ROOT / "tests" / "fixtures" / "target_entry_runway_bypass.mmd")
-
-    assert moved_dispositions
-    assert set(moved_dispositions) == {RouteSystemDisposition.COMPATIBILITY.value}
 
 
 def test_a_compatibility_reason_is_never_also_recorded_as_superseded() -> None:
@@ -457,7 +406,7 @@ def test_routing_constructs_only_the_final_emission_execution(
     assert calls == 1
 
 
-def test_planned_convergence_never_enters_compatibility_merge_snap(
+def test_planned_convergence_channels_are_fixed_merge_snap_anchors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original = normalize._snap_merge_feeder_group
@@ -468,7 +417,9 @@ def test_planned_convergence_never_enters_compatibility_merge_snap(
             channel.route.route_system_disposition for channel in group.channels
         )
         observed_dispositions.append(dispositions)
-        assert "planned" not in dispositions
+        assert not any(
+            normalize._planner_owns_channel(channel) for channel in group.channels
+        )
         original(group, graph)
 
     monkeypatch.setattr(normalize, "_snap_merge_feeder_group", record_snap)
@@ -546,3 +497,15 @@ def test_a_retained_family_names_its_follow_up_or_states_why_it_is_permanent() -
             assert family.follow_up is None or family.follow_up.startswith(
                 "https://github.com/seqeralabs/nf-metro/issues/"
             ), f"{owner}:{reason} names a follow-up that is not an issue"
+
+
+def test_dispatcher_retirement_has_no_registered_follow_up() -> None:
+    umbrella = "https://github.com/seqeralabs/nf-metro/issues/1441"
+    tagged = {
+        f"{owner}:{reason}"
+        for owner, reasons in ROUTE_SYSTEM_COMPATIBILITY_REASONS.items()
+        for reason, family in reasons.items()
+        if family.follow_up == umbrella
+    }
+
+    assert not tagged, f"compatibility reasons still delegated to #1441: {tagged}"

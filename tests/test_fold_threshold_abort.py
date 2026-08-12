@@ -23,6 +23,7 @@ import pytest
 from nf_metro.api import prepare_graph
 from nf_metro.layout import FoldThresholdError
 from nf_metro.layout.fan_plans import FanRouteInvariantError
+from nf_metro.layout.phases.guards import LayoutInvariantError
 from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.render import render_svg
@@ -53,13 +54,16 @@ def _render_at(name: str, fold: int | None) -> None:
 # Both internal abort paths (CurveInvariantError, SectionHeaderClashError) are
 # represented; off_track_input_above_consumer is the header-clash case.
 COMPRESSED_ABORTS = [
-    ("fold_fan_across", 1),
-    ("fold_stacked_branch", 1),
     ("reconverge_reversed_fold", 1),
     ("off_track_input_above_consumer", 1),
     ("mixed_bundle_column", 1),
     ("upward_bypass", 1),
     ("funcprofiler_upstream", 1),
+]
+
+COMPRESSED_RENDERS = [
+    ("fold_fan_across", 1),
+    ("fold_stacked_branch", 1),
 ]
 
 
@@ -77,6 +81,7 @@ def test_aggressive_fold_raises_authoring_error_not_internal(
             ConvergenceInvariantError,
             CurveInvariantError,
             FanRouteInvariantError,
+            LayoutInvariantError,
             SectionHeaderClashError,
         ),
     )
@@ -87,6 +92,14 @@ def test_same_fixtures_render_at_default_fold(name: str, fold: int) -> None:
     # Sanity: the abort is purely fold-induced - each renders at its default
     # width with no fold set.
     _render_at(name, None)
+
+
+@pytest.mark.parametrize("name, fold", COMPRESSED_RENDERS)
+def test_aggressive_fold_renders_when_planned_geometry_fits(
+    name: str, fold: int
+) -> None:
+    """A compact grid is valid when its complete planned geometry fits."""
+    _render_at(name, fold)
 
 
 def test_uncompressed_layout_does_not_reframe() -> None:

@@ -18,6 +18,8 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
+    ConvergenceDisposition,
+    ConvergencePlan,
     EmissionMemberId,
     EmissionRole,
     ExitTurnAxisId,
@@ -27,7 +29,6 @@ from nf_metro.layout.route_plan import (
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
     RouteSemanticScaffold,
-    RouteSystemDisposition,
     RouteSystemId,
 )
 from nf_metro.layout.routing.common import (
@@ -40,13 +41,15 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
-from nf_metro.layout.routing.dispatch import route_edge_by_handler_priority
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
+    _build_inter_facts,
     _route_inter_section,
+    packed_cell_handoff_carrier,
 )
 from nf_metro.layout.routing.normalize import (
     _bundle_divergent_distinct_traverses,
+    _bundle_same_destination_tails,
     _coincide_fanout_opening_descents,
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
@@ -58,8 +61,10 @@ from nf_metro.layout.routing.normalize import (
     _reseat_concentric_flanking,
     _route_endpoint_section_ids,
     _segment_claim_band,
+    _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
+    _settle_entry_wrap_leadouts,
     _stagger_convergent_distinct_lines,
     _VChannel,
 )
@@ -113,6 +118,7 @@ class _MemberCandidate:
     system_id: RouteSystemId
     carrier_id: str
     connector_ids: tuple[ConnectorId, ...]
+    packed_cell_handoff: tuple[ResolvedEdge, float, bool] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -620,20 +626,6 @@ def _adopt_allocated_pending_paths(
         )
 
 
-def _convergence_member_edges(
-    scaffold: RouteSemanticScaffold,
-) -> frozenset[ResolvedEdge]:
-    edges = {
-        edge
-        for view in scaffold.query.convergences
-        for connector_id in view.group.connector_ids
-        for path in scaffold.query.resolved_paths(connector_id)
-        for edge in path
-        if edge.target == view.junction_id or edge.source == view.junction_id
-    }
-    return frozenset(edges)
-
-
 def _route_template(
     edge: Edge,
     family_id: RouteFamilyId,
@@ -652,15 +644,28 @@ def _route_template(
     return route
 
 
-def _route_compatibility_template(edge: Edge, ctx: _RoutingCtx) -> RoutedPath:
-    route = route_edge_by_handler_priority(edge, ctx)
-    if route is None:
-        raise RuntimeError("compatibility member emitted no route")
-    return route
+def _packed_cell_handoff_metadata(
+    edge: Edge, family_id: RouteFamilyId, ctx: _RoutingCtx
+) -> tuple[ResolvedEdge, float, bool] | None:
+    """Resolve the carrier descent copied by a packed-cell handoff template."""
+    if family_id is not RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW:
+        return None
+    source, target = ctx.graph.edge_endpoints(edge)
+    handoff = packed_cell_handoff_carrier(_build_inter_facts(edge, source, target, ctx))
+    if handoff is None:
+        return None
+    carrier, descent = handoff
+    return (
+        ResolvedEdge(carrier.source, carrier.target, carrier.line_id),
+        descent.gap2_x,
+        descent.gap2_vertical is Direction.D,
+    )
 
 
 def _convergence_context_route(
-    ctx: _RoutingCtx, key: tuple[str, str, str]
+    ctx: _RoutingCtx,
+    key: tuple[str, str, str],
+    family_id: RouteFamilyId | None,
 ) -> RoutedPath | None:
     """One convergence-owned leg, emitted solely as gap-population context.
 
@@ -670,36 +675,9 @@ def _convergence_context_route(
     different rank, and freezing the channel makes it permanent.
     """
     edge = ctx.edge_by_key.get(key)
-    return None if edge is None else route_edge_by_handler_priority(edge, ctx)
-
-
-def _append_compatibility_context(
-    ctx: _RoutingCtx,
-    scaffold: RouteSemanticScaffold,
-    system_id: RouteSystemId,
-    system_edges: tuple[ResolvedEdge, ...],
-) -> None:
-    """Emit one compatibility system solely as ordered planning context."""
-    prior_compatibility_edges = ctx.compatibility_edges
-    prior_exit_turns = ctx.exit_turns
-    prior_convergences = ctx.convergences
-    other_systems = frozenset(scaffold.ordered_system_ids) - {system_id}
-    ctx.compatibility_edges = frozenset(
-        (edge.source, edge.target, edge.line_id) for edge in system_edges
-    )
-    if ctx.exit_turns is not None:
-        ctx.exit_turns = ctx.exit_turns.restrict_to_systems(other_systems)
-    if ctx.convergences is not None:
-        ctx.convergences = ctx.convergences.restrict_to_systems(other_systems)
-    try:
-        for resolved in system_edges:
-            key = (resolved.source, resolved.target, resolved.line_id)
-            edge = ctx.edge_by_key[key]
-            ctx.built_routes.append(_route_compatibility_template(edge, ctx))
-    finally:
-        ctx.compatibility_edges = prior_compatibility_edges
-        ctx.exit_turns = prior_exit_turns
-        ctx.convergences = prior_convergences
+    if edge is None or family_id is None:
+        return None
+    return _route_template(edge, family_id, ctx)
 
 
 def _typed_id(factory: Callable[[str], _IdT], value: str | None) -> _IdT | None:
@@ -762,6 +740,8 @@ def _freeze_plan(
     candidate: _MemberCandidate,
     ctx: _RoutingCtx,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]],
+    *,
+    owns_complete_path: bool = False,
 ) -> RouteMemberGeometryPlan:
     route = candidate.route
     family_id = candidate.family_id
@@ -821,6 +801,7 @@ def _freeze_plan(
         fan_plan_id=_typed_id(FanPlanId, route.fan_plan_id),
         fan_route_emitter=route.fan_route_emitter,
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
+        owns_complete_path=owns_complete_path,
     )
 
 
@@ -957,6 +938,61 @@ def _seat_channel(channel: _VChannel, coordinate: float) -> None:
     """
     _set_vchannel_x(channel, coordinate)
     channel.x = coordinate
+
+
+def _align_packed_cell_handoffs(
+    candidates: tuple[_MemberCandidate, ...],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
+    """Keep each packed-cell handoff on its canonical carrier descent."""
+    by_edge = {
+        ResolvedEdge(
+            candidate.route.edge.source,
+            candidate.route.edge.target,
+            candidate.route.line_id,
+        ): candidate
+        for candidate in candidates
+    }
+    materialized = _materialized_channels(candidates, ctx)
+    for candidate in candidates:
+        if candidate.family_id is not RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW:
+            continue
+        route = candidate.route
+        handoff = candidate.packed_cell_handoff
+        if handoff is None:
+            continue
+        carrier_edge, descent_x, down = handoff
+        carrier = by_edge.get(carrier_edge)
+        assert carrier is not None, "packed-cell carrier has no member candidate"
+        handoff_channels = tuple(
+            item
+            for item in materialized
+            if item.candidate is candidate and item.channel.down is not down
+        )
+        assert handoff_channels, "packed-cell handoff has no vertical channel"
+        handoff_channel = min(
+            handoff_channels,
+            key=lambda item: abs(item.channel.x - descent_x),
+        )
+        carrier_channels = tuple(
+            item
+            for item in materialized
+            if item.candidate is carrier and item.channel.down is down
+        )
+        assert carrier_channels, "packed-cell carrier has no materialized descent"
+        carrier_channel = min(
+            carrier_channels,
+            key=lambda item: abs(item.channel.x - descent_x),
+        )
+        assert not _planner_owns_channel(
+            route, handoff_channel.channel.idx, movable_exit_plan_ids
+        ), "packed-cell handoff descent has a conflicting plan owner"
+        bounds = _channel_bounds(handoff_channel, ctx)
+        assert _candidate_clears_runway(
+            handoff_channel, bounds, carrier_channel.channel.x, ctx
+        ), "packed-cell handoff lies outside its carrier's feasible corridor"
+        _seat_channel(handoff_channel.channel, carrier_channel.channel.x)
 
 
 def _align_same_line_channels(
@@ -1443,14 +1479,20 @@ def build_member_geometry_execution(
     scaffold: RouteSemanticScaffold,
     *,
     family_by_edge: Mapping[ResolvedEdge, RouteFamilyId],
-    compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
+    convergence_plans: tuple[ConvergencePlan, ...] = (),
+    complete_path_system_ids: frozenset[RouteSystemId] = frozenset(),
     preliminary_gap_claims: tuple[PreliminaryGapChannelClaim, ...] = (),
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     pending_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
     settled_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> MemberGeometryExecution:
     """Freeze each eligible non-convergence member's sole production template."""
-    convergence_edges = _convergence_member_edges(scaffold)
+    convergence_edges = frozenset(
+        edge
+        for plan in convergence_plans
+        if plan.disposition is ConvergenceDisposition.PLANNED
+        for edge in plan.resolved_member_edges
+    )
     reservation_ids = reservation_ids_by_member or {}
     candidates: list[_MemberCandidate] = []
     context_routes: list[RoutedPath] = []
@@ -1462,15 +1504,14 @@ def build_member_geometry_execution(
     try:
         for system_id in scaffold.ordered_system_ids:
             system_edges = tuple(edges_by_system.get(system_id, ()))
-            if system_id in compatibility_system_ids:
-                _append_compatibility_context(ctx, scaffold, system_id, system_edges)
-                continue
             system_start = len(ctx.built_routes)
             system_candidates: list[_MemberCandidate] = []
             for resolved in system_edges:
                 key = (resolved.source, resolved.target, resolved.line_id)
                 if resolved in convergence_edges:
-                    context = _convergence_context_route(ctx, key)
+                    context = _convergence_context_route(
+                        ctx, key, family_by_edge.get(resolved)
+                    )
                     if context is not None:
                         context_routes.append(context)
                     continue
@@ -1500,6 +1541,7 @@ def build_member_geometry_execution(
                             resolved.target,
                         ),
                         tuple(scaffold.connector_ids_for_edge(resolved)),
+                        _packed_cell_handoff_metadata(edge, family_id, ctx),
                     )
                 )
                 ctx.built_routes.append(route)
@@ -1508,7 +1550,6 @@ def build_member_geometry_execution(
                 continue
 
             del ctx.built_routes[system_start:]
-            _append_compatibility_context(ctx, scaffold, system_id, system_edges)
 
         candidate_routes = [candidate.route for candidate in candidates]
         # Each channel pass ranks a gap over its whole population, and the freeze
@@ -1533,10 +1574,26 @@ def build_member_geometry_execution(
             else member_population
         )
         normalization_population = member_population
+        complete_path_population = [
+            route
+            for route in normalization_population
+            if scaffold.system_for_edge(
+                ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+            )
+            in complete_path_system_ids
+        ]
+        complete_path_route_ids = frozenset(
+            id(route) for route in complete_path_population
+        )
         _materialize_gap_slots(
             allocation_population,
             ctx,
             movable_exit_plan_ids=pending_exit_turn_plan_ids,
+        )
+        _settle_entry_wrap_leadouts(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
         )
         _materialize_trunk_slots(normalization_population, ctx)
         # Trunk-slot materialization compares dip groups, never two flows that
@@ -1546,6 +1603,7 @@ def build_member_geometry_execution(
         # direction bands have to be settled here rather than by the same pass
         # running after emission, which skips a plan-owned trunk.
         _separate_opposing_inter_row_trunks(normalization_population, ctx)
+        _reconcile_port_peeloff_risers(complete_path_population, ctx)
         _coincide_same_line_tracks(normalization_population, ctx)
         _coincide_fanout_opening_descents(
             normalization_population, ctx, settle_frozen_arcs=True
@@ -1574,15 +1632,31 @@ def build_member_geometry_execution(
         _allocate_member_gap_channels(
             tuple(candidates), eligible_claims, ctx, pending_exit_turn_plan_ids
         )
+        _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
+        candidate_route_ids = frozenset(id(route) for route in candidate_routes)
         # The freeze is the last word on an owned channel's coordinate: the
         # emission chain's own clearance hold reads the frozen ranks as
         # immovable.  So the corridor clearance has to be closed here, on every
         # pass, and over the same whole gap population the passes above ranked --
         # a bundle carrying an immutable convergence stroke is pinned by it, and
         # holding the candidates alone would slide them off that stroke.
-        _hold_runs_in_corridor_clearance(normalization_population, ctx)
+        settled_tail_segments = _bundle_same_destination_tails(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
+        )
+        _hold_runs_in_corridor_clearance(
+            normalization_population,
+            ctx,
+            fixed_segment_keys=settled_tail_segments,
+        )
+        _coincide_same_line_tracks(complete_path_population, ctx)
+        _stagger_convergent_distinct_lines(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
+        )
         if pending_exit_turn_plan_ids:
-            _reconcile_port_peeloff_risers(allocation_population, ctx)
             settled_exit_turns = _settled_exit_turns(
                 allocation_population,
                 ctx,
@@ -1598,11 +1672,25 @@ def build_member_geometry_execution(
             if reservation_ids_by_member is not None:
                 _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
             settled_exit_turns = MappingProxyType({})
+        _separate_fused_cotravelling_runs(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
+            secondary_movable_route_ids=candidate_route_ids,
+            station_offsets=ctx.station_offsets,
+            fixed_segment_keys=settled_tail_segments,
+        )
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
             route.exit_turn_segment_rank = segment_rank
         plans = tuple(
-            _freeze_plan(scaffold, candidate, ctx, reservation_ids)
+            _freeze_plan(
+                scaffold,
+                candidate,
+                ctx,
+                reservation_ids,
+                owns_complete_path=candidate.system_id in complete_path_system_ids,
+            )
             for candidate in candidates
         )
     finally:
@@ -1653,10 +1741,7 @@ def validate_member_geometry_emission(
     """Require every emitted plan-owned channel to retain its exact geometry."""
     for route in routes:
         plan = execution.plan_for_edge(route.edge)
-        if (
-            plan is None
-            or route.route_system_disposition != RouteSystemDisposition.PLANNED.value
-        ):
+        if plan is None:
             continue
         if tuple(route.route_system_owned_segment_ranks) != plan.owned_segment_ranks:
             raise RuntimeError(f"member geometry plan {plan.id} lost channel ownership")

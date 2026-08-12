@@ -3689,8 +3689,8 @@ def validate_fan_route_emissions(
         plan, _branch, emission = binding
         if not emitted_plan(plan):
             raise RuntimeError(
-                f"compatibility route system {plan.system_id!s} consumed planned "
-                f"fan emission {plan.id!s} for {edge!r}"
+                f"non-owning fan plan {plan.id!s} in route system "
+                f"{plan.system_id!s} emitted geometry for {edge!r}"
             )
         if (
             route.fan_plan_id != plan.id

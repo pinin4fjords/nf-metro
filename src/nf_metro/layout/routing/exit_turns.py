@@ -146,6 +146,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.TB_BOTTOM_EXIT,
         RouteFamilyId.PERP_EXIT,
         RouteFamilyId.LEFT_ENTRY_WRAP,
+        RouteFamilyId.SERPENTINE_LEFT,
         RouteFamilyId.TB_PERP_EXIT_OVER,
         RouteFamilyId.TB_BOTTOM_EXIT_AROUND_STACK,
         RouteFamilyId.BYPASS_FAMILY,
@@ -922,6 +923,7 @@ _ROUTE_DERIVED_LEAF_FAMILIES = frozenset(
         RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
         RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
         RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
+        RouteFamilyId.SERPENTINE_LEFT,
     }
 )
 
@@ -2664,7 +2666,7 @@ def _build_group_plan(
         RoutePlanDiagnostic(
             member_ids[0] if member_ids else None,
             "exit-turn-legacy",
-            f"exit group {exit_group.id} uses legacy routing: {reason}",
+            f"exit group {exit_group.id} declined geometry ownership: {reason}",
             blocking=False,
         )
         if disposition is ExitTurnDisposition.LEGACY
@@ -3231,7 +3233,7 @@ def _apply_cross_plan_fallbacks(
             RoutePlanDiagnostic(
                 plan.member_ids[0] if plan.member_ids else None,
                 "exit-turn-legacy",
-                f"exit group {plan.exit_group_id} uses legacy routing: "
+                f"exit group {plan.exit_group_id} declined geometry ownership: "
                 f"{reasons[plan.id]}",
                 blocking=False,
             )
@@ -3642,8 +3644,6 @@ def snapshot_exit_turn_segments(
     """Capture every planner-owned segment and hand-off after template emission."""
     values: dict[tuple[str, ...], _ExitTurnGeometryState] = {}
     for route in routes:
-        if route.route_system_disposition == "compatibility":
-            continue
         if route.exit_turn_axis_id is not None:
             rank = route.exit_turn_segment_rank
             if rank is None:
@@ -3887,8 +3887,6 @@ def validate_exit_turn_plans(
                         "emitted route family differs from its assignment",
                     )
                 )
-            if route.route_system_disposition == "compatibility":
-                continue
             if assignment.axis_id is None:
                 if route.exit_turn_axis_id is not None:
                     raise ExitTurnInvariantError(

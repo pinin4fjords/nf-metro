@@ -201,6 +201,7 @@ class RouteMemberGeometryPlan:
     fan_route_emitter: str | None = None
     consumed_reservation_ids: tuple[str, ...] = ()
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
+    owns_complete_path: bool = False
 
     def __post_init__(self) -> None:
         if not self.connector_ids or len(set(self.connector_ids)) != len(
@@ -246,6 +247,8 @@ class RouteMemberGeometryPlan:
     @property
     def owned_segment_ranks(self) -> tuple[int, ...]:
         """Physical segments whose coordinates remain immutable after emission."""
+        if self.owns_complete_path:
+            return tuple(range(len(self.points) - 1))
         return tuple(dict.fromkeys(item.segment_rank for item in self.gap_channels))
 
 
@@ -280,7 +283,7 @@ class ConvergenceDisposition(str, Enum):
 
 
 class RouteSystemDisposition(str, Enum):
-    """Whether emission consumes every available plan for one route system."""
+    """Whether a route system is planned or must fail before emission."""
 
     PLANNED = "planned"
     COMPATIBILITY = "compatibility"
@@ -288,7 +291,7 @@ class RouteSystemDisposition(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class CompatibilityFamily:
-    """Why one named family emits through compatibility, and who closes it.
+    """Why one named planner can decline ownership, and who closes the gap.
 
     ``follow_up`` names the issue that retires the family.  ``None`` states
     permanent support, which ``justification`` then has to earn: the limit is a
@@ -296,8 +299,8 @@ class CompatibilityFamily:
     pipeline has yet to teach.
 
     ``constrains_geometry`` is ``False`` where the verdict names nothing a plan
-    could have owned, so no system escalates to compatibility emission on it and
-    no system is mixed by it; :func:`_inert_reasons` assigns those.
+    could have owned, so it remains a superseded diagnostic when another planner
+    owns the complete system; :func:`_inert_reasons` assigns those.
     """
 
     justification: str
@@ -363,9 +366,8 @@ _TURN_REQUIREMENT_CONTRADICTS_ITSELF = CompatibilityFamily(
 )
 _ANOTHER_PLAN_HOLDS_THE_ANCHOR = CompatibilityFamily(
     "Two owners claim the same anchor, axis, lane or station frame, and the "
-    "precedence between inter-section owners is not yet stated, so neither "
-    "claim can be taken as the one that holds.",
-    _ISSUE.format(1441),
+    "route-system owner settles the complete geometry before the subordinate "
+    "plan is observed, so the subordinate claim is not emitted independently."
 )
 _INCOMPLETE_AUTHORED_EXIT_GROUP = CompatibilityFamily(
     "The routing API accepts explicit graphs and offset maps with no complete "
@@ -398,21 +400,6 @@ _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN = CompatibilityFamily(
     "turn and runway but not its column, and a plan that states the guess "
     "fuses the drop onto a gap-mate's stroke, so the allocator owns the column "
     "and support is permanent."
-)
-_DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE = CompatibilityFamily(
-    "A LEFT exit dropping into a LEFT entry stacked below it leads out into the "
-    "margin beside its own column and turns down it. The column is not what "
-    "withholds the plan: the drop takes its corridor seat where it is "
-    "built (``_left_exit_left_entry_drop_channel_x``), so the axis a plan would "
-    "name and the one the map is drawn on are one coordinate. Neither reading "
-    "of the drop is a leaf that states a turn: the "
-    "left-entry cascade names the subshape and stops, and the serpentine "
-    "dispatch rule reaches the same builder outside that cascade and outside "
-    "``PLANNED_EXIT_FAMILIES``. The stacked multiline and split-entry topology "
-    "fixtures exercise those two classifications and require their tapered "
-    "half-turns to preserve the destination seam. Support remains permanent "
-    "while the established handler owns that complete cascade.",
-    _ISSUE.format(1441),
 )
 _LANE_ORDER_CROSSES_OUTSIDE_THE_GROUP = CompatibilityFamily(
     "The station-offset allocator seats the exit port's lane order and the "
@@ -464,15 +451,14 @@ _CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
 )
 _UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME = CompatibilityFamily(
     "An upstream exit turn already fixes the axis or landing this convergence "
-    "would state, and the precedence between the two owners is not yet stated.",
-    _ISSUE.format(1441),
+    "would state, so the convergence adopts that settled frame rather than "
+    "publishing a competing claim."
 )
 _MEMBER_HAS_NO_COMPLETE_SEED = CompatibilityFamily(
     "A non-convergence member of the system has no complete production seed, so "
     "no immutable channel ownership can be frozen for it and the system cannot "
-    "be planned as a whole. The established first-match dispatcher emits the "
-    "complete system instead, which is the defined behaviour for an input "
-    "carrying a member the emission graph does not describe."
+    "be planned as a whole. Production fails closed because the emission graph "
+    "does not describe the member."
 )
 
 ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamily]] = (
@@ -529,11 +515,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(
                     _GAP_ALLOCATOR_OWNS_THE_DROP_COLUMN,
                     "unsupported-family:near-vertical-same-col-junction",
-                ),
-                _reasons(
-                    _DROP_IS_NOT_A_LEAF_OF_ITS_CASCADE,
-                    "unsupported-family:serpentine-left-exit-left-entry",
-                    "unsupported-subshape:left-entry-left_exit_drop",
                 ),
             ),
             "fan-plan": _registry(
@@ -766,7 +747,6 @@ class BindingKind(str, Enum):
 
     EMITTED = "emitted"
     MERGE_SKIP = "merge-skip"
-    COVERED_MERGE_HOP = "covered-merge-hop"
     UNROUTED = "unrouted"
 
 
@@ -2251,7 +2231,7 @@ class RouteSystem:
 
 @dataclass(frozen=True, slots=True)
 class RouteSystemCompatibilityReason:
-    """One deterministic reason a complete system uses compatibility emission."""
+    """One deterministic reason a complete system must fail before emission."""
 
     owner: str
     reason: str
@@ -2308,10 +2288,7 @@ class EmissionBinding:
 
     def __post_init__(self) -> None:
         emitted = self.kind is BindingKind.EMITTED
-        covered = self.kind in {
-            BindingKind.MERGE_SKIP,
-            BindingKind.COVERED_MERGE_HOP,
-        }
+        covered = self.kind is BindingKind.MERGE_SKIP
         if emitted:
             valid = (
                 self.path_id is not None
@@ -2625,7 +2602,6 @@ class RoutePlanObserver:
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
-    _covered_hops: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
 
     def record_dispatch(self, edge: _EdgeKey, family_id: RouteFamilyId) -> None:
         self._family_by_edge[edge] = family_id
@@ -2644,11 +2620,6 @@ class RoutePlanObserver:
         if self.context is None:
             return None
         return _covering_edge(self.context, edge)
-
-    def record_covered_merge_hops(
-        self, records: tuple[tuple[_EdgeKey, _EdgeKey | None], ...]
-    ) -> None:
-        self._covered_hops.update(records)
 
     def finish(self, routes: list[RoutedPath]) -> RoutePlan:
         return _build_route_plan(self, routes)
@@ -2985,8 +2956,6 @@ def _bind_member(
     suppression = None
     if not route_ranks and edge_key in observer._merge_skips:
         suppression = BindingKind.MERGE_SKIP, observer._merge_skips[edge_key]
-    elif not route_ranks and edge_key in observer._covered_hops:
-        suppression = BindingKind.COVERED_MERGE_HOP, observer._covered_hops[edge_key]
     if suppression is not None:
         kind, covering_edge = suppression
         covering_member_id = (
@@ -3001,16 +2970,7 @@ def _bind_member(
                 covering_member_id=covering_member_id,
                 coverage_reason=CoverageReason.MERGE_TRUNK_COVERS_ENTRY_HOP,
             )
-            if kind is not BindingKind.COVERED_MERGE_HOP or family is not None:
-                return binding, ()
-            return binding, (
-                RoutePlanDiagnostic(
-                    member_id,
-                    "production-family",
-                    f"{edge.source}->{edge.target} ({edge.line_id}) was removed "
-                    "after dispatch without a recorded family",
-                ),
-            )
+            return binding, ()
         return EmissionBinding(member_id, BindingKind.UNROUTED), (
             RoutePlanDiagnostic(
                 member_id,
@@ -4253,7 +4213,7 @@ def _validate_exit_turn_diagnostics(plan: RoutePlan) -> None:
         RoutePlanDiagnostic(
             item.member_ids[0] if item.member_ids else None,
             "exit-turn-legacy",
-            f"exit group {item.exit_group_id} uses legacy routing: "
+            f"exit group {item.exit_group_id} declined geometry ownership: "
             f"{item.legacy_reason}",
             blocking=False,
         )
@@ -4686,11 +4646,7 @@ def _validate_convergence_records(
                     )
                 if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
                     if (
-                        binding.kind
-                        not in {
-                            BindingKind.MERGE_SKIP,
-                            BindingKind.COVERED_MERGE_HOP,
-                        }
+                        binding.kind is not BindingKind.MERGE_SKIP
                         or binding.covering_member_id != ownership.covered_by_member_id
                     ):
                         raise ValueError(
@@ -4728,7 +4684,7 @@ def _validate_convergence_records(
         RoutePlanDiagnostic(
             None,
             "convergence-plan-legacy",
-            f"convergence system {item.system_id} uses legacy routing: "
+            f"convergence system {item.system_id} declined geometry ownership: "
             f"{item.legacy_reason}",
             blocking=False,
         )
@@ -5010,10 +4966,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
                 f"binding has unknown carrier {binding.covering_member_id!r}"
             )
         member = members[binding.member_id]
-        family_required = binding.kind in {
-            BindingKind.EMITTED,
-            BindingKind.COVERED_MERGE_HOP,
-        }
+        family_required = binding.kind is BindingKind.EMITTED
         if family_required != (member.family_id is not None):
             raise ValueError(
                 f"{binding.kind.value} member has inconsistent production family"

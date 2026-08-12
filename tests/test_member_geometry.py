@@ -12,13 +12,11 @@ from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
 from nf_metro.layout.route_plan import (
     BindingKind,
-    ConvergenceDisposition,
     ConvergenceEndpointRole,
     EmissionMemberId,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
-    RouteSystemDisposition,
     RouteSystemId,
     build_route_plan_query,
     build_route_semantic_scaffold,
@@ -244,43 +242,17 @@ def test_live_claim_index_exposes_only_eligible_prior_systems_in_order() -> None
     ) == frozenset({survivor, future})
 
 
-def test_compatibility_context_uses_and_restores_the_narrow_edge_predicate(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_member_planning_has_no_compatibility_context() -> None:
     path = ROOT / "examples" / "topologies" / "aligner_row_pinned_continuation.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    scaffold = build_route_semantic_scaffold(graph)
-    assert scaffold is not None
-    system_id = scaffold.ordered_system_ids[0]
-    system_edges = tuple(
-        edge
-        for edge in scaffold.edge_order
-        if scaffold.system_for_edge(edge) == system_id
-    )
-    assert system_edges
     ctx = _build_routing_context(
         graph,
         DIAGONAL_RUN,
         CURVE_RADIUS,
         compute_station_offsets(graph),
     )
-    prior_edges = frozenset({("prior", "edge", "line")})
-    ctx.compatibility_edges = prior_edges
-    prior_systems = ctx.route_systems
-
-    def stop(edge, current_ctx):
-        assert current_ctx.is_compatibility_edge(edge)
-        assert current_ctx.route_systems is prior_systems
-        raise RuntimeError("stop after checking compatibility context")
-
-    monkeypatch.setattr(member_geometry, "_route_compatibility_template", stop)
-    with pytest.raises(RuntimeError, match="stop after checking"):
-        member_geometry._append_compatibility_context(
-            ctx, scaffold, system_id, system_edges
-        )
-
-    assert ctx.compatibility_edges == prior_edges
-    assert ctx.route_systems is prior_systems
+    assert not hasattr(ctx, "compatibility_edges")
+    assert not hasattr(member_geometry, "_append_compatibility_context")
 
 
 def test_exit_turn_channel_is_a_published_member_geometry_decision() -> None:
@@ -614,7 +586,7 @@ def test_reservation_reroute_keeps_identity_and_reuses_settled_template() -> Non
             ) == (channel.start, channel.end)
 
 
-def test_failed_system_discards_member_geometry_before_compatibility_emission(
+def test_failed_system_cannot_fall_back_from_member_geometry(
     monkeypatch,
 ) -> None:
     path = ROOT / "examples" / "topologies" / "funcprofiler_upstream.mmd"
@@ -630,40 +602,12 @@ def test_failed_system_discards_member_geometry_before_compatibility_emission(
         return original(edge, family_id, ctx)
 
     monkeypatch.setattr(member_geometry, "_route_template", fail_first)
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
+    with pytest.raises(
+        RuntimeError, match="route-system planning declined canonical geometry"
+    ):
+        observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
 
     assert failed
-    failed_systems = tuple(
-        system
-        for system in observation.plan.systems
-        if any(
-            reason.owner == "member-geometry-plan"
-            for reason in system.compatibility_reasons
-        )
-    )
-    assert len(failed_systems) == 1
-    assert failed_systems[0].disposition is RouteSystemDisposition.COMPATIBILITY
-    assert not failed_systems[0].member_geometry_plan_ids
-    assert all(
-        plan.system_id != failed_systems[0].id
-        for plan in observation.plan.member_geometry_plans
-    )
-    convergence_plans = tuple(
-        plan
-        for plan in observation.plan.convergence_plans
-        if plan.system_id == failed_systems[0].id
-    )
-    assert convergence_plans
-    assert all(
-        plan.disposition is ConvergenceDisposition.LEGACY
-        and not plan.endpoint_ownership
-        and not plan.shared_reference_ids
-        and not plan.demand_ids
-        for plan in convergence_plans
-    )
-    build_route_plan_query(observation.plan)
 
 
 def _replace_member_geometry_record(route_plan, original, replacement):

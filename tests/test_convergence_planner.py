@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import nf_metro.layout.routing.convergences as convergence_routing
-import nf_metro.layout.routing.core as routing_core
 from nf_metro.api import prepare_graph
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
@@ -189,27 +188,13 @@ def test_convergence_plan_is_queryable_through_every_semantic_identity() -> None
         assert query.convergence_plans_for_resolved_path(path) == (plan,)
 
 
-def test_planned_merge_does_not_depend_on_late_feeder_repair(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        routing_core,
-        "_land_merge_feeders_on_trunk",
-        lambda _routes, _ctx: None,
-    )
+def test_planned_merge_feeders_land_during_emission() -> None:
     graph, offsets, observed = _observe(TOPOLOGIES / "merge_feeders_three_columns.mmd")
 
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 
-def test_planned_coverage_does_not_depend_on_late_hop_removal(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        routing_core,
-        "_drop_covered_merge_entry_hops",
-        lambda _routes, _ctx, **_kwargs: (),
-    )
+def test_planned_coverage_is_bound_before_emission() -> None:
     _graph, _offsets, observed = _observe(
         TOPOLOGIES / "merge_feeders_three_columns.mmd"
     )
@@ -313,10 +298,7 @@ def test_convergence_endpoint_ownership_matches_final_bindings() -> None:
     for ownership in plan.endpoint_ownership:
         (binding,) = query.bindings_for(ownership.member_id)
         if ownership.role is ConvergenceEndpointRole.COVERED_CONTINUATION:
-            assert binding.kind in {
-                BindingKind.MERGE_SKIP,
-                BindingKind.COVERED_MERGE_HOP,
-            }
+            assert binding.kind is BindingKind.MERGE_SKIP
         else:
             assert binding.kind is BindingKind.EMITTED
 
@@ -822,24 +804,15 @@ def test_direct_trunk_axis_rotates_and_reverses(
     assert trunk.direction.value == direction
 
 
-def test_one_planning_failure_rolls_back_the_whole_route_system(
+def test_one_planning_failure_cannot_fall_back_to_unplanned_emission(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def reject(*_args, **_kwargs):
         raise UnsupportedConvergenceError("unsupported convergence shape")
 
     monkeypatch.setattr(convergence_routing, "_build_planned_convergence", reject)
-    _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
-    plans = observed.plan.convergence_plans
-
-    assert len(plans) > 1
-    assert {plan.disposition for plan in plans} == {ConvergenceDisposition.LEGACY}
-    assert all(plan.legacy_reason == "unsupported convergence shape" for plan in plans)
-    assert all(not plan.shared_reference_ids and not plan.demand_ids for plan in plans)
-    assert sum(
-        diagnostic.code == "convergence-plan-legacy"
-        for diagnostic in observed.plan.diagnostics
-    ) == len(plans)
+    with pytest.raises(ValueError, match="has 0 geometry decisions"):
+        _observe(FROZEN / "seed_15.mmd")
 
 
 def test_unregistered_convergence_failure_cannot_open_compatibility(
@@ -881,7 +854,7 @@ def test_incomplete_semantic_membership_is_a_planning_error(
         _observe(FROZEN / "seed_15.mmd")
 
 
-def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
+def test_member_geometry_owns_a_system_when_convergence_declines() -> None:
     path = TOPOLOGIES / "exit_run_three_drop_columns.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph, offset_step=10.0)
@@ -900,14 +873,21 @@ def test_exit_turn_conflict_uses_whole_system_compatibility() -> None:
     system = next(
         item for item in observed.plan.systems if item.id == plans[0].system_id
     )
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert not system.compatibility_reasons
     assert {
-        (reason.owner, reason.reason) for reason in system.compatibility_reasons
+        (verdict.owner, verdict.reason, verdict.superseded_by)
+        for verdict in system.superseded_verdicts
     } == {
         (
             "convergence-plan",
             "convergence landing conflicts with an upstream exit turn",
+            "member-geometry-plan",
         )
+    } | {
+        (verdict.owner, verdict.reason, verdict.superseded_by)
+        for verdict in system.superseded_verdicts
+        if verdict.owner != "convergence-plan"
     }
 
 

@@ -1,9 +1,9 @@
-"""Core edge routing: the main route_edges() dispatcher.
+"""Core edge routing: the main route_edges() coordinator.
 
 Routes edges as horizontal segments with 45-degree diagonal transitions.
 The per-handler families and post-routing passes live in sibling modules
-(context, *_handlers, normalize, postprocess) and are re-exported here for
-backward-compatible ``routing.core`` imports.
+(context, *_handlers, normalize, postprocess) and are re-exported here as the
+module's public routing surface.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
 )
-from nf_metro.layout.route_plan import RouteSystemDisposition, RouteSystemId
+from nf_metro.layout.route_plan import RouteSystemId
 from nf_metro.layout.route_reservations import reservation_ids_by_claimant_member
 from nf_metro.layout.routing.common import (
     RoutedPath,
@@ -37,7 +37,6 @@ from nf_metro.layout.routing.context import (  # noqa: F401
     _tb_x_offset,
     compute_junction_fan_info,
 )
-from nf_metro.layout.routing.dispatch import route_edge_by_handler_priority
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (  # noqa: F401
     _build_right_entry_wrap_route,
@@ -80,7 +79,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _bundle_divergent_distinct_traverses,
     _clamp_inter_row_band_top,
     _clear_channel_x_in_band,
-    _clear_compatibility_entry_wrap_leadouts,
     _clear_merge_trunk_opposite_arm,
     _coincide_fanout_opening_descents,
     _coincide_merge_fanout_pivots,
@@ -90,7 +88,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _collect_htrunks,
     _distinct_line_order,
     _dogleg_off_exempt_trunks,
-    _drop_covered_merge_entry_hops,
     _final_port_approach,
     _gap_channel_base,
     _group_channel_trunks,
@@ -98,7 +95,6 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _hold_runs_in_corridor_clearance,
     _HTrunk,
     _inter_row_gap_band,
-    _land_merge_feeders_on_trunk,
     _materialize_gap_slots,
     _materialize_trunk_slots,
     _nest_bypass_above_over_top_wrap,
@@ -146,7 +142,6 @@ from nf_metro.parser.model import (
     LineSpread,
     MetroGraph,
 )
-from nf_metro.parser.route_topology import ResolvedEdge
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import (
@@ -156,6 +151,35 @@ if TYPE_CHECKING:
         RoutePlanObserver,
     )
     from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
+
+
+def _route_classified_edge(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    *,
+    observer: RoutePlanObserver | None = None,
+    family_id: RouteFamilyId | None = None,
+) -> RoutedPath | None:
+    """Build one preclassified inter-section member or a local edge."""
+    source, target = ctx.graph.edge_endpoints(edge)
+    selected_family = family_id or classify_inter_section_family(
+        edge, source, target, ctx
+    )
+    if selected_family is not None:
+        return _route_inter_section(
+            edge,
+            source,
+            target,
+            ctx,
+            observer=observer,
+            planned_family_id=selected_family,
+        )
+    for handler in (_route_tb_section, _route_entry_runway, _route_intra_section):
+        route = handler(edge, source, target, ctx)
+        if route is None:
+            continue
+        return route
+    return None
 
 
 def _route_edges(  # noqa: C901
@@ -349,7 +373,7 @@ def _route_edges(  # noqa: C901
             edge.source,
             edge.target,
             edge.line_id,
-        ) in ctx.skip_edges and not ctx.is_compatibility_edge(edge):
+        ) in ctx.skip_edges:
             if observer is not None:
                 observer.record_merge_skip(
                     (edge.source, edge.target, edge.line_id),
@@ -380,11 +404,11 @@ def _route_edges(  # noqa: C901
         result = (
             fresh_member_route(geometry_plan, edge)
             if geometry_plan is not None
-            else route_edge_by_handler_priority(
+            else _route_classified_edge(
                 edge,
                 ctx,
                 observer=observer,
-                planned_family_id=planned_family_id,
+                family_id=planned_family_id,
             )
         )
         if geometry_plan is not None and observer is not None:
@@ -423,20 +447,11 @@ def _route_edges(  # noqa: C901
             member_edge = ctx.edge_by_key[
                 (member.edge.source, member.edge.target, member.edge.line_id)
             ]
-            family_id = (
-                member.family_id
-                if system.disposition is RouteSystemDisposition.PLANNED
-                and member.family_id is not None
-                else None
-            )
+            family_id = member.family_id
             emit_edge(
                 member_edge,
                 family_id,
-                (
-                    member.geometry_plan
-                    if system.disposition is RouteSystemDisposition.PLANNED
-                    else None
-                ),
+                (member.geometry_plan),
             )
         emitted_systems.add(system_key)
         next_system_rank += 1
@@ -471,8 +486,6 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "diagonal spreading")
     _materialize_gap_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "gap-slot materialization")
-    _clear_compatibility_entry_wrap_leadouts(routes, ctx)
-    assert_exit_turn_snapshot(routes, planned_segments, "wrap-leadout clearance")
     _materialize_trunk_slots(routes, ctx)
     assert_exit_turn_snapshot(routes, planned_segments, "trunk-slot materialization")
     # Counter-running flows that entered one inter-row gap from opposite rows
@@ -537,16 +550,10 @@ def _route_edges(  # noqa: C901
     # A reserved corridor band says how much room a corridor is left, not which
     # lane in it the corridor takes, so runs held in one band settle without
     # seeing each other and two distinct lines can close to less than the
-    # nesting step.  Restore that step before the feeder landing reads the
-    # settled channels.
-    _separate_fused_cotravelling_runs(routes, ctx)
+    # nesting step. Restore that step before corridor containment closes the
+    # final reservation geometry.
+    _separate_fused_cotravelling_runs(routes, ctx, station_offsets=ctx.station_offsets)
     assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
-    # Settle where each merge feeder meets its trunk -- on the trunk's own
-    # centreline, at or before the corner it turns away on. Runs downstream of
-    # every pass that moves a trunk channel or a feeder's descent column, since
-    # it reads both from the settled geometry.
-    _land_merge_feeders_on_trunk(routes, ctx)
-    assert_exit_turn_snapshot(routes, planned_segments, "merge-feeder landing")
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke
     # draws one arc rather than concentric duplicates.
@@ -559,13 +566,7 @@ def _route_edges(  # noqa: C901
     assert_exit_turn_snapshot(routes, planned_segments, "corridor clearance holding")
     _unify_coincident_corner_radii(routes)
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
-    covered_merge_hops = _drop_covered_merge_entry_hops(routes, ctx)
-    assert_exit_turn_snapshot(routes, planned_segments, "covered merge-hop removal")
-    if observer is not None:
-        observer.record_covered_merge_hops(covered_merge_hops)
-    covered_edges = frozenset(
-        ResolvedEdge(*covered_key) for covered_key, _carrier in covered_merge_hops
-    ) | (
+    covered_edges = (
         system_execution.covered_edges()
         if system_execution is not None
         else frozenset()
@@ -573,12 +574,11 @@ def _route_edges(  # noqa: C901
 
     if system_execution is not None:
         from nf_metro.layout.routing.system_emission import (
+            RouteSystemGeometryOwner,
             validate_route_system_emission,
         )
 
-        validate_route_system_emission(
-            routes, system_execution, covered_routes=covered_merge_hops
-        )
+        validate_route_system_emission(routes, system_execution)
 
     validate_exit_turn_plans(
         graph,
@@ -592,7 +592,13 @@ def _route_edges(  # noqa: C901
         graph,
         routes,
         ctx.station_offsets if validate_final_route_frames else None,
-        planned_system_ids=planned_system_ids,
+        planned_system_ids=frozenset(
+            system.system_id
+            for system in system_execution.systems
+            if system.geometry_owner is RouteSystemGeometryOwner.FAN
+        )
+        if system_execution is not None
+        else frozenset(),
         covered_edges=covered_edges,
     )
     from nf_metro.layout.routing.convergences import validate_convergence_plans

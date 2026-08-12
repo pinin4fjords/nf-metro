@@ -21,7 +21,6 @@ import nf_metro.layout.routing.inter_section_handlers as inter_section_handlers
 from nf_metro.api import apply_layout_overrides, prepare_graph, resolve_theme
 from nf_metro.layout.route_plan import (
     BindingKind,
-    ConvergenceDisposition,
     CoordinateRegime,
     CoverageReason,
     DemandAxis,
@@ -257,7 +256,7 @@ def test_every_member_has_one_emitted_or_explicit_covered_binding(
         and 0 <= binding.path_rank < len(routes)
         and binding.path_id is not None
         if binding.kind is BindingKind.EMITTED
-        else binding.kind in {BindingKind.MERGE_SKIP, BindingKind.COVERED_MERGE_HOP}
+        else binding.kind is BindingKind.MERGE_SKIP
         and binding.covering_member_id is not None
         and binding.coverage_reason is CoverageReason.MERGE_TRUNK_COVERS_ENTRY_HOP
         for binding in plan.bindings
@@ -524,7 +523,7 @@ def test_route_families_and_roles_come_from_production_dispatch() -> None:
     )
 
 
-def test_declined_dispatch_records_the_actual_fallback_emitter(
+def test_declined_planned_family_does_not_fall_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = EXAMPLES / "topologies" / "fan_in_merge.mmd"
@@ -556,112 +555,10 @@ def test_declined_dispatch_records_the_actual_fallback_emitter(
             for candidate in inter_section_handlers._INTER_SECTION_RULES
         ],
     )
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
-    member = next(
-        member for member in observation.plan.members if member.edge == declined
-    )
-    (binding,) = build_route_plan_query(observation.plan).bindings_for(member.id)
-
-    assert member.family_id is RouteFamilyId.INTRA_SECTION_FALLBACK
-    assert binding.kind is BindingKind.EMITTED
-
-
-def test_declined_migrated_dispatch_cannot_open_a_compatibility_family(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = EXAMPLES / "topologies" / "fan_in_merge.mmd"
-    graph, _routes, baseline = _observe(path)
-    declined = next(
-        member.edge
-        for member in baseline.members
-        if member.family_id is RouteFamilyId.SAME_Y_STRAIGHT
-    )
-    rule = next(
-        rule
-        for rule in inter_section_handlers._INTER_SECTION_RULES
-        if rule.family_id is RouteFamilyId.SAME_Y_STRAIGHT
-    )
-
-    def decline_one(facts):
-        edge = facts.edge
-        if (edge.source, edge.target, edge.line_id) == declined:
-            return None
-        return rule.route(facts)
-
-    monkeypatch.setattr(
-        inter_section_handlers,
-        "_INTER_SECTION_RULES",
-        [
-            dataclasses.replace(candidate, route=decline_one)
-            if candidate is rule
-            else candidate
-            for candidate in inter_section_handlers._INTER_SECTION_RULES
-        ],
-    )
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
-    (system,) = observation.plan.systems
-    assert system.disposition is RouteSystemDisposition.COMPATIBILITY
-    assert tuple(
-        (reason.owner, reason.reason) for reason in system.compatibility_reasons
-    ) == (("member-geometry-plan", "canonical-template-declined-member"),)
-    assert not system.member_geometry_plan_ids
-    convergence_plans = tuple(
-        plan
-        for plan in observation.plan.convergence_plans
-        if plan.system_id == system.id
-    )
-    assert convergence_plans
-    assert system.convergence_plan_ids == tuple(plan.id for plan in convergence_plans)
-    assert all(
-        plan.disposition is ConvergenceDisposition.LEGACY
-        and not plan.shared_reference_ids
-        and not plan.demand_ids
-        and not plan.endpoint_ownership
-        for plan in convergence_plans
-    )
-
-    routes = tuple(
-        route for route in observation.routes if route.route_system_id == str(system.id)
-    )
-    assert routes
-    assert all(route.route_system_disposition == "compatibility" for route in routes)
-    # An established template consumes the exit-turn axis it emits on, so the
-    # route names that plan; what a compatibility system never gains is a plan
-    # owning its geometry.
-    assert all(
-        not route.route_plan_ids
-        and route.fan_plan_id is None
-        and route.convergence_plan_id is None
-        and not route.route_system_owned_segment_ranks
-        for route in routes
-    )
-
-    query = build_route_plan_query(observation.plan)
-    assert all(
-        not query.fan_plans_for_member(member_id) for member_id in system.member_ids
-    )
-    bindings = {
-        member_id: query.bindings_for(member_id) for member_id in system.member_ids
-    }
-    assert all(len(items) == 1 for items in bindings.values())
-    emitted_member_ids = {
-        member_id
-        for member_id, (binding,) in bindings.items()
-        if binding.kind is BindingKind.EMITTED
-    }
-    covered = tuple(
-        binding
-        for (binding,) in bindings.values()
-        if binding.kind is BindingKind.COVERED_MERGE_HOP
-    )
-    assert {
-        route.emission_member_id for route in routes if route.emission_member_id
-    } == {str(member_id) for member_id in emitted_member_ids}
-    assert all(binding.covering_member_id in emitted_member_ids for binding in covered)
+    with pytest.raises(
+        RuntimeError, match="route-system planning declined canonical geometry"
+    ):
+        observe_route_edges(graph, station_offsets=compute_station_offsets(graph))
 
 
 def test_schema_names_every_future_reference_and_demand_kind() -> None:

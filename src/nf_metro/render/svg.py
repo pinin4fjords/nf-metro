@@ -626,6 +626,7 @@ def _build_render_plan_result(
             CurveInvariantError,
             ExitTurnInvariantError,
             FanRouteInvariantError,
+            LayoutInvariantError,
             SectionHeaderClashError,
         ) as exc:
             reframed = _fold_threshold_error(graph)
@@ -1430,7 +1431,9 @@ def _settle_render_geometry(
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets)
-    effective_strict = graph.strict and not graph.permissive
+    effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
+        graph.permissive
+    )
     assert_render_curve_invariants(graph, routes, station_offsets)
 
     labels = _place(station_offsets, routes)

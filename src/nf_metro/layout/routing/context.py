@@ -258,7 +258,6 @@ class _RoutingCtx:
     exit_turns: ExitTurnPlanQuery | None = None
     convergences: ConvergencePlanExecutionQuery | None = None
     route_systems: RouteSystemEmissionExecution | None = None
-    compatibility_edges: frozenset[_EdgeKey] = frozenset()
     skip_edges: set[_EdgeKey] = field(default_factory=set)
     built_routes: list[RoutedPath] = field(default_factory=list)
     junction_fan_info: dict[_EdgeKey, tuple[int, int]] = field(default_factory=dict)
@@ -276,10 +275,6 @@ class _RoutingCtx:
             index_exclude=set(),
         )
     )
-
-    def is_compatibility_edge(self, edge: Edge) -> bool:
-        """Whether whole-system emission delegates *edge* to compatibility routing."""
-        return (edge.source, edge.target, edge.line_id) in self.compatibility_edges
 
 
 def _classify_merge_edges(
@@ -1405,7 +1400,7 @@ def _fan_bypass_band(
 
     Whether an edge bypasses is :func:`_intervening_section_obstructs`, the same
     predicate :func:`_build_inter_facts` uses for ``needs_bypass`` -- so the band
-    reflects the edges the dispatcher actually routes via ``_route_bypass``.  A
+    reflects the edges the classifier assigns to ``_route_bypass``.  A
     feed into a merge junction is skipped: it converges on the merge's own drop
     level, not this band.
     """

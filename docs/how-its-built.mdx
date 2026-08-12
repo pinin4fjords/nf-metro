@@ -86,16 +86,20 @@ Not all phase guards are equal. The guard system has three tiers:
 
 The full tier taxonomy and rationale is in [`docs/dev/guard_tiers.md`](/nf-metro/dev/guard_tiers/).
 
-## Routing dispatch
+## Routing classification
 
-The routing module uses a [first-match dispatcher](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/layout/routing/core.py) over a table of handler families. Each handler covers a specific combination of section orientation, entry/exit direction, and flow type. The dispatch table and the full handler inventory are documented in [`docs/dev/inter_section_dispatch.mdx`](/nf-metro/dev/inter_section_dispatch/) and [`docs/dev/routing_gate_coverage.md`](/nf-metro/dev/routing_gate_coverage/).
+The routing module classifies each inter-section member once during planning.
+The selected family builds a frozen production path, and emission copies that
+path without trying another handler. Each family covers a specific combination
+of section orientation, entry/exit direction, and flow type. The family table
+and full inventory are documented in [`docs/dev/inter_section_dispatch.mdx`](/nf-metro/dev/inter_section_dispatch/) and [`docs/dev/routing_gate_coverage.md`](/nf-metro/dev/routing_gate_coverage/).
 
 When adding a new routing case, the pattern is:
 
 <Steps>
 
 1. Write a topology fixture that exercises the new case.
-2. Confirm it fails with the current dispatcher.
+2. Confirm no current family classifies it.
 3. Add a handler, or extend an existing one.
 4. Add a gate coverage entry so the new arm shows up in the coverage matrix.
 

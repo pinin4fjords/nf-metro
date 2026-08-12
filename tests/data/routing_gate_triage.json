@@ -463,10 +463,6 @@
   "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
   "status": "needs-review"
  },
- "inter_section_handlers.py::emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS::#1": {
-  "note": "FanPlanExecution returns the frozen emission selected by the planner, and BOTTOM_EXIT_RIGHT_LANDINGS is the only FanRouteEmitter member. The mismatch arm detects a corrupted or incompatible plan.",
-  "status": "defensive"
- },
  "inter_section_handlers.py::if (lo, matched_row, direction) in declared:::#1": {
   "note": "The un-exercised arm is the fresh declaration, not the dedupe skip: declared is seeded from the slots the handler's targeted _declare_channel calls already made, and on the corpus every gap-landing leg of a frozen frame is one of those, so the sweep only ever skips. The declaration fires where two targeted declarations collapse onto one gap and direction, leaving a third leg holding a gap nothing named -- the case the left-entry corridor and U-bypass call sites are commented for.",
   "status": "needs-review"
@@ -550,10 +546,6 @@
  "inter_section_handlers.py::if len(landing_sections) != len(plan.branches):::#1": {
   "note": "The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart.",
   "status": "defensive"
- },
- "inter_section_handlers.py::if min(hi, seg_hi) - max(lo, seg_lo) > COORD_TOLERANCE:::#1": {
-  "note": "The built-route arm of _leadout_self_meets_sibling_descent: a same-line descent from another source already occupying this wrap's lead-out gap. Reachable only through a convergence plan demoted by whole-system compatibility, which restrict_convergence_execution strips of its trunk axis and landings, so it publishes no channel claim while its route is still built -- the one case the claim scan below cannot see. No corpus fixture carries a compatibility route system whose convergence plans are demoted that way. tests/test_prior_convergence_claims.py::test_compatibility_convergence_route_precedes_wrap_in_both_passes exercises it against a constructed context, which the coverage sweep does not observe because it routes fixtures. What would close it is a topology whose route system is compatible for an exit-turn or fan reason and whose wrap lead-out gap overlaps one of that system's descents.",
-  "status": "needs-review"
  },
  "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
   "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
@@ -751,10 +743,6 @@
   "note": "The rejection inside feasible()'s same-line-carrier clause. Unreached for the same reason as its enclosing gate `if item.candidate.route.line_id in claim.line_ids and (:::#1`. Reachable.",
   "status": "needs-review"
  },
- "member_geometry.py::if band is not None:::#1": {
-  "note": "_channel_bounds' reserved-band arm. The bundles that reach the feasibility search carry no realised reservation band for the channel's segment, so bounds are always taken from the gap alone. Reachable, wants a fixture whose crowded member channel also sits in a reserved band.",
-  "status": "needs-review"
- },
  "member_geometry.py::if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:::#1": {
   "note": "_candidate_clears_runway's band rejection, unreachable while `if band is not None:::#1` never populates a band on this path. Reachable.",
   "status": "needs-review"
@@ -770,10 +758,6 @@
  "member_geometry.py::if key in ctx.skip_edges:::#1": {
   "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
   "status": "candidate-dead"
- },
- "member_geometry.py::or route.route_system_disposition != RouteSystemDisposition.PLANNED.value::#1": {
-  "note": "validate_member_geometry_emission' skip for a route that holds a frozen member geometry plan while its route system did not end up planned. build_member_geometry_execution drops every candidate of a system that fails, so a plan-holding route can only be non-planned when the system is escalated after the freeze -- which happens exactly when a convergence conflict escalates it to the compatibility disposition. No corpus system carries such a conflict, so the operand never decides. Reachable through the same fixture that would close any of this module's conflict arms.",
-  "status": "needs-review"
  },
  "normalize.py::and crossed[0] < span[1]::#1": {
   "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
@@ -883,10 +867,6 @@
   "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
   "status": "defensive"
  },
- "normalize.py::if carrier is None:::#1": {
-  "note": "A removable merge-entry hop has feeders, none ending at the hop start, and one ending at the hop destination after feeder normalization. A missing carrier therefore signals broken settled geometry; the guard keeps the hop instead of discarding a visible route.",
-  "status": "defensive"
- },
  "normalize.py::if channel.idx == 0:::#1": {
   "note": "A declared gap channel participating in a same-source divergence follows the branch's horizontal opening and therefore cannot be the route's first segment. The zero-index arm defensively rejects a vertical-first route shape.",
   "status": "defensive"
@@ -939,20 +919,12 @@
   "note": "Single-route-group skip in _suboptimal_trunk_bands, validate-only: called from the _guard_* validator and a unit test, not the production render path the validate=False sweep exercises. Defensive.",
   "status": "defensive"
  },
- "normalize.py::if not (riser_spans_lane and riser_ahead):::#1": {
-  "note": "Reachability guard in _land_lane_changing_feeder_on_trunk_riser: the trunk's riser has to cross the feeder's lane and stand in the feeder's direction of travel before the feeder can terminate on it. Only one corpus fixture reaches the guard at all (exit_run_three_drop_columns, the sole adjacent merge feeder whose direct run changes lane), and there the riser both spans the lane and stands ahead, so the reject arm needs a trunk that turns before the feeder junction or lands short of its lane.",
-  "status": "defensive"
- },
  "normalize.py::if not any(not t.route.normalize_exempt for t in grp):::#2": {
   "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
   "status": "defensive"
  },
  "normalize.py::if not changed:::#1": {
   "note": "The production corpus reaches the immediate fixed point because coincident members already share an effective radius. The continue-for-propagation arm is a defensive repair path covered by test_unify_refreshes_a_shared_route_after_changing_one_corner.",
-  "status": "defensive"
- },
- "normalize.py::if not trunks:::#1": {
-  "note": "Shape guard in _merge_convergence_run: a trunk routed as a U-shaped bypass always has an interior horizontal leg for iter_horizontal_trunks to find, so the corpus never takes the None arm. Not provably unreachable across every branch of _route_bypass, so it stays a guard rather than an assert (#1597).",
   "status": "defensive"
  },
  "normalize.py::if not verticals:::#1": {
@@ -992,11 +964,7 @@
   "status": "defensive"
  },
  "normalize.py::if rp.curve_radii is not None:::#1": {
-  "note": "Truncating the tail in _land_feeder_on_run keeps curve_radii aligned with the shortened waypoint list when metadata is present. Hand-built and compatibility routes may omit that metadata, so the field cannot be treated as always present (#1597).",
-  "status": "defensive"
- },
- "normalize.py::if run is None:::#1": {
-  "note": "Consumer of the _merge_convergence_run None arm above; unreachable for exactly the same reason and kept for the same reason (#1597).",
+  "note": "Truncating the tail in _land_feeder_on_run keeps curve_radii aligned with the shortened waypoint list when metadata is present. Hand-built routes may omit that metadata, so the field cannot be treated as always present (#1597).",
   "status": "defensive"
  },
  "normalize.py::if s.bbox_w <= 0:::#1": {

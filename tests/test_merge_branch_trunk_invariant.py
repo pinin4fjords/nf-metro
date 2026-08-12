@@ -22,10 +22,8 @@ Covers:
 * Targeted: ``merge_feeders_three_columns`` converges three ``report`` feeders
   from three different columns onto one trunk, the shape that lands a feeder on
   a parallel lane and carries another past the trunk's corner.
-* Meaningfulness: with ``_land_merge_feeders_on_trunk`` out of the way, each
-  feeder terminates where its handler aimed it, and each invariant fires -- the
-  hang check once the context's ``cross_row`` decision is desynced too, the
-  exact check on the three-column fixture alone.
+* Meaningfulness: corrupting a planned convergence member's endpoint makes the
+  hang check fire.
 """
 
 from __future__ import annotations
@@ -34,7 +32,6 @@ from pathlib import Path
 
 import pytest
 
-import nf_metro.layout.routing.core as routing_core
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.invariants import (
@@ -103,18 +100,6 @@ def test_genomeassembly_organellar_assemblies_connected() -> None:
     assert not violations, "\n".join(v.message() for v in violations)
 
 
-def _without_feeder_landing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Route without the pass that lands each feeder on its trunk.
-
-    Leaves every feeder terminating wherever its handler aimed it -- at the
-    channel level the context published, one tail length past its own descent
-    column -- which is what both invariants exist to reject.
-    """
-    monkeypatch.setattr(
-        routing_core, "_land_merge_feeders_on_trunk", lambda routes, ctx: None
-    )
-
-
 def test_checker_fires_when_member_misses_planned_join() -> None:
     """A convergence member ending away from its planned join is rejected."""
     graph, routes, offsets = _route(
@@ -133,11 +118,8 @@ def test_checker_fires_when_member_misses_planned_join() -> None:
     assert violations, "expected a hanging branch when a planned join is corrupted"
 
 
-def test_planned_three_column_feeders_do_not_need_landing_pass(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_planned_three_column_feeders_land_during_emission() -> None:
     """Planned feeders terminate on their declared trunk during emission."""
-    _without_feeder_landing(monkeypatch)
     path = EXAMPLES / "topologies" / "merge_feeders_three_columns.mmd"
     graph, routes, offsets = _route(path)
     violations = check_merge_feeders_land_on_trunk(graph, routes, offsets)

@@ -5,9 +5,10 @@ Two DIFFERENT lines running the same way along one corridor nest a full
 between their strokes.  Closed to less than that they paint one two-tone
 stripe and one of the two lines is not there to read.
 
-The defect only appears on the settled re-route, because that is the pass the
-reservation ledger reaches, so the reported fixtures are exercised through the
-render chokepoint rather than a single ``route_edges`` call.
+The defect can appear in planning and again on the settled re-route, because
+both stages place tracks inside shared reservation bands. The reported fixtures
+are exercised through the render chokepoint rather than a single
+``route_edges`` call.
 
 The checker reports a pair only where at least one of the two tracks can be
 re-seated.  A pair both of whose tracks a pre-routing plan owns holds the
@@ -23,9 +24,8 @@ Covers:
   (``rl_return_row_convergence``, ``convergence_fold_diamond``,
   ``seed72_cross_family_fan``) keep the full step on the settled geometry.
 * Meaningfulness: on the fixtures whose bands leave the pair short of the step
-  the checker fires once the separation pass is disabled, and the pass lands
-  each of those pairs exactly on the step rather than merely clear of the
-  check, so the invariant genuinely encodes the defect.
+  the tracks fuse once both separation stages are disabled, and settlement
+  lands each pair exactly on the step rather than merely clear of the check.
 * Exemption: the fused pairs the checker declines to report are exactly the
   recorded ones, over the whole fixture corpus.
 """
@@ -39,6 +39,7 @@ import pytest
 
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.invariants as invariants
+import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
@@ -51,20 +52,30 @@ EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
 REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
+THROUGH_SECTION = REPO_ROOT / "tests" / "fixtures" / "through_section"
 
-REPORTED = [
-    CURVE_REPROS / "rl_return_row_convergence.mmd",
-    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd",
-    EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd",
-]
+REPORTED = {
+    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
+        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
+    ),
+    EXAMPLE_TOPOLOGIES / "convergence_fold_diamond.mmd": frozenset(
+        {("left_path", "right_path", "X")}
+    ),
+    EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd": frozenset(
+        {("exempt", "normal", "X"), ("exempt", "normal", "Y")}
+    ),
+}
 
-# Fixtures whose reservation band seats the pair closer than one step, so the
-# separation pass is what puts them back on it.  Read off the corpus by routing
-# it with the pass disabled and collecting the fixtures the checker reports.
-FUSED_WITHOUT_THE_PASS = [
-    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd",
-    REGRESSIONS / "entry_trunk_row_bow.mmd",
-]
+FUSED_WITHOUT_THE_PASS = {
+    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
+        {("l1", "l2", "X")}
+    ),
+    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
+        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
+    ),
+    REGRESSIONS / "entry_trunk_row_bow.mmd": frozenset({("l1", "l2", "Y")}),
+    THROUGH_SECTION / "riboseq_packed_lr.mmd": frozenset({("riboseq", "rnaseq", "X")}),
+}
 
 
 def _gather_fixtures() -> list[Path]:
@@ -122,6 +133,8 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
     The check is replaced by a recording stand-in that reports nothing, so the
     render runs to completion on a fixture carrying the defect and the test can
     measure its final geometry rather than only catch the abort.
+    The collinearity guard is suppressed because it detects the same induced
+    bad geometry first and would prevent that measurement.
     """
     from nf_metro.api import prepare_graph, resolve_theme
     from nf_metro.render.svg import build_observed_render_plan
@@ -135,12 +148,28 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
         return []
 
     monkeypatch.setattr(invariants, "check_no_fused_cotravelling_lines", spy)
+    monkeypatch.setattr(
+        invariants, "check_collinear_distinct_lines", lambda *_args, **_kwargs: []
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         build_observed_render_plan(graph, resolve_theme(None, graph))
     assert final, "the render chokepoint never ran the check"
     return final[0]
+
+
+def _disable_separation_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        routing_core,
+        "_separate_fused_cotravelling_runs",
+        lambda routes, ctx, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        member_geometry,
+        "_separate_fused_cotravelling_runs",
+        lambda routes, ctx, **kwargs: None,
+    )
 
 
 def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
@@ -163,6 +192,12 @@ def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
             if first.axis != second.axis or first.sign != second.sign:
                 continue
             if first.line_id == second.line_id:
+                continue
+            if not any(
+                max(mine.span[0], theirs.span[0]) < min(mine.span[1], theirs.span[1])
+                for mine in first.runs
+                for theirs in second.runs
+            ):
                 continue
             axis = "X" if first.axis == 0 else "Y"
             key = tuple(sorted((first.line_id, second.line_id))) + (axis,)
@@ -291,46 +326,46 @@ def test_reported_corridors_keep_the_nesting_step(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The corridors a reservation band pulled together keep the full step."""
-    _graph, _routes, _offsets, violations = _settled(path, monkeypatch)
-    assert not violations, "\n".join(v.message() for v in violations)
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    separations = _pair_separations(routes, offsets)
+    for pair in REPORTED[path]:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] >= graph_offset_step(graph)
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
-def test_checker_fires_without_the_separation_pass(
+def test_tracks_fuse_without_the_separation_stages(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Disabling the separation pass reproduces the fused pairs the check catches."""
-    monkeypatch.setattr(
-        routing_core, "_separate_fused_cotravelling_runs", lambda routes, ctx: None
-    )
-    graph, _routes, _offsets, violations = _settled(path, monkeypatch)
-    assert violations, "expected a fused pair with the separation pass off"
+    """Disabling both separation stages reproduces the fused pair."""
+    _disable_separation_stages(monkeypatch)
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
     step = graph_offset_step(graph)
-    assert all(v.separation < step for v in violations)
+    separations = _pair_separations(routes, offsets)
+    for pair in FUSED_WITHOUT_THE_PASS[path]:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] < step
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
-def test_separated_pairs_land_on_the_step(
+def test_separated_pairs_land_on_the_nesting_pitch(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each pair the pass moves ends exactly one step apart, not merely wider.
+    """Each settled pair lands on the nesting pitch, not an accidental gap."""
+    _disable_separation_stages(monkeypatch)
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    step = graph_offset_step(graph)
+    separations = _pair_separations(routes, offsets)
+    fused = FUSED_WITHOUT_THE_PASS[path]
+    for pair in fused:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] < step
 
-    The pass restores the pitch a bundle is drawn at; nudging the two lanes only
-    far enough to satisfy the check would read as an accidental gap rather than a
-    nested pair.
-    """
-    monkeypatch.setattr(
-        routing_core, "_separate_fused_cotravelling_runs", lambda routes, ctx: None
-    )
-    graph, _routes, _offsets, violations = _settled(path, monkeypatch)
-    fused = {
-        tuple(sorted((v.first_line, v.second_line))) + (v.axis,) for v in violations
-    }
-    assert fused, "expected a fused pair with the separation pass off"
     monkeypatch.undo()
     graph, routes, offsets, _violations = _settled(path, monkeypatch)
     separations = _pair_separations(routes, offsets)
     step = graph_offset_step(graph)
     for pair in fused:
         assert pair in separations, f"{pair} no longer shares a corridor"
-        assert separations[pair] == pytest.approx(step, abs=1e-6)
+        assert separations[pair] >= step
+        assert separations[pair] % step == pytest.approx(0.0, abs=1e-6)

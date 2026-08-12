@@ -3979,7 +3979,8 @@ def build_convergence_plan_execution(
                     RoutePlanDiagnostic(
                         None,
                         "convergence-plan-legacy",
-                        f"convergence system {item.system_id} uses legacy routing: "
+                        f"convergence system {item.system_id} declined geometry "
+                        "ownership: "
                         f"{reason}",
                         blocking=False,
                     )
@@ -4167,56 +4168,18 @@ def restrict_convergence_execution(
     graph: MetroGraph,
     planned_system_ids: frozenset[RouteSystemId],
     *,
-    compatibility_system_ids: frozenset[RouteSystemId] = frozenset(),
     include_resources: bool,
 ) -> ConvergencePlanExecution:
-    """Publish final planned ownership and non-owning compatibility records."""
-    compatibility_reason = "whole route system uses compatibility emission"
-    demoted = tuple(
-        plan
-        for plan in execution.plans
-        if plan.system_id in compatibility_system_ids and plan.owns_geometry
-    )
+    """Publish convergence records for route systems admitted to emission."""
     plans = tuple(
-        plan
-        if plan.system_id in planned_system_ids or not plan.owns_geometry
-        else replace(
-            plan,
-            upstream_exit_turn_plan_ids=(),
-            upstream_fan_plan_ids=(),
-            primary_trunk_member_id=None,
-            primary_trunk_reason=None,
-            trunk_axis=None,
-            landings=(),
-            outgoing_continuations=(),
-            lane_order=(),
-            endpoint_ownership=(),
-            shared_reference_ids=(),
-            demand_ids=(),
-            foreign_reference_ids=(),
-            disposition=ConvergenceDisposition.LEGACY,
-            legacy_reason=compatibility_reason,
-        )
-        for plan in execution.plans
-        if plan.system_id in planned_system_ids
-        or plan.system_id in compatibility_system_ids
+        plan for plan in execution.plans if plan.system_id in planned_system_ids
     )
     references, demands = _resources(graph, plans) if include_resources else ((), ())
     return ConvergencePlanExecution(
         plans,
         references,
         demands,
-        execution.diagnostics
-        + tuple(
-            RoutePlanDiagnostic(
-                None,
-                "convergence-plan-legacy",
-                f"convergence system {plan.system_id} uses legacy routing: "
-                f"{compatibility_reason}",
-                blocking=False,
-            )
-            for plan in demoted
-        ),
+        execution.diagnostics,
         _query(plans, execution.query._edge_order),
     )
 

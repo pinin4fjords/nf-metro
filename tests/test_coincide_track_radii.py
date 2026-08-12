@@ -400,7 +400,9 @@ def test_named_coincide_fixtures_snap_at_least_one_corner(
     assert touched, f"{fixture} no longer exercises the coincide pass"
 
 
-@pytest.mark.parametrize("fixture", ["variantbenchmarking.mmd", "genomeassembly.mmd"])
+@pytest.mark.parametrize(
+    "fixture", ["topologies/merge_right_entry.mmd", "genomeassembly.mmd"]
+)
 def test_reintroduced_hand_clobber_is_detected(
     fixture: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
