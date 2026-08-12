@@ -901,7 +901,7 @@ def test_normal_api_and_cli_never_invoke_candidate_execution(
 
 def test_frozen_sources_are_results_not_frozen_stages_across_hash_seeds() -> None:
     script = ROOT / "tests/candidate_executor_oracle.py"
-    observations: list[dict[str, str]] = []
+    observations: list[dict[str, dict[str, str]]] = []
     for seed in ("0", "1", "2", "5", "43", "random"):
         env = os.environ.copy()
         env["PYTHONHASHSEED"] = seed
@@ -918,3 +918,11 @@ def test_frozen_sources_are_results_not_frozen_stages_across_hash_seeds() -> Non
         observations.append(json.loads(completed.stdout))
 
     assert all(item == observations[0] for item in observations[1:])
+    scoreboard = {
+        source: (result["status"], result["stage"])
+        for source, result in observations[0].items()
+    }
+    assert scoreboard == {
+        source: (CandidateStatus.ACCEPTED.value, CandidateStage.COMPLETE.value)
+        for source in ("15", "41", "72", "77")
+    }

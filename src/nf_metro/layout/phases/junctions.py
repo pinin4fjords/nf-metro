@@ -255,7 +255,9 @@ def _position_merge_junction(
     # width into the entry.  Merge local to the target instead, so only the
     # individual feeders make the long approach and the merge->entry hop is short.
     if entry_port.x < max_pred_x - margin:
-        junction.x = entry_port.x - margin
+        junction.x = entry_port.x + (
+            margin if entry_side is PortSide.RIGHT else -margin
+        )
     else:
         junction.x = max_pred_x + margin
     junction.y = entry_port.y

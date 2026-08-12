@@ -61,6 +61,7 @@ from nf_metro.layout.routing.normalize import (
     _reseat_concentric_flanking,
     _route_endpoint_section_ids,
     _segment_claim_band,
+    _separate_declared_opposing_gap_bundles,
     _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
@@ -109,6 +110,7 @@ class PreliminaryGapChannelClaim:
     line_ids: frozenset[str]
     source_junction_ids: frozenset[str] = frozenset()
     connector_ids: frozenset[str] = frozenset()
+    continuation_endpoint_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1164,7 +1166,10 @@ def _claim_source_compatible(
     if claim.system_id != item.candidate.system_id:
         return False
     source_id = item.candidate.route.edge.source
-    if source_id in claim.source_junction_ids:
+    if (
+        source_id in claim.source_junction_ids
+        or source_id in claim.continuation_endpoint_ids
+    ):
         return True
     return not claim.connector_ids.isdisjoint(item.candidate.connector_ids)
 
@@ -1628,7 +1633,7 @@ def build_member_geometry_execution(
         # direction bands have to be settled here rather than by the same pass
         # running after emission, which skips a plan-owned trunk.
         _separate_opposing_inter_row_trunks(normalization_population, ctx)
-        _reconcile_port_peeloff_risers(complete_path_population, ctx)
+        _reconcile_port_peeloff_risers(normalization_population, ctx)
         _coincide_same_line_tracks(normalization_population, ctx)
         _coincide_fanout_opening_descents(
             normalization_population, ctx, settle_frozen_arcs=True
@@ -1708,6 +1713,18 @@ def build_member_geometry_execution(
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
             route.exit_turn_segment_rank = segment_rank
+        _separate_declared_opposing_gap_bundles(normalization_population, ctx)
+        _align_same_line_channels(
+            _materialized_channels(tuple(candidates), ctx),
+            _index_claims(eligible_claims),
+            ctx,
+            pending_exit_turn_plan_ids,
+        )
+        _stagger_convergent_distinct_lines(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
+        )
         plans = tuple(
             _freeze_plan(
                 scaffold,

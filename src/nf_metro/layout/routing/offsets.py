@@ -895,6 +895,21 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         _apply_section_line_order(ctx, sec_id, new_order)
 
 
+def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
+    """Assign each clean divergence's settled slots in semantic peel order."""
+    for junction_id in ctx.divergence_exit_ports:
+        peel_order = fanout_divergence_peel_order(
+            ctx.graph, junction_id, ctx.line_priority, ctx.topology
+        )
+        if peel_order is None:
+            continue
+        settled = sorted(
+            ctx.offsets.get((junction_id, line_id), 0.0) for line_id in peel_order
+        )
+        for line_id, offset in zip(peel_order, settled):
+            ctx.offsets[(junction_id, line_id)] = offset
+
+
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
     """Re-index offsets per-section to close priority gaps (non-compact only).
 
@@ -1264,6 +1279,105 @@ def _rerank_contiguous(
     """
     order = sorted(lines, key=lambda lid: (values[lid], ctx.line_priority.get(lid, 0)))
     return {lid: i * ctx.offset_step for i, lid in enumerate(order)}
+
+
+def _settle_exit_survivor_frames(ctx: _OffsetCtx) -> None:
+    """Compact each single-entry section's surviving exit cohort."""
+    graph = ctx.graph
+    for section in graph.sections.values():
+        if section.direction not in ("LR", "RL") or len(section.entry_ports) != 1:
+            continue
+        entry_id = section.entry_ports[0]
+        entry_lines = set(graph.station_lines(entry_id))
+        for exit_id in section.exit_ports:
+            exit_lines = set(graph.station_lines(exit_id))
+            if len(exit_lines) < 2 or not exit_lines < entry_lines:
+                continue
+            ordered = sorted(
+                exit_lines,
+                key=lambda line_id: (
+                    ctx.offsets.get((entry_id, line_id), 0.0),
+                    ctx.line_priority.get(line_id, 0),
+                ),
+            )
+            anchor = min(
+                ctx.offsets.get((entry_id, line_id), 0.0) for line_id in ordered
+            )
+            desired = {
+                line_id: anchor + rank * ctx.offset_step
+                for rank, line_id in enumerate(ordered)
+            }
+            for line_id, offset in desired.items():
+                ctx.offsets[(exit_id, line_id)] = offset
+                current = exit_id
+                seen = {current}
+                while True:
+                    predecessor = next(
+                        (
+                            edge.source
+                            for edge in graph.edges_to(current)
+                            if edge.line_id == line_id
+                            and edge.source not in seen
+                            and graph.stations[edge.source].section_id == section.id
+                        ),
+                        None,
+                    )
+                    if predecessor is None or not set(
+                        graph.station_lines(predecessor)
+                    ).issubset(exit_lines):
+                        break
+                    ctx.offsets[(predecessor, line_id)] = offset
+                    seen.add(predecessor)
+                    current = predecessor
+
+
+def _settle_merge_outgoing_frames(ctx: _OffsetCtx) -> None:
+    """Carry perpendicular merge slots along their outgoing row."""
+    graph = ctx.graph
+    for port_id in graph.ports:
+        classified = classify_merge_port_feeders(graph, port_id)
+        if classified is None:
+            continue
+        _horizontal, below, above = classified
+        for line_id in (*below, *above):
+            offset = ctx.offsets.get((port_id, line_id), 0.0)
+            row_y = graph.stations[port_id].y
+            seen = {port_id}
+            queue = deque([port_id])
+            while queue:
+                current = queue.popleft()
+                for edge in graph.edges_from(current):
+                    target_id = edge.target
+                    if target_id in seen:
+                        continue
+                    target = graph.stations[target_id]
+                    if abs(target.y - row_y) > _SAME_Y_TOLERANCE:
+                        continue
+                    seen.add(target_id)
+                    if line_id in graph.station_lines(target_id):
+                        ctx.offsets[(target_id, line_id)] = offset
+                    queue.append(target_id)
+
+
+def _settle_vertical_station_continuations(ctx: _OffsetCtx) -> None:
+    """Keep flow-aligned continuations on one lane in vertical sections."""
+    graph = ctx.graph
+    for edge in graph.edges:
+        source, target = graph.edge_endpoints(edge)
+        if (
+            source.is_port
+            or target.is_port
+            or source.section_id is None
+            or source.section_id != target.section_id
+            or not lanes_run_along_x(graph.sections[source.section_id].direction)
+            or abs(source.x - target.x) > _SAME_Y_TOLERANCE
+            or edge.line_id not in graph.station_lines(source.id)
+            or edge.line_id not in graph.station_lines(target.id)
+        ):
+            continue
+        ctx.offsets[(source.id, edge.line_id)] = ctx.offsets.get(
+            (target.id, edge.line_id), 0.0
+        )
 
 
 def _exit_line_destination_y(
@@ -2071,7 +2185,7 @@ def _order_perp_entry_by_landing_column(ctx: _OffsetCtx) -> None:
         ):
             continue
         section = graph.section_for_port(port_obj)
-        if not lanes_run_along_x(section.direction):
+        if lanes_run_along_x(section.direction):
             continue
         lines = graph.station_lines(port_id)
         if len(lines) < 2:
@@ -2178,6 +2292,8 @@ def _compact_station_gaps(
 
     graph = ctx.graph
     for sec_id, section in graph.sections.items():
+        if lanes_run_along_x(section.direction):
+            continue
         sec_stations = [
             sid for sid in section.station_ids if not graph.stations[sid].is_port
         ]
@@ -3786,6 +3902,10 @@ def compute_station_offsets(
     _center_rail_boundary_port_bundles(ctx)
     _recenter_single_line_corridor_entry(ctx)
     _apply_planned_fan_offsets(ctx)
+    _reconcile_fanout_junction_offsets(ctx)
+    _settle_merge_outgoing_frames(ctx)
+    _settle_exit_survivor_frames(ctx)
+    _settle_vertical_station_continuations(ctx)
     frames = _materialize_linear_entry_frames(ctx)
     _validate_linear_entry_frames(ctx, frames)
     _cache_linear_entry_pill_lines(ctx, frames)
@@ -3813,6 +3933,12 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
                 if succ not in affected:
                     affected.add(succ)
                     stack.append(succ)
+
+    affected -= {
+        port.section_id
+        for port in ctx.graph.ports.values()
+        if classify_merge_port_feeders(ctx.graph, port.id) is not None
+    }
 
     for sid, station in ctx.graph.stations.items():
         if station.section_id not in affected:
@@ -3843,11 +3969,13 @@ def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None
     coordinate-free; this pass stays as a coordinate-aware residual.
     """
     graph = ctx.graph
+
     _reverse_offsets_from_roots(
         ctx,
         {
             port.section_id
             for port in graph.ports.values()
             if is_near_vertical_junction_right_entry(graph, port)
+            and classify_merge_port_feeders(graph, port.id) is None
         },
     )

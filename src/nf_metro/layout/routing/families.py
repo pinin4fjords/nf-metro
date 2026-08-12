@@ -39,6 +39,7 @@ class RouteFamilyId(str, Enum):
     MERGE_ENTRY_CORRIDOR = "merge-entry-corridor"
     MERGE_ENTRY_AROUND_BELOW = "merge-entry-around-below"
     MERGE_ENTRY_PERPENDICULAR = "merge-entry-perpendicular"
+    MERGE_ENTRY_RIGHT_WRAP = "merge-entry-right-wrap"
     RIGHT_ENTRY_PLOUGH_BYPASS = "right-entry-plough-bypass"
     RIGHT_ENTRY_CROSS_ROW_WRAP = "right-entry-cross-row-wrap"
     STANDARD_L_SHAPE = "standard-l-shape"

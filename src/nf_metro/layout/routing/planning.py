@@ -302,7 +302,6 @@ def prepare_route_system_planning(
         exit_turns = exit_turn_routing.build_exit_turn_execution(
             graph,
             ctx,
-            adopt_prior_dispositions=False,
         )
         unresolved = tuple(
             plan

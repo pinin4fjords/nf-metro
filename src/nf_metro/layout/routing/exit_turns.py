@@ -168,6 +168,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.MERGE_ENTRY_CORRIDOR,
         RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
         RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.MERGE_ENTRY_RIGHT_WRAP,
         RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
         RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
         RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
@@ -922,6 +923,7 @@ _ROUTE_DERIVED_LEAF_FAMILIES = frozenset(
         RouteFamilyId.MERGE_ENTRY_CORRIDOR,
         RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
         RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.MERGE_ENTRY_RIGHT_WRAP,
         RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
         RouteFamilyId.SERPENTINE_LEFT,
     }

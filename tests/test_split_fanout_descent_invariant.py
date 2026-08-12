@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 FIXTURE_TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
+FROZEN = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 
 def _gather_fixtures() -> list[Path]:
@@ -77,6 +78,14 @@ def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> Non
     graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "divergent_fanout_split.mmd")
     violations = check_no_split_same_line_fanout_descents(graph, routes, offsets)
     assert violations, "expected a split fan-out descent with the fuse pass off"
+
+
+def test_opposite_opening_directions_are_separate_planned_fans() -> None:
+    graph = parse_metro_mermaid((FROZEN / "seed_15.mmd").read_text())
+
+    compute_layout(graph)
+
+    assert graph.stations["__junction_23"].x == pytest.approx(1610.5)
 
 
 def _opening_descents(routes) -> list[tuple[str, str, float]]:

@@ -60,6 +60,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    resolve_section,
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
     section_ids_of_stations,
@@ -365,10 +366,10 @@ def _required_channel_clearance(
     Same-direction channels are nested by the bundle passes rather than spaced
     here, so this asks nothing of them.
     """
-    if a.down is b.down:
-        return 0.0
     overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
-    if overlap <= MIN_CORRIDOR_Y_OVERLAP:
+    if COORD_TOLERANCE < overlap < MIN_CORRIDOR_Y_OVERLAP:
+        return BUNDLE_TO_BUNDLE_CLEARANCE
+    if a.down is b.down or overlap <= MIN_CORRIDOR_Y_OVERLAP:
         return 0.0
     return cotravelling_lane_clearance(
         same_line=a.route.line_id == b.route.line_id,
@@ -848,7 +849,9 @@ def _validate_planned_exit_turn_radii(
 
 
 def _separate_declared_opposing_gap_bundles(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_route_ids: frozenset[int] = frozenset(),
 ) -> None:
     """Separate settled counter-running gap bundles around exempt obstacles."""
     graph = ctx.graph
@@ -862,17 +865,33 @@ def _separate_declared_opposing_gap_bundles(
             if ch is None or (key, id(rp), ch.idx) in seen:
                 continue
             seen.add((key, id(rp), ch.idx))
-            (fixed if rp.normalize_exempt or _planner_owns_channel(ch) else movable)[
-                key
-            ].append(ch)
+            owner = (
+                fixed
+                if rp.normalize_exempt
+                or (id(rp) not in movable_route_ids and _planner_owns_channel(ch))
+                else movable
+            )
+            owner[key].append(ch)
 
     bands = _grid_row_bands(graph)
     for (lo, row), chans in movable.items():
         gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
         if gap_right <= gap_left:
             continue
+        obstacles = [
+            channel
+            for (fixed_lo, _fixed_row), channels in fixed.items()
+            if fixed_lo == lo
+            for channel in channels
+            if any(
+                min(channel.y_hi, movable_channel.y_hi)
+                - max(channel.y_lo, movable_channel.y_lo)
+                > COORD_TOLERANCE
+                for movable_channel in chans
+            )
+        ]
         crossed_spans = [(c.y_lo, c.y_hi) for c in chans]
-        crossed_spans += [(c.y_lo, c.y_hi) for c in fixed.get((lo, row), [])]
+        crossed_spans += [(c.y_lo, c.y_hi) for c in obstacles]
         for r, band in bands.items():
             if not any(
                 y_lo < band[1] and band[0] < y_hi for y_lo, y_hi in crossed_spans
@@ -887,14 +906,97 @@ def _separate_declared_opposing_gap_bundles(
             for down in (True, False)
             for corridor in _split_corridors([c for c in chans if c.down is down])
         ]
-        _anchor_same_direction_fixed_channels(bundles, fixed.get((lo, row), []), ctx)
+        _anchor_same_direction_fixed_channels(bundles, obstacles, ctx)
         _separate_opposing_gap_bundles(
             bundles,
-            fixed.get((lo, row), []),
+            obstacles,
             gap_left,
             gap_right,
             ctx,
         )
+
+    all_fixed = [channel for channels in fixed.values() for channel in channels]
+    for (lo, row), channels in movable.items():
+        gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
+        usable_left = gap_left + EDGE_TO_BUNDLE_CLEARANCE
+        usable_right = gap_right - EDGE_TO_BUNDLE_CLEARANCE
+        for channel in channels:
+            short_overlap_obstacles = [
+                obstacle
+                for obstacle in all_fixed
+                if obstacle.route.line_id != channel.route.line_id
+                and COORD_TOLERANCE
+                < min(channel.y_hi, obstacle.y_hi) - max(channel.y_lo, obstacle.y_lo)
+                < MIN_CORRIDOR_Y_OVERLAP
+                and abs(channel.x - obstacle.x)
+                < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+            ]
+            if not short_overlap_obstacles:
+                continue
+            candidates = {
+                obstacle.x - BUNDLE_TO_BUNDLE_CLEARANCE
+                for obstacle in short_overlap_obstacles
+            } | {
+                obstacle.x + BUNDLE_TO_BUNDLE_CLEARANCE
+                for obstacle in short_overlap_obstacles
+            }
+            target = next(
+                (
+                    candidate
+                    for candidate in sorted(
+                        candidates, key=lambda value: (abs(value - channel.x), value)
+                    )
+                    if usable_left - COORD_TOLERANCE
+                    <= candidate
+                    <= usable_right + COORD_TOLERANCE
+                    and not _section_intrudes(
+                        graph, candidate, channel.y_lo, channel.y_hi
+                    )
+                    and not _vchannel_move_crosses_foreign_section(
+                        channel, candidate, graph
+                    )
+                    and all(
+                        abs(candidate - obstacle.x)
+                        >= BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+                        for obstacle in short_overlap_obstacles
+                    )
+                ),
+                None,
+            )
+            if target is not None:
+                _set_vchannel_x(channel, target)
+                channel.x = target
+
+
+def _vchannel_move_crosses_foreign_section(
+    channel: _VChannel,
+    candidate: float,
+    graph: MetroGraph,
+) -> bool:
+    """Whether moving a riser would drag either flanking run through a box."""
+    route, rank = channel.route, channel.idx
+    endpoint_sections = set(_route_endpoint_section_ids(graph, route))
+    runs: list[tuple[float, float, float]] = []
+    if rank > 0:
+        prior = route.points[rank - 1]
+        corner = route.points[rank]
+        if abs(prior[1] - corner[1]) <= COORD_TOLERANCE:
+            runs.append((corner[1], prior[0], candidate))
+    if rank + 2 < len(route.points):
+        corner = route.points[rank + 1]
+        after = route.points[rank + 2]
+        if abs(corner[1] - after[1]) <= COORD_TOLERANCE:
+            runs.append((corner[1], candidate, after[0]))
+    return any(
+        section.id not in endpoint_sections
+        and section.bbox_y + COORD_TOLERANCE
+        < y
+        < section.bbox_y + section.bbox_h - COORD_TOLERANCE
+        and min(xa, xb) < section.bbox_x + section.bbox_w - COORD_TOLERANCE
+        and section.bbox_x + COORD_TOLERANCE < max(xa, xb)
+        for y, xa, xb in runs
+        for section in graph.sections.values()
+    )
 
 
 @dataclass
@@ -1848,9 +1950,7 @@ def _stagger_convergent_distinct_lines(
         list
     )
     for rp in routes:
-        if not rp.is_inter_section or (
-            movable_route_ids is not None and id(rp) not in movable_route_ids
-        ):
+        if not rp.is_inter_section:
             continue
         ch = _final_port_approach(rp)
         if ch is None:
@@ -1868,7 +1968,11 @@ def _stagger_convergent_distinct_lines(
     }
 
     for (port_id, down), entries in by_port.items():
-        if any(_planner_owns_channel(channel) for _route, channel in entries):
+        if any(
+            _planner_owns_channel(channel)
+            and (movable_route_ids is None or id(route) not in movable_route_ids)
+            for route, channel in entries
+        ):
             continue
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
@@ -1886,6 +1990,7 @@ def _stagger_convergent_distinct_lines(
             )
             if any(
                 _planner_owns_channel(channel)
+                and (movable_route_ids is None or id(route) not in movable_route_ids)
                 or _descent_crosses_section(
                     ctx.graph,
                     channel,
@@ -2314,21 +2419,23 @@ def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
 
 def _divergent_source_spans(
     rp: RoutedPath,
-) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
-    """A route's opening fan-out descent, keyed by source, line and direction."""
+) -> Iterable[tuple[tuple[str, str, bool, bool], _VChannel]]:
+    """A route's opening descent, keyed by source, line, fall, and lead."""
     ch = _opening_fanout_descent(rp)
     if ch is not None:
-        yield (rp.edge.source, rp.line_id, ch.down), ch
+        opens_right = rp.points[1][0] > rp.points[0][0]
+        yield (rp.edge.source, rp.line_id, ch.down, opens_right), ch
 
 
 def _distinct_descent_spans(
     rp: RoutedPath,
-) -> Iterable[tuple[tuple[str, bool], _VChannel]]:
-    """A route's opening fan-out descent, keyed by source and direction."""
+) -> Iterable[tuple[tuple[str, bool, bool], _VChannel]]:
+    """An opening descent, keyed by source, fall, and horizontal lead."""
     channel = _opening_fanout_descent(rp)
     if channel is None:
         return
-    yield (rp.edge.source, channel.down), channel
+    opens_right = rp.points[1][0] > rp.points[0][0]
+    yield (rp.edge.source, channel.down, opens_right), channel
 
 
 def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
@@ -2344,9 +2451,10 @@ def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
     and an inverted split (the farther-reaching branch opening inside the
     nearer one) crosses its sibling's descent.
 
-    Descents are grouped by source endpoint + line + descent direction; every
-    group of two or more fuses onto the channel nearest the source, hugging the
-    side the branches leave from, and splits off downstream at each own turn Y.
+    Descents are grouped by source endpoint, line, descent direction, and
+    horizontal opening direction. Every group of two or more fuses onto the
+    channel nearest the source, hugging the side the branches leave from, and
+    splits off downstream at each own turn Y.
     Unlike the convergent case there is no proximity band: any same-source pair
     overlapping in Y must collapse, however far apart their Xs.
 
@@ -2619,6 +2727,11 @@ def _merge_feeder_groups(
             ch = _initial_fanout_descent(rp)
             if ch is None:
                 continue
+            section = resolve_section(graph, trunk_src_st, prefer_upstream=True)
+            if section is not None and section.bbox_w > 0:
+                midpoint = section.bbox_x + section.bbox_w / 2
+                if (ch.x - midpoint) * (trunk_ch.x - midpoint) < 0:
+                    continue
             members.append(ch)
         if members:
             groups.append(_Coincidence(members, trunk_ch.x))
@@ -3174,6 +3287,12 @@ def _restack_trunk_band(
             bundled.add(id(t.route))
             if abs(new_y - t.y) <= COORD_TOLERANCE:
                 continue
+            if (
+                t.route.normalize_exempt
+                and _run_enters_section(ctx.graph, 1, new_y, (t.x_lo, t.x_hi))
+                and not _run_enters_section(ctx.graph, 1, t.y, (t.x_lo, t.x_hi))
+            ):
+                continue
             _restack_htrunk(t, new_y, inner, n, step, ctx.curve_radius)
 
 
@@ -3347,7 +3466,8 @@ def _dogleg_off_exempt_trunks(
             use_below = False
         else:
             continue
-        _restack_htrunk(t, below if use_below else above, 0, 1, step, ctx.curve_radius)
+        target = below if use_below else above
+        _restack_htrunk(t, target, 0, 1, step, ctx.curve_radius)
 
 
 def _run_enters_section(

@@ -1187,8 +1187,9 @@ def classify_merge_port_feeders(
     entry port fed by at least two distinct feeders, with at least one
     horizontal co-traveller and at least one perpendicular feeder.  A
     line is horizontal when its immediate feeder sits in the port's own
-    row; it is ``below`` / ``above`` only when fed by a direct exit port
-    (not a junction) a row below / above the port - the clean
+    row or comes directly from an exit in the same grid row; it is
+    ``below`` / ``above`` only when fed by a direct exit port
+    (not a junction) in a different grid row - the clean
     inter-section edge that arrives perpendicular at the boundary.  A
     line dropped into the row by an upstream fan/merge junction
     co-travels horizontally and is not a perpendicular joiner, so it is
@@ -1219,6 +1220,16 @@ def classify_merge_port_feeders(
             continue
         distinct_sources.add(id(src))
         if lid in bypass_lids:
+            continue
+        source_section = graph.sections.get(src.section_id) if src.section_id else None
+        target_section = graph.sections.get(port_obj.section_id)
+        if (
+            not is_junction
+            and source_section is not None
+            and target_section is not None
+            and source_section.grid_row == target_section.grid_row
+        ):
+            horizontal.append(lid)
             continue
         dy = src.y - port_st.y
         if abs(dy) <= _MERGE_APPROACH_Y_TOL:
@@ -2794,7 +2805,7 @@ def check_no_split_same_line_fanout_descents(
     descent (issue #702).  Coincident descents (a fused trunk) are the wanted
     state and never flag.
     """
-    by_source: dict[tuple[str, str, bool], list[tuple[float, float, float]]] = (
+    by_source: dict[tuple[str, str, bool, bool], list[tuple[float, float, float]]] = (
         defaultdict(list)
     )
     for rp in routes:
@@ -2810,10 +2821,13 @@ def check_no_split_same_line_fanout_descents(
         source_station = graph.stations.get(rp.edge.source)
         if source_station is not None and abs(x - source_station.x) <= COORD_TOLERANCE:
             continue
-        by_source[(rp.edge.source, rp.line_id, down)].append((x, y_lo, y_hi))
+        opens_right = rp.points[1][0] > rp.points[0][0]
+        by_source[(rp.edge.source, rp.line_id, down, opens_right)].append(
+            (x, y_lo, y_hi)
+        )
 
     violations: list[SplitFanoutDescent] = []
-    for (source, line_id, _down), descents in by_source.items():
+    for (source, line_id, _down, _opens_right), descents in by_source.items():
         if len(descents) < 2:
             continue
         for i in range(len(descents)):
