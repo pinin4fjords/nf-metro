@@ -3592,7 +3592,7 @@ def _settle_opposing_gap_flanks(
                 break
     by_id = {plan.id: plan for plan in settled}
     result = tuple(by_id[plan.id] for plan in plans)
-    return _reverse_rescue_gap_flanks(
+    result = _reverse_rescue_gap_flanks(
         result,
         graph,
         curve_radius,
@@ -3600,6 +3600,108 @@ def _settle_opposing_gap_flanks(
         fixed_channels,
         fixed_exit_channels,
         enabled=_reverse_rescue,
+    )
+    return _settle_stacked_elbow_openings(result, graph, curve_radius)
+
+
+def _settle_stacked_elbow_openings(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    curve_radius: float,
+) -> tuple[ConvergencePlan, ...]:
+    """Separate independently owned opening drops that meet at an elbow band.
+
+    A short shared Y span is not a co-travelling bundle: the two columns need a
+    full bundle clearance for their adjacent elbows.  Unlike opposing flanks,
+    either leg may be a landing opening, so settle that plan-owned coordinate
+    here after both planning directions have seated their trunk flanks.
+    """
+    lookup = gap_lookup_geometry(graph)
+    settled = list(plans)
+
+    def channels_of(plan: ConvergencePlan) -> tuple[_PlanGapChannel, ...]:
+        return _plan_gap_channels(plan, graph, lookup)
+
+    for plan_rank, plan in enumerate(tuple(settled)):
+        for channel in tuple(
+            item for item in channels_of(plan) if item.flank_rank is None
+        ):
+            obstacles = tuple(
+                obstacle
+                for other_rank, other in enumerate(settled)
+                for obstacle in channels_of(other)
+                if other_rank != plan_rank
+                and _stacked_elbow_channels_crowd(channel, obstacle)
+            )
+            if not obstacles:
+                continue
+            gap_edges = column_gap_edges(
+                graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]
+            )
+            candidates = tuple(
+                sorted(
+                    {
+                        obstacle.coordinate + sign * BUNDLE_TO_BUNDLE_CLEARANCE
+                        for obstacle in obstacles
+                        for sign in (-1.0, 1.0)
+                    },
+                    key=lambda candidate: (
+                        abs(candidate - channel.coordinate),
+                        candidate,
+                    ),
+                )
+            )
+            for coordinate in candidates:
+                if not _inside_usable_gap(gap_edges, coordinate):
+                    continue
+                moved = _move_landing_opening(
+                    plan,
+                    channel.claimant_member_ids,
+                    coordinate,
+                    curve_radius,
+                )
+                if moved is None:
+                    continue
+                moved_channels = tuple(
+                    item
+                    for item in channels_of(moved)
+                    if item.claimant_member_ids == channel.claimant_member_ids
+                    and item.gap == channel.gap
+                )
+                if not moved_channels or any(
+                    _stacked_elbow_channels_crowd(moved_channel, obstacle)
+                    for moved_channel in moved_channels
+                    for other_rank, other in enumerate(settled)
+                    if other_rank != plan_rank
+                    for obstacle in channels_of(other)
+                ):
+                    continue
+                candidate_plans = tuple(
+                    moved if rank == plan_rank else other
+                    for rank, other in enumerate(settled)
+                )
+                if (
+                    _landing_trunk_flank_conflict(candidate_plans, graph, curve_radius)
+                    is not None
+                ):
+                    continue
+                settled[plan_rank] = plan = moved
+                break
+    return tuple(settled)
+
+
+def _stacked_elbow_channels_crowd(
+    first: _PlanGapChannel, second: _PlanGapChannel
+) -> bool:
+    """Whether two independently sourced columns need elbow clearance."""
+    overlap = min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
+    return (
+        first.gap == second.gap
+        and not first.line_ids & second.line_ids
+        and not first.source_junction_ids & second.source_junction_ids
+        and COORD_TOLERANCE < overlap < MIN_CORRIDOR_Y_OVERLAP
+        and abs(first.coordinate - second.coordinate)
+        < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE_FINE
     )
 
 
@@ -3947,6 +4049,86 @@ def _landing_trunk_flank_clearance_requirements(
     return tuple(widest[key] for key in sorted(widest))
 
 
+def _stacked_elbow_clearance_requirements(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    fixed_channels: tuple[_PlanGapChannel, ...],
+) -> tuple[BoundaryClearanceRequirement, ...]:
+    """Request a column gap wide enough to separate a fixed short-overlap leg."""
+    lookup = gap_lookup_geometry(graph)
+    widest: dict[tuple[int, str], BoundaryClearanceRequirement] = {}
+    for plan in plans:
+        for channel in _plan_gap_channels(plan, graph, lookup):
+            for fixed in fixed_channels:
+                if not _stacked_elbow_channels_crowd(channel, fixed):
+                    continue
+                lower_col, row = channel.gap
+                left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=row)
+                candidate = fixed.coordinate + BUNDLE_TO_BUNDLE_CLEARANCE
+                required = candidate + EDGE_TO_BUNDLE_CLEARANCE - left
+                if candidate <= right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE:
+                    continue
+                boundary = lower_col + 1
+                negative = [
+                    section
+                    for section in graph.sections.values()
+                    if section.grid_col + section.grid_col_span - 1 == lower_col
+                    and (
+                        row is None
+                        or section.grid_row
+                        <= row
+                        < section.grid_row + section.grid_row_span
+                    )
+                ]
+                positive = [
+                    section
+                    for section in graph.sections.values()
+                    if section.grid_col == boundary
+                    and (
+                        row is None
+                        or section.grid_row
+                        <= row
+                        < section.grid_row + section.grid_row_span
+                    )
+                ]
+                if not negative or not positive:
+                    continue
+                negative_edge = max(
+                    section.bbox_x + section.bbox_w for section in negative
+                )
+                positive_edge = min(section.bbox_x for section in positive)
+                requirement = BoundaryClearanceRequirement(
+                    SettlementAxis.COLUMN,
+                    boundary,
+                    str(plan.system_id),
+                    max(required, measured_distance(negative_edge, positive_edge)),
+                    tuple(
+                        sorted(
+                            section.id
+                            for section in negative
+                            if measured_distance(
+                                section.bbox_x + section.bbox_w, negative_edge
+                            )
+                            <= COORD_TOLERANCE
+                        )
+                    ),
+                    tuple(
+                        sorted(
+                            section.id
+                            for section in positive
+                            if measured_distance(section.bbox_x, positive_edge)
+                            <= COORD_TOLERANCE
+                        )
+                    ),
+                    f"convergence system {plan.system_id} stacked elbow clearance",
+                )
+                key = (boundary, str(plan.system_id))
+                current = widest.get(key)
+                if current is None or requirement.required > current.required:
+                    widest[key] = requirement
+    return tuple(widest[key] for key in sorted(widest))
+
+
 def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     """Whether two parallel runs stand on one coordinate, hence draw one stroke."""
     index = lateral_axis(_direction(*first)).point_index
@@ -4136,6 +4318,11 @@ def _validate_final_convergence_feasibility(
         for plan in plans
         for channel in _plan_gap_channels(plan, graph, lookup)
     )
+    stacked_requirements = _stacked_elbow_clearance_requirements(
+        plans, graph, fixed_channels
+    )
+    if allow_clearance_requirements:
+        clearance_requirements.extend(stacked_requirements)
     for plan, channel in plan_channels:
         for member_channel in fixed_channels:
             if channel.gap != member_channel.gap or not spans_share_corridor(
@@ -4174,6 +4361,17 @@ def _validate_final_convergence_feasibility(
                         f"{channel.gap}"
                     )
                 continue
+            if _stacked_elbow_channels_crowd(channel, member_channel):
+                if any(
+                    requirement.owner_id == str(plan.system_id)
+                    and requirement.boundary == channel.gap[0] + 1
+                    for requirement in stacked_requirements
+                ):
+                    continue
+                raise FinalConvergenceFeasibilityError(
+                    f"final convergence plan {plan.id} crowds a short-overlap "
+                    f"member channel in gap {channel.gap}"
+                )
             if _gap_channels_crowd(
                 channel, member_channel
             ) and not _member_represented_convergence_lane(

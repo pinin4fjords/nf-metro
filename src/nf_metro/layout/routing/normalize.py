@@ -2254,6 +2254,33 @@ def _convergent_port_groups(
     """
     entry_port_for = ctx.merge.entry_port_for
 
+    def boundary_dogleg_stitch(rp: RoutedPath, ch: _VChannel, target: str) -> bool:
+        if ctx.convergences is None:
+            return False
+        membership = ctx.convergences.membership_for_edge(rp.edge)
+        landing = membership.landing if membership is not None else None
+        entry = ctx.graph.stations.get(target)
+        port = ctx.graph.ports.get(target)
+        if (
+            landing is None
+            or entry is None
+            or port is None
+            or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+            or ch.idx != len(rp.points) - 3
+            or ch.y_hi - ch.y_lo > 2 * ctx.offset_step + COORD_TOLERANCE
+        ):
+            return False
+        endpoint = rp.points[-1]
+        outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+        return (
+            all(
+                abs(actual - expected) <= COORD_TOLERANCE
+                for actual, expected in zip(endpoint, landing.join_point, strict=True)
+            )
+            and abs(endpoint[0] - entry.x) <= COORD_TOLERANCE
+            and outward * (ch.x - entry.x) >= COORD_TOLERANCE
+        )
+
     def spans(
         rp: RoutedPath,
     ) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
@@ -2265,6 +2292,8 @@ def _convergent_port_groups(
         # before render offsets are applied, and keying on the raw endpoint
         # would split that single convergence into two.
         target = entry_port_for.get(rp.edge.target, rp.edge.target)
+        if boundary_dogleg_stitch(rp, ch, target):
+            return
         yield (target, rp.line_id, ch.down), ch
 
     by_port = _group_channels_by(routes, spans)
@@ -3597,8 +3626,6 @@ def _separate_fused_cotravelling_runs(
         lane = lanes[i]
         obstacles = [other for other in lanes if lane.fuses_with(other, step)]
         if not obstacles:
-            continue
-        if any(other.pinned for other in obstacles):
             continue
         primary = movable_route_ids is None or all(
             id(run.route) in movable_route_ids for run in lane.runs
