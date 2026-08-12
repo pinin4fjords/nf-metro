@@ -1778,7 +1778,15 @@ def validate_member_geometry_emission(
                 raise RuntimeError(
                     f"member geometry plan {plan.id} channel geometry changed"
                 )
-        for radius_index, actual_radius in enumerate(route.curve_radii or ()):
+        radii = route.curve_radii or ()
+        owned_radius_indices = {
+            radius_index
+            for channel in plan.gap_channels
+            for radius_index in (channel.segment_rank - 1, channel.segment_rank)
+            if 0 <= radius_index < len(radii)
+        }
+        for radius_index in sorted(owned_radius_indices):
+            actual_radius = radii[radius_index]
             segment_rank = radius_index + 1
             offsets = route.concentric_corner_offsets_by_segment.get(segment_rank)
             bases = route.concentric_corner_bases_by_segment.get(segment_rank)
