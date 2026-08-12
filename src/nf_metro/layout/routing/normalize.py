@@ -2016,8 +2016,7 @@ def _stack_distinct_port_descents(
         x = target_x_by_line[lid]
         offset = x - x_inner
         for ch in by_line[lid]:
-            if abs(ch.x - x) > COORD_TOLERANCE or abs(offset) > COORD_TOLERANCE:
-                _set_vchannel_x(ch, x, offset)
+            _set_vchannel_x(ch, x, offset)
 
 
 def _nest_bypass_above_over_top_wrap(

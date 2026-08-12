@@ -93,6 +93,43 @@ def test_source_seam_turns_are_concentric_across_destinations() -> None:
     assert source_turns == {"flow": 14.0, "side": 10.0}
 
 
+def test_cross_system_landing_corners_are_concentric_across_route_shapes() -> None:
+    """One target landing cohort keeps one centre across distinct systems."""
+    path = EXAMPLES / "topologies" / "convergent_offrow_exit_climb.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    landing = {
+        route.line_id: route
+        for route in routes
+        if route.edge.target == "cnv_calling__entry_left_10"
+        and route.line_id in {"other", "snvvcf"}
+    }
+
+    assert {line_id: len(route.points) for line_id, route in landing.items()} == {
+        "other": 6,
+        "snvvcf": 4,
+    }
+    centres = {}
+    for line_id, route in landing.items():
+        assert route.curve_radii is not None
+        corner_x, corner_y = route.points[-2]
+        radius = route.curve_radii[-1]
+        centres[line_id] = (corner_x + radius, corner_y - radius)
+    assert centres["other"] == pytest.approx((796.0, 372.0))
+    assert centres["snvvcf"] == pytest.approx(centres["other"])
+    assert {
+        line_id: route.concentric_corner_offsets_by_segment[len(route.points) - 2][0]
+        for line_id, route in landing.items()
+    } == {"other": -4.0, "snvvcf": 0.0}
+    assert {
+        line_id: route.concentric_corner_bases_by_segment[len(route.points) - 2][0]
+        for line_id, route in landing.items()
+    } == {"other": 10.0, "snvvcf": 10.0}
+    assert check_concentric_bundle_corners(graph, routes, offsets) == []
+
+
 # ---------------------------------------------------------------------------
 # Route-level positive/negative tests
 # ---------------------------------------------------------------------------
@@ -135,6 +172,36 @@ def test_non_concentric_wholesale_corner_is_caught() -> None:
     assert violations[0].centre_spread > 1.0
 
 
+def test_same_edge_corner_matches_across_different_waypoint_counts() -> None:
+    """A semantic edge cohort does not require equal waypoint structure."""
+    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
+    b = _route(
+        "b",
+        [(3.0, 0.0), (3.0, 40.0), (3.0, 97.0), (50.0, 97.0)],
+        [0.0, 10.0],
+    )
+
+    violations = check_concentric_bundle_corners(None, [a, b], {})
+
+    assert len(violations) == 1
+    assert violations[0].centre_spread == pytest.approx(3.0 * 2**0.5)
+
+
+def test_shared_target_corner_matches_across_route_systems() -> None:
+    """A semantic landing cohort can span independently owned route systems."""
+    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
+    b = _route("b", [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)], [10.0])
+    a.edge = Edge(source="__source_a__", target="__landing__", line_id="a")
+    b.edge = Edge(source="__source_b__", target="__landing__", line_id="b")
+    a.route_system_id = "system-a"
+    b.route_system_id = "system-b"
+
+    violations = check_concentric_bundle_corners(None, [a, b], {})
+
+    assert len(violations) == 1
+    assert violations[0].centre_spread == pytest.approx(3.0 * 2**0.5)
+
+
 def test_non_concentric_source_seam_corner_is_caught_across_destinations() -> None:
     """A planned source bundle is one corner cohort across distinct targets."""
     a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
@@ -170,6 +237,10 @@ def test_transition_corner_with_one_pinned_leg_is_skipped() -> None:
     a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
     # b's vertical leg is offset 3px but both horizontals share y=100.
     b = _route("b", [(3.0, 0.0), (3.0, 100.0), (50.0, 100.0)], [10.0])
+    a.edge = Edge(source="__source_a__", target="__landing__", line_id="a")
+    b.edge = Edge(source="__source_b__", target="__landing__", line_id="b")
+    a.route_system_id = "system-a"
+    b.route_system_id = "system-b"
     assert check_concentric_bundle_corners(None, [a, b], {}) == []
 
 
