@@ -763,6 +763,14 @@
   "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
   "status": "candidate-dead"
  },
+ "member_geometry.py::if radius_index + 2 >= len(route.points):::#1": {
+  "note": "A frozen member corner with a published radius must retain all three defining points. Production plans emit complete paths; test_member_geometry_validator_attributes_missing_corner_points exercises the attributed failure for malformed emitted geometry.",
+  "status": "defensive"
+ },
+ "member_geometry.py::if radius_index >= len(radii):::#1": {
+  "note": "Every radius flanking a frozen plan-owned channel must survive emission. Production materialises the plan's complete radius tuple; test_member_geometry_validator_attributes_missing_flanking_radius exercises the attributed failure.",
+  "status": "defensive"
+ },
  "member_geometry.py::offsets is None::#1": {
   "note": "Plan freezing publishes concentric inputs for every radius flanking an owned gap channel. This operand reports a malformed plan or lost emission metadata; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
   "status": "defensive"
@@ -1029,6 +1037,10 @@
  },
  "normalize.py::or not 0 <= radius_index < len(route.curve_radii)::#1": {
   "note": "A settled channel rank identifies the two flanking radii on its emitted route. An out-of-range index is malformed ownership metadata, exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
+  "status": "defensive"
+ },
+ "normalize.py::or radius_index + 2 >= len(route.points)::#1": {
+  "note": "A settled exit-turn radius must retain all three defining points. Production routes have point-derived radius counts; the point-index case in test_gap_plan_radius_validator_rejects_incomplete_ownership exercises the attributed failure.",
   "status": "defensive"
  },
  "offsets.py::elif feeding_exit != edge.source:::#1": {

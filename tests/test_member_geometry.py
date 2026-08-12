@@ -461,8 +461,8 @@ def test_member_geometry_validator_rejects_changed_flanking_radius(
         (),
         None,
         (channel,),
-        ((1, offsets),),
-        ((1, bases),),
+        ((1, offsets), (2, (offsets[1], None))),
+        ((1, bases), (2, (bases[1], None))),
     )
     route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
     route.route_system_disposition = "planned"
@@ -516,6 +516,71 @@ def test_member_geometry_validator_rejects_missing_corner_inputs(
     )
 
     with pytest.raises(RuntimeError, match="has no concentric inputs"):
+        member_geometry.validate_member_geometry_emission([route], execution)
+
+
+def test_member_geometry_validator_attributes_missing_corner_points() -> None:
+    points = (
+        (0.0, 0.0),
+        (50.0, 0.0),
+        (50.0, 100.0),
+        (150.0, 100.0),
+    )
+    channel = RouteMemberGapChannel(1, points[1], points[2], 0, 0, Direction.D)
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        points,
+        (CURVE_RADIUS, CURVE_RADIUS),
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (channel,),
+        ((1, (0.0, 0.0)), (2, (0.0, None))),
+        ((1, (CURVE_RADIUS, CURVE_RADIUS)), (2, (CURVE_RADIUS, None))),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    route.points = route.points[:3]
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+
+    with pytest.raises(RuntimeError, match="has no complete corner points"):
+        member_geometry.validate_member_geometry_emission([route], execution)
+
+
+def test_member_geometry_validator_attributes_missing_flanking_radius() -> None:
+    points = ((0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0))
+    channel = RouteMemberGapChannel(1, points[1], points[2], 0, 0, Direction.D)
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        points,
+        (CURVE_RADIUS, CURVE_RADIUS),
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (channel,),
+        ((1, (0.0, 0.0)), (2, (0.0, None))),
+        ((1, (CURVE_RADIUS, CURVE_RADIUS)), (2, (CURVE_RADIUS, None))),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    route.curve_radii = [CURVE_RADIUS]
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+
+    with pytest.raises(RuntimeError, match="lost corner radius at index 1"):
         member_geometry.validate_member_geometry_emission([route], execution)
 
 

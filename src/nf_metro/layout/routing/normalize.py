@@ -824,6 +824,7 @@ def _validate_planned_exit_turn_radii(
                 dx is None
                 or base_radius is None
                 or not 0 <= radius_index < len(route.curve_radii)
+                or radius_index + 2 >= len(route.points)
             ):
                 raise ExitTurnInvariantError(
                     f"settled exit-turn member {edge_key!r} has incomplete "

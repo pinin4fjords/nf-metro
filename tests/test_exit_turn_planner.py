@@ -1218,18 +1218,23 @@ def test_gap_plan_radius_validator_skips_members_owned_elsewhere(
         "offset",
         "base",
         "radius-index",
+        "point-index",
     ),
 )
 def test_gap_plan_radius_validator_rejects_incomplete_ownership(
     monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
     edge = SimpleNamespace(source="source", target="target", line_id="line")
-    channel_rank = 2 if failure == "radius-index" else 1
+    channel_rank = 2 if failure in {"radius-index", "point-index"} else 1
     route = SimpleNamespace(
         edge=edge,
         line_id=edge.line_id,
         exit_turn_segment_rank=channel_rank,
-        curve_radii=None if failure == "radii" else [CURVE_RADIUS, CURVE_RADIUS],
+        curve_radii=(
+            None
+            if failure == "radii"
+            else [CURVE_RADIUS] * (3 if failure == "point-index" else 2)
+        ),
         points=[(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0)],
         concentric_corner_offsets_by_segment=(
             {}

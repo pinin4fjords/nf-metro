@@ -1779,13 +1779,19 @@ def validate_member_geometry_emission(
                     f"member geometry plan {plan.id} channel geometry changed"
                 )
         radii = route.curve_radii or ()
+        planned_radii = plan.curve_radii or ()
         owned_radius_indices = {
             radius_index
             for channel in plan.gap_channels
             for radius_index in (channel.segment_rank - 1, channel.segment_rank)
-            if 0 <= radius_index < len(radii)
+            if 0 <= radius_index < len(planned_radii)
         }
         for radius_index in sorted(owned_radius_indices):
+            if radius_index >= len(radii):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} lost corner radius at index "
+                    f"{radius_index}"
+                )
             actual_radius = radii[radius_index]
             segment_rank = radius_index + 1
             offsets = route.concentric_corner_offsets_by_segment.get(segment_rank)
@@ -1799,6 +1805,11 @@ def validate_member_geometry_emission(
                 raise RuntimeError(
                     f"member geometry plan {plan.id} corner radius at index "
                     f"{radius_index} has no concentric inputs"
+                )
+            if radius_index + 2 >= len(route.points):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} corner radius at index "
+                    f"{radius_index} has no complete corner points"
                 )
             previous, corner, following = route.points[radius_index : radius_index + 3]
             expected_radius = concentric_corner_radius_at(
