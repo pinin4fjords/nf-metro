@@ -568,7 +568,7 @@ def _route_edges(  # noqa: C901
     # seeing each other and two distinct lines can close to less than the
     # nesting step.  Restore that step before the feeder landing reads the
     # settled channels.
-    _separate_fused_cotravelling_runs(routes, ctx)
+    _separate_fused_cotravelling_runs(routes, ctx, station_offsets=ctx.station_offsets)
     assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
     # Same-line legs a coincidence pass fused onto one channel each kept their
     # handler's corner radius; unify every turn they share so the fused stroke

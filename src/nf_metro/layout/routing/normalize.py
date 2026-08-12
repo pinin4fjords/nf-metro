@@ -6,7 +6,7 @@ import functools
 import itertools
 import math
 from collections import defaultdict, deque
-from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from math import inf, isfinite
 from typing import AbstractSet, NamedTuple, TypeVar
@@ -41,6 +41,7 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
+    apply_route_offsets,
     column_gap_edges,
     convergence_owns_segment_boundary,
     corridor_lanes,
@@ -3391,11 +3392,32 @@ def _reseat_lane(lane: CorridorLane, coord: float) -> CorridorLane:
     )
 
 
+def _translate_lane(lane: CorridorLane, delta: float) -> CorridorLane:
+    """Translate a projected lane while preserving each stored track offset."""
+    for run in lane.runs:
+        radius_in, radius_out = run.radii
+        stored_coord = run.route.points[run.idx][run.axis]
+        _reseat_concentric_flanking(
+            run.route,
+            run.idx,
+            stored_coord + delta,
+            axis=run.axis,
+            base_radius=radius_in,
+            base_radius_out=radius_out,
+        )
+    return replace(
+        lane,
+        coord=lane.coord + delta,
+        runs=tuple(replace(run, coord=run.coord + delta) for run in lane.runs),
+    )
+
+
 def _separate_fused_cotravelling_runs(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
     *,
     movable_route_ids: frozenset[int] | None = None,
+    station_offsets: Mapping[tuple[str, str], float] | None = None,
 ) -> None:
     """Restore the nesting step between co-travelling tracks of distinct lines.
 
@@ -3422,6 +3444,10 @@ def _separate_fused_cotravelling_runs(
     put a track inside a section is abandoned rather than forced; the closing
     ``check_no_fused_cotravelling_lines`` reports whatever is left.
 
+    When station offsets are supplied, the lanes are measured where the
+    renderer draws them and translated by the projected correction. This keeps
+    deferred line separation from undoing the nesting step after planning.
+
     Every track is read once, before any move.  Moving one shifts the endpoint of
     the runs flanking it, so a neighbouring track's span can go a step stale --
     never enough to change which corridor two tracks share, which is the only
@@ -3429,7 +3455,15 @@ def _separate_fused_cotravelling_runs(
     """
     step = ctx.offset_step
     lanes = corridor_lanes(
-        run for rp in routes if rp.is_inter_section for run in corridor_runs(rp)
+        run
+        for rp in routes
+        if rp.is_inter_section
+        for run in corridor_runs(
+            rp,
+            apply_route_offsets(rp, station_offsets)
+            if station_offsets is not None
+            else None,
+        )
     )
     movable_lane_ids = {
         i
@@ -3457,7 +3491,11 @@ def _separate_fused_cotravelling_runs(
             for run in lane.runs
         ):
             continue
-        lanes[i] = _reseat_lane(lane, target)
+        lanes[i] = (
+            _translate_lane(lane, target - lane.coord)
+            if station_offsets is not None
+            else _reseat_lane(lane, target)
+        )
         relocated.add(i)
         pending.extend(
             j

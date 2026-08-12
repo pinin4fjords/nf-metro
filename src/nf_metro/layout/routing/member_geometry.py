@@ -59,6 +59,7 @@ from nf_metro.layout.routing.normalize import (
     _reseat_concentric_flanking,
     _route_endpoint_section_ids,
     _segment_claim_band,
+    _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _settle_entry_wrap_leadouts,
@@ -1594,6 +1595,12 @@ def build_member_geometry_execution(
             if reservation_ids_by_member is not None:
                 _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
             settled_exit_turns = MappingProxyType({})
+        _separate_fused_cotravelling_runs(
+            normalization_population,
+            ctx,
+            movable_route_ids=complete_path_route_ids,
+            station_offsets=ctx.station_offsets,
+        )
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
             route.exit_turn_segment_rank = segment_rank
