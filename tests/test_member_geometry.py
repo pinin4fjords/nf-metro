@@ -25,7 +25,10 @@ from nf_metro.layout.route_plan import (
 from nf_metro.layout.routing.common import Direction, GapSlot, OffsetRegime, RoutedPath
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
-from nf_metro.layout.routing.corners import _corner_travel_units
+from nf_metro.layout.routing.corners import (
+    _corner_travel_units,
+    concentric_corner_radius_at,
+)
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.normalize import _VChannel
 from nf_metro.layout.routing.offsets import compute_station_offsets
@@ -392,6 +395,85 @@ def test_seating_a_claimed_bundle_carries_its_concentric_fan() -> None:
         CURVE_RADIUS + OFFSET_STEP,
         CURVE_RADIUS - OFFSET_STEP,
     ]
+
+
+def test_seating_a_member_channel_preserves_both_concentric_inputs() -> None:
+    points = [(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0)]
+    offsets = (OFFSET_STEP, OFFSET_STEP)
+    bases = (CURVE_RADIUS, CURVE_RADIUS + 2.0)
+    route = RoutedPath(
+        Edge("source", "target", "line"),
+        "line",
+        points,
+        curve_radii=[
+            concentric_corner_radius_at(
+                *points[radius_index : radius_index + 3],
+                offsets[radius_index],
+                bases[radius_index],
+            )
+            for radius_index in range(2)
+        ],
+        concentric_corner_offsets_by_segment={1: offsets},
+        concentric_corner_bases_by_segment={1: bases},
+    )
+    channel = _VChannel(route, 1, 50.0, 0.0, 100.0, True)
+
+    member_geometry._seat_channel(channel, 60.0)
+
+    assert route.points[1:3] == [(60.0, 0.0), (60.0, 100.0)]
+    assert route.concentric_corner_offsets_by_segment[1] == offsets
+    assert route.concentric_corner_bases_by_segment[1] == bases
+    assert route.curve_radii == [
+        concentric_corner_radius_at(
+            *route.points[radius_index : radius_index + 3],
+            offsets[radius_index],
+            bases[radius_index],
+        )
+        for radius_index in range(2)
+    ]
+
+
+@pytest.mark.parametrize("radius_index", (0, 1), ids=("incoming", "outgoing"))
+def test_member_geometry_validator_rejects_changed_flanking_radius(
+    radius_index: int,
+) -> None:
+    points = ((0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0))
+    offsets = (OFFSET_STEP, OFFSET_STEP)
+    bases = (CURVE_RADIUS, CURVE_RADIUS + 2.0)
+    radii = tuple(
+        concentric_corner_radius_at(
+            *points[index : index + 3], offsets[index], bases[index]
+        )
+        for index in range(2)
+    )
+    channel = RouteMemberGapChannel(1, points[1], points[2], 0, 0, Direction.D)
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        points,
+        radii,
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (channel,),
+        ((1, offsets),),
+        ((1, bases),),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    route.route_system_disposition = "planned"
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+    assert route.curve_radii is not None
+    route.curve_radii[radius_index] += 1.0
+
+    with pytest.raises(RuntimeError, match="corner radius"):
+        member_geometry.validate_member_geometry_emission([route], execution)
 
 
 def test_member_plans_persist_exact_connector_ownership() -> None:

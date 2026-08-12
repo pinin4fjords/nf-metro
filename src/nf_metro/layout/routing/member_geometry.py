@@ -934,9 +934,34 @@ def _seat_channel(channel: _VChannel, coordinate: float) -> None:
 
     A materialised channel outlives the move: the passes after it read the
     coordinate off the record rather than locating the leg again, so the record
-    and the route it describes have to state one coordinate.
+    and the route it describes have to state one coordinate. Each flanking
+    corner retains the standard concentric inputs that produced its radius.
     """
-    _set_vchannel_x(channel, coordinate)
+    route = channel.route
+    offsets = route.concentric_corner_offsets_by_segment.get(channel.idx, (None, None))
+    bases = route.concentric_corner_bases_by_segment.get(channel.idx, (None, None))
+    radii = route.curve_radii or ()
+
+    def corner_inputs(tuple_index: int, radius_index: int) -> tuple[float, float]:
+        offset = offsets[tuple_index]
+        base_radius = bases[tuple_index]
+        if offset is not None and base_radius is not None:
+            return offset, base_radius
+        reference = (
+            radii[radius_index] if 0 <= radius_index < len(radii) else CURVE_RADIUS
+        )
+        return 0.0, reference
+
+    offset_in, base_radius = corner_inputs(0, channel.idx - 1)
+    offset_out, base_radius_out = corner_inputs(1, channel.idx)
+    _set_vchannel_x(
+        channel,
+        coordinate,
+        offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius,
+        base_radius_out=base_radius_out,
+    )
     channel.x = coordinate
 
 
@@ -1738,7 +1763,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
 def validate_member_geometry_emission(
     routes: list[RoutedPath], execution: MemberGeometryExecution
 ) -> None:
-    """Require every emitted plan-owned channel to retain its exact geometry."""
+    """Require every emitted member to retain its owned channel geometry."""
     for route in routes:
         plan = execution.plan_for_edge(route.edge)
         if plan is None:
@@ -1752,4 +1777,32 @@ def validate_member_geometry_emission(
             if actual != (channel.start, channel.end):
                 raise RuntimeError(
                     f"member geometry plan {plan.id} channel geometry changed"
+                )
+        for radius_index, actual_radius in enumerate(route.curve_radii or ()):
+            segment_rank = radius_index + 1
+            offsets = route.concentric_corner_offsets_by_segment.get(segment_rank)
+            bases = route.concentric_corner_bases_by_segment.get(segment_rank)
+            if (
+                offsets is None
+                or bases is None
+                or offsets[0] is None
+                or bases[0] is None
+            ):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} corner radius at index "
+                    f"{radius_index} has no concentric inputs"
+                )
+            previous, corner, following = route.points[radius_index : radius_index + 3]
+            expected_radius = concentric_corner_radius_at(
+                previous,
+                corner,
+                following,
+                offsets[0],
+                base_radius=bases[0],
+            )
+            if abs(actual_radius - expected_radius) > COORD_TOLERANCE_FINE:
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} corner radius "
+                    f"{actual_radius!r} at index {radius_index} differs from "
+                    f"its concentric radius {expected_radius!r}"
                 )

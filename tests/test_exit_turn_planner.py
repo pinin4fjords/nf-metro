@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -1143,8 +1143,9 @@ def test_genomeassembly_fan_plan_states_each_emitted_member_column() -> None:
     )
 
 
+@pytest.mark.parametrize("flank", (-1, 0), ids=("incoming", "outgoing"))
 def test_gap_plan_validator_rejects_a_changed_corner_radius(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, flank: int
 ) -> None:
     original = routing_core._spread_diagonal_bundles
 
@@ -1162,7 +1163,7 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
                 (item.edge.source, item.edge.target, item.line_id)
             ].validate_corner_radii
         )
-        radius_index = route.exit_turn_segment_rank - 1
+        radius_index = route.exit_turn_segment_rank + flank
         route.curve_radii[radius_index] += 1.0
 
     monkeypatch.setattr(
@@ -1173,6 +1174,37 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
 
     with pytest.raises(ExitTurnInvariantError, match="corner radius"):
         _observe(ROOT / "examples" / "genomeassembly_staggered.mmd")
+
+
+def test_gap_plan_radius_validator_skips_without_exit_turn_planning() -> None:
+    normalize._validate_planned_exit_turn_radii([], SimpleNamespace(exit_turns=None))
+
+
+@pytest.mark.parametrize(
+    ("settled", "channel_rank"),
+    (
+        (None, 1),
+        (SimpleNamespace(validate_corner_radii=True), None),
+        (SimpleNamespace(validate_corner_radii=False), 1),
+    ),
+    ids=("unsettled", "pre-adoption", "non-terminal"),
+)
+def test_gap_plan_radius_validator_skips_members_owned_elsewhere(
+    settled: object | None, channel_rank: int | None
+) -> None:
+    edge = SimpleNamespace(source="source", target="target", line_id="line")
+    route = SimpleNamespace(
+        edge=edge, line_id=edge.line_id, exit_turn_segment_rank=channel_rank
+    )
+    settled_by_edge = (
+        {} if settled is None else {(edge.source, edge.target, edge.line_id): settled}
+    )
+    ctx = SimpleNamespace(
+        exit_turns=object(),
+        settled_exit_turns=settled_by_edge,
+    )
+
+    normalize._validate_planned_exit_turn_radii([route], ctx)
 
 
 @pytest.mark.parametrize(
