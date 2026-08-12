@@ -145,6 +145,7 @@
     "topologies/merge_bottom_row_bypass.mmd",
     "topologies/merge_feeder_shared_channel_gap.mmd",
     "topologies/merge_trunk_out_of_range_section.mmd",
+    "topologies/plan_owned_distinct_lane_separation.mmd",
     "guide/03b_fan_in_merge.mmd"
   ],
   "merge_port": [
