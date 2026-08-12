@@ -44,8 +44,15 @@ from nf_metro.layout.routing import (
     observe_route_edges,
     route_edges,
 )
-from nf_metro.layout.routing.common import OffsetRegime, RoutedPath
-from nf_metro.layout.routing.invariants import check_no_fused_cotravelling_lines
+from nf_metro.layout.routing.common import (
+    OffsetRegime,
+    RoutedPath,
+    apply_route_offsets,
+)
+from nf_metro.layout.routing.invariants import (
+    _routes_crossings,
+    check_no_fused_cotravelling_lines,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph
 
@@ -191,6 +198,18 @@ def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
             if key not in out or separation < out[key]:
                 out[key] = separation  # type: ignore[index]
     return out  # type: ignore[return-value]
+
+
+def _longest_horizontal_run(
+    points: list[tuple[float, float]],
+) -> tuple[float, float]:
+    horizontal = [
+        (abs(end[0] - start[0]), start[1])
+        for start, end in zip(points, points[1:], strict=False)
+        if start[1] == end[1]
+    ]
+    assert horizontal, "route has no horizontal run"
+    return max(horizontal, key=lambda item: item[0])
 
 
 def _pair_identity(
@@ -349,6 +368,95 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
     assert _pair_separations(routes, offsets)[("primary", "secondary", "Y")] == (
         pytest.approx(graph_offset_step(graph))
     )
+
+
+@pytest.mark.parametrize(
+    ("path", "primary_source", "secondary_sources"),
+    (
+        (
+            EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd",
+            "__junction_8",
+            ("secondary_near__exit_left_1", "secondary_far__exit_left_2"),
+        ),
+        (
+            REGRESSIONS / "plan_owned_distinct_lane_separation_reordered.mmd",
+            "__junction_9",
+            ("secondary_near__exit_left_0", "secondary_far__exit_left_1"),
+        ),
+    ),
+    ids=("authored-order", "reordered-edges"),
+)
+def test_plan_owned_distinct_lanes_minimize_crossings_independent_of_edge_order(
+    path: Path,
+    primary_source: str,
+    secondary_sources: tuple[str, str],
+) -> None:
+    graph, routes, offsets = _route(path)
+    primary_routes = tuple(
+        route
+        for route in routes
+        if route.line_id == "primary"
+        and route.edge.source == primary_source
+        and route.edge.target in {"__merge_2", "__merge_3"}
+    )
+    secondary_routes = tuple(
+        route
+        for route in routes
+        if route.line_id == "secondary" and route.edge.source in secondary_sources
+    )
+    assert len(primary_routes) == len(secondary_routes) == 2
+
+    for primary in primary_routes:
+        primary_points = apply_route_offsets(primary, offsets)
+        primary_trunk_y = _longest_horizontal_run(primary_points)[1]
+        for secondary in secondary_routes:
+            secondary_points = apply_route_offsets(secondary, offsets)
+            secondary_trunk_y = _longest_horizontal_run(secondary_points)[1]
+            assert secondary_trunk_y < primary_trunk_y
+            assert not tuple(_routes_crossings(primary_points, secondary_points))
+
+
+def test_analytic_candidate_segments_match_the_plan_mover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Analytic scoring prices exactly the geometry the selected move emits."""
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    real = convergences._crossing_minimal_lane
+    checked = 0
+    mismatches: list[tuple[Path, float]] = []
+    current_path: Path | None = None
+
+    def checking_lane(plan, run, neighbours, clearance):
+        nonlocal checked
+        candidates = convergences._clear_lane_candidates(
+            tuple(neighbour.coordinate for neighbour in neighbours), clearance
+        )
+        for candidate in candidates:
+            checked += 1
+            analytic = convergences._plan_segments(plan, candidate)
+            moved = convergences._plan_segments(
+                convergences._move_trunk_axis(plan, candidate)
+            )
+            if analytic != moved:
+                assert current_path is not None
+                mismatches.append((current_path, candidate))
+        return real(plan, run, neighbours, clearance)
+
+    monkeypatch.setattr(convergences, "_crossing_minimal_lane", checking_lane)
+    for path in _CORPUS:
+        current_path = path
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+                build_observed_render_plan(graph, resolve_theme(None, graph))
+        except Exception:  # noqa: BLE001 - invalid fixtures may abort after scoring
+            pass
+
+    assert checked > 0
+    assert not mismatches
 
 
 @pytest.mark.parametrize(

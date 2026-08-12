@@ -1704,6 +1704,24 @@ def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePla
     )
 
 
+def _clear_lane_candidates(
+    obstacles: tuple[float, ...],
+    clearance: float,
+    feasible: Callable[[float], bool] | None = None,
+) -> tuple[float, ...]:
+    """Candidate lanes one *clearance* clear of every obstacle and feasible."""
+    return tuple(
+        candidate
+        for candidate in {
+            obstacle + side * clearance
+            for obstacle in obstacles
+            for side in (-1.0, 1.0)
+        }
+        if all(abs(candidate - obstacle) >= clearance for obstacle in obstacles)
+        and (feasible is None or feasible(candidate))
+    )
+
+
 def _nearest_lane(
     coordinate: float,
     obstacles: tuple[float, ...],
@@ -1720,18 +1738,10 @@ def _nearest_lane(
     Omit *feasible* where every clear lane is one the mover can reach.
     """
     candidates = sorted(
-        {obstacle + side * clearance for obstacle in obstacles for side in (-1.0, 1.0)},
+        _clear_lane_candidates(obstacles, clearance, feasible),
         key=lambda candidate: (abs(candidate - coordinate), -toward * candidate),
     )
-    return next(
-        (
-            candidate
-            for candidate in candidates
-            if all(abs(candidate - obstacle) >= clearance for obstacle in obstacles)
-            and (feasible is None or feasible(candidate))
-        ),
-        None,
-    )
+    return next(iter(candidates), None)
 
 
 # ``_trunk_segments`` lists a trunk's source-side runs from the central run
@@ -1796,6 +1806,9 @@ class _CotravellingRun:
     ``carrier_ids`` are the junctions the run leaves and the endpoints it heads
     to, so locality is decided on where a run starts and stops rather than on
     the line or system it belongs to over its whole length.
+
+    ``segments`` retain the local route geometry that can cross another run
+    when coincident lanes are separated.
     """
 
     system_id: RouteSystemId
@@ -1806,6 +1819,7 @@ class _CotravellingRun:
     line_ids: frozenset[str]
     carrier_ids: frozenset[str]
     corridor: int | None
+    segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
 
 
 def _bundled_corridor_runs(first: _CotravellingRun, second: _CotravellingRun) -> bool:
@@ -1876,6 +1890,54 @@ def _packed_lane(run: _CotravellingRun, seated: list[_CotravellingRun]) -> float
     return candidate
 
 
+def _plan_segments(
+    plan: ConvergencePlan, coordinate: float | None = None
+) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    """Segments at a candidate trunk coordinate, without rebuilding the plan."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    candidate = axis.coordinate if coordinate is None else coordinate
+    lateral = 1 if axis.axis is DemandAxis.X else 0
+    central = _trunk_segments(axis)[0]
+
+    def lifted(point: tuple[float, float]) -> tuple[float, float]:
+        return (point[0], candidate) if lateral == 1 else (candidate, point[1])
+
+    def on_central(point: tuple[float, float]) -> bool:
+        return point_to_polyline_distance(point, central) <= COORD_TOLERANCE
+
+    opening_segments = []
+    for landing in plan.landings:
+        segment = landing.opening_turn_segment
+        if segment is None:
+            continue
+        if on_central(landing.join_point):
+            start, end = segment
+            segment = (
+                lifted(start)
+                if abs(start[lateral] - axis.coordinate) <= COORD_TOLERANCE
+                else start,
+                lifted(end)
+                if abs(end[lateral] - axis.coordinate) <= COORD_TOLERANCE
+                else end,
+            )
+        opening_segments.append(segment)
+
+    return (
+        *_trunk_segments(axis, coordinate=candidate),
+        *opening_segments,
+        *(
+            (
+                lifted(continuation.start_point)
+                if on_central(continuation.start_point)
+                else continuation.start_point,
+                continuation.end_point,
+            )
+            for continuation in plan.outgoing_continuations
+        ),
+    )
+
+
 def _trunk_corridor_run(
     plan: ConvergencePlan, graph: MetroGraph
 ) -> _CotravellingRun | None:
@@ -1883,7 +1945,8 @@ def _trunk_corridor_run(
     axis = plan.trunk_axis
     if axis is None or axis.axis is not DemandAxis.X:
         return None
-    (start_x, coordinate), (end_x, _end_y) = _trunk_segments(axis)[0]
+    segments = _plan_segments(plan)
+    (start_x, coordinate), (end_x, _end_y) = segments[0]
     return _CotravellingRun(
         plan.system_id,
         coordinate,
@@ -1898,6 +1961,7 @@ def _trunk_corridor_run(
             )
         ),
         inter_row_gap_upper_row(graph, coordinate),
+        segments,
     )
 
 
@@ -1940,6 +2004,7 @@ def _member_corridor_runs(
                     frozenset({plan.edge.line_id}),
                     frozenset({plan.edge.source, plan.edge.target}),
                     inter_row_gap_upper_row(graph, start[1]),
+                    ((before, start), (start, end), (end, after)),
                 )
             )
     return tuple(runs)
@@ -1980,12 +2045,48 @@ def _pack_cotravelling_corridor_runs(
     return tuple(settled)
 
 
+def _crossing_minimal_lane(
+    plan: ConvergencePlan,
+    run: _CotravellingRun,
+    neighbours: tuple[_CotravellingRun, ...],
+    clearance: float,
+) -> float | None:
+    """Nearest lane with the fewest crossings against adjacent fixed runs."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    toward = (
+        axis.source_flank_coordinate + axis.target_flank_coordinate
+    ) / 2.0 - run.coordinate
+    candidates = _clear_lane_candidates(
+        tuple(neighbour.coordinate for neighbour in neighbours), clearance
+    )
+
+    def crossing_count(candidate: float) -> int:
+        return sum(
+            _orthogonal_segments_cross(moving, fixed)
+            for moving in _plan_segments(plan, candidate)
+            for neighbour in neighbours
+            for fixed in neighbour.segments
+        )
+
+    return min(
+        candidates,
+        key=lambda candidate: (
+            crossing_count(candidate),
+            abs(candidate - run.coordinate),
+            -toward * candidate,
+            candidate,
+        ),
+        default=None,
+    )
+
+
 def _separate_distinct_cotravelling_trunks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     member_runs: tuple[_CotravellingRun, ...],
 ) -> tuple[ConvergencePlan, ...]:
-    """Seat distinct-line planned trunks before their coordinates freeze."""
+    """Greedily seat distinct-line trunks by local proper-crossing count."""
     step = graph_offset_step(graph)
     settled = list(plans)
     seated = list(member_runs)
@@ -2006,17 +2107,7 @@ def _separate_distinct_cotravelling_trunks(
             if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
         )
         if obstacles:
-            axis = plan.trunk_axis
-            assert axis is not None
-            toward = (
-                axis.source_flank_coordinate + axis.target_flank_coordinate
-            ) / 2.0 - run.coordinate
-            coordinate = _nearest_lane(
-                run.coordinate,
-                tuple(item.coordinate for item in neighbours),
-                step,
-                1.0 if toward >= 0.0 else -1.0,
-            )
+            coordinate = _crossing_minimal_lane(plan, run, neighbours, step)
             assert coordinate is not None
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
             moved = _trunk_corridor_run(settled[plan_rank], graph)
@@ -4526,8 +4617,9 @@ def _route_covers_segment(
 
 
 def _trunk_segments(
-    axis: ConvergenceTrunkAxis,
+    axis: ConvergenceTrunkAxis, *, coordinate: float | None = None
 ) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    lateral_coordinate = axis.coordinate if coordinate is None else coordinate
     source_longitudinal, target_longitudinal = (
         (axis.extent_start, axis.extent_end)
         if axis.direction in {Direction.R, Direction.D}
@@ -4546,11 +4638,11 @@ def _trunk_segments(
     if axis.axis is DemandAxis.X:
         return (
             (
-                (axis.extent_start, axis.coordinate),
-                (axis.extent_end, axis.coordinate),
+                (axis.extent_start, lateral_coordinate),
+                (axis.extent_end, lateral_coordinate),
             ),
             (
-                (source_longitudinal, axis.coordinate),
+                (source_longitudinal, lateral_coordinate),
                 (source_longitudinal, axis.source_flank_coordinate),
             ),
             (
@@ -4558,7 +4650,7 @@ def _trunk_segments(
                 (source_endpoint, axis.source_flank_coordinate),
             ),
             (
-                (target_longitudinal, axis.coordinate),
+                (target_longitudinal, lateral_coordinate),
                 (target_longitudinal, axis.target_flank_coordinate),
             ),
             (
@@ -4568,11 +4660,11 @@ def _trunk_segments(
         )
     return (
         (
-            (axis.coordinate, axis.extent_start),
-            (axis.coordinate, axis.extent_end),
+            (lateral_coordinate, axis.extent_start),
+            (lateral_coordinate, axis.extent_end),
         ),
         (
-            (axis.coordinate, source_longitudinal),
+            (lateral_coordinate, source_longitudinal),
             (axis.source_flank_coordinate, source_longitudinal),
         ),
         (
@@ -4580,7 +4672,7 @@ def _trunk_segments(
             (axis.source_flank_coordinate, source_endpoint),
         ),
         (
-            (axis.coordinate, target_longitudinal),
+            (lateral_coordinate, target_longitudinal),
             (axis.target_flank_coordinate, target_longitudinal),
         ),
         (

@@ -263,15 +263,15 @@
   "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and laning moves that run rather than removing it, so the read that names the landing as a resident always finds a segment. The gate guards the Optional that read returns.",
   "status": "defensive"
  },
- "convergences.py::if _vert_horiz_cross(::#1": {
-  "note": "The `return True` of _orthogonal_segments_cross: one run passing strictly through the interior of the other rather than meeting it at a shared endpoint or a T-junction, as decided by common._vert_horiz_cross. Reached by one fixture (examples/topologies/exit_run_three_drop_columns.mmd) through _turn_crosses_shared_run, whose flank/central-run pairs all meet at a corner. Reachable -- an interior crossing is the defect the predicate exists to name -- and it feeds `convergences.py::if (::#12`, so one topology closes both.",
-  "status": "needs-review"
- },
  "convergences.py::if any(::#3": {
   "note": "_packed_lane's decline arm: packing a run onto the pitch of its nearest bundle neighbour would seat it inside a *second* neighbour's pitch. Reachable -- 3-lane bundles exist in the corpus (_packed_lane sees len(neighbours)==2 on examples/guide/03b_fan_in_merge.mmd) -- but no fixture makes the candidate breach the far lane. Wants a fixture.",
   "status": "needs-review"
  },
  "convergences.py::if any(::#6": {
+  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
+  "status": "needs-review"
+ },
+ "convergences.py::if not moved_channels or any(::#1": {
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
@@ -377,10 +377,6 @@
  },
  "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
   "note": "Mirror of the leading-flank reject: an interior horizontal whose trailing flank is not vertical. Same H-D-H evidence and the same reason it is not covered by the common.py precedent. Wants a fixture.",
-  "status": "needs-review"
- },
- "convergences.py::or abs(along[0][1] - along[1][1]) > COORD_TOLERANCE::#1": {
-  "note": "_orthogonal_segments_cross' reject for a pair whose `across` run is vertical but whose `along` run is not horizontal, i.e. two vertical runs. Its sole caller _turn_crosses_shared_run always pairs a trunk flank with that trunk's central run, and for a DemandAxis.X trunk the central run is horizontal, so this operand can only decide on a vertical trunk axis. Same root cause as this module's other DemandAxis.Y gaps; one fixture (examples/topologies/exit_run_three_drop_columns.mmd) reaches the helper at all.",
   "status": "needs-review"
  },
  "convergences.py::or abs(before[0] - start[0]) > COORD_TOLERANCE::#1": {
