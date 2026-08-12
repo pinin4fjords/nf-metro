@@ -323,6 +323,10 @@
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
+ "convergences.py::if not clearance_pending and any(::#1": {
+  "note": "The endpoint-agreement refusal is deferred only while a provisional convergence plan carries a published boundary-clearance requirement. Production rendering settles that grant and immediately observes a strict plan with clearance publication disabled, so the same guard is active before anything can render. No committed corpus fixture reaches the provisional shortfall; the controlled regression lowers the placement floor to exercise both arms.",
+  "status": "needs-review"
+ },
  "convergences.py::if not moved_channels or any(::#1": {
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"

@@ -1573,27 +1573,26 @@ They are design evidence, not part of this specification.
   clearance demands the same way and for the same reason -- a figure taken
   before its own earlier translations would be stale.
   `measure_row_gap_clearance` (`layout/phases/bbox.py`) states the row-axis
-  clearance demands; the demand vocabulary itself is
+  box-clearance demands. Convergence planning can publish a column-axis
+  `BoundaryClearanceRequirement` when a landing pair lacks runway, and
+  `measure_boundary_clearance_requirements` re-measures it against live box
+  edges. `measure_drawn_corridor_clearance` states any positive-side
+  containment owed by the strict post-grant ledger. The demand vocabulary is
   `layout/settlement_demand.py`, held apart from settlement so a layout phase
   can state a demand without importing the routing stack the ledger is built on.
   Rail layouts raise no clearance demand: their row pitch comes from the
   interchange idiom rather than the declared section gap, and widening one of
   their boundaries to that gap turns a flat inter-row run into a staircase --
   a decision change, which `_assert_settlement_decisions_frozen` refuses.
-- **The two demands do not cover the same axes.** The reservation ledger is
-  settled on both: `_settle_axis` runs once per axis and every row-gap and
-  column-gap claim is measured. The clearance demand is **row-only**.
-  `measure_row_gap_clearance` is the sole `ClearanceMeasurement` in the tree and
-  emits `SettlementAxis.ROW` exclusively, so `_clearance_at(graph, COLUMN_AXIS,
-  clearance)` is always empty and no column boundary settles a clearance demand.
-  That is the scope represented by `push_lower_rows_after_bbox_grow`, a row push
-  after a bbox grow. `_clearance_at` and
-  `_assert_clearance_demands_are_met` are written for both axes because the
-  vocabulary is axis-neutral, not because both are populated. The consequence is a
-  real one: render-time label wrapping grows `bbox_w` as well as `bbox_h`, so a
-  column boundary can have its declared gap eaten with nothing measuring the
-  deficit. Adding the column measurement is a behaviour change and is not part of
-  this contract.
+- **The two demands can cover either axis.** The reservation ledger is settled
+  on both: `_settle_axis` runs once per axis and every row-gap and column-gap
+  claim is measured. Generic box-growth clearance remains row-only because
+  `measure_row_gap_clearance` represents `push_lower_rows_after_bbox_grow`.
+  Column demands are route-published and narrowly scoped: a
+  `BoundaryClearanceRequirement` grants runway only for a provisional
+  `NO_APPROACH_SETTLEMENT_ROOM` convergence, while a drawn-corridor demand pays
+  positive-side containment measured from the strict post-grant route. Label
+  wrapping does not independently create a column demand.
 - **Precondition**: `compute_layout` has finished, routing has published the
   reservation ledger, render-time label wrapping has taken its bbox growth, and
   the header-collision reconcile has run. Local station geometry, section bbox
@@ -1827,30 +1826,29 @@ They are design evidence, not part of this specification.
 - **Transactional**: The pre-settlement coordinates are restored before any
   exception propagates, so a failure leaves the graph as settlement found it.
   The reservation ledger is read-only here.
-- **Idempotence**: A second pass over settled geometry finds no positive
-  deficit of either kind and writes nothing, so running settlement twice is an
-  exact geometry no-op.
-- **Termination**: Settlement runs once, against one ledger. That pass visits
+- **Idempotence**: Repeating one settlement against the same ledger and demand
+  measurement finds no positive deficit and writes nothing.
+- **Termination**: Each settlement runs once against one ledger. A pass visits
   each adjacent-index boundary once in ascending order; translating everything
   from boundary `b` onward widens `b` by exactly that amount, leaves earlier
   boundaries' blockers stationary, and moves later boundaries' blockers
   together, so boundaries do not interfere and the pass is finite in the number
-  of boundaries. It deliberately does not iterate: re-routing the settled
-  geometry publishes a different ledger (corridors appear, vanish, and change
-  their required width), so settling against successive ledgers would be a
-  fixpoint search over a moving constraint set with no convergence argument.
-  The plan the closing guard measures is therefore the frozen ledger projected
-  through the translations, not the re-routed one. A demand only the re-routed
-  geometry reveals is consequently not chased, and `attach_reroute_ledger_delta`
-  records it as a non-blocking plan diagnostic so it is named rather than
-  invisible. It compares each corridor's description together with the width it
-  asks for, since a boundary whose corridor survives at a different
-  `minimum_width` is one the translations were sized wrongly for.
+  of boundaries. Ordinary routing settles one frozen ledger, then adopts it for
+  the closing guard. A provisional convergence-clearance requirement uses a
+  bounded two-ledger sequence instead: settle the provisional grant, observe a
+  strict plan that may not publish another requirement, settle that plan once
+  for drawn positive-side containment, then re-route while consuming it. The
+  final decision-freeze check compares the strict plan with that consuming
+  re-route. There is no retry or fixpoint search. A requirement surviving the
+  first strict observation, or any deficit surviving final settlement, is an
+  invariant failure.
+  `attach_reroute_ledger_delta` compares each corridor's description together
+  with the width it asks for, since a boundary whose corridor survives at a
+  different `minimum_width` is one the translations were sized wrongly for.
   The decision freeze includes coordinate-independent system, member, family,
-  plan, coverage, and declared channel ownership. After the frozen ledger is
-  adopted, final routes are rebound to its claimant-exact reservation IDs and
-  validated against the published plan; reroute-ledger diagnostics cannot
-  leave routes attributed to the discarded provisional ledger.
+  plan, coverage, and declared channel ownership. Final routes are rebound to
+  the claimant-exact reservation IDs of the ledger they consumed and validated
+  against the published plan.
 - **Consumed by**: the re-route. `_settle_render_geometry` hands the
   pre-settlement ledger back to `observe_route_edges_centred` whenever it holds
   any reservation, which builds `ReservedCorridors`
@@ -1983,15 +1981,16 @@ They are design evidence, not part of this specification.
   every member of a planned system to hold exactly one geometry decision, so such
   an edge is owned by a member-geometry plan and the category is empty by
   construction.
-  The four that remain state real cases, and each names a **pair** of runs the
-  settlement passes could seat no lane between. They are refused by
+  The four that remain state real cases, and each names a **pair** of runs.
+  `NO_APPROACH_SETTLEMENT_ROOM` is the one width insufficiency: planning can
+  publish its exact landing-flank runway requirement for envelope settlement,
+  and the strict post-grant observation must return without another request.
+  `SHARED_TRUNK_CHANNEL`, `SHARED_APPROACH_CHANNEL`, and
+  `OPPOSING_OPENING_CHANNEL` describe incompatible ownership of a channel, not
+  missing boundary width. They remain hard refusals in
   `_validate_final_convergence_feasibility` once every movable decision is
-  frozen. The classified templates draw the same two runs in the same gap, so
-  retrying them would state nothing the plan did not and lose the attribution
-  it carried.
-  Reaching one is a statement that the map has no room, which is section
-  placement's to give; [#1712](https://github.com/seqeralabs/nf-metro/issues/1712)
-  carries the grant that would.
+  frozen. Retrying those classified templates would state nothing the plan did
+  not and lose the attribution it carried.
   **Construction failures are not dispositions.** Canonical convergence
   construction either returns complete geometry or raises at the condition that
   broke its contract. Only an upstream exit-turn ownership conflict produces a

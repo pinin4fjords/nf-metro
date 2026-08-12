@@ -518,7 +518,7 @@ class ReservationCoordinateTranslation:
             raise ValueError("reservation translation requires one canvas axis")
         if not math.isfinite(self.coordinate) or not math.isfinite(self.amount):
             raise ValueError("reservation translation must be finite")
-        if self.amount <= SAME_COORD_TOLERANCE:
+        if self.amount <= COORD_TOLERANCE:
             raise ValueError("reservation translation must be positive")
         if set(self.fully_owned_member_ids).intersection(self.crossing_member_ids):
             raise ValueError("reservation translation member ownership overlaps")

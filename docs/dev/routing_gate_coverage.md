@@ -16,7 +16,7 @@ Each row is a branch point (a *gate*) in a `layout/routing/` dispatch handler or
 
 Modules scoped to routing decision gates; `invariants.py` (the `validate=True` checker) and `__init__.py` are excluded.
 
-The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **342** gaps carry a triage verdict.
+The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **343** gaps carry a triage verdict.
 
 ## `arranger.py`
 
@@ -305,7 +305,7 @@ Gates with an un-exercised arm:
 | 4898 | `if opening is None:` | `->L4899` |  |
 | 4899 | `if not clearance_pending:` | `->L4900`, `->L4906` |  |
 | 4923 | `if ctx.validate_final_route_frames and not clearance_pending:` | `->L4925` |  |
-| 4940 | `if not clearance_pending and any(` | `->L4944` |  |
+| 4940 | `if not clearance_pending and any(` | `->L4944` | **needs-review** -- The endpoint-agreement refusal is deferred only while a provisional convergence plan carries a published boundary-clearance requirement. Production rendering settles that grant and immediately observes a strict plan with clearance publication disabled, so the same guard is active before anything can render. No committed corpus fixture reaches the provisional shortfall; the controlled regression lowers the placement floor to exercise both arms. |
 | 4945 | `if ctx.validate_final_route_frames and not clearance_pending:` | `->L-4839` |  |
 | 4959 | `if not plan.owns_geometry:` | `->L4960` |  |
 | 4961 | `if plan.system_id in execution.query.clearance_requirement_system_ids:` | `->L4962` |  |

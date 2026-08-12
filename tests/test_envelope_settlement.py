@@ -27,7 +27,6 @@ from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
     SettlementShortfall,
-    measure_boundary_clearance_requirements,
     quantised_allocation,
     settle_route_envelopes,
 )
@@ -36,6 +35,7 @@ from nf_metro.layout.pass_metrics import canvas_edge_clearance, stroke_scale_con
 from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.guards import (
     LayoutInvariantError,
+    PermissiveGuardWarning,
     PhaseInvariantError,
     assert_canvas_corridors_hold_their_claims,
     assert_reservations_are_settled,
@@ -63,6 +63,7 @@ from nf_metro.layout.routing.common import (
     apply_route_offsets,
     column_gap_edges,
 )
+from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.render import svg as render_svg_module
 from nf_metro.render.svg import (
     _assert_settlement_decisions_frozen,
@@ -1484,15 +1485,16 @@ SETTLED_CONVERGENCE_SYSTEMS = (
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "boundary"),
     (
-        ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd",
-        TOPOLOGIES / "fan_in_merge.mmd",
+        (ROOT / "examples" / "guide" / "03b_fan_in_merge.mmd", 2),
+        (TOPOLOGIES / "fan_in_merge.mmd", 2),
+        (TOPOLOGIES / "merge_trunk_out_of_range_section.mmd", 3),
     ),
-    ids=lambda item: item.name,
+    ids=lambda item: item.name if isinstance(item, Path) else None,
 )
 def test_a_convergence_pair_shortfall_widens_its_column_boundary(
-    path: Path, monkeypatch
+    path: Path, boundary: int, monkeypatch
 ) -> None:
     monkeypatch.setattr(section_placement, "MERGE_GAP_MIN", 40.0)
     monkeypatch.setattr(
@@ -1503,11 +1505,15 @@ def test_a_convergence_pair_shortfall_widens_its_column_boundary(
         source_dir=str(path.parent),
         layout_options={"section_x_gap": 40.0},
     )
-    boundary = 2
     left, right = column_gap_edges(graph, boundary - 1, boundary, row=0)
     assert right - left == pytest.approx(40.0)
 
     offsets = compute_station_offsets(graph)
+    with pytest.raises(ConvergenceInvariantError):
+        render_svg_module.observe_route_edges_centred(
+            graph,
+            station_offsets=offsets,
+        )
     observed = render_svg_module.observe_route_edges_centred(
         graph,
         station_offsets=offsets,
@@ -1519,39 +1525,33 @@ def test_a_convergence_pair_shortfall_widens_its_column_boundary(
     assert requirement.boundary == boundary
     assert requirement.required == pytest.approx(41.0)
 
-    settlement = settle_route_envelopes(
-        graph,
-        replace(observed.plan, reservations=()),
-        clearance=partial(
-            measure_boundary_clearance_requirements,
-            requirements=observed.plan.boundary_clearance_requirements,
-        ),
-    )
-
-    assert len(settlement.translations) == 1
-    move = settlement.translations[0]
-    assert move.amount == pytest.approx(1.0)
-    assert move.clearance is not None
-    assert move.clearance.owner_id == requirement.owner_id
-    left, right = column_gap_edges(graph, boundary - 1, boundary, row=0)
-    assert right - left == pytest.approx(41.0)
-
     render_graph = prepare_graph(
         path.read_text(),
         source_dir=str(path.parent),
         layout_options={"section_x_gap": 40.0},
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         rendered = build_observed_render_plan(
             render_graph, resolve_theme(None, render_graph)
         )
     assert not rendered.route_plan.boundary_clearance_requirements
-    assert any(
-        item.code == "envelope-settlement-translation"
-        and "column boundary 2 widened" in item.message
+    moves = [
+        item
         for item in rendered.route_plan.diagnostics
+        if item.code == "envelope-settlement-translation"
+        and f"column boundary {boundary} widened" in item.message
+    ]
+    assert len(moves) == 2
+    assert any("widened by 3.00px" in item.message for item in moves)
+    assert any("widened by 4.00px" in item.message for item in moves)
+    assert not any(issubclass(item.category, PermissiveGuardWarning) for item in caught)
+    settled_graph = _settled_render_graph(
+        render_graph, resolve_theme(None, render_graph)
     )
+    left, right = column_gap_edges(settled_graph, boundary - 1, boundary, row=0)
+    assert right - left >= requirement.required
+    assert right - left == pytest.approx(47.0)
 
 
 @pytest.mark.parametrize(
