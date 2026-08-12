@@ -106,6 +106,14 @@ class UnsupportedConvergenceError(ValueError):
     """Canonical templates cannot represent a complete convergence system."""
 
 
+class ConvergenceOwnershipConflict(UnsupportedConvergenceError):
+    """A complete convergence plan conflicts with an upstream geometry owner."""
+
+
+class _NoSharedTerminalAxis(ValueError):
+    """Trial routes require the outgoing continuation to own the trunk axis."""
+
+
 class ConvergencePlanningError(RuntimeError):
     """Semantic convergence membership is internally inconsistent."""
 
@@ -498,7 +506,7 @@ def _landing_from_trial(
             exit_turn_geometry = _exit_turn_geometry(route)
             _land_feeder_on_run(route, run, ctx)
             if exit_turn_geometry != _exit_turn_geometry(route):
-                raise UnsupportedConvergenceError(
+                raise ConvergenceOwnershipConflict(
                     "convergence landing conflicts with an upstream exit turn"
                 )
         _bake_route(route, ctx)
@@ -622,9 +630,7 @@ def _shared_terminal_axis(
                 )
             )
     if not segments:
-        raise UnsupportedConvergenceError(
-            "direct convergence has no emitted terminal approach"
-        )
+        raise _NoSharedTerminalAxis
     axis, coordinate, extent_start, extent_end, direction, rank = max(
         segments, key=lambda item: item[3] - item[2]
     )
@@ -672,6 +678,17 @@ def _shared_terminal_axis(
         ),
         rank,
     )
+
+
+def _required_shared_terminal_axis(
+    routes: tuple[RoutedPath, ...],
+    target_point: tuple[float, float],
+    reason: str,
+) -> tuple[ConvergenceTrunkAxis, int]:
+    try:
+        return _shared_terminal_axis(routes, target_point)
+    except _NoSharedTerminalAxis:
+        raise UnsupportedConvergenceError(reason) from None
 
 
 def _flank_run(
@@ -864,7 +881,7 @@ def _build_planned_convergence(
             exit_turn_geometry[edge_key] != _exit_turn_geometry(route)
             for edge_key, route in trial_routes.items()
         ):
-            raise UnsupportedConvergenceError(
+            raise ConvergenceOwnershipConflict(
                 "convergence alignment conflicts with an upstream exit turn"
             )
     else:
@@ -875,7 +892,7 @@ def _build_planned_convergence(
                 tuple(trial_routes[edge_key] for edge_key in incoming_edges),
                 trial_routes[outgoing_edges[0]].points[-1],
             )
-        except UnsupportedConvergenceError:
+        except _NoSharedTerminalAxis:
             outgoing_edge_key = outgoing_edges[0]
             direct_route = trial_routes[outgoing_edge_key]
             if (
@@ -887,9 +904,10 @@ def _build_planned_convergence(
                     _connect_route_endpoint(
                         trial_routes[edge_key], direct_route.points[-1]
                     )
-                trunk_axis, carrier_rank = _shared_terminal_axis(
+                trunk_axis, carrier_rank = _required_shared_terminal_axis(
                     tuple(trial_routes[edge_key] for edge_key in incoming_edges),
                     direct_route.points[-1],
+                    "direct convergence has no emitted terminal approach",
                 )
                 trunk_edge_key = incoming_edges[carrier_rank]
                 primary_member_id = member_by_edge[trunk_edge_key]
@@ -1079,8 +1097,10 @@ def _build_planned_convergence(
                 item for item in ownership if item.member_id == primary_member_id
             )
             carrier_route = trial_routes[carrier_ownership.edge]
-            trunk_axis, _rank = _shared_terminal_axis(
-                (carrier_route,), continuation.end_point
+            trunk_axis, _rank = _required_shared_terminal_axis(
+                (carrier_route,),
+                continuation.end_point,
+                "covered continuation is absent from its carrier",
             )
             primary_reason = ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
             continuations = [
@@ -4015,8 +4035,8 @@ def build_convergence_plan_execution(
             )
             system_plans = _reconcile_continuation_ownership(system_plans)
             system_plans = _reconcile_landing_handedness(system_plans, graph)
-        except UnsupportedConvergenceError as error:
-            reason = str(error) or type(error).__name__
+        except ConvergenceOwnershipConflict as error:
+            reason = str(error)
             system_plans = tuple(
                 _legacy_plan(scaffold, view, membership, reason)
                 for view, membership in zip(views, memberships, strict=True)

@@ -13,6 +13,7 @@ from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
+    ROUTE_SYSTEM_COMPATIBILITY_REASONS,
     BindingKind,
     ConvergenceDisposition,
     ConvergenceEndpointRole,
@@ -857,29 +858,70 @@ def test_direct_trunk_axis_rotates_and_reverses(
     assert trunk.direction.value == direction
 
 
-def test_one_planning_failure_cannot_fall_back_to_unplanned_emission(
+CONVERGENCE_CONSTRUCTION_FAILURES = (
+    "convergence landing has no approach",
+    "convergence template declined its member",
+    "covered continuation is absent from its carrier",
+    "direct convergence has no emitted terminal approach",
+    "feeder template declined its member",
+    "planned convergence member has no routing family",
+    "planned trunk has no drawable segment",
+    "primary trunk template declined its member",
+    "primary trunk template emitted no shared run",
+    "unsupported convergence shape",
+)
+
+
+def test_convergence_construction_failure_aborts_at_its_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def reject(*_args, **_kwargs):
-        raise UnsupportedConvergenceError("unsupported convergence shape")
+        raise UnsupportedConvergenceError("synthetic construction defect")
 
     monkeypatch.setattr(convergence_routing, "_build_planned_convergence", reject)
-    with pytest.raises(ValueError, match="has 0 geometry decisions"):
-        _observe(FROZEN / "seed_15.mmd")
 
-
-def test_unregistered_convergence_failure_cannot_open_compatibility(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def reject(*_args, **_kwargs):
-        raise UnsupportedConvergenceError("synthetic unregistered convergence failure")
-
-    monkeypatch.setattr(convergence_routing, "_build_planned_convergence", reject)
     with pytest.raises(
-        ValueError,
-        match="unregistered compatibility reason convergence-plan",
+        UnsupportedConvergenceError, match="synthetic construction defect"
     ):
         _observe(FROZEN / "seed_15.mmd")
+
+
+def test_convergence_construction_failures_are_not_registered_dispositions() -> None:
+    registered = ROUTE_SYSTEM_COMPATIBILITY_REASONS["convergence-plan"]
+
+    assert not set(CONVERGENCE_CONSTRUCTION_FAILURES) & registered.keys()
+
+
+def test_absent_shared_terminal_axis_is_an_optional_construction_result() -> None:
+    route = RoutedPath(Edge("source", "target", "line"), "line", [(0.0, 0.0)])
+
+    with pytest.raises(convergence_routing._NoSharedTerminalAxis):
+        convergence_routing._shared_terminal_axis((route,), (10.0, 10.0))
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "direct convergence has no emitted terminal approach",
+        "covered continuation is absent from its carrier",
+    ),
+)
+def test_required_shared_terminal_axis_names_the_broken_contract(reason: str) -> None:
+    route = RoutedPath(Edge("source", "target", "line"), "line", [(0.0, 0.0)])
+
+    with pytest.raises(UnsupportedConvergenceError, match=reason):
+        convergence_routing._required_shared_terminal_axis(
+            (route,), (10.0, 10.0), reason
+        )
+
+
+def test_absent_shared_terminal_axis_selects_the_outgoing_continuation() -> None:
+    observed = _observe(FROZEN / "seed_77.mmd")[2]
+
+    assert any(
+        plan.primary_trunk_reason is ConvergenceTrunkReason.OUTGOING_CONTINUATION
+        for plan in observed.plan.convergence_plans
+    )
 
 
 @pytest.mark.parametrize("error", (AssertionError("bug"), TypeError("bug")))
