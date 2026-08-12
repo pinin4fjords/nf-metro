@@ -441,14 +441,6 @@ _FAN_HAS_NO_SECTION_FRAME = CompatibilityFamily(
     "a valid routing input, so the established templates draw these fans and "
     "support is permanent."
 )
-_CONVERGENCE_TEMPLATE_DECLINED = CompatibilityFamily(
-    "The convergence plan is semantically complete, and the canonical template "
-    "it asks for one member declined to build it or built no drawable run. The "
-    "failure is in the construction step beneath a stated plan, so it is the "
-    "template's gap or the plan's overreach rather than a property of the "
-    "input.",
-    _ISSUE.format(1713),
-)
 _UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME = CompatibilityFamily(
     "An upstream exit turn already fixes the axis or landing this convergence "
     "would state, so the convergence adopts that settled frame rather than "
@@ -555,19 +547,6 @@ ROUTE_SYSTEM_COMPATIBILITY_REASONS: Mapping[str, Mapping[str, CompatibilityFamil
                 _reasons(_FAN_HAS_NO_SECTION_FRAME, "unsupported-fan-direction"),
             ),
             "convergence-plan": _registry(
-                _reasons(
-                    _CONVERGENCE_TEMPLATE_DECLINED,
-                    "convergence landing has no approach",
-                    "convergence template declined its member",
-                    "covered continuation is absent from its carrier",
-                    "direct convergence has no emitted terminal approach",
-                    "feeder template declined its member",
-                    "planned convergence member has no routing family",
-                    "planned trunk has no drawable segment",
-                    "primary trunk template declined its member",
-                    "primary trunk template emitted no shared run",
-                    "unsupported convergence shape",
-                ),
                 _reasons(
                     _UPSTREAM_EXIT_TURN_HOLDS_THE_FRAME,
                     "convergence alignment conflicts with an upstream exit turn",
