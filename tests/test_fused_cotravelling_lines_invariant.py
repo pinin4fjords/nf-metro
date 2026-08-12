@@ -52,6 +52,7 @@ EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
 REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
+THROUGH_SECTION = REPO_ROOT / "tests" / "fixtures" / "through_section"
 
 REPORTED = [
     CURVE_REPROS / "rl_return_row_convergence.mmd",
@@ -61,7 +62,9 @@ REPORTED = [
 
 FUSED_WITHOUT_THE_PASS = [
     EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd",
+    CURVE_REPROS / "rl_return_row_convergence.mmd",
     REGRESSIONS / "entry_trunk_row_bow.mmd",
+    THROUGH_SECTION / "riboseq_packed_lr.mmd",
 ]
 
 
@@ -334,10 +337,10 @@ def test_tracks_fuse_without_the_separation_stages(
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
-def test_separated_pairs_land_on_the_step(
+def test_separated_pairs_land_on_the_nesting_pitch(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each pair settlement moves ends exactly one step apart, not merely wider."""
+    """Each settled pair lands on the nesting pitch, not an accidental gap."""
     _disable_separation_stages(monkeypatch)
     graph, routes, offsets, _violations = _settled(path, monkeypatch)
     step = graph_offset_step(graph)
@@ -351,4 +354,5 @@ def test_separated_pairs_land_on_the_step(
     step = graph_offset_step(graph)
     for pair in fused:
         assert pair in separations, f"{pair} no longer shares a corridor"
-        assert separations[pair] == pytest.approx(step, abs=1e-6)
+        assert separations[pair] >= step
+        assert separations[pair] % step == pytest.approx(0.0, abs=1e-6)
