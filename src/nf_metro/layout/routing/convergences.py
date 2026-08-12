@@ -680,6 +680,17 @@ def _shared_terminal_axis(
     )
 
 
+def _required_shared_terminal_axis(
+    routes: tuple[RoutedPath, ...],
+    target_point: tuple[float, float],
+    reason: str,
+) -> tuple[ConvergenceTrunkAxis, int]:
+    try:
+        return _shared_terminal_axis(routes, target_point)
+    except _NoSharedTerminalAxis:
+        raise UnsupportedConvergenceError(reason) from None
+
+
 def _flank_run(
     axis: DemandAxis,
     flank_coordinate: float,
@@ -893,9 +904,10 @@ def _build_planned_convergence(
                     _connect_route_endpoint(
                         trial_routes[edge_key], direct_route.points[-1]
                     )
-                trunk_axis, carrier_rank = _shared_terminal_axis(
+                trunk_axis, carrier_rank = _required_shared_terminal_axis(
                     tuple(trial_routes[edge_key] for edge_key in incoming_edges),
                     direct_route.points[-1],
+                    "direct convergence has no emitted terminal approach",
                 )
                 trunk_edge_key = incoming_edges[carrier_rank]
                 primary_member_id = member_by_edge[trunk_edge_key]
@@ -1085,8 +1097,10 @@ def _build_planned_convergence(
                 item for item in ownership if item.member_id == primary_member_id
             )
             carrier_route = trial_routes[carrier_ownership.edge]
-            trunk_axis, _rank = _shared_terminal_axis(
-                (carrier_route,), continuation.end_point
+            trunk_axis, _rank = _required_shared_terminal_axis(
+                (carrier_route,),
+                continuation.end_point,
+                "covered continuation is absent from its carrier",
             )
             primary_reason = ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
             continuations = [
@@ -4022,7 +4036,7 @@ def build_convergence_plan_execution(
             system_plans = _reconcile_continuation_ownership(system_plans)
             system_plans = _reconcile_landing_handedness(system_plans, graph)
         except ConvergenceOwnershipConflict as error:
-            reason = str(error) or type(error).__name__
+            reason = str(error)
             system_plans = tuple(
                 _legacy_plan(scaffold, view, membership, reason)
                 for view, membership in zip(views, memberships, strict=True)

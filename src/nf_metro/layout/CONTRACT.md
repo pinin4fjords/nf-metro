@@ -1989,14 +1989,16 @@ They are design evidence, not part of this specification.
   frozen. The classified templates draw the same two runs in the same gap, so
   retrying them would state nothing the plan did not and lose the attribution
   it carried.
-  **Construction failures are not dispositions.** Canonical convergence
-  construction either returns complete geometry or raises at the condition that
-  broke its contract. Only an upstream exit-turn ownership conflict produces a
-  non-owning convergence diagnostic. A private absent-axis signal selects the
-  outgoing continuation as trunk; it is not a failed plan.
   Reaching one is a statement that the map has no room, which is section
   placement's to give; [#1712](https://github.com/seqeralabs/nf-metro/issues/1712)
   carries the grant that would.
+  **Construction failures are not dispositions.** Canonical convergence
+  construction either returns complete geometry or raises at the condition that
+  broke its contract. Only an upstream exit-turn ownership conflict produces a
+  non-owning convergence diagnostic. At the template-selection site, a private
+  absent-axis signal selects the outgoing continuation as trunk. Sites that
+  require a shared terminal axis convert the signal to a descriptive construction
+  error.
   Every decision the passes below **can** make they do make, and from the pair
   rather than from whichever run arrived last: laning only the arrival leaves
   one line's outward and return legs on one column whenever the arrival has no

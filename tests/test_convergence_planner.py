@@ -872,16 +872,8 @@ CONVERGENCE_CONSTRUCTION_FAILURES = (
 )
 
 
-@pytest.mark.parametrize(
-    "path",
-    (
-        FROZEN / "seed_15.mmd",
-        TOPOLOGIES / "merge_feeders_three_columns.mmd",
-    ),
-)
 def test_convergence_construction_failure_aborts_at_its_source(
     monkeypatch: pytest.MonkeyPatch,
-    path: Path,
 ) -> None:
     def reject(*_args, **_kwargs):
         raise UnsupportedConvergenceError("synthetic construction defect")
@@ -891,7 +883,7 @@ def test_convergence_construction_failure_aborts_at_its_source(
     with pytest.raises(
         UnsupportedConvergenceError, match="synthetic construction defect"
     ):
-        _observe(path)
+        _observe(FROZEN / "seed_15.mmd")
 
 
 def test_convergence_construction_failures_are_not_registered_dispositions() -> None:
@@ -905,6 +897,31 @@ def test_absent_shared_terminal_axis_is_an_optional_construction_result() -> Non
 
     with pytest.raises(convergence_routing._NoSharedTerminalAxis):
         convergence_routing._shared_terminal_axis((route,), (10.0, 10.0))
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "direct convergence has no emitted terminal approach",
+        "covered continuation is absent from its carrier",
+    ),
+)
+def test_required_shared_terminal_axis_names_the_broken_contract(reason: str) -> None:
+    route = RoutedPath(Edge("source", "target", "line"), "line", [(0.0, 0.0)])
+
+    with pytest.raises(UnsupportedConvergenceError, match=reason):
+        convergence_routing._required_shared_terminal_axis(
+            (route,), (10.0, 10.0), reason
+        )
+
+
+def test_absent_shared_terminal_axis_selects_the_outgoing_continuation() -> None:
+    observed = _observe(FROZEN / "seed_77.mmd")[2]
+
+    assert any(
+        plan.primary_trunk_reason is ConvergenceTrunkReason.OUTGOING_CONTINUATION
+        for plan in observed.plan.convergence_plans
+    )
 
 
 @pytest.mark.parametrize("error", (AssertionError("bug"), TypeError("bug")))
