@@ -200,13 +200,16 @@ def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
     return out  # type: ignore[return-value]
 
 
-def _longest_horizontal_run_y(points: list[tuple[float, float]]) -> float:
-    horizontal = (
+def _longest_horizontal_run(
+    points: list[tuple[float, float]],
+) -> tuple[float, float]:
+    horizontal = [
         (abs(end[0] - start[0]), start[1])
         for start, end in zip(points, points[1:], strict=False)
         if start[1] == end[1]
-    )
-    return max(horizontal)[1]
+    ]
+    assert horizontal, "route has no horizontal run"
+    return max(horizontal, key=lambda item: item[0])
 
 
 def _pair_identity(
@@ -349,7 +352,7 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
     monkeypatch.setattr(
         convergences,
         "_separate_distinct_cotravelling_trunks",
-        lambda plans, graph, member_runs, edge_ranks: plans,
+        lambda plans, graph, member_runs: plans,
     )
     graph, routes, offsets = _route(path)
     violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
@@ -368,39 +371,49 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
 
 
 @pytest.mark.parametrize(
-    ("primary_target", "secondary_source"),
+    ("path", "primary_source", "secondary_sources"),
     (
-        ("__merge_2", "secondary_near__exit_left_1"),
-        ("__merge_2", "secondary_far__exit_left_2"),
-        ("__merge_3", "secondary_near__exit_left_1"),
-        ("__merge_3", "secondary_far__exit_left_2"),
+        (
+            EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd",
+            "__junction_8",
+            ("secondary_near__exit_left_1", "secondary_far__exit_left_2"),
+        ),
+        (
+            REGRESSIONS / "plan_owned_distinct_lane_separation_reordered.mmd",
+            "__junction_9",
+            ("secondary_near__exit_left_0", "secondary_far__exit_left_1"),
+        ),
     ),
+    ids=("authored-order", "reordered-edges"),
 )
-def test_plan_owned_distinct_lanes_preserve_emission_order_without_crossings(
-    primary_target: str,
-    secondary_source: str,
+def test_plan_owned_distinct_lanes_minimize_crossings_independent_of_edge_order(
+    path: Path,
+    primary_source: str,
+    secondary_sources: tuple[str, str],
 ) -> None:
-    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
     graph, routes, offsets = _route(path)
-    primary = next(
+    primary_routes = tuple(
         route
         for route in routes
         if route.line_id == "primary"
-        and route.edge.source == "__junction_8"
-        and route.edge.target == primary_target
+        and route.edge.source == primary_source
+        and route.edge.target in {"__merge_2", "__merge_3"}
     )
-    secondary = next(
+    secondary_routes = tuple(
         route
         for route in routes
-        if route.line_id == "secondary" and route.edge.source == secondary_source
+        if route.line_id == "secondary" and route.edge.source in secondary_sources
     )
-    primary_points = apply_route_offsets(primary, offsets)
-    secondary_points = apply_route_offsets(secondary, offsets)
-    primary_trunk_y = _longest_horizontal_run_y(primary_points)
-    secondary_trunk_y = _longest_horizontal_run_y(secondary_points)
+    assert len(primary_routes) == len(secondary_routes) == 2
 
-    assert secondary_trunk_y < primary_trunk_y
-    assert not tuple(_routes_crossings(primary_points, secondary_points))
+    for primary in primary_routes:
+        primary_points = apply_route_offsets(primary, offsets)
+        primary_trunk_y = _longest_horizontal_run(primary_points)[1]
+        for secondary in secondary_routes:
+            secondary_points = apply_route_offsets(secondary, offsets)
+            secondary_trunk_y = _longest_horizontal_run(secondary_points)[1]
+            assert secondary_trunk_y < primary_trunk_y
+            assert not tuple(_routes_crossings(primary_points, secondary_points))
 
 
 @pytest.mark.parametrize(

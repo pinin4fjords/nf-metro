@@ -1,0 +1,56 @@
+%%metro title: Plan-owned distinct lane separation, reordered edges
+%%metro line: primary | Primary | #3779b1
+%%metro line: secondary | Secondary | #a66d13
+%%metro line: carrier | Carrier | #156075
+%%metro grid: target_primary_far | 0,0
+%%metro grid: target_primary | 1,0
+%%metro grid: target_secondary | 2,0
+%%metro grid: shared_source | 3,0
+%%metro grid: secondary_near | 4,0
+%%metro grid: secondary_far | 5,0
+%%metro grid: primary_far | 6,0
+graph LR
+    subgraph target_primary_far [Primary target 2]
+        %%metro direction: RL
+        pf_in[Join]
+        pf_out[Publish]
+        pf_in -->|primary| pf_out
+    end
+    subgraph target_primary [Primary target]
+        %%metro direction: RL
+        p_in[Join]
+        p_out[Publish]
+        p_in -->|primary| p_out
+    end
+    subgraph target_secondary [Secondary target]
+        %%metro direction: RL
+        s_in[Join]
+        s_out[Publish]
+        s_in -->|secondary| s_out
+    end
+    subgraph shared_source [Shared source]
+        %%metro direction: RL
+        shared_in[Prepare]
+        shared_out[Dispatch]
+        shared_in -->|carrier| shared_out
+    end
+    subgraph secondary_near [Secondary near]
+        %%metro direction: RL
+        near[Near]
+    end
+    subgraph secondary_far [Secondary far]
+        %%metro direction: RL
+        far[Far]
+    end
+    subgraph primary_far [Primary far]
+        %%metro direction: RL
+        primary_source[Primary source]
+    end
+    near -->|secondary| s_in
+    far -->|secondary| s_in
+    shared_out -->|secondary| s_in
+    primary_source -->|primary| p_in
+    primary_source -->|primary| pf_in
+    shared_out -->|primary| p_in
+    shared_out -->|primary| pf_in
+    s_out -->|primary| p_in

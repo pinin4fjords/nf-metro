@@ -1675,6 +1675,24 @@ def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePla
     )
 
 
+def _clear_lane_candidates(
+    obstacles: tuple[float, ...],
+    clearance: float,
+    feasible: Callable[[float], bool] | None = None,
+) -> tuple[float, ...]:
+    """Candidate lanes one *clearance* clear of every obstacle and feasible."""
+    return tuple(
+        candidate
+        for candidate in {
+            obstacle + side * clearance
+            for obstacle in obstacles
+            for side in (-1.0, 1.0)
+        }
+        if all(abs(candidate - obstacle) >= clearance for obstacle in obstacles)
+        and (feasible is None or feasible(candidate))
+    )
+
+
 def _nearest_lane(
     coordinate: float,
     obstacles: tuple[float, ...],
@@ -1691,18 +1709,10 @@ def _nearest_lane(
     Omit *feasible* where every clear lane is one the mover can reach.
     """
     candidates = sorted(
-        {obstacle + side * clearance for obstacle in obstacles for side in (-1.0, 1.0)},
+        _clear_lane_candidates(obstacles, clearance, feasible),
         key=lambda candidate: (abs(candidate - coordinate), -toward * candidate),
     )
-    return next(
-        (
-            candidate
-            for candidate in candidates
-            if all(abs(candidate - obstacle) >= clearance for obstacle in obstacles)
-            and (feasible is None or feasible(candidate))
-        ),
-        None,
-    )
+    return next(iter(candidates), None)
 
 
 # ``_trunk_segments`` lists a trunk's source-side runs from the central run
@@ -1768,8 +1778,8 @@ class _CotravellingRun:
     to, so locality is decided on where a run starts and stops rather than on
     the line or system it belongs to over its whole length.
 
-    ``canonical_edge_rank`` preserves emission order when coincident distinct
-    lines are assigned neighbouring screen-space lanes.
+    ``segments`` retain the local route geometry that can cross another run
+    when coincident lanes are separated.
     """
 
     system_id: RouteSystemId
@@ -1780,7 +1790,7 @@ class _CotravellingRun:
     line_ids: frozenset[str]
     carrier_ids: frozenset[str]
     corridor: int | None
-    canonical_edge_rank: int
+    segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
 
 
 def _bundled_corridor_runs(first: _CotravellingRun, second: _CotravellingRun) -> bool:
@@ -1851,21 +1861,35 @@ def _packed_lane(run: _CotravellingRun, seated: list[_CotravellingRun]) -> float
     return candidate
 
 
-def _trunk_corridor_run(
+def _plan_segments(
     plan: ConvergencePlan,
-    graph: MetroGraph,
-    edge_ranks: Mapping[ResolvedEdge, int],
+) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    """Segments whose geometry follows a convergence trunk when it moves."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    return (
+        *_trunk_segments(axis),
+        *(
+            segment
+            for landing in plan.landings
+            if (segment := landing.opening_turn_segment) is not None
+        ),
+        *(
+            (continuation.start_point, continuation.end_point)
+            for continuation in plan.outgoing_continuations
+        ),
+    )
+
+
+def _trunk_corridor_run(
+    plan: ConvergencePlan, graph: MetroGraph
 ) -> _CotravellingRun | None:
     """The corridor run *plan*'s central trunk lays, when it lays one."""
     axis = plan.trunk_axis
     if axis is None or axis.axis is not DemandAxis.X:
         return None
-    (start_x, coordinate), (end_x, _end_y) = _trunk_segments(axis)[0]
-    primary = next(
-        item
-        for item in plan.endpoint_ownership
-        if item.member_id == plan.primary_trunk_member_id
-    )
+    segments = _plan_segments(plan)
+    (start_x, coordinate), (end_x, _end_y) = segments[0]
     return _CotravellingRun(
         plan.system_id,
         coordinate,
@@ -1880,7 +1904,7 @@ def _trunk_corridor_run(
             )
         ),
         inter_row_gap_upper_row(graph, coordinate),
-        edge_ranks[primary.edge],
+        segments,
     )
 
 
@@ -1888,7 +1912,6 @@ def _member_corridor_runs(
     plans: tuple[ConvergencePlan, ...],
     member_geometry: MemberGeometryExecution,
     graph: MetroGraph,
-    edge_ranks: Mapping[ResolvedEdge, int],
 ) -> tuple[_CotravellingRun, ...]:
     """Every horizontal corridor run a system's unowned members already hold.
 
@@ -1924,7 +1947,7 @@ def _member_corridor_runs(
                     frozenset({plan.edge.line_id}),
                     frozenset({plan.edge.source, plan.edge.target}),
                     inter_row_gap_upper_row(graph, start[1]),
-                    edge_ranks[plan.edge],
+                    ((before, start), (start, end), (end, after)),
                 )
             )
     return tuple(runs)
@@ -1934,7 +1957,6 @@ def _pack_cotravelling_corridor_runs(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     member_runs: tuple[_CotravellingRun, ...],
-    edge_ranks: Mapping[ResolvedEdge, int],
 ) -> tuple[ConvergencePlan, ...]:
     """Hold co-travelling trunk runs of one system at bundle pitch.
 
@@ -1953,31 +1975,66 @@ def _pack_cotravelling_corridor_runs(
     settled = list(plans)
     seated = list(member_runs)
     for plan_rank, plan in enumerate(settled):
-        run = _trunk_corridor_run(plan, graph, edge_ranks)
+        run = _trunk_corridor_run(plan, graph)
         if run is None:
             continue
         coordinate = _packed_lane(run, seated)
         if coordinate is not None:
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
-            moved = _trunk_corridor_run(settled[plan_rank], graph, edge_ranks)
+            moved = _trunk_corridor_run(settled[plan_rank], graph)
             assert moved is not None
             run = moved
         seated.append(run)
     return tuple(settled)
 
 
+def _crossing_minimal_lane(
+    plan: ConvergencePlan,
+    run: _CotravellingRun,
+    neighbours: tuple[_CotravellingRun, ...],
+    clearance: float,
+) -> float | None:
+    """Nearest lane with the fewest crossings against adjacent fixed runs."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    toward = (
+        axis.source_flank_coordinate + axis.target_flank_coordinate
+    ) / 2.0 - run.coordinate
+    candidates = _clear_lane_candidates(
+        tuple(neighbour.coordinate for neighbour in neighbours), clearance
+    )
+
+    def crossing_count(candidate: float) -> int:
+        candidate_segments = _plan_segments(_move_trunk_axis(plan, candidate))
+        return sum(
+            _orthogonal_segments_cross(moving, fixed)
+            for moving in candidate_segments
+            for neighbour in neighbours
+            for fixed in neighbour.segments
+        )
+
+    return min(
+        candidates,
+        key=lambda candidate: (
+            crossing_count(candidate),
+            abs(candidate - run.coordinate),
+            -toward * candidate,
+        ),
+        default=None,
+    )
+
+
 def _separate_distinct_cotravelling_trunks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     member_runs: tuple[_CotravellingRun, ...],
-    edge_ranks: Mapping[ResolvedEdge, int],
 ) -> tuple[ConvergencePlan, ...]:
-    """Seat distinct-line planned trunks in canonical emission order."""
+    """Greedily seat distinct-line trunks by local proper-crossing count."""
     step = graph_offset_step(graph)
     settled = list(plans)
     seated = list(member_runs)
     for plan_rank, plan in enumerate(settled):
-        run = _trunk_corridor_run(plan, graph, edge_ranks)
+        run = _trunk_corridor_run(plan, graph)
         if run is None:
             continue
         neighbours = tuple(
@@ -1993,21 +2050,10 @@ def _separate_distinct_cotravelling_trunks(
             if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
         )
         if obstacles:
-            run_rank = run.canonical_edge_rank
-            nearest = min(
-                obstacles,
-                key=lambda item: abs(item.canonical_edge_rank - run_rank),
-            )
-            toward = float(2 * (nearest.canonical_edge_rank > run_rank) - 1)
-            coordinate = _nearest_lane(
-                run.coordinate,
-                tuple(item.coordinate for item in neighbours),
-                step,
-                toward,
-            )
+            coordinate = _crossing_minimal_lane(plan, run, neighbours, step)
             assert coordinate is not None
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
-            moved = _trunk_corridor_run(settled[plan_rank], graph, edge_ranks)
+            moved = _trunk_corridor_run(settled[plan_rank], graph)
             assert moved is not None
             run = moved
         seated.append(run)
@@ -4068,15 +4114,12 @@ def _settle_convergence_geometry(
     graph: MetroGraph,
     ctx: _RoutingCtx,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
-    edge_ranks: Mapping[ResolvedEdge, int],
     fixed_channels: tuple[_PlanGapChannel, ...] = (),
     member_runs: tuple[_CotravellingRun, ...] = (),
 ) -> tuple[ConvergencePlan, ...]:
     """Apply the shared convergence channel-settlement sequence."""
-    settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs, edge_ranks)
-    settled = _separate_distinct_cotravelling_trunks(
-        settled, graph, member_runs, edge_ranks
-    )
+    settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
+    settled = _separate_distinct_cotravelling_trunks(settled, graph, member_runs)
     settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
     settled = _settle_shared_opening_pivots(settled, graph)
     settled = _settle_shared_source_openings(settled, ctx.curve_radius)
@@ -4140,16 +4183,14 @@ def _settle_convergence_execution(
         if member_geometry is not None
         else ()
     )
-    edge_ranks = execution.query._edge_rank
     settled = _settle_convergence_geometry(
         eligible,
         graph,
         ctx,
         planned_exit_turns,
-        edge_ranks,
         fixed_channels,
         (
-            _member_corridor_runs(eligible, member_geometry, graph, edge_ranks)
+            _member_corridor_runs(eligible, member_geometry, graph)
             if member_geometry is not None
             else ()
         ),
