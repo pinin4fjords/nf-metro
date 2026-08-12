@@ -44,8 +44,15 @@ from nf_metro.layout.routing import (
     observe_route_edges,
     route_edges,
 )
-from nf_metro.layout.routing.common import OffsetRegime, RoutedPath
-from nf_metro.layout.routing.invariants import check_no_fused_cotravelling_lines
+from nf_metro.layout.routing.common import (
+    OffsetRegime,
+    RoutedPath,
+    apply_route_offsets,
+)
+from nf_metro.layout.routing.invariants import (
+    _routes_crossings,
+    check_no_fused_cotravelling_lines,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph
 
@@ -333,7 +340,7 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
     monkeypatch.setattr(
         convergences,
         "_separate_distinct_cotravelling_trunks",
-        lambda plans, graph, member_runs: plans,
+        lambda plans, graph, member_runs, edge_ranks: plans,
     )
     graph, routes, offsets = _route(path)
     violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
@@ -349,6 +356,42 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
     assert _pair_separations(routes, offsets)[("primary", "secondary", "Y")] == (
         pytest.approx(graph_offset_step(graph))
     )
+
+
+@pytest.mark.parametrize(
+    ("primary_target", "secondary_source"),
+    (
+        ("__merge_2", "secondary_near__exit_left_1"),
+        ("__merge_2", "secondary_far__exit_left_2"),
+        ("__merge_3", "secondary_near__exit_left_1"),
+        ("__merge_3", "secondary_far__exit_left_2"),
+    ),
+)
+def test_plan_owned_distinct_lanes_preserve_emission_order_without_crossings(
+    primary_target: str,
+    secondary_source: str,
+) -> None:
+    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
+    graph, routes, offsets = _route(path)
+    primary = next(
+        route
+        for route in routes
+        if route.line_id == "primary"
+        and route.edge.source == "__junction_8"
+        and route.edge.target == primary_target
+    )
+    secondary = next(
+        route
+        for route in routes
+        if route.line_id == "secondary" and route.edge.source == secondary_source
+    )
+    primary_points = apply_route_offsets(primary, offsets)
+    secondary_points = apply_route_offsets(secondary, offsets)
+    primary_trunk_y = primary_points[2][1]
+    secondary_trunk_y = secondary_points[2][1]
+
+    assert secondary_trunk_y < primary_trunk_y
+    assert not tuple(_routes_crossings(primary_points, secondary_points))
 
 
 @pytest.mark.parametrize(
