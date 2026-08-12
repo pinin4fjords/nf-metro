@@ -461,8 +461,8 @@ def test_member_geometry_validator_rejects_changed_flanking_radius(
         (),
         None,
         (channel,),
-        ((1, offsets), (2, (offsets[1], None))),
-        ((1, bases), (2, (bases[1], None))),
+        ((1, offsets),),
+        ((1, bases),),
     )
     route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
     route.route_system_disposition = "planned"
@@ -472,8 +472,37 @@ def test_member_geometry_validator_rejects_changed_flanking_radius(
     assert route.curve_radii is not None
     route.curve_radii[radius_index] += 1.0
 
-    with pytest.raises(RuntimeError, match="corner radius"):
+    with pytest.raises(RuntimeError, match="differs from its concentric radius"):
         member_geometry.validate_member_geometry_emission([route], execution)
+
+
+def test_member_geometry_validator_accepts_boundary_channel_radius() -> None:
+    points = ((0.0, 0.0), (0.0, 100.0), (50.0, 100.0))
+    radius = concentric_corner_radius_at(*points, OFFSET_STEP, base_radius=CURVE_RADIUS)
+    channel = RouteMemberGapChannel(0, points[0], points[1], 0, 0, Direction.D)
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        points,
+        (radius,),
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (channel,),
+        ((0, (None, OFFSET_STEP)),),
+        ((0, (None, CURVE_RADIUS)),),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+
+    member_geometry.validate_member_geometry_emission([route], execution)
 
 
 @pytest.mark.parametrize(

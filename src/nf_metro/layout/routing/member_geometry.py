@@ -1780,48 +1780,48 @@ def validate_member_geometry_emission(
                 )
         radii = route.curve_radii or ()
         planned_radii = plan.curve_radii or ()
-        owned_radius_indices = {
-            radius_index
-            for channel in plan.gap_channels
-            for radius_index in (channel.segment_rank - 1, channel.segment_rank)
-            if 0 <= radius_index < len(planned_radii)
-        }
-        for radius_index in sorted(owned_radius_indices):
-            if radius_index >= len(radii):
-                raise RuntimeError(
-                    f"member geometry plan {plan.id} lost corner radius at index "
-                    f"{radius_index}"
-                )
-            actual_radius = radii[radius_index]
-            segment_rank = radius_index + 1
-            offsets = route.concentric_corner_offsets_by_segment.get(segment_rank)
-            bases = route.concentric_corner_bases_by_segment.get(segment_rank)
-            if (
-                offsets is None
-                or bases is None
-                or offsets[0] is None
-                or bases[0] is None
-            ):
-                raise RuntimeError(
-                    f"member geometry plan {plan.id} corner radius at index "
-                    f"{radius_index} has no concentric inputs"
-                )
-            if radius_index + 2 >= len(route.points):
-                raise RuntimeError(
-                    f"member geometry plan {plan.id} corner radius at index "
-                    f"{radius_index} has no complete corner points"
-                )
-            previous, corner, following = route.points[radius_index : radius_index + 3]
-            expected_radius = concentric_corner_radius_at(
-                previous,
-                corner,
-                following,
-                offsets[0],
-                base_radius=bases[0],
+        for channel in plan.gap_channels:
+            offsets = route.concentric_corner_offsets_by_segment.get(
+                channel.segment_rank
             )
-            if abs(actual_radius - expected_radius) > COORD_TOLERANCE_FINE:
-                raise RuntimeError(
-                    f"member geometry plan {plan.id} corner radius "
-                    f"{actual_radius!r} at index {radius_index} differs from "
-                    f"its concentric radius {expected_radius!r}"
+            bases = route.concentric_corner_bases_by_segment.get(channel.segment_rank)
+            first_radius_index = max(0, channel.segment_rank - 1)
+            for radius_index in range(
+                first_radius_index,
+                min(channel.segment_rank + 1, len(planned_radii)),
+            ):
+                input_index = radius_index - (channel.segment_rank - 1)
+                if radius_index >= len(radii):
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} lost corner radius at index "
+                        f"{radius_index}"
+                    )
+                offset = None if offsets is None else offsets[input_index]
+                base = None if bases is None else bases[input_index]
+                if offsets is None or bases is None or offset is None or base is None:
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius at index "
+                        f"{radius_index} has no concentric inputs"
+                    )
+                if radius_index + 2 >= len(route.points):
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius at index "
+                        f"{radius_index} has no complete corner points"
+                    )
+                previous, corner, following = route.points[
+                    radius_index : radius_index + 3
+                ]
+                expected_radius = concentric_corner_radius_at(
+                    previous,
+                    corner,
+                    following,
+                    offset,
+                    base_radius=base,
                 )
+                actual_radius = radii[radius_index]
+                if abs(actual_radius - expected_radius) > COORD_TOLERANCE_FINE:
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius "
+                        f"{actual_radius!r} at index {radius_index} differs from "
+                        f"its concentric radius {expected_radius!r}"
+                    )

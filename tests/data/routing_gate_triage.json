@@ -771,22 +771,6 @@
   "note": "Every radius flanking a frozen plan-owned channel must survive emission. Production materialises the plan's complete radius tuple; test_member_geometry_validator_attributes_missing_flanking_radius exercises the attributed failure.",
   "status": "defensive"
  },
- "member_geometry.py::offsets is None::#1": {
-  "note": "Plan freezing publishes concentric inputs for every radius flanking an owned gap channel. This operand reports a malformed plan or lost emission metadata; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
-  "status": "defensive"
- },
- "member_geometry.py::or bases is None::#1": {
-  "note": "Plan freezing publishes a base radius with every concentric offset flanking an owned gap channel. This operand reports a malformed plan or lost emission metadata; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
-  "status": "defensive"
- },
- "member_geometry.py::or bases[0] is None::#1": {
-  "note": "A published corner offset without its paired base radius violates the member-plan contract. Valid emission cannot take this arm; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
-  "status": "defensive"
- },
- "member_geometry.py::or offsets[0] is None::#1": {
-  "note": "A published base radius without its paired corner offset violates the member-plan contract. Valid emission cannot take this arm; test_member_geometry_validator_rejects_missing_corner_inputs exercises the failure.",
-  "status": "defensive"
- },
  "normalize.py::and crossed[0] < span[1]::#1": {
   "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
   "status": "defensive"
