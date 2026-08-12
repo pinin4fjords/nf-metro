@@ -139,15 +139,20 @@ def _route(
     line_id: str,
     points: list[tuple[float, float]],
     radii: list[float] | None = None,
+    *,
+    source: str = "__src__",
+    target: str = "__tgt__",
+    route_system_id: str | None = None,
 ) -> RoutedPath:
     """A bundled ``RoutedPath`` (shared src/tgt) with baked geometry."""
     return RoutedPath(
-        edge=Edge(source="__src__", target="__tgt__", line_id=line_id),
+        edge=Edge(source=source, target=target, line_id=line_id),
         line_id=line_id,
         points=points,
         is_inter_section=True,
         offset_regime=OffsetRegime.BAKED,
         curve_radii=radii,
+        route_system_id=route_system_id,
     )
 
 
@@ -189,12 +194,22 @@ def test_same_edge_corner_matches_across_different_waypoint_counts() -> None:
 
 def test_shared_target_corner_matches_across_route_systems() -> None:
     """A semantic landing cohort can span independently owned route systems."""
-    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
-    b = _route("b", [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)], [10.0])
-    a.edge = Edge(source="__source_a__", target="__landing__", line_id="a")
-    b.edge = Edge(source="__source_b__", target="__landing__", line_id="b")
-    a.route_system_id = "system-a"
-    b.route_system_id = "system-b"
+    a = _route(
+        "a",
+        [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)],
+        [10.0],
+        source="__source_a__",
+        target="__landing__",
+        route_system_id="system-a",
+    )
+    b = _route(
+        "b",
+        [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)],
+        [10.0],
+        source="__source_b__",
+        target="__landing__",
+        route_system_id="system-b",
+    )
 
     violations = check_concentric_bundle_corners(None, [a, b], {})
 
@@ -205,8 +220,12 @@ def test_shared_target_corner_matches_across_route_systems() -> None:
 def test_non_concentric_source_seam_corner_is_caught_across_destinations() -> None:
     """A planned source bundle is one corner cohort across distinct targets."""
     a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
-    b = _route("b", [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)], [10.0])
-    b.edge = Edge(source="__src__", target="__other__", line_id="b")
+    b = _route(
+        "b",
+        [(3.0, 0.0), (3.0, 97.0), (50.0, 97.0)],
+        [10.0],
+        target="__other__",
+    )
     for route in (a, b):
         route.exit_turn_plan_id = "plan"
         route.exit_turn_segment_rank = 1
@@ -234,13 +253,23 @@ def test_transition_corner_with_one_pinned_leg_is_skipped() -> None:
     """A converging corner (vertical legs offset, horizontals coincident) is
     a transition, not a wholesale translation, so non-concentric is allowed.
     """
-    a = _route("a", [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)], [10.0])
+    a = _route(
+        "a",
+        [(0.0, 0.0), (0.0, 100.0), (50.0, 100.0)],
+        [10.0],
+        source="__source_a__",
+        target="__landing__",
+        route_system_id="system-a",
+    )
     # b's vertical leg is offset 3px but both horizontals share y=100.
-    b = _route("b", [(3.0, 0.0), (3.0, 100.0), (50.0, 100.0)], [10.0])
-    a.edge = Edge(source="__source_a__", target="__landing__", line_id="a")
-    b.edge = Edge(source="__source_b__", target="__landing__", line_id="b")
-    a.route_system_id = "system-a"
-    b.route_system_id = "system-b"
+    b = _route(
+        "b",
+        [(3.0, 0.0), (3.0, 100.0), (50.0, 100.0)],
+        [10.0],
+        source="__source_b__",
+        target="__landing__",
+        route_system_id="system-b",
+    )
     assert check_concentric_bundle_corners(None, [a, b], {}) == []
 
 
