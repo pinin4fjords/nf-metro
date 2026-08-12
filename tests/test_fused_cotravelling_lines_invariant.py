@@ -120,6 +120,8 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
     The check is replaced by a recording stand-in that reports nothing, so the
     render runs to completion on a fixture carrying the defect and the test can
     measure its final geometry rather than only catch the abort.
+    The collinearity guard is suppressed because it detects the same induced
+    bad geometry first and would prevent that measurement.
     """
     from nf_metro.api import prepare_graph, resolve_theme
     from nf_metro.render.svg import build_observed_render_plan
@@ -177,6 +179,12 @@ def _pair_separations(routes, offsets) -> dict[tuple[str, str, str], float]:
             if first.axis != second.axis or first.sign != second.sign:
                 continue
             if first.line_id == second.line_id:
+                continue
+            if not any(
+                max(mine.span[0], theirs.span[0]) < min(mine.span[1], theirs.span[1])
+                for mine in first.runs
+                for theirs in second.runs
+            ):
                 continue
             axis = "X" if first.axis == 0 else "Y"
             key = tuple(sorted((first.line_id, second.line_id))) + (axis,)
@@ -305,8 +313,10 @@ def test_reported_corridors_keep_the_nesting_step(
     path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The corridors a reservation band pulled together keep the full step."""
-    _graph, _routes, _offsets, violations = _settled(path, monkeypatch)
-    assert not violations, "\n".join(v.message() for v in violations)
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    separations = _pair_separations(routes, offsets)
+    assert separations
+    assert min(separations.values()) >= graph_offset_step(graph)
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
