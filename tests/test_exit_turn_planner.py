@@ -1895,7 +1895,7 @@ def test_a_chained_trunk_descent_is_seated_off_the_column_it_is_built_on() -> No
 
 
 def test_a_gap_seated_axis_uses_the_allocated_coordinate() -> None:
-    """The planned axis uses the seat that clears the compatibility channel.
+    """The planned axis uses the seat that clears the allocated channel.
 
     The fan's axes are derived from the grid edges its handler has to hand;
     ``normalize._materialize_gap_slots`` then seats the whole gap at once and
@@ -1930,7 +1930,7 @@ def test_a_gap_seated_axis_uses_the_allocated_coordinate() -> None:
     } == around_stack
 
 
-def test_planned_turn_owns_the_compatibility_channel_seat() -> None:
+def test_planned_turn_owns_the_channel_seat() -> None:
     graph, offsets, observation = _observe(
         FIXTURES / "planned_compatibility_channel_collision.mmd"
     )
@@ -1947,7 +1947,7 @@ def test_planned_turn_owns_the_compatibility_channel_seat() -> None:
 
 
 @pytest.mark.parametrize("fold", [1, 2, 3])
-def test_compatibility_claim_matches_the_emitted_channel_span(fold: int) -> None:
+def test_planned_claim_matches_the_emitted_channel_span(fold: int) -> None:
     source = (
         (TOPOLOGIES / "shared_sink_parallel.mmd")
         .read_text()
