@@ -1611,7 +1611,7 @@ def _centreline_port_ids(
     laterally-offset branches carries lines the fan has already pulled off the
     centreline to keep them visually separated near the crossing; forcing it
     onto the raw centreline overrides whatever row its own section settles
-    those branches on downstream (#1711), and where the trunk ends inside the
+    those branches on downstream, and where the trunk ends inside the
     fan it drags the whole peeled bundle back up to a row nothing runs along.
 
     Where one branch does hold the centreline, read over every boundary port a
