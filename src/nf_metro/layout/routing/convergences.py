@@ -1993,25 +1993,17 @@ def _separate_distinct_cotravelling_trunks(
             if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
         )
         if obstacles:
-            if all(
-                item.canonical_edge_rank > run.canonical_edge_rank for item in obstacles
-            ):
-                toward = 1.0
-            elif all(
-                item.canonical_edge_rank < run.canonical_edge_rank for item in obstacles
-            ):
-                toward = -1.0
-            else:
-                axis = plan.trunk_axis
-                assert axis is not None
-                toward = (
-                    axis.source_flank_coordinate + axis.target_flank_coordinate
-                ) / 2.0 - run.coordinate
+            run_rank = run.canonical_edge_rank
+            nearest = min(
+                obstacles,
+                key=lambda item: abs(item.canonical_edge_rank - run_rank),
+            )
+            toward = float(2 * (nearest.canonical_edge_rank > run_rank) - 1)
             coordinate = _nearest_lane(
                 run.coordinate,
                 tuple(item.coordinate for item in neighbours),
                 step,
-                1.0 if toward >= 0.0 else -1.0,
+                toward,
             )
             assert coordinate is not None
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
