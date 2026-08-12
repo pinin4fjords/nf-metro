@@ -2046,6 +2046,7 @@ def _crossing_minimal_lane(
             crossing_count(candidate),
             abs(candidate - run.coordinate),
             -toward * candidate,
+            candidate,
         ),
         default=None,
     )

@@ -416,6 +416,49 @@ def test_plan_owned_distinct_lanes_minimize_crossings_independent_of_edge_order(
             assert not tuple(_routes_crossings(primary_points, secondary_points))
 
 
+def test_analytic_candidate_segments_match_the_plan_mover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Analytic scoring prices exactly the geometry the selected move emits."""
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    real = convergences._crossing_minimal_lane
+    checked = 0
+    mismatches: list[tuple[Path, float]] = []
+    current_path: Path | None = None
+
+    def checking_lane(plan, run, neighbours, clearance):
+        nonlocal checked
+        candidates = convergences._clear_lane_candidates(
+            tuple(neighbour.coordinate for neighbour in neighbours), clearance
+        )
+        for candidate in candidates:
+            checked += 1
+            analytic = convergences._plan_segments(plan, candidate)
+            moved = convergences._plan_segments(
+                convergences._move_trunk_axis(plan, candidate)
+            )
+            if analytic != moved:
+                assert current_path is not None
+                mismatches.append((current_path, candidate))
+        return real(plan, run, neighbours, clearance)
+
+    monkeypatch.setattr(convergences, "_crossing_minimal_lane", checking_lane)
+    for path in _CORPUS:
+        current_path = path
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+                build_observed_render_plan(graph, resolve_theme(None, graph))
+        except Exception:  # noqa: BLE001 - invalid fixtures may abort after scoring
+            pass
+
+    assert checked > 0
+    assert not mismatches
+
+
 @pytest.mark.parametrize(
     ("first_points", "second_points", "axis"),
     (
