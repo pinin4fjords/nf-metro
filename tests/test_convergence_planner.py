@@ -10,6 +10,7 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergence_routing
 from nf_metro.api import prepare_graph
+from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.geometry import point_to_polyline_distance
 from nf_metro.layout.route_plan import (
     BindingKind,
@@ -584,6 +585,58 @@ def test_trunk_flank_settlement_rederives_curve_radii(
             )
         )
         assert route.curve_radii[radius_rank] != 99.0
+
+
+@pytest.mark.parametrize(
+    ("points", "planned"),
+    (
+        (
+            [(0.0, 0.0), (10.0, 0.0), (10.0, 40.0), (50.0, 40.0)],
+            ((20.0, 0.0), (20.0, 40.0)),
+        ),
+        (
+            [(0.0, 0.0), (0.0, 10.0), (40.0, 10.0), (40.0, 50.0)],
+            ((0.0, 20.0), (40.0, 20.0)),
+        ),
+    ),
+)
+def test_planned_run_seating_preserves_both_recorded_concentric_inputs(
+    points: list[tuple[float, float]],
+    planned: tuple[tuple[float, float], tuple[float, float]],
+) -> None:
+    offsets = (4.0, -4.0)
+    bases = (CURVE_RADIUS, CURVE_RADIUS + 4.0)
+    route = RoutedPath(
+        Edge("source", "target", "line"),
+        "line",
+        points,
+        is_inter_section=True,
+        curve_radii=[99.0, 99.0],
+        offset_regime=OffsetRegime.BAKED,
+        concentric_corner_offsets_by_segment={1: offsets},
+        concentric_corner_bases_by_segment={1: bases},
+    )
+
+    convergence_routing._seat_planned_run(
+        route,
+        1,
+        planned,
+        MetroGraph(),
+        offset_in=0.0,
+        offset_out=0.0,
+    )
+
+    assert route.curve_radii is not None
+    assert route.concentric_corner_offsets_by_segment[1] == offsets
+    assert route.concentric_corner_bases_by_segment[1] == bases
+    for radius_index, offset, base_radius in zip((0, 1), offsets, bases, strict=True):
+        assert route.curve_radii[radius_index] == pytest.approx(
+            concentric_corner_radius_at(
+                *route.points[radius_index : radius_index + 3],
+                offset,
+                base_radius,
+            )
+        )
 
 
 def test_trunk_flank_settlement_keeps_radii_of_an_unmoved_flank() -> None:

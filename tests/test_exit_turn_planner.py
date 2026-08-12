@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -1143,8 +1143,9 @@ def test_genomeassembly_fan_plan_states_each_emitted_member_column() -> None:
     )
 
 
+@pytest.mark.parametrize("flank", (-1, 0), ids=("incoming", "outgoing"))
 def test_gap_plan_validator_rejects_a_changed_corner_radius(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, flank: int
 ) -> None:
     original = routing_core._spread_diagonal_bundles
 
@@ -1162,7 +1163,7 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
                 (item.edge.source, item.edge.target, item.line_id)
             ].validate_corner_radii
         )
-        radius_index = route.exit_turn_segment_rank - 1
+        radius_index = route.exit_turn_segment_rank + flank
         route.curve_radii[radius_index] += 1.0
 
     monkeypatch.setattr(
@@ -1173,6 +1174,110 @@ def test_gap_plan_validator_rejects_a_changed_corner_radius(
 
     with pytest.raises(ExitTurnInvariantError, match="corner radius"):
         _observe(ROOT / "examples" / "genomeassembly_staggered.mmd")
+
+
+def test_gap_plan_radius_validator_skips_without_exit_turn_planning() -> None:
+    normalize._validate_planned_exit_turn_radii([], SimpleNamespace(exit_turns=None))
+
+
+@pytest.mark.parametrize(
+    ("settled", "channel_rank"),
+    (
+        (None, 1),
+        (SimpleNamespace(validate_corner_radii=True), None),
+        (SimpleNamespace(validate_corner_radii=False), 1),
+    ),
+    ids=("unsettled", "pre-adoption", "non-terminal"),
+)
+def test_gap_plan_radius_validator_skips_members_owned_elsewhere(
+    settled: object | None, channel_rank: int | None
+) -> None:
+    edge = SimpleNamespace(source="source", target="target", line_id="line")
+    route = SimpleNamespace(
+        edge=edge, line_id=edge.line_id, exit_turn_segment_rank=channel_rank
+    )
+    settled_by_edge = (
+        {} if settled is None else {(edge.source, edge.target, edge.line_id): settled}
+    )
+    ctx = SimpleNamespace(
+        exit_turns=object(),
+        settled_exit_turns=settled_by_edge,
+    )
+
+    normalize._validate_planned_exit_turn_radii([route], ctx)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    (
+        "radii",
+        "membership",
+        "planned-offsets",
+        "allocated-offsets",
+        "allocated-bases",
+        "offset",
+        "base",
+        "radius-index",
+        "point-index",
+    ),
+)
+def test_gap_plan_radius_validator_rejects_incomplete_ownership(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    edge = SimpleNamespace(source="source", target="target", line_id="line")
+    channel_rank = 2 if failure in {"radius-index", "point-index"} else 1
+    route = SimpleNamespace(
+        edge=edge,
+        line_id=edge.line_id,
+        exit_turn_segment_rank=channel_rank,
+        curve_radii=(
+            None
+            if failure == "radii"
+            else [CURVE_RADIUS] * (3 if failure == "point-index" else 2)
+        ),
+        points=[(0.0, 0.0), (50.0, 0.0), (50.0, 100.0), (150.0, 100.0)],
+        concentric_corner_offsets_by_segment=(
+            {}
+            if failure == "allocated-offsets"
+            else {
+                channel_rank: (
+                    None if failure == "offset" else 0.0,
+                    0.0,
+                )
+            }
+        ),
+        concentric_corner_bases_by_segment=(
+            {}
+            if failure == "allocated-bases"
+            else {
+                channel_rank: (
+                    None if failure == "base" else CURVE_RADIUS,
+                    CURVE_RADIUS,
+                )
+            }
+        ),
+    )
+    membership = None if failure == "membership" else object()
+    ctx = SimpleNamespace(
+        exit_turns=SimpleNamespace(membership_for_edge=lambda _edge: membership),
+        settled_exit_turns={
+            (edge.source, edge.target, edge.line_id): SimpleNamespace(
+                validate_corner_radii=True
+            )
+        },
+    )
+    monkeypatch.setattr(
+        exit_turns,
+        "planned_exit_turn_corner_offsets",
+        lambda _membership: (
+            None
+            if failure == "planned-offsets"
+            else (None if failure == "offset" else 0.0, 0.0)
+        ),
+    )
+
+    with pytest.raises(ExitTurnInvariantError):
+        normalize._validate_planned_exit_turn_radii([route], ctx)
 
 
 @pytest.mark.parametrize(

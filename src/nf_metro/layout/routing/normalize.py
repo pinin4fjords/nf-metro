@@ -768,7 +768,13 @@ def _materialize_gap_slots(
 def _validate_planned_exit_turn_radii(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
-    """Validate settled exit-turn radii against their standard corner inputs."""
+    """Validate terminal settled turns against their standard corner inputs.
+
+    Routes outside settled gap allocation and pre-adoption routes without a
+    published channel rank are covered after member geometry freezes. A
+    non-terminal settled member feeds geometry owned by its convergence plan.
+    Its final corners are covered by the member and convergence validators.
+    """
     if ctx.exit_turns is None:
         return
     from nf_metro.layout.routing.exit_turns import (
@@ -777,28 +783,32 @@ def _validate_planned_exit_turn_radii(
     )
 
     for route in routes:
-        settled = ctx.settled_exit_turns.get(
-            (route.edge.source, route.edge.target, route.line_id)
-        )
-        channel_rank = route.exit_turn_segment_rank
-        membership = ctx.exit_turns.membership_for_edge(route.edge)
-        if (
-            route.curve_radii is None
-            or settled is None
-            or channel_rank is None
-            or membership is None
-            or not settled.validate_corner_radii
-        ):
+        edge_key = (route.edge.source, route.edge.target, route.line_id)
+        settled = ctx.settled_exit_turns.get(edge_key)
+        if settled is None:
             continue
+        channel_rank = route.exit_turn_segment_rank
+        if channel_rank is None:
+            continue
+        if not settled.validate_corner_radii:
+            continue
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if route.curve_radii is None or membership is None:
+            raise ExitTurnInvariantError(
+                f"settled exit-turn member {edge_key!r} has incomplete corner ownership"
+            )
         planned_offsets = planned_exit_turn_corner_offsets(membership)
         if planned_offsets is None:
-            continue
-        allocated_offsets = route.concentric_corner_offsets_by_segment.get(
-            channel_rank, settled.corner_offsets
-        )
-        allocated_bases = route.concentric_corner_bases_by_segment.get(
-            channel_rank, (ctx.curve_radius, ctx.curve_radius)
-        )
+            raise ExitTurnInvariantError(
+                f"settled exit-turn member {edge_key!r} has no planned corner offsets"
+            )
+        allocated_offsets = route.concentric_corner_offsets_by_segment.get(channel_rank)
+        allocated_bases = route.concentric_corner_bases_by_segment.get(channel_rank)
+        if allocated_offsets is None or allocated_bases is None:
+            raise ExitTurnInvariantError(
+                f"settled exit-turn member {edge_key!r} has no recorded concentric "
+                "inputs"
+            )
         for radius_index, dx, base_radius in zip(
             (channel_rank - 1, channel_rank),
             (
@@ -814,8 +824,12 @@ def _validate_planned_exit_turn_radii(
                 dx is None
                 or base_radius is None
                 or not 0 <= radius_index < len(route.curve_radii)
+                or radius_index + 2 >= len(route.points)
             ):
-                continue
+                raise ExitTurnInvariantError(
+                    f"settled exit-turn member {edge_key!r} has incomplete "
+                    f"concentric inputs at radius index {radius_index}"
+                )
             prev, corner, nxt = route.points[radius_index : radius_index + 3]
             expected_radius = concentric_corner_radius_at(
                 prev, corner, nxt, dx, base_radius

@@ -934,9 +934,34 @@ def _seat_channel(channel: _VChannel, coordinate: float) -> None:
 
     A materialised channel outlives the move: the passes after it read the
     coordinate off the record rather than locating the leg again, so the record
-    and the route it describes have to state one coordinate.
+    and the route it describes have to state one coordinate. Each flanking
+    corner retains the standard concentric inputs that produced its radius.
     """
-    _set_vchannel_x(channel, coordinate)
+    route = channel.route
+    offsets = route.concentric_corner_offsets_by_segment.get(channel.idx, (None, None))
+    bases = route.concentric_corner_bases_by_segment.get(channel.idx, (None, None))
+    radii = route.curve_radii or ()
+
+    def corner_inputs(tuple_index: int, radius_index: int) -> tuple[float, float]:
+        offset = offsets[tuple_index]
+        base_radius = bases[tuple_index]
+        if offset is not None and base_radius is not None:
+            return offset, base_radius
+        reference = (
+            radii[radius_index] if 0 <= radius_index < len(radii) else CURVE_RADIUS
+        )
+        return 0.0, reference
+
+    offset_in, base_radius = corner_inputs(0, channel.idx - 1)
+    offset_out, base_radius_out = corner_inputs(1, channel.idx)
+    _set_vchannel_x(
+        channel,
+        coordinate,
+        offset_in,
+        offset_out=offset_out,
+        base_radius=base_radius,
+        base_radius_out=base_radius_out,
+    )
     channel.x = coordinate
 
 
@@ -1738,7 +1763,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
 def validate_member_geometry_emission(
     routes: list[RoutedPath], execution: MemberGeometryExecution
 ) -> None:
-    """Require every emitted plan-owned channel to retain its exact geometry."""
+    """Require every emitted member to retain its owned channel geometry."""
     for route in routes:
         plan = execution.plan_for_edge(route.edge)
         if plan is None:
@@ -1753,3 +1778,50 @@ def validate_member_geometry_emission(
                 raise RuntimeError(
                     f"member geometry plan {plan.id} channel geometry changed"
                 )
+        radii = route.curve_radii or ()
+        planned_radii = plan.curve_radii or ()
+        for channel in plan.gap_channels:
+            offsets = route.concentric_corner_offsets_by_segment.get(
+                channel.segment_rank
+            )
+            bases = route.concentric_corner_bases_by_segment.get(channel.segment_rank)
+            first_radius_index = max(0, channel.segment_rank - 1)
+            for radius_index in range(
+                first_radius_index,
+                min(channel.segment_rank + 1, len(planned_radii)),
+            ):
+                input_index = radius_index - (channel.segment_rank - 1)
+                if radius_index >= len(radii):
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} lost corner radius at index "
+                        f"{radius_index}"
+                    )
+                offset = None if offsets is None else offsets[input_index]
+                base = None if bases is None else bases[input_index]
+                if offsets is None or bases is None or offset is None or base is None:
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius at index "
+                        f"{radius_index} has no concentric inputs"
+                    )
+                if radius_index + 2 >= len(route.points):
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius at index "
+                        f"{radius_index} has no complete corner points"
+                    )
+                previous, corner, following = route.points[
+                    radius_index : radius_index + 3
+                ]
+                expected_radius = concentric_corner_radius_at(
+                    previous,
+                    corner,
+                    following,
+                    offset,
+                    base_radius=base,
+                )
+                actual_radius = radii[radius_index]
+                if abs(actual_radius - expected_radius) > COORD_TOLERANCE_FINE:
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} corner radius "
+                        f"{actual_radius!r} at index {radius_index} differs from "
+                        f"its concentric radius {expected_radius!r}"
+                    )
