@@ -100,6 +100,12 @@ EXPECTED_CLASSIFIER_ONLY_REVERSALS = frozenset(
         ("stacked_left_exit_drop", "sec1", "sec2", "L->L"),
         ("stacked_multiline_left_exit_drop", "source", "target", "L->L"),
         ("stacked_split_left_entry_drop", "source", "target", "L->L"),
+        (
+            "plan_owned_distinct_lane_separation",
+            "shared_source",
+            "target_secondary",
+            "L->R",
+        ),
     }
 )
 EXPECTED_RESIDUALS = frozenset(
