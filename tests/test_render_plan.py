@@ -105,7 +105,7 @@ def test_bridge_gaps_are_settled_in_plan() -> None:
     _, plan = _plan("examples/topologies/self_crossing_bridge.mmd")
 
     assert any(plan.bridge_breaks)
-    assert len(plan.bridge_breaks) == len(plan.edge_routes)
+    assert len(plan.bridge_breaks) == len(plan.routes)
 
 
 @pytest.mark.parametrize(

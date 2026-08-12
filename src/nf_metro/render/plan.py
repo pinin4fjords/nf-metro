@@ -172,7 +172,6 @@ class RenderPlan:
     station_offsets: FrozenMap
     routes: tuple[FrozenRecord, ...]
     route_polylines: tuple[tuple[tuple[float, float], ...], ...]
-    edge_route_indices: tuple[int, ...]
     bridge_breaks: tuple[tuple[FrozenRecord, ...], ...]
     labels: tuple[FrozenRecord, ...]
     header_placements: FrozenMap
@@ -201,11 +200,6 @@ class RenderPlan:
     debug: bool
     chrome_css: bool
     bare: bool
-
-    @property
-    def edge_routes(self) -> tuple[FrozenRecord, ...]:
-        """Return routes in SVG drawing order."""
-        return tuple(self.routes[index] for index in self.edge_route_indices)
 
     def offset_polylines(
         self,

@@ -1611,7 +1611,6 @@ def _build_render_plan_scaled(
         offset_step,
         section_y_gap,
     )
-    edge_route_indices = tuple(range(len(routes)))
     bridges = (
         compute_bridges(graph, routes, route_polylines, curve_radius=SVG_CURVE_RADIUS)
         if theme.bridge_glyph
@@ -1763,7 +1762,6 @@ def _build_render_plan_scaled(
         station_offsets=freeze_render_value(station_offsets),
         routes=freeze_render_value(routes),
         route_polylines=freeze_render_value(route_polylines),
-        edge_route_indices=edge_route_indices,
         bridge_breaks=freeze_render_value(bridge_breaks),
         labels=freeze_render_value(labels),
         header_placements=freeze_render_value(header_placements),
@@ -1832,7 +1830,6 @@ def _emit_render_plan(
     bare = plan.bare
     station_offsets: Any = plan.station_offsets
     routes: Any = plan.routes
-    edge_routes: Any = plan.edge_routes
     bridge_breaks: Any = plan.bridge_breaks
     labels: Any = plan.labels
     header_placements: Any = plan.header_placements
@@ -1926,7 +1923,7 @@ def _emit_render_plan(
         _render_first_class_sections(d, graph, theme, header_placements)
 
     # Draw edges (lines) behind stations
-    _render_edges(d, graph, edge_routes, station_offsets, bridge_breaks, theme)
+    _render_edges(d, graph, routes, station_offsets, bridge_breaks, theme)
 
     # Directional chevrons ride on top of the lines but behind stations.
     if graph.directional:
