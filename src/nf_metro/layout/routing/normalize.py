@@ -3238,18 +3238,26 @@ def _merge_feeder_groups(
             ch = _initial_fanout_descent(rp)
             if ch is None:
                 continue
-            section = resolve_section(graph, trunk_src_st, prefer_upstream=True)
-            if section is not None and section.bbox_w > 0:
-                midpoint = section.bbox_x + section.bbox_w / 2
-                exit_membership = (
-                    ctx.exit_turns.membership_for_edge(rp.edge)
-                    if ctx.exit_turns is not None
-                    else None
+            source_section = resolve_section(graph, src_st, prefer_upstream=True)
+            if source_section is not None and source_section.bbox_w > 0:
+                within_source_band = (
+                    source_section.bbox_y + COORD_TOLERANCE
+                    < src_st.y
+                    < source_section.bbox_y + source_section.bbox_h - COORD_TOLERANCE
                 )
-                if (
-                    exit_membership is not None
-                    and exit_membership.plan.legacy_reason is None
-                    and (ch.x - midpoint) * (trunk_ch.x - midpoint) < 0
+
+                def crosses_source_interior(x: float) -> bool:
+                    return (
+                        within_source_band
+                        and min(src_st.x, x)
+                        < source_section.bbox_x
+                        + source_section.bbox_w
+                        - COORD_TOLERANCE
+                        and max(src_st.x, x) > source_section.bbox_x + COORD_TOLERANCE
+                    )
+
+                if crosses_source_interior(trunk_ch.x) and not crosses_source_interior(
+                    ch.x
                 ):
                     continue
             members.append(ch)
