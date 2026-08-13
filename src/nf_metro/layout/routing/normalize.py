@@ -851,7 +851,7 @@ def _validate_planned_exit_turn_radii(
 def _separate_declared_opposing_gap_bundles(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
-    movable_route_ids: frozenset[int] = frozenset(),
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Separate settled counter-running gap bundles around exempt obstacles."""
     graph = ctx.graph
@@ -868,7 +868,11 @@ def _separate_declared_opposing_gap_bundles(
             owner = (
                 fixed
                 if rp.normalize_exempt
-                or (id(rp) not in movable_route_ids and _planner_owns_channel(ch))
+                or (
+                    id(rp) not in movable_route_ids
+                    if movable_route_ids is not None
+                    else _planner_owns_channel(ch)
+                )
                 else movable
             )
             owner[key].append(ch)
@@ -959,6 +963,18 @@ def _separate_declared_opposing_gap_bundles(
                         abs(candidate - obstacle.x)
                         >= BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
                         for obstacle in short_overlap_obstacles
+                    )
+                    and all(
+                        not _overlays_distinct_line(
+                            channel, candidate, obstacle, ctx.offset_step
+                        )
+                        and abs(candidate - obstacle.x)
+                        >= _required_channel_clearance(
+                            channel, obstacle, ctx.curve_radius
+                        )
+                        - COORD_TOLERANCE_FINE
+                        for obstacle in all_fixed
+                        if obstacle.route.line_id != channel.route.line_id
                     )
                 ),
                 None,
