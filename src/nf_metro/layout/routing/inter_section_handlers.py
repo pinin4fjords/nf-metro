@@ -86,6 +86,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     reserved_row_band_between,
     resolve_section,
+    resolve_section_colrow,
     right_normal_axis_sign,
     row_bottom_edge,
     row_top_edge,
@@ -101,8 +102,6 @@ from nf_metro.layout.routing.context import (
     _get_offset,
     _has_intervening_sections,
     _hop_needs_bypass,
-    _resolve_section_col,
-    _resolve_section_colrow,
     _RoutingCtx,
     _tb_x_offset,
     is_near_vertical_drop,
@@ -235,7 +234,7 @@ class _InterFacts:
             self.src.id: (self.src_col, self.src_row),
             self.tgt.id: (self.tgt_col, self.tgt_row),
         }.get(station.id)
-        return cached or _resolve_section_colrow(self.graph, station)
+        return cached or resolve_section_colrow(self.graph, station)
 
     def h_segment_crosses_other_section(
         self,
@@ -519,8 +518,8 @@ def _build_inter_facts(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> _InterFacts:
     graph = ctx.graph
-    src_col, src_row = _resolve_section_colrow(graph, src)
-    tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
+    src_col, src_row = resolve_section_colrow(graph, src)
+    tgt_col, tgt_row = resolve_section_colrow(graph, tgt)
     bypass = _hop_needs_bypass(
         graph, HopEnd(src, src_col, src_row), HopEnd(tgt, tgt_col, tgt_row)
     )
@@ -1689,7 +1688,7 @@ def _route_merge_entry_right_wrap(f: _InterFacts) -> RoutedPath:
     """Feed a merge into a RIGHT entry from the port's outward side."""
     src_col = f.src_col if f.src_col is not None else 0
     assert f.merge_ep is not None
-    ep_col, _ep_row = _resolve_section_colrow(f.graph, f.merge_ep)
+    ep_col, _ep_row = f.section_colrow(f.merge_ep)
     tgt_col = ep_col if ep_col is not None else src_col
     channel_y = bypass_bottom_y(
         f.graph,
@@ -2812,7 +2811,7 @@ def _route_bottom_exit_junction_via_gap(
     tgt_port = ctx.graph.ports.get(edge.target)
     if tgt_port is None or tgt_port.side != PortSide.LEFT:
         return None
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, tgt)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, tgt)
     if ep_col is None or ep_row is None:
         return None
     corner_x = _corridor_descent_x(ctx, ep_col, ep_row, 0.0)
@@ -5543,8 +5542,8 @@ def _left_exit_left_entry_drop_channel_x(
     stand on one column, the way
     :func:`seated_left_exit_under_target_descent` does for the far-side loop.
     """
-    src_col = _resolve_section_col(ctx.graph, src)
-    tgt_col = _resolve_section_col(ctx.graph, tgt)
+    src_col, _src_row = resolve_section_colrow(ctx.graph, src)
+    tgt_col, _tgt_row = resolve_section_colrow(ctx.graph, tgt)
     left_edge = min(
         col_left_edge(ctx.graph, src_col, default=src.x),
         col_left_edge(ctx.graph, tgt_col, default=tgt.x),
@@ -5733,7 +5732,7 @@ def _fan_corner_x(
     src_col, src_row = (
         facts.section_colrow(src)
         if facts is not None
-        else _resolve_section_colrow(ctx.graph, src)
+        else resolve_section_colrow(ctx.graph, src)
     )
     if src_col is None:
         return stand_off
@@ -6006,7 +6005,7 @@ def _left_entry_wrap_geometry(
     # the same target column, anchor the descent channel to the column's LEFT
     # edge so the spine and the corridor overlay as one bundle instead of smearing.
     if fan is not None and _fan_has_corridor_sibling(edge.source, ctx):
-        tgt_col = _resolve_section_col(ctx.graph, tgt)
+        tgt_col, _tgt_row = resolve_section_colrow(ctx.graph, tgt)
         if tgt_col is not None:
             shared_vx = _fan_left_entry_descent_x(ctx, tgt_col, pos_n, 0.0)
             if shared_vx is not None:
@@ -6309,8 +6308,8 @@ def _corridor_is_viable(ctx: _RoutingCtx, src: Station, entry_port: Station) -> 
     ep_port = ctx.graph.ports.get(entry_port.id)
     if ep_port is None or ep_port.side != PortSide.LEFT:
         return False
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, entry_port)
     if src_row is None or ep_row is None or src_col is None or ep_col is None:
         return False
     if ep_row <= src_row:
@@ -6382,8 +6381,8 @@ def _route_inter_row_gap_corridor(
         ctx, edge, src, i, n, vertical_direction(entry_port.y - src.y)
     )
 
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, entry_port)
     # Guaranteed by the _corridor_is_viable check at every call site.
     assert (
         src_col is not None
@@ -6511,8 +6510,8 @@ def _around_section_below_geometry(
 
     # Bypass Y below all sections in the column range so the route
     # clears every intervening section (cross_row=True).
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col = _resolve_section_col(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, _ep_row = resolve_section_colrow(ctx.graph, entry_port)
     # Fallbacks if a column can't be resolved (degenerate cases).
     bc_src_col = src_col if src_col is not None else 0
     bc_tgt_col = ep_col if ep_col is not None else bc_src_col
