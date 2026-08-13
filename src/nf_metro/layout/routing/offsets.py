@@ -16,6 +16,7 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     flow_port_sides,
     lanes_run_along_x,
+    lanes_run_along_y,
     perpendicular_port_sides,
     station_lane_coord,
 )
@@ -225,8 +226,9 @@ def _stores_reflected(ctx: _OffsetCtx, sec_id: str | None) -> bool:
     A reverse-flow horizontal section stores the reflection ``(max - slot)`` so
     its bundle draws on the far side of the trunk for the reversed flow.  A
     vertical-flow (TB) section instead stores its arrival order positively and
-    draws the rotation ``x - offset`` (:func:`context._tb_x_offset`); there the
-    side is carried by the draw sign, not by reflecting the stored slot, so the
+    draws the rotation ``x - offset``
+    (:func:`context._tb_x_offset`); there the side is
+    carried by the draw sign, not by reflecting the stored slot, so the
     marker span and the drawn lines agree by construction.
 
     This horizontal reflection is a storage convention threaded through every
@@ -873,7 +875,7 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         return
     graph = ctx.graph
     for sec_id, section in graph.sections.items():
-        if section.direction not in ("LR", "RL"):
+        if not lanes_run_along_y(section.direction):
             continue
         jid = _section_exit_fanout_junction(ctx, section)
         if jid is None:
@@ -899,7 +901,7 @@ def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
     """Assign each clean divergence's settled slots in semantic peel order."""
     for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
         source_section = ctx.graph.section_for_port(ctx.graph.ports[exit_port_id])
-        if source_section.direction not in ("LR", "RL"):
+        if not lanes_run_along_y(source_section.direction):
             continue
         peel_order = fanout_divergence_peel_order(
             ctx.graph, junction_id, ctx.line_priority, ctx.topology
@@ -984,7 +986,7 @@ def _reorder_exit_only_lines(ctx: _OffsetCtx) -> None:
             continue
 
         section = graph.sections.get(station.section_id)
-        if not section or section.direction not in ("LR", "RL"):
+        if not section or not lanes_run_along_y(section.direction):
             continue
 
         lines = graph.station_lines(sid)
@@ -1288,7 +1290,7 @@ def _settle_exit_survivor_frames(ctx: _OffsetCtx) -> None:
     """Compact each single-entry section's surviving exit cohort."""
     graph = ctx.graph
     for section in graph.sections.values():
-        if section.direction not in ("LR", "RL") or len(section.entry_ports) != 1:
+        if not lanes_run_along_y(section.direction) or len(section.entry_ports) != 1:
             continue
         entry_id = section.entry_ports[0]
         entry_lines = set(graph.station_lines(entry_id))
@@ -1463,8 +1465,9 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
     TB sections with LEFT/RIGHT exits: the exit-port Y order is whatever makes
     the drop -> turn concentric corner nest without pinching.  The drop
     continues the in-section column order (raw internal offset for a RIGHT-entry
-    section, its reverse otherwise, mirroring :func:`_tb_x_offset`).  A RIGHT
-    exit (down -> east turn) reverses the column across the corner, so its port
+    section, its reverse otherwise, mirroring
+    :func:`_tb_x_offset`).  A RIGHT exit (down -> east turn)
+    reverses the column across the corner, so its port
     order is the reverse of the column; a LEFT exit (down -> west turn) keeps
     it, so its port order equals the column.  Reversing unconditionally double-
     reverses a non-right-entry RIGHT exit and crosses the bundle at the feeder

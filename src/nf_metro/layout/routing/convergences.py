@@ -81,9 +81,9 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _EdgeKey,
+    _perpendicular_port_lane_offset,
     _resolve_section_colrow,
     _RoutingCtx,
-    _tb_x_offset,
 )
 from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
@@ -1667,7 +1667,7 @@ def _reconcile_landing_handedness(
                     opening_x = landing.opening_turn_segment[0][0]
                     section = resolve_section(graph, source, prefer_upstream=True)
                     source_x = source.x + (
-                        _tb_x_offset(
+                        _perpendicular_port_lane_offset(
                             ctx,
                             source.id,
                             landing.edge.line_id,
@@ -1719,7 +1719,7 @@ def _reconcile_landing_handedness(
                 else:
                     section = resolve_section(graph, source, prefer_upstream=True)
                     source_x = source.x + (
-                        _tb_x_offset(
+                        _perpendicular_port_lane_offset(
                             ctx,
                             source.id,
                             landing.edge.line_id,
@@ -6562,7 +6562,7 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
                 route.points = route.points[: opening.idx + 2]
                 route.points[-1] = landing.join_point
                 if route.curve_radii is not None:
-                    route.curve_radii = route.curve_radii[: opening.idx + 1]
+                    route.curve_radii = route.curve_radii[: opening.idx]
     if plan.primary_trunk_member_id == membership.member_id:
         if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:
             _bake_route(route, ctx)

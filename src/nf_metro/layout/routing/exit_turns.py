@@ -64,7 +64,7 @@ from nf_metro.layout.routing.common import (
     segment_direction,
     vertical_direction,
 )
-from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.context import _perpendicular_port_lane_offset, _RoutingCtx
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
@@ -715,7 +715,7 @@ def _source_lane_order(
             return _perp_riser_lateral(
                 ctx, exit_port_id, line_id, exit_port.side, section_id
             )
-        return _tb_x_offset(ctx, source_id, line_id, section_id)
+        return _perpendicular_port_lane_offset(ctx, source_id, line_id, section_id)
 
     graph_rank = {line_id: rank for rank, line_id in enumerate(ctx.graph.lines)}
     values = []
@@ -791,7 +791,7 @@ def _bottom_exit_junction_turn_requirement(
     exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
 
     def exit_x_offset(line_id: str) -> float:
-        return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+        return _perpendicular_port_lane_offset(ctx, exit_pid, line_id, exit_sec)
 
     members, _source_center, tgt_center = gather_tapered_bundle(ctx, edge)
     geometry = _bottom_exit_junction_geometry(
@@ -1560,13 +1560,13 @@ def _source_lane_ownership(
         target_offsets = dict(offsets)
         target_offsets[exit_port_id, line_id] = desired
         target_ctx = replace(ctx, station_offsets=target_offsets)
-        source_offset = _tb_x_offset(
+        source_offset = _perpendicular_port_lane_offset(
             source_ctx,
             candidate,
             line_id,
             graph.stations[candidate].section_id,
         )
-        target_offset = _tb_x_offset(
+        target_offset = _perpendicular_port_lane_offset(
             target_ctx,
             exit_port_id,
             line_id,
@@ -1661,13 +1661,13 @@ def _continuation_lane_ownership(
         if direction_axis(run_direction) is DemandAxis.Y:
             source_offsets = dict(offsets)
             source_offsets[source_id, line_id] = desired
-            source_offset = _tb_x_offset(
+            source_offset = _perpendicular_port_lane_offset(
                 replace(ctx, station_offsets=source_offsets),
                 source_id,
                 line_id,
                 graph.stations[source_id].section_id,
             )
-            target_offset = _tb_x_offset(
+            target_offset = _perpendicular_port_lane_offset(
                 replace(ctx, station_offsets=dict(offsets)),
                 entry_id,
                 line_id,
@@ -1721,13 +1721,13 @@ def _continuation_lane_ownership(
             if direction_axis(run_direction) is DemandAxis.Y:
                 source_offsets = dict(offsets)
                 source_offsets[current, line_id] = desired
-                source_offset = _tb_x_offset(
+                source_offset = _perpendicular_port_lane_offset(
                     replace(ctx, station_offsets=source_offsets),
                     current,
                     line_id,
                     graph.stations[current].section_id,
                 )
-                target_offset = _tb_x_offset(
+                target_offset = _perpendicular_port_lane_offset(
                     replace(ctx, station_offsets=dict(offsets)),
                     candidate,
                     line_id,
@@ -3097,7 +3097,9 @@ def _planned_axis_cross_range(
                 def bej_exit_x_offset(
                     line_id: str, _pid: str = exit_pid, _sec: str = exit_sec
                 ) -> float:
-                    return _tb_x_offset(tentative_ctx, _pid, line_id, _sec)
+                    return _perpendicular_port_lane_offset(
+                        tentative_ctx, _pid, line_id, _sec
+                    )
 
                 bej_members, _bej_source_center, bej_tgt_center = gather_tapered_bundle(
                     tentative_ctx, graph_edge
@@ -3163,7 +3165,7 @@ def _planned_axis_cross_range(
             if geometry.bundle_offsets is None:
                 values.extend((geometry.points[0][0], geometry.points[-1][0]))
             else:
-                effective_offset = _tb_x_offset(
+                effective_offset = _perpendicular_port_lane_offset(
                     tentative_ctx,
                     edge.source,
                     edge.line_id,
