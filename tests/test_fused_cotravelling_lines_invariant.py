@@ -81,9 +81,6 @@ FUSED_WITHOUT_THE_PASS = {
     EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
         {("l1", "l2", "X")}
     ),
-    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
-        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
-    ),
     REGRESSIONS / "entry_trunk_row_bow.mmd": frozenset({("l1", "l2", "Y")}),
     THROUGH_SECTION / "riboseq_packed_lr.mmd": frozenset({("riboseq", "rnaseq", "X")}),
 }
@@ -154,14 +151,49 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _disable_separation_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        convergences,
+        "_pack_cotravelling_corridor_runs",
+        lambda plans, graph, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_separate_distinct_cotravelling_trunks",
+        lambda plans, graph, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_settle_reserved_trunk_axes",
+        lambda plans, graph, ctx, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_repack_crowded_gap_channels",
+        lambda plans, graph, curve_radius, fixed_channels: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_separate_distinct_terminal_gap_channels",
+        lambda plans, graph, curve_radius: plans,
+    )
+    monkeypatch.setattr(
         routing_core,
         "_separate_fused_cotravelling_runs",
         lambda routes, ctx, **kwargs: None,
     )
     monkeypatch.setattr(
+        routing_core,
+        "_stagger_convergent_distinct_lines",
+        lambda routes, ctx, **kwargs: set(),
+    )
+    monkeypatch.setattr(
         member_geometry,
         "_separate_fused_cotravelling_runs",
         lambda routes, ctx, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        member_geometry,
+        "_stagger_convergent_distinct_lines",
+        lambda routes, ctx, **kwargs: set(),
     )
 
 
@@ -431,11 +463,7 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
 ) -> None:
     """The gallery reproducer needs pre-freeze planning to remain renderable."""
     path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
-    monkeypatch.setattr(
-        convergences,
-        "_separate_distinct_cotravelling_trunks",
-        lambda plans, graph, member_runs: plans,
-    )
+    _disable_separation_stages(monkeypatch)
     graph, routes, offsets = _route(path)
     violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
     assert any(
