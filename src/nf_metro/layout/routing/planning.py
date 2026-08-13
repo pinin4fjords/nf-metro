@@ -128,6 +128,9 @@ def _with_settled_exit_turns(
         )
         rank = plan.exit_turn_segment_rank
         allocated = allocated_by_edge.get(plan.edge)
+        allocation_changed_path = (
+            allocated is not None and allocated.points != plan.points
+        )
         if (
             settled is not None
             or plan.member_id in execution.reconciled_member_ids
@@ -148,15 +151,23 @@ def _with_settled_exit_turns(
                 replace(
                     plan,
                     points=allocated_points,
-                    curve_radii=allocated.curve_radii,
+                    curve_radii=(
+                        allocated.curve_radii
+                        if allocation_changed_path
+                        else plan.curve_radii
+                    ),
                     gap_slots=allocated.gap_slots,
                     trunk_slot=allocated.trunk_slot,
                     gap_channels=gap_channels,
                     concentric_corner_offsets_by_segment=(
                         allocated.concentric_corner_offsets_by_segment
+                        if allocation_changed_path
+                        else plan.concentric_corner_offsets_by_segment
                     ),
                     concentric_corner_bases_by_segment=(
                         allocated.concentric_corner_bases_by_segment
+                        if allocation_changed_path
+                        else plan.concentric_corner_bases_by_segment
                     ),
                 )
             )
