@@ -13,7 +13,6 @@ from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
-    INTER_ROW_EDGE_CLEARANCE,
     OFFSET_STEP,
 )
 from nf_metro.layout.route_plan import (
@@ -34,7 +33,6 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     OffsetRegime,
     RoutedPath,
-    TrunkSlot,
 )
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
@@ -216,7 +214,7 @@ def _assert_channels_equal_emission(observation, plan) -> None:
 
 
 def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> None:
-    """A post-materialization climb retains its upward slot in the frozen plan."""
+    """The direct cross-row step retains its downward destination channel."""
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
@@ -231,19 +229,17 @@ def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> 
     )
 
     assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
-        (2, 2, Direction.D),
-        (5, 2, Direction.U),
+        (5, 2, Direction.D),
     ]
     assert [
         (channel.gap_lo_col, channel.row, channel.direction)
         for channel in plan.gap_channels
     ] == [
-        (2, 2, Direction.D),
-        (5, 2, Direction.U),
+        (5, 2, Direction.D),
     ]
 
 
-def test_seed_15_freezes_canvas_dogleg_clearance_and_slot_atomically() -> None:
+def test_seed_15_freezes_clear_right_entry_step_atomically() -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
@@ -256,15 +252,17 @@ def test_seed_15_freezes_canvas_dogleg_clearance_and_slot_atomically() -> None:
         for plan in observation.plan.member_geometry_plans
         if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
     )
-    blocker = graph.sections["s6"]
-    trunk_y = plan.points[2][1]
-
-    assert trunk_y == pytest.approx(
-        blocker.bbox_y + blocker.bbox_h + INTER_ROW_EDGE_CLEARANCE
+    assert plan.family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP
+    assert plan.points == (
+        (1610.5, 338.0),
+        (1600.5, 338.0),
+        (1600.5, 504.0),
+        (1478.0, 504.0),
     )
-    assert plan.trunk_slot == TrunkSlot(gap_upper_row=None)
-    assert plan.gap_channels[0].end[1] == pytest.approx(trunk_y)
-    assert plan.gap_channels[1].start[1] == pytest.approx(trunk_y)
+    assert plan.trunk_slot is None
+    assert len(plan.gap_channels) == 1
+    assert plan.gap_channels[0].start == (1600.5, 338.0)
+    assert plan.gap_channels[0].end == (1600.5, 504.0)
     _assert_channels_equal_emission(observation, plan)
 
 

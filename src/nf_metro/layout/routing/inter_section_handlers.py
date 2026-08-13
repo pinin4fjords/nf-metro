@@ -1725,6 +1725,10 @@ def _right_entry_plough_needs_bypass(f: _InterFacts) -> bool:
         and horizontal_direction(f.dx) is Direction.L
     ):
         return False
+    if f.is_left_exit and _left_exit_right_entry_step_is_clear(
+        f.graph, f.edge, f.src, f.tgt, f.ctx
+    ):
+        return False
     if f.h_segment_crosses_other_section(f.sx, f.tx, f.ty):
         return True
     _fan, _pos_n, _delta, corner_x = _wrap_fan_geometry(
