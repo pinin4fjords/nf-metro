@@ -3997,36 +3997,10 @@ def _settle_reserved_trunk_axes(
             neighbours = tuple(
                 item
                 for item in (*member_runs, *seated_runs)
-                if (
-                    (item.direction is run.direction and item.line_ids != run.line_ids)
-                    or (
-                        item.direction is not run.direction
-                        and item.line_ids == run.line_ids
-                    )
-                )
+                if item.direction is run.direction
+                and item.line_ids != run.line_ids
                 and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
             )
-            opposing_clearance = max(
-                (
-                    cotravelling_lane_clearance(
-                        same_line=True,
-                        counter_running=True,
-                        curve_radius=ctx.curve_radius,
-                    )
-                    for item in neighbours
-                    if item.direction is not run.direction
-                    and item.line_ids == run.line_ids
-                ),
-                default=0.0,
-            )
-            if any(
-                item.direction is not run.direction
-                and item.line_ids == run.line_ids
-                and abs(item.coordinate - coordinate)
-                < opposing_clearance - COORD_TOLERANCE
-                for item in neighbours
-            ):
-                coordinate = axis.coordinate
             if any(
                 abs(item.coordinate - coordinate) < ctx.offset_step - COORD_TOLERANCE
                 for item in neighbours
@@ -4048,6 +4022,23 @@ def _settle_reserved_trunk_axes(
                     key=lambda candidate: abs(candidate - axis.coordinate),
                     default=coordinate,
                 )
+            opposing = tuple(
+                item
+                for item in seated_runs
+                if item.direction is not run.direction
+                and item.line_ids == run.line_ids
+                and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
+            )
+            clearance = cotravelling_lane_clearance(
+                same_line=True,
+                counter_running=True,
+                curve_radius=ctx.curve_radius,
+            )
+            if any(
+                abs(item.coordinate - coordinate) < clearance - COORD_TOLERANCE
+                for item in opposing
+            ):
+                coordinate = axis.coordinate
         settled.append(
             _move_trunk_axis(plan, coordinate, preserve_lane_offsets=True)
             if 0 < abs(coordinate - axis.coordinate) <= BUNDLE_TO_BUNDLE_CLEARANCE

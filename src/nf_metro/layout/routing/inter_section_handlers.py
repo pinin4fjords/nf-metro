@@ -485,8 +485,12 @@ class _InterFacts:
 
     @property
     def is_right_exit(self) -> bool:
-        """Source leaves through a RIGHT-side exit."""
-        return _source_exit_side(self.graph, self.src) is Direction.R
+        """Source is a RIGHT-side exit port (not an entry)."""
+        return (
+            self.src_port is not None
+            and not self.src_port.is_entry
+            and self.src_port.side is PortSide.RIGHT
+        )
 
     @property
     def is_stacked_right_exit_right_entry(self) -> bool:
