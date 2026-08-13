@@ -2252,8 +2252,8 @@ def _reconcile_wholesale_bundle_corner_radii(
                 route.line_id, route.points[corner_rank], incoming, outgoing
             ].append(key)
     for cohort in coincident.values():
-        for first, second in zip(cohort, cohort[1:]):
-            connect(first, second, 0.0)
+        for leader, follower in zip(cohort, cohort[1:]):
+            connect(leader, follower, 0.0)
 
     unseen = set(constraints)
     while unseen:
@@ -4273,22 +4273,26 @@ def _restack_htrunk(
     k = t.idx
     owned_offsets = rp.concentric_corner_offsets_by_segment.get(k)
     owned_bases = rp.concentric_corner_bases_by_segment.get(k)
-    if (
-        owned_offsets is not None
-        and owned_bases is not None
-        and all(value is not None for value in (*owned_offsets, *owned_bases))
-    ):
-        _reseat_concentric_flanking(
-            rp,
-            k,
-            new_y,
-            axis=1,
-            offset_in=owned_offsets[0],
-            offset_out=owned_offsets[1],
-            base_radius=owned_bases[0],
-            base_radius_out=owned_bases[1],
-        )
-        return
+    if owned_offsets is not None and owned_bases is not None:
+        offset_in, offset_out = owned_offsets
+        base_in, base_out = owned_bases
+        if (
+            offset_in is not None
+            and offset_out is not None
+            and base_in is not None
+            and base_out is not None
+        ):
+            _reseat_concentric_flanking(
+                rp,
+                k,
+                new_y,
+                axis=1,
+                offset_in=offset_in,
+                offset_out=offset_out,
+                base_radius=base_in,
+                base_radius_out=base_out,
+            )
+            return
     pts[k] = (pts[k][0], new_y)
     pts[k + 1] = (pts[k + 1][0], new_y)
 

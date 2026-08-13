@@ -1703,9 +1703,7 @@ def _reconcile_landing_handedness(
                     else None
                 )
                 assignment = (
-                    exit_membership.assignment
-                    if exit_membership is not None
-                    else None
+                    exit_membership.assignment if exit_membership is not None else None
                 )
                 uses_exit_handedness = (
                     assignment is not None
@@ -2137,7 +2135,7 @@ def _reconcile_bypass_landings(
             if tail is not None and _points_coincide(tail[0], landing.join_point):
                 landings[rank] = landing
                 continue
-            points = None if tail is None else [opening[0], *tail]
+            points = None if tail is None or opening is None else [opening[0], *tail]
         if points is None:
             continue
         actual = _landing_approach_points(points, landing.join_point)
@@ -2677,11 +2675,14 @@ def _settle_shared_terminal_openings(
     settled = list(plans)
     for (_line_id, target_id, _direction), members in groups.items():
         coordinates = [
-            settled[plan_rank].landings[landing_rank].opening_turn_coordinate
+            coordinate
             for plan_rank, landing_rank in members
-        ]
-        coordinates = [
-            coordinate for coordinate in coordinates if coordinate is not None
+            if (
+                coordinate := settled[plan_rank]
+                .landings[landing_rank]
+                .opening_turn_coordinate
+            )
+            is not None
         ]
         if (
             len(coordinates) < 2
@@ -2773,13 +2774,11 @@ def _fuse_shared_terminal_gap_channels(
     return tuple(settled)
 
 
-def _has_legacy_exit_geometry(
-    ctx: _RoutingCtx, landing: ConvergenceLanding
-) -> bool:
+def _has_legacy_exit_geometry(ctx: _RoutingCtx, landing: ConvergenceLanding) -> bool:
     """Whether an upstream legacy exit template fixes this feeder opening."""
     membership = (
         ctx.exit_turns.membership_for_edge(landing.edge)
-        if getattr(ctx, "exit_turns", None) is not None
+        if ctx.exit_turns is not None
         else None
     )
     return membership is not None and membership.plan.legacy_reason is not None
@@ -3945,7 +3944,7 @@ def _settle_reserved_trunk_axes(
     return tuple(settled)
 
 
-def _settle_opposing_gap_flanks(
+def _settle_opposing_gap_flanks(  # noqa: C901
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     curve_radius: float,
@@ -4490,18 +4489,18 @@ def _repack_crowded_gap_channels(  # noqa: C901
                     for plan_rank, channel in grouped[key]:
                         touched_ranks.add(plan_rank)
                         if channel.flank_rank is not None:
-                            move_key = (plan_rank, channel.flank_rank)
-                            if move_key in moved_flanks:
+                            flank_key = (plan_rank, channel.flank_rank)
+                            if flank_key in moved_flanks:
                                 continue
-                            moved_flanks.add(move_key)
+                            moved_flanks.add(flank_key)
                             candidate[plan_rank] = _move_trunk_flank(
                                 candidate[plan_rank], channel.flank_rank, coordinate
                             )
                             continue
-                        move_key = (plan_rank, channel.claimant_member_ids)
-                        if move_key in moved_openings:
+                        opening_key = (plan_rank, channel.claimant_member_ids)
+                        if opening_key in moved_openings:
                             continue
-                        moved_openings.add(move_key)
+                        moved_openings.add(opening_key)
                         moved = _move_landing_opening(
                             candidate[plan_rank],
                             channel.claimant_member_ids,
