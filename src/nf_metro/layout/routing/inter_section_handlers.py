@@ -470,12 +470,8 @@ class _InterFacts:
 
     @property
     def is_left_exit(self) -> bool:
-        """Source is a LEFT-side exit port (not an entry)."""
-        return (
-            self.src_port is not None
-            and not self.src_port.is_entry
-            and self.src_port.side is PortSide.LEFT
-        )
+        """Source leaves through a LEFT-side exit."""
+        return _source_exit_side(self.graph, self.src) is Direction.L
 
     @property
     def is_serpentine_left_exit_left_entry(self) -> bool:
@@ -489,12 +485,8 @@ class _InterFacts:
 
     @property
     def is_right_exit(self) -> bool:
-        """Source is a RIGHT-side exit port (not an entry)."""
-        return (
-            self.src_port is not None
-            and not self.src_port.is_entry
-            and self.src_port.side is PortSide.RIGHT
-        )
+        """Source leaves through a RIGHT-side exit."""
+        return _source_exit_side(self.graph, self.src) is Direction.R
 
     @property
     def is_stacked_right_exit_right_entry(self) -> bool:
