@@ -169,6 +169,7 @@ class MemberGeometryExecution:
     settled_exit_turns: Mapping[tuple[str, str, str], SettledExitTurn] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    reconciled_member_ids: frozenset[EmissionMemberId] = frozenset()
 
     def plan_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -1833,10 +1834,10 @@ def build_member_geometry_execution(
             ctx,
             pending_exit_turn_plan_ids,
         )
-        _stagger_convergent_distinct_lines(
+        reconciled_edges = _stagger_convergent_distinct_lines(
             normalization_population,
             ctx,
-            movable_route_ids=complete_path_route_ids,
+            movable_route_ids=candidate_route_ids,
         )
         _dogleg_off_exempt_trunks(
             normalization_population,
@@ -1869,6 +1870,12 @@ def build_member_geometry_execution(
         MappingProxyType(failures),
         MappingProxyType({plan.edge: plan for plan in plans}),
         settled_exit_turns,
+        frozenset(
+            plan.member_id
+            for plan in plans
+            if (plan.edge.source, plan.edge.target, plan.edge.line_id)
+            in reconciled_edges
+        ),
     )
 
 

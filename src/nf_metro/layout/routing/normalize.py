@@ -2355,7 +2355,7 @@ def _stagger_convergent_distinct_lines(
     ctx: _RoutingCtx,
     *,
     movable_route_ids: frozenset[int] | None = None,
-) -> None:
+) -> set[tuple[str, str, str]]:
     """Seat distinct-line final port descents in destination lane order.
 
     The distinct-line counterpart to :func:`_coincide_same_line_tracks`: two
@@ -2397,6 +2397,7 @@ def _stagger_convergent_distinct_lines(
         )
     }
 
+    reconciled_edges: set[tuple[str, str, str]] = set()
     for (port_id, down), entries in by_port.items():
         if any(
             _planner_owns_channel(channel)
@@ -2413,6 +2414,7 @@ def _stagger_convergent_distinct_lines(
         } != {id(route) for route, _channel in entries}:
             opposing_bundle = None
         if opposing_bundle is not None:
+            before = {id(route): tuple(route.points) for route, _channel in entries}
             slots = opposing_entry_confluence_slots(
                 opposing_bundle,
                 ctx.graph,
@@ -2443,19 +2445,53 @@ def _stagger_convergent_distinct_lines(
                     offset_in=0.0,
                     offset_out=slot.peel_x - inner_x,
                 )
+            reconciled_edges.update(
+                (route.edge.source, route.edge.target, route.edge.line_id)
+                for route, _channel in entries
+                if tuple(route.points) != before[id(route)]
+            )
             continue
         forced_order = _cross_row_convergence_channel_order(port_id, entries, ctx)
         if forced_order is not None:
-            _stack_distinct_port_descents(entries, port, ctx, line_order=forced_order)
+            before = {id(route): tuple(route.points) for route, _channel in entries}
+            _stack_distinct_port_descents(
+                entries,
+                port,
+                ctx,
+                line_order=forced_order,
+                movable_route_ids=movable_route_ids,
+            )
+            reconciled_edges.update(
+                (route.edge.source, route.edge.target, route.edge.line_id)
+                for route, _channel in entries
+                if tuple(route.points) != before[id(route)]
+            )
             continue
         entries.sort(key=lambda e: e[1].x)
         cluster: list[tuple[RoutedPath, _VChannel]] = []
         for rp, ch in entries:
             if cluster and abs(ch.x - cluster[-1][1].x) > COORD_TOLERANCE + 1.0:
-                _stack_distinct_port_descents(cluster, port, ctx)
+                before = {id(route): tuple(route.points) for route, _channel in cluster}
+                _stack_distinct_port_descents(
+                    cluster, port, ctx, movable_route_ids=movable_route_ids
+                )
+                reconciled_edges.update(
+                    (route.edge.source, route.edge.target, route.edge.line_id)
+                    for route, _channel in cluster
+                    if tuple(route.points) != before[id(route)]
+                )
                 cluster = []
             cluster.append((rp, ch))
-        _stack_distinct_port_descents(cluster, port, ctx)
+        before = {id(route): tuple(route.points) for route, _channel in cluster}
+        _stack_distinct_port_descents(
+            cluster, port, ctx, movable_route_ids=movable_route_ids
+        )
+        reconciled_edges.update(
+            (route.edge.source, route.edge.target, route.edge.line_id)
+            for route, _channel in cluster
+            if tuple(route.points) != before[id(route)]
+        )
+    return reconciled_edges
 
 
 def _cross_row_convergence_channel_order(
@@ -2487,6 +2523,7 @@ def _stack_distinct_port_descents(
     ctx: _RoutingCtx,
     *,
     line_order: list[str] | None = None,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Re-seat one cluster of distinct-line port descents.
 
@@ -2503,12 +2540,14 @@ def _stack_distinct_port_descents(
     if any(
         _planner_owns_channel(channel)
         and not convergence_owns_segment_boundary(channel.route, channel.idx)
-        for _route, channel in cluster
+        and (movable_route_ids is None or id(route) not in movable_route_ids)
+        for route, channel in cluster
     ):
         return
-    has_planned_channel = any(
+    has_immovable_planned_channel = any(
         convergence_owns_segment_boundary(channel.route, channel.idx)
-        for _route, channel in cluster
+        and (movable_route_ids is None or id(route) not in movable_route_ids)
+        for route, channel in cluster
     )
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
     for rp, ch in cluster:
@@ -2541,7 +2580,7 @@ def _stack_distinct_port_descents(
         lid: base + rank * step if left else base - rank * step
         for rank, lid in enumerate(ordered)
     }
-    if has_planned_channel and any(
+    if has_immovable_planned_channel and any(
         abs(channel.x - target_x_by_line[line_id]) > COORD_TOLERANCE
         for line_id, channels in by_line.items()
         for channel in channels

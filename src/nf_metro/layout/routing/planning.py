@@ -87,7 +87,11 @@ def _with_settled_exit_turns(
         )
         rank = plan.exit_turn_segment_rank
         allocated = allocated_by_edge.get(plan.edge)
-        if settled is not None and allocated is not None:
+        if (
+            settled is not None
+            or plan.member_id in execution.reconciled_member_ids
+            or plan.member_id in allocation.reconciled_member_ids
+        ) and allocated is not None:
             plans.append(
                 replace(
                     plan,
@@ -188,6 +192,7 @@ def _with_settled_exit_turns(
         execution.failure_reasons,
         MappingProxyType({plan.edge: plan for plan in frozen_plans}),
         allocation.settled_exit_turns,
+        execution.reconciled_member_ids | allocation.reconciled_member_ids,
     )
 
 

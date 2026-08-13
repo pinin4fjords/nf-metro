@@ -128,7 +128,7 @@ def test_checker_passes_parallel_dogleg() -> None:
 
 
 def test_seed_72_strict_layout_unweaves_the_exempt_dogleg() -> None:
-    """Nested source doglegs retain both their lane spacing and clearance."""
+    """Nested doglegs and destination feeds retain distinct approach lanes."""
     graph = parse_metro_mermaid((FROZEN_FUZZ / "seed_72.mmd").read_text())
     compute_layout(graph, validate=True)
     offsets = compute_station_offsets(graph)
@@ -147,5 +147,20 @@ def test_seed_72_strict_layout_unweaves_the_exempt_dogleg() -> None:
         and route.edge.source == "__junction_14"
         and route.edge.target == "s7__entry_right_10"
     )
+    l6_destination = next(
+        route
+        for route in routes
+        if route.line_id == "l6"
+        and route.edge.source == "__junction_15"
+        and route.edge.target == "s7__entry_right_10"
+    )
+    l1_destination = next(
+        route
+        for route in routes
+        if route.line_id == "l1"
+        and route.edge.source == "__junction_16"
+        and route.edge.target == "s7__entry_right_10"
+    )
     assert l6.points[1][0] > l0.points[1][0]
+    assert l6_destination.points[1][0] > l1_destination.points[-3][0]
     assert not check_no_dogleg_crosses_exempt_trunk(graph, routes, offsets)
