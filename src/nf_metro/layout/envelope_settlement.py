@@ -210,12 +210,17 @@ def drawn_corridor_clearance_requirements(
         containment = drawn_corridor_containment(
             reservation, realised, route_polylines, reservation.claims
         )
-        deficit = -containment.positive_side_slack
+        negative_deficit = -containment.negative_side_slack
+        positive_deficit = -containment.positive_side_slack
+        deficit = max(negative_deficit, positive_deficit)
         if deficit <= COORD_TOLERANCE:
             continue
         recentres = not reservation.claims or any(
             claim.member_id not in fixed_member_ids for claim in reservation.claims
         )
+        # Boundary settlement moves the positive side. A fixed run past the
+        # negative edge needs matching room on the positive edge to recenter.
+        recentres = recentres or negative_deficit >= positive_deficit
         requirements.append(
             DrawnCorridorClearanceRequirement(
                 reservation,

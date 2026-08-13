@@ -3449,6 +3449,66 @@ def _settle_landing_trunk_flanks(
     return tuple(settled)
 
 
+def _dogleg_internal_counter_running_feeders(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> tuple[ConvergencePlan, ...]:
+    """Move a feeder opening off the flank it counter-runs into."""
+    settled: list[ConvergencePlan] = []
+    for plan in plans:
+        axis = plan.trunk_axis
+        landings = list(plan.landings)
+        if axis is not None and axis.axis is DemandAxis.X:
+            for rank, landing in enumerate(landings):
+                if landing.approach_axis is not DemandAxis.Y:
+                    continue
+                source = graph.stations[landing.source_junction_id]
+                approach = ((landing.join_point[0], source.y), landing.join_point)
+                flank = next(
+                    (
+                        segment
+                        for flank_rank in (1, 3)
+                        if _trunk_run_travel_direction(axis, flank_rank)
+                        is not landing.approach_direction
+                        if _parallel_segments_conflict(
+                            approach,
+                            (segment := _trunk_segments(axis)[flank_rank]),
+                            curve_radius,
+                        )
+                    ),
+                    None,
+                )
+                if flank is None:
+                    continue
+                side = -1.0 if source.x >= landing.join_point[0] else 1.0
+                coordinate = flank[0][0] + side * 2.0 * curve_radius
+                landings[rank] = replace(
+                    landing,
+                    approach_axis=DemandAxis.X,
+                    approach_direction=(
+                        Direction.L
+                        if coordinate > landing.join_point[0]
+                        else Direction.R
+                    ),
+                    corner_handedness=turn_handedness(
+                        landing.approach_direction,
+                        (
+                            Direction.L
+                            if coordinate > landing.join_point[0]
+                            else Direction.R
+                        ),
+                    ),
+                    minimum_runway=abs(coordinate - landing.join_point[0]),
+                    opening_turn_coordinate=coordinate,
+                    opening_turn_segment=(
+                        (coordinate, source.y),
+                        (coordinate, landing.join_point[1]),
+                    ),
+                    bypass=True,
+                )
+        settled.append(replace(plan, landings=tuple(landings)))
+    return tuple(settled)
+
+
 @dataclass(frozen=True)
 class _PlanGapChannel:
     """One vertical leg a convergence plan pins inside an inter-column gap.
@@ -4055,6 +4115,8 @@ def _settle_opposing_gap_flanks(  # noqa: C901
     fixed_channels: tuple[_PlanGapChannel, ...] = (),
     fixed_exit_channels: frozenset[tuple[EmissionMemberId, float]] = frozenset(),
     _reverse_rescue: bool = True,
+    *,
+    settle_stacked: bool = False,
 ) -> tuple[ConvergencePlan, ...]:
     """Lane counter-running flank columns that share one inter-column gap.
 
@@ -4105,7 +4167,9 @@ def _settle_opposing_gap_flanks(  # noqa: C901
 
     def channels_crowd(channel: _PlanGapChannel, obstacle: _PlanGapChannel) -> bool:
         if channel.line_ids.isdisjoint(obstacle.line_ids):
-            return _gap_channels_crowd(channel, obstacle)
+            return _gap_channels_crowd(channel, obstacle) or (
+                settle_stacked and _stacked_elbow_channels_crowd(channel, obstacle)
+            )
         return _landing_channels_crowd(channel, obstacle)
 
     for current_rank, _plan in enumerate(ordered):
@@ -4307,14 +4371,26 @@ def _settle_opposing_gap_flanks(  # noqa: C901
         fixed_channels,
         fixed_exit_channels,
         enabled=_reverse_rescue,
+        settle_stacked=settle_stacked,
     )
-    return _settle_stacked_elbow_openings(result, graph, curve_radius)
+    return _settle_stacked_elbow_openings(
+        result,
+        graph,
+        curve_radius,
+        exit_owned_flanks,
+        fixed_channels,
+        settle_flanks=settle_stacked,
+    )
 
 
 def _settle_stacked_elbow_openings(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     curve_radius: float,
+    exit_owned_flanks: frozenset[tuple[ConvergencePlanId, int]] = frozenset(),
+    fixed_channels: tuple[_PlanGapChannel, ...] = (),
+    *,
+    settle_flanks: bool = False,
 ) -> tuple[ConvergencePlan, ...]:
     """Separate independently owned opening drops that meet at an elbow band.
 
@@ -4336,15 +4412,34 @@ def _settle_stacked_elbow_openings(
         return channels
 
     for plan_rank, plan in enumerate(tuple(settled)):
-        for channel in tuple(
-            item for item in channels_of(plan) if item.flank_rank is None
-        ):
-            obstacles = tuple(
+        for channel in channels_of(plan):
+            fixed_obstacles = tuple(
                 obstacle
-                for other_rank, other in enumerate(settled)
-                for obstacle in channels_of(other)
-                if other_rank != plan_rank
-                and _stacked_elbow_channels_crowd(channel, obstacle)
+                for obstacle in fixed_channels
+                if settle_flanks and _stacked_elbow_channels_crowd(channel, obstacle)
+            )
+            if channel.flank_rank is not None and (
+                not settle_flanks or not fixed_obstacles
+            ):
+                continue
+            if (
+                channel.flank_rank is not None
+                and (
+                    plan.id,
+                    channel.flank_rank,
+                )
+                in exit_owned_flanks
+            ):
+                continue
+            obstacles = tuple(
+                [*fixed_obstacles]
+                + [
+                    obstacle
+                    for other_rank, other in enumerate(settled)
+                    for obstacle in channels_of(other)
+                    if other_rank != plan_rank
+                    and _stacked_elbow_channels_crowd(channel, obstacle)
+                ]
             )
             if not obstacles:
                 continue
@@ -4365,28 +4460,49 @@ def _settle_stacked_elbow_openings(
                 )
             )
             for coordinate in candidates:
-                if not _inside_usable_gap(gap_edges, coordinate):
+                inside_gap = (
+                    gap_edges[0] + curve_radius - COORD_TOLERANCE
+                    <= coordinate
+                    <= gap_edges[1] - curve_radius + COORD_TOLERANCE
+                    if settle_flanks
+                    else _inside_usable_gap(gap_edges, coordinate)
+                )
+                if not inside_gap:
                     continue
-                moved = _move_landing_opening(
-                    plan,
-                    channel.claimant_member_ids,
-                    coordinate,
-                    curve_radius,
+                moved = (
+                    _move_trunk_flank(plan, channel.flank_rank, coordinate)
+                    if channel.flank_rank is not None
+                    else _move_landing_opening(
+                        plan,
+                        channel.claimant_member_ids,
+                        coordinate,
+                        curve_radius,
+                    )
                 )
                 if moved is None:
                     continue
                 moved_channels = tuple(
                     item
                     for item in channels_of(moved)
-                    if item.claimant_member_ids == channel.claimant_member_ids
+                    if (
+                        item.flank_rank == channel.flank_rank
+                        if channel.flank_rank is not None
+                        else item.claimant_member_ids == channel.claimant_member_ids
+                    )
                     and item.gap == channel.gap
                 )
                 if not moved_channels or any(
                     _stacked_elbow_channels_crowd(moved_channel, obstacle)
                     for moved_channel in moved_channels
-                    for other_rank, other in enumerate(settled)
-                    if other_rank != plan_rank
-                    for obstacle in channels_of(other)
+                    for obstacle in (
+                        *fixed_channels,
+                        *(
+                            item
+                            for other_rank, other in enumerate(settled)
+                            if other_rank != plan_rank
+                            for item in channels_of(other)
+                        ),
+                    )
                 ):
                     continue
                 candidate_plans = tuple(
@@ -4751,6 +4867,7 @@ def _reverse_rescue_gap_flanks(
     fixed_exit_channels: frozenset[tuple[EmissionMemberId, float]],
     *,
     enabled: bool,
+    settle_stacked: bool,
 ) -> tuple[ConvergencePlan, ...]:
     """Give an earlier movable plan a chance to clear a later fixed carrier."""
     if not enabled or len(plans) < 2 or not isinstance(graph, MetroGraph):
@@ -4763,6 +4880,7 @@ def _reverse_rescue_gap_flanks(
         fixed_channels,
         fixed_exit_channels,
         _reverse_rescue=False,
+        settle_stacked=settle_stacked,
     )
     rescued_by_id = {plan.id: plan for plan in rescued}
     return tuple(rescued_by_id[plan.id] for plan in plans)
@@ -5836,6 +5954,7 @@ def _settle_convergence_geometry(
             if ctx.prior_exit_turn_dispositions is not None
             else frozenset()
         ),
+        settle_stacked=True,
     )
     settled = _reconcile_continuation_ownership(settled)
     settled = _reconcile_landing_handedness(settled, ctx)
@@ -5850,6 +5969,7 @@ def _settle_convergence_geometry(
             if ctx.prior_exit_turn_dispositions is not None
             else frozenset()
         ),
+        settle_stacked=True,
     )
     settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels)
     settled = _repack_crowded_gap_channels(
@@ -5870,6 +5990,7 @@ def _settle_convergence_geometry(
             if ctx.prior_exit_turn_dispositions is not None
             else frozenset()
         ),
+        settle_stacked=True,
     )
     settled = _repack_crowded_gap_channels(
         settled, graph, ctx.curve_radius, fixed_channels
@@ -5921,6 +6042,11 @@ def _settle_convergence_execution(
         if member_geometry is not None
         else ()
     )
+    pre_settlement_requirements = (
+        _gap_channel_clearance_requirements(eligible, graph, fixed_channels)
+        if allow_clearance_requirements and member_geometry is not None
+        else ()
+    )
     settled = _settle_convergence_geometry(
         eligible,
         graph,
@@ -5933,6 +6059,7 @@ def _settle_convergence_execution(
             else ()
         ),
     )
+    settled = _dogleg_internal_counter_running_feeders(settled, graph, ctx.curve_radius)
     clearance_requirements = execution.clearance_requirements
     if member_geometry is not None:
         measured_requirements = _validate_final_convergence_feasibility(
@@ -5945,7 +6072,16 @@ def _settle_convergence_execution(
         clearance_requirements = tuple(
             {
                 (item.axis, item.boundary, item.owner_id): item
-                for item in (*clearance_requirements, *measured_requirements)
+                for item in sorted(
+                    (
+                        *measured_requirements,
+                        *clearance_requirements,
+                        *pre_settlement_requirements,
+                    ),
+                    key=lambda requirement: requirement.description.endswith(
+                        "opposing member clearance"
+                    ),
+                )
             }.values()
         )
     settled_by_id = {plan.id: plan for plan in settled}

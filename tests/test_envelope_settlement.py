@@ -81,13 +81,22 @@ REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro
 REGRESSIONS = ROOT / "tests" / "fixtures" / "regressions"
 
 
-def test_drawn_corridor_grant_accounts_for_recentering(
+@pytest.mark.parametrize(
+    ("negative_slack", "positive_slack"),
+    ((1.0, -3.0), (-3.0, 1.0)),
+)
+def test_drawn_corridor_grant_accounts_for_recentering_on_either_side(
     monkeypatch: pytest.MonkeyPatch,
+    negative_slack: float,
+    positive_slack: float,
 ) -> None:
     reservation = mock.Mock(region=RowGapRegion(0, 1), claims=())
     plan = mock.Mock(reservations=(reservation,))
     realised = mock.Mock(available_width=50.0)
-    containment = mock.Mock(positive_side_slack=-3.0)
+    containment = mock.Mock(
+        negative_side_slack=negative_slack,
+        positive_side_slack=positive_slack,
+    )
     monkeypatch.setattr(
         envelope_settlement, "realise_reservation", lambda *_args: realised
     )
