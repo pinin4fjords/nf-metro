@@ -151,6 +151,7 @@
   "merge_port": [
     "opposing_entry_partial_port_line.mmd",
     "topologies/bottom_row_climb_clear_corridor.mmd",
+    "topologies/bt_perp_left_entry_right_exit.mmd",
     "topologies/bypass_fan_in_outer_slot.mmd",
     "topologies/complex_multipath.mmd",
     "topologies/convergence_sink_above.mmd",
