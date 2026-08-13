@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
     EDGE_TO_BUNDLE_CLEARANCE,
     JUNCTION_MARGIN,
 )
@@ -129,6 +130,11 @@ def _position_junctions(graph: MetroGraph) -> None:
     single-line segment.
     """
     topology = build_route_topology_query(graph)
+    diverging_feeders = (
+        frozenset(view.junction_id for view in topology.divergences)
+        if topology is not None
+        else frozenset()
+    )
     for jid in graph.junctions:
         junction = graph.stations.get(jid)
         if not junction:
@@ -174,6 +180,7 @@ def _position_junctions(graph: MetroGraph) -> None:
                     entry_port,
                     entry_side=entry_port_obj.side,
                     n=_junction_incoming_line_count(graph, jid),
+                    diverging_feeders=diverging_feeders,
                 )
                 continue
 
@@ -223,12 +230,47 @@ def _position_junctions(graph: MetroGraph) -> None:
                 junction.y = exit_port_y
 
 
+def _clear_diverging_feeder_columns(
+    junction: Station,
+    predecessors: list[Station],
+    diverging_feeders: frozenset[str],
+    outward: float,
+) -> None:
+    """Step a merge seated on its entry port off a diverging feeder's column.
+
+    A feeder that is itself a divergence leaves its own exit port as one bundle
+    and splits at its junction, so each member owes a run along that exit's axis
+    before it turns into its own channel.  Within ``is_near_vertical_drop``'s
+    band of the feeder's column there is no such run to state -- the hop is
+    drawn as a plain vertical -- and one unstatable member costs the whole exit
+    group its planned turn.  Non-diverging feeders carry a single member with no
+    bundle to keep straight, so their column is free to be shared.
+
+    Only a merge seated off its *entry port* needs this: seated off the
+    right-most predecessor it already stands a margin clear of that column by
+    construction, and the surrounding lines nest against that very spacing.
+    """
+    from nf_metro.layout.routing.context import is_near_vertical_drop
+
+    def conflicted() -> bool:
+        return any(
+            pred.id in diverging_feeders
+            and abs(pred.y - junction.y) > COORD_TOLERANCE
+            and is_near_vertical_drop(junction.x - pred.x, junction.y - pred.y)
+            for pred in predecessors
+        )
+
+    while conflicted():
+        junction.x += outward
+
+
 def _position_merge_junction(
     junction: Station,
     predecessors: list[Station],
     entry_port: Station,
     entry_side: PortSide | None = None,
     n: int = 1,
+    diverging_feeders: frozenset[str] = frozenset(),
 ) -> None:
     """Position a merge junction on the lead-in its entry port receives.
 
@@ -255,11 +297,14 @@ def _position_merge_junction(
     # width into the entry.  Merge local to the target instead, so only the
     # individual feeders make the long approach and the merge->entry hop is short.
     if entry_port.x < max_pred_x - margin:
-        junction.x = entry_port.x + (
-            margin if entry_side is PortSide.RIGHT else -margin
+        outward = margin if entry_side is PortSide.RIGHT else -margin
+        junction.x = entry_port.x + outward
+        junction.y = entry_port.y
+        _clear_diverging_feeder_columns(
+            junction, predecessors, diverging_feeders, outward
         )
-    else:
-        junction.x = max_pred_x + margin
+        return
+    junction.x = max_pred_x + margin
     junction.y = entry_port.y
 
 

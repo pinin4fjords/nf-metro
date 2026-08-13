@@ -32,6 +32,7 @@ from nf_metro.layout.geometry import (
     spans_share_corridor,
 )
 from nf_metro.layout.route_topology import (
+    convergence_junction_entry_ports,
     convergence_junction_ids,
     merge_fanout_junction_ids,
 )
@@ -1466,6 +1467,38 @@ def trunk_segments_cross(a: HTrunkSeg, b: HTrunkSeg) -> tuple[float, float] | No
     return None
 
 
+def _corridor_target(
+    graph: MetroGraph,
+    edge: Edge,
+    tgt: Station,
+    merge_entry_ports: Mapping[str, str],
+) -> Station:
+    """The station whose column names the corridor a hop into *tgt* occupies.
+
+    A merge on a LEFT/RIGHT entry stands on that port's own horizontal lead-in,
+    so every feeder reaching it descends the corridor into the port and turns
+    along the lead-in.  Reading the corridor off the raw hop instead makes the
+    merge's own column the corridor, which splits one descent bundle the moment
+    the merge is seated on the far side of the port from a feeder that descends
+    to the port directly -- the two hops then disagree on horizontal sense while
+    sharing a channel.  Resolving through the merge keeps the bundle whole; the
+    lead-in's own Y is shared with the port, so only the column moves.
+    """
+    entry_port_id = merge_entry_ports.get(edge.target)
+    if entry_port_id is None:
+        return tgt
+    port = graph.ports.get(entry_port_id)
+    entry = graph.stations.get(entry_port_id)
+    if (
+        port is None
+        or entry is None
+        or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+        or abs(entry.y - tgt.y) > COORD_TOLERANCE
+    ):
+        return tgt
+    return entry
+
+
 def compute_bundle_info(
     graph: MetroGraph,
     junction_ids: set[str],
@@ -1483,7 +1516,8 @@ def compute_bundle_info(
     Returns dict mapping (source_id, target_id, line_id) -> (index, count).
     """
     # Collect all inter-section edges with their geometry
-    inter_edges: list[tuple[Edge, float, float, float, float]] = []
+    merge_entry_ports = convergence_junction_entry_ports(graph)
+    inter_edges: list[tuple[Edge, float, float, float, float, Station]] = []
     for edge in graph.edges:
         src, tgt = graph.edge_endpoints(edge)
 
@@ -1493,16 +1527,17 @@ def compute_bundle_info(
         if not is_inter:
             continue
 
-        inter_edges.append((edge, src.x, src.y, tgt.x, tgt.y))
+        corridor_tgt = _corridor_target(graph, edge, tgt, merge_entry_ports)
+        inter_edges.append((edge, src.x, src.y, corridor_tgt.x, tgt.y, corridor_tgt))
 
     # Group by corridor: edges sharing the same vertical channel
     # Key: (route_type, rounded_channel_position, vertical_direction)
     corridor_groups: dict[
-        tuple[object, ...], list[tuple[Edge, float, float, float, float]]
+        tuple[object, ...], list[tuple[Edge, float, float, float, float, Station]]
     ] = defaultdict(list)
 
     for item in inter_edges:
-        edge, sx, sy, tx, ty = item
+        edge, sx, sy, tx, ty, corridor_tgt = item
         dx = tx - sx
         dy = ty - sy
 
@@ -1522,12 +1557,14 @@ def compute_bundle_info(
             # proper offsets.  Fall back to round(sx) for junctions
             # or edges without section info.
             h_dir = 1 if dx > 0 else -1
-            src_st, tgt_st = graph.edge_endpoints(edge)
+            src_st = graph.edge_endpoints(edge)[0]
             src_sec = (
                 graph.sections.get(src_st.section_id) if src_st.section_id else None
             )
             tgt_sec = (
-                graph.sections.get(tgt_st.section_id) if tgt_st.section_id else None
+                graph.sections.get(corridor_tgt.section_id)
+                if corridor_tgt.section_id
+                else None
             )
             col_key: int | tuple[int, ...]
             if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:

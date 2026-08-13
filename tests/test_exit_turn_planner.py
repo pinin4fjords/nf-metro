@@ -3368,3 +3368,26 @@ def test_a_handover_station_seats_its_two_names_on_adjacent_lanes() -> None:
             f"{station_id}: '{arriving}' at {arriving_lane} and '{departing}' at "
             f"{departing_lane} are not one lane apart"
         )
+
+
+def test_a_merge_and_its_cellmate_feeder_share_one_descent_corridor() -> None:
+    """Feeders landing in one flow entry are bundled by the port, not the hop.
+
+    A merge seated outboard of its RIGHT entry port is reached leftward-to-
+    rightward from a feeder above it while a sibling that descends straight to
+    the port is reached rightward-to-leftward.  Keying the corridor on each
+    hop's own sign splits that one descent into two single-line bundles, which
+    costs the sibling the ``n >= 2`` bundle that deflects it onto the cross-row
+    wrap -- so the bundle has to be owned by the port both members land in.
+    """
+    path = FROZEN / "seed_77.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+
+    through_merge = ctx.bundle_info[("__junction_37", "__merge_11", "l0")]
+    direct = ctx.bundle_info[("__junction_37", "s8__entry_right_23", "l1")]
+    assert ctx.merge.entry_port_for["__merge_11"] == "s8__entry_right_23"
+    assert through_merge[1] == 2, "feeder through the merge is bundled alone"
+    assert direct[1] == 2, "feeder straight to the port is bundled alone"
+    assert {through_merge[0], direct[0]} == {0, 1}
