@@ -31,6 +31,7 @@ from nf_metro.layout.route_plan import (
     RouteSemanticScaffold,
     RouteSystemId,
 )
+from nf_metro.layout.routing import normalize
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
@@ -51,7 +52,6 @@ from nf_metro.layout.routing.inter_section_handlers import (
 )
 from nf_metro.layout.routing.normalize import (
     _bundle_divergent_distinct_traverses,
-    _bundle_same_destination_tails,
     _coincide_fanout_opening_descents,
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
@@ -1816,10 +1816,16 @@ def build_member_geometry_execution(
         # pass, and over the same whole gap population the passes above ranked --
         # a bundle carrying an immutable convergence stroke is pinned by it, and
         # holding the candidates alone would slide them off that stroke.
-        settled_tail_segments = _bundle_same_destination_tails(
-            normalization_population,
+        tail_ctx = replace(
             ctx,
-            movable_route_ids=complete_path_route_ids,
+            destination_tail_movable_route_ids=complete_path_route_ids,
+        )
+        settled_tail_segments = (
+            normalize._bundle_same_destination_tails(
+                normalization_population,
+                tail_ctx,
+            )
+            or frozenset()
         )
         _hold_runs_in_corridor_clearance(
             normalization_population,

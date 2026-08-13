@@ -1128,10 +1128,9 @@ def _collect_htrunks(
 def _bundle_same_destination_tails(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
-    *,
-    movable_route_ids: frozenset[int] | None = None,
 ) -> frozenset[tuple[int, int]]:
     """Seat eligible same-port destination tails on one eager concentric band."""
+    movable_route_ids = ctx.destination_tail_movable_route_ids
     settled_segments: set[tuple[int, int]] = set()
     for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius

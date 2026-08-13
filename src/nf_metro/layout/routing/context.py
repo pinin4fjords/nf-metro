@@ -245,6 +245,7 @@ class _RoutingCtx:
     diagonal_run: float
     curve_radius: float
     validate_final_route_frames: bool = True
+    destination_tail_movable_route_ids: frozenset[int] | None = None
     reserved_bands: ReservedCorridors = field(default_factory=ReservedCorridors)
     prior_exit_turn_dispositions: Mapping[ExitTurnPlanId, str | None] | None = None
     """Frozen exit-turn dispositions a settlement re-route must redraw.

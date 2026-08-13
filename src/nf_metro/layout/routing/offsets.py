@@ -899,6 +899,7 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
 
 def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
     """Assign each clean divergence's settled slots in semantic peel order."""
+    incoming_count = Counter(edge.target for edge in ctx.graph.edges)
     for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
         source_section = ctx.graph.section_for_port(ctx.graph.ports[exit_port_id])
         if not lanes_run_along_y(source_section.direction):
@@ -908,10 +909,22 @@ def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
         )
         if peel_order is None:
             continue
+        has_converging_arm = True in map(
+            lambda edge: incoming_count[edge.target] > 1,
+            ctx.graph.edges_from(junction_id),
+        )
+        preserve_frame = (len(peel_order), has_converging_arm) == (2, True)
+        line_order = {
+            False: peel_order,
+            True: sorted(
+                peel_order,
+                key=lambda line_id: ctx.offsets.get((junction_id, line_id), 0.0),
+            ),
+        }[preserve_frame]
         settled = sorted(
             ctx.offsets.get((junction_id, line_id), 0.0) for line_id in peel_order
         )
-        for line_id, offset in zip(peel_order, settled):
+        for line_id, offset in zip(line_order, settled):
             ctx.offsets[(junction_id, line_id)] = offset
 
 
