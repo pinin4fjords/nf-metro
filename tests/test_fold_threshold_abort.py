@@ -28,6 +28,7 @@ from nf_metro.layout.routing.convergences import ConvergenceInvariantError
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.render import render_svg
 from nf_metro.render.section_header import SectionHeaderClashError
+from nf_metro.render.svg import _fold_split_fan_cohort
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -54,7 +55,6 @@ def _render_at(name: str, fold: int | None) -> None:
 # Both internal abort paths (CurveInvariantError, SectionHeaderClashError) are
 # represented; off_track_input_above_consumer is the header-clash case.
 COMPRESSED_ABORTS = [
-    ("reconverge_reversed_fold", 1),
     ("off_track_input_above_consumer", 1),
     ("mixed_bundle_column", 1),
     ("upward_bypass", 1),
@@ -65,6 +65,17 @@ COMPRESSED_RENDERS = [
     ("fold_fan_across", 1),
     ("fold_stacked_branch", 1),
 ]
+
+
+def test_compressed_fold_rejects_interleaved_destination_cohort() -> None:
+    """A destination cohort cannot straddle another line at its junction."""
+    name = "reconverge_reversed_fold"
+    graph = prepare_graph(_find(name).read_text(), layout_options={"fold_threshold": 1})
+
+    assert _fold_split_fan_cohort(graph)
+    with pytest.raises(FoldThresholdError):
+        render_svg(graph, THEMES["nfcore"])
+    _render_at(name, None)
 
 
 @pytest.mark.parametrize("name, fold", COMPRESSED_ABORTS)
