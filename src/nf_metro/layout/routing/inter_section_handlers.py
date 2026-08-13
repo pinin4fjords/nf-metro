@@ -4178,6 +4178,7 @@ def _route_l_shape_fan(
         normalize_exempt=False,
     )
     assert route is not None  # the lone member is always in its own bundle
+    _anchor_l_shape_fan_source_lane(route, src, ctx)
     _declare_channel(
         route,
         ctx,
@@ -4187,6 +4188,28 @@ def _route_l_shape_fan(
         un,
     )
     return route
+
+
+def _anchor_l_shape_fan_source_lane(
+    route: RoutedPath, src: Station, ctx: _RoutingCtx
+) -> None:
+    """Keep a turning fan member off a planned straight continuation lane."""
+    if ctx.exit_turns is None:
+        return
+    membership = ctx.exit_turns.membership_for_edge(route.edge)
+    if (
+        membership is None
+        or membership.assignment is None
+        or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+        or not any(
+            assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
+            and assignment.source_lane_rank != membership.assignment.source_lane_rank
+            for assignment in membership.plan.assignments
+        )
+    ):
+        return
+    source_y = src.y + _get_offset(ctx, route.edge.source, route.line_id)
+    route.points[:2] = [(point[0], source_y) for point in route.points[:2]]
 
 
 @dataclass(frozen=True, slots=True)

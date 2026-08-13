@@ -342,6 +342,24 @@ def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
     assert trunk.points[2] == pytest.approx((2722.0, 348.0))
 
 
+def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
+    """A planned source turn retains its lane beside a straight continuation."""
+    from nf_metro.api import RenderConfig, _emit_svg_plan, prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+    from nf_metro.render.validate import OFFSET_COLLAPSE, validate_render
+
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    svg = _emit_svg_plan(graph, observed.plan, RenderConfig())
+
+    assert not [
+        finding
+        for finding in validate_render(svg, plan=observed.plan)
+        if finding.kind == OFFSET_COLLAPSE
+    ]
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
