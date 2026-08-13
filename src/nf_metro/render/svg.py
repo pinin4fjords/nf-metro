@@ -23,6 +23,7 @@ from typing import Any, Literal, NamedTuple
 import drawsvg as draw
 
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
@@ -1219,8 +1220,9 @@ def _ledger_changes_live_derived_band(
                 if ledger is not None and (
                     derived is None
                     or derived.boundary != boundary
-                    or derived.lo != ledger.lo
-                    or derived.hi != ledger.hi
+                    or not derived.lo - COORD_TOLERANCE
+                    <= allocation_coordinate
+                    <= derived.hi + COORD_TOLERANCE
                     # Only a translation can make a claim's coordinate a
                     # consequence of consuming the ledger.  A run that hugs the
                     # box edge its entry port sits on is outside the clearance
@@ -1236,12 +1238,20 @@ def _ledger_changes_live_derived_band(
                 ):
                     return True
 
+    claimed_segments = {
+        (claim.path_rank, rank)
+        for reservation in plan.reservations
+        for claim in reservation.claims
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 1)
+    }
     for path_rank, route in enumerate(routes):
         if not route.is_inter_section:
             continue
         if route_span(path_rank) is None:
             continue
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
+            if (path_rank, rank) in claimed_segments:
+                continue
             dx = abs(end[0] - start[0])
             dy = abs(end[1] - start[1])
             if (dx > SAME_COORD_TOLERANCE) == (dy > SAME_COORD_TOLERANCE):
