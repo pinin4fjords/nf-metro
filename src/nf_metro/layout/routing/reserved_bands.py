@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeAlias
 
 from nf_metro.layout.constants import COORD_TOLERANCE
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         GapCorridorBand,
         ReservationCoordinateTranslation,
         RouteReservation,
+        RouteReservationClaim,
     )
     from nf_metro.parser.model import MetroGraph
 
@@ -476,6 +477,7 @@ class _ClaimViews:
 
 
 def _claim_views(
+    graph: MetroGraph,
     plan: RoutePlan,
     measured: Sequence[tuple[RouteReservation, float, float]],
     translations: tuple[ReservationCoordinateTranslation, ...],
@@ -492,11 +494,63 @@ def _claim_views(
     """
     from nf_metro.layout.route_plan import DemandAxis
     from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        RouteReservationLane,
         RowGapRegion,
         project_reservation_coordinate,
+        realise_reservation,
     )
 
     edge_by_member = {member.id: member.edge for member in plan.members}
+    geometry_by_member = {item.member_id: item for item in plan.member_geometry_plans}
+
+    def terminal_landing_band(
+        reservation: RouteReservation,
+        claim: RouteReservationClaim,
+        lo: float,
+        hi: float,
+    ) -> tuple[float, float]:
+        record = geometry_by_member.get(claim.member_id)
+        if (
+            not isinstance(reservation.region, ColumnGapRegion)
+            or record is None
+            or claim.segment_end_rank != len(record.points) - 3
+        ):
+            return lo, hi
+        target = graph.stations.get(record.edge.target)
+        if target is None or not target.is_port or target.section_id is None:
+            return lo, hi
+        start, end = record.points[claim.segment_end_rank : claim.segment_end_rank + 2]
+        final_start, final_end = record.points[-2:]
+        if start[0] != end[0] or final_start[1] != final_end[1]:
+            return lo, hi
+        try:
+            one_claim = replace(
+                reservation,
+                claimant_member_ids=(claim.member_id,),
+                claims=(claim,),
+                landing_section_ids=(target.section_id,),
+                lanes=(RouteReservationLane((0,)),),
+                lane_count=1,
+                bundle_width=0.0,
+                minimum_width=(
+                    reservation.negative_side_clearance
+                    + reservation.peer_width
+                    + reservation.positive_side_clearance
+                ),
+            )
+            realised = realise_reservation(
+                graph, one_claim, coordinate_translations=translations
+            )
+        except ValueError:
+            return lo, hi
+        if realised is None:
+            return lo, hi
+        return (
+            min(lo, realised.region_start + realised.negative_side_clearance),
+            max(hi, realised.region_end - realised.positive_side_clearance),
+        )
+
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
     allocations: dict[ClaimSegmentKey, tuple[float, float]] = {}
     # Keyed by the band quantised to the comparison tolerance, so two
@@ -508,6 +562,7 @@ def _claim_views(
         allocation_axis = DemandAxis.Y if is_row else DemandAxis.X
         band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
         for claim in reservation.claims:
+            claim_lo, claim_hi = terminal_landing_band(reservation, claim, lo, hi)
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
             bands_by_edge = row_by_edge if is_row else column_by_edge
@@ -526,7 +581,12 @@ def _claim_views(
                 key = (*edge_key, rank)
                 held = spans.get(key)
                 spans[key] = (
-                    (lo, hi) if held is None else (max(held[0], lo), min(held[1], hi))
+                    (claim_lo, claim_hi)
+                    if held is None
+                    else (
+                        max(held[0], claim_lo),
+                        min(held[1], claim_hi),
+                    )
                 )
                 if allocation is not None:
                     held_allocation = allocations.get(key)
@@ -589,7 +649,7 @@ def build_reserved_corridors(
     from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 
     measured = tuple(_measured_gap_bands(graph, plan, translations))
-    views = _claim_views(plan, measured, translations)
+    views = _claim_views(graph, plan, measured, translations)
     return ReservedCorridors(
         _axis_bands(
             measured,
