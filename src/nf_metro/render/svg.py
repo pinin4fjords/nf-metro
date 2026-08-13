@@ -639,7 +639,7 @@ def _build_render_plan_result(
                 raise reframed from exc
             raise
 
-    if _fold_back_under_compression(graph):
+    if _fold_back_under_compression(graph) or _fold_split_fan_cohort(graph):
         reframed = _fold_threshold_error(graph)
         if reframed is not None:
             raise reframed
@@ -744,6 +744,36 @@ def _fold_back_under_compression(graph: MetroGraph) -> bool:
     if not graph._fold_compressed_sections:
         return False
     return any(iter_opposing_line_overlaps(graph))
+
+
+def _fold_split_fan_cohort(graph: MetroGraph) -> bool:
+    """True when folding wedges another destination into a fan cohort.
+
+    Lines leaving one junction for the same destination must occupy adjacent
+    lanes.  A line bound elsewhere between their offsets makes the cohort cross
+    that line before it can reconverge.  Natural-width layouts have enough
+    runway to move the transition away from the junction; a compressed fold
+    does not, so the requested threshold cannot be rendered cleanly.
+    """
+    if not graph._fold_compressed_sections:
+        return False
+    offsets = compute_station_offsets(graph)
+    for junction_id in graph.junction_ids:
+        lines_by_target: dict[str, set[str]] = {}
+        for edge in graph.edges_from(junction_id):
+            lines_by_target.setdefault(edge.target, set()).add(edge.line_id)
+        all_lines = set().union(*lines_by_target.values()) if lines_by_target else set()
+        for cohort in lines_by_target.values():
+            if len(cohort) < 2:
+                continue
+            cohort_offsets = [offsets[(junction_id, line_id)] for line_id in cohort]
+            low, high = min(cohort_offsets), max(cohort_offsets)
+            if any(
+                low < offsets[(junction_id, line_id)] < high
+                for line_id in all_lines - cohort
+            ):
+                return True
+    return False
 
 
 def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
