@@ -6,9 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
+from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
     ExitTurnPlanId,
+    RouteMemberGeometryPlan,
     RouteSystemDisposition,
     RouteSystemId,
 )
@@ -69,6 +71,35 @@ def _allocation_eligible_system_ids(
     return preliminary_planned_ids - member_failure_ids
 
 
+def _allocated_points_in_source_frame(
+    plan: RouteMemberGeometryPlan,
+    allocated: RouteMemberGeometryPlan,
+    ctx: _RoutingCtx,
+) -> tuple[tuple[float, float], ...]:
+    """Keep an allocated route's initial run on its frozen fork frame."""
+    if plan.edge.source not in ctx.fork_stations or len(allocated.points) < 2:
+        return allocated.points
+    first, second = allocated.points[:2]
+    if abs(first[0] - second[0]) <= COORD_TOLERANCE:
+        secondary_axis = 0
+    elif abs(first[1] - second[1]) <= COORD_TOLERANCE:
+        secondary_axis = 1
+    else:
+        return allocated.points
+    allocated_frame = first[secondary_axis]
+    execution_frame = plan.points[0][secondary_axis]
+    if abs(allocated_frame - execution_frame) <= COORD_TOLERANCE:
+        return allocated.points
+    points = list(allocated.points)
+    for index, point in enumerate(points):
+        if abs(point[secondary_axis] - allocated_frame) > COORD_TOLERANCE:
+            break
+        shifted = list(point)
+        shifted[secondary_axis] = execution_frame
+        points[index] = (shifted[0], shifted[1])
+    return tuple(points)
+
+
 def _with_settled_exit_turns(
     execution: MemberGeometryExecution,
     allocation: MemberGeometryExecution,
@@ -104,14 +135,23 @@ def _with_settled_exit_turns(
             or ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
             in reconciled_targets
         ) and allocated is not None:
+            allocated_points = _allocated_points_in_source_frame(plan, allocated, ctx)
+            gap_channels = tuple(
+                replace(
+                    channel,
+                    start=allocated_points[channel.segment_rank],
+                    end=allocated_points[channel.segment_rank + 1],
+                )
+                for channel in allocated.gap_channels
+            )
             plans.append(
                 replace(
                     plan,
-                    points=allocated.points,
+                    points=allocated_points,
                     curve_radii=allocated.curve_radii,
                     gap_slots=allocated.gap_slots,
                     trunk_slot=allocated.trunk_slot,
-                    gap_channels=allocated.gap_channels,
+                    gap_channels=gap_channels,
                     concentric_corner_offsets_by_segment=(
                         allocated.concentric_corner_offsets_by_segment
                     ),
