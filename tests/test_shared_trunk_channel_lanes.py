@@ -132,6 +132,18 @@ def test_one_system_lanes_the_trunk_channel_its_plans_share(path: Path) -> None:
                 )
 
 
+def test_reserved_band_does_not_collapse_counter_running_merge_trunks() -> None:
+    """A reserved row band cannot erase a convergence lane decision."""
+    path = ROOT / "examples" / "topologies" / "merge_around_below_leftmost.mmd"
+    plans = next(iter(_systems_with_shared_trunks(path).values()))
+    axes = {item.merge_junction_ids: item.trunk_axis for item in plans}
+    extra = axes[("__merge_2",)]
+    target = axes[("__merge_3",)]
+    assert extra is not None and target is not None
+    assert extra.direction is not target.direction
+    assert abs(extra.coordinate - target.coordinate) >= LANE_CLEARANCE
+
+
 def _member_interior_runs(
     plan: RoutePlan, system_id: RouteSystemId
 ) -> list[tuple[float, float, float]]:
