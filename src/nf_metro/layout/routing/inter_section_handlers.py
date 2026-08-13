@@ -705,8 +705,68 @@ def _route_bypass_packed_cell_same_row(f: _InterFacts) -> RoutedPath | None:
     return _route_left_entry_family(f)
 
 
+def _u_bypass_wraps_above_merge_trunk(f: _InterFacts) -> bool:
+    """Whether a downward U-bypass must pass above a crossing merge trunk."""
+    if (
+        f.bypass_route is not _BypassRoute.U_BYPASS
+        or f.entry_side is not PortSide.RIGHT
+        or f.horizontal is not Direction.L
+        or f.src_row is None
+        or f.tgt_row is None
+        or f.tgt_row <= f.src_row
+        or f.src_col is None
+        or f.tgt_col is None
+    ):
+        return False
+    graph = f.ctx.graph
+    for merge_id, entry_id in f.ctx.merge.entry_port_for.items():
+        trunk_source = f.ctx.merge.trunk_source.get(merge_id)
+        entry = graph.stations.get(entry_id)
+        source = graph.stations.get(trunk_source) if trunk_source is not None else None
+        if entry is None or source is None:
+            continue
+        entry_col, entry_row = resolve_section_colrow(graph, entry)
+        source_col, source_row = resolve_section_colrow(graph, source)
+        if (
+            entry_col is None
+            or entry_row is None
+            or source_col is None
+            or source_row != f.src_row
+            or entry_row < f.tgt_row
+            or not f.src_col < entry_col
+            or not f.tgt_col < source_col < f.src_col
+        ):
+            continue
+        if any(
+            edge.source == trunk_source
+            and edge.target == merge_id
+            and edge.line_id != f.edge.line_id
+            for edge in graph.edges
+        ):
+            return True
+    return False
+
+
 def _route_u_bypass_family(f: _InterFacts) -> RoutedPath:
     """Build the U-shaped remainder of the bypass family."""
+    if _u_bypass_wraps_above_merge_trunk(f):
+        assert f.src_row is not None
+        return _build_right_entry_wrap_route(
+            f.edge,
+            f.src,
+            f.tgt,
+            f.i,
+            f.n,
+            f.ctx,
+            header_corridor_y(
+                f.graph,
+                f.src_row,
+                below=False,
+                base_radius=f.ctx.curve_radius,
+                default=f.sy,
+            ),
+            normalize_exempt=False,
+        )
     return _route_bypass(f, _bypass_geometry(f))
 
 

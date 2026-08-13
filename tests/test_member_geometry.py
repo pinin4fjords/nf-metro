@@ -33,6 +33,7 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     OffsetRegime,
     RoutedPath,
+    TrunkSlot,
 )
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
@@ -263,6 +264,33 @@ def test_seed_15_freezes_clear_right_entry_step_atomically() -> None:
     assert len(plan.gap_channels) == 1
     assert plan.gap_channels[0].start == (1600.5, 338.0)
     assert plan.gap_channels[0].end == (1600.5, 504.0)
+    _assert_channels_equal_emission(observation, plan)
+
+
+def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph, observation = _observe(path)
+    plan = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_21", "s9__entry_right_15", "l2")
+    )
+
+    assert plan.family_id is RouteFamilyId.BYPASS_FAMILY
+    assert plan.points == (
+        (1488.0, 128.0),
+        (1536.0, 128.0),
+        (1536.0, 40.0),
+        (627.0, 40.0),
+        (627.0, 540.0),
+        (580.0, 540.0),
+    )
+    assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
+        (1, 2, Direction.D),
+        (5, 0, Direction.U),
+    ]
+    assert plan.trunk_slot == TrunkSlot(None)
+    assert {channel.segment_rank for channel in plan.gap_channels} == {1, 3}
     _assert_channels_equal_emission(observation, plan)
 
 
