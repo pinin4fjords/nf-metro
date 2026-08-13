@@ -1681,7 +1681,15 @@ def build_member_geometry_execution(
         # direction bands have to be settled here rather than by the same pass
         # running after emission, which skips a plan-owned trunk.
         _separate_opposing_inter_row_trunks(normalization_population, ctx)
-        _reconcile_port_peeloff_risers(normalization_population, ctx)
+        _reconcile_port_peeloff_risers(
+            [
+                route
+                for route in normalization_population
+                if route.exit_turn_plan_id not in pending_exit_turn_plan_ids
+            ],
+            ctx,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+        )
         _coincide_same_line_tracks(
             normalization_population,
             ctx,
@@ -1800,6 +1808,14 @@ def build_member_geometry_execution(
             normalization_population,
             ctx,
             movable_owned_route_ids=candidate_route_ids,
+        )
+        _reconcile_port_peeloff_risers(
+            [
+                route
+                for route in candidate_routes
+                if route.fan_plan_id is None and route.fan_route_emitter is None
+            ],
+            ctx,
         )
         plans = tuple(
             _freeze_plan(

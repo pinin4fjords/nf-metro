@@ -4380,8 +4380,16 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
         # Only a genuinely-horizontal final segment is extended; extend
         # its X to the downstream start X, keeping the upstream Y so the
         # approach into the bend stays horizontal.
-        if abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE:
-            up.points[-1] = (down.points[0][0], p_last[1])
+        new_end = (down.points[0][0], p_last[1])
+        if (
+            abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE
+            and (
+                abs(p_prev[0] - new_end[0]) > COORD_TOLERANCE
+                or abs(p_prev[1] - new_end[1]) > COORD_TOLERANCE
+            )
+            and (p_last[0] - p_prev[0]) * (new_end[0] - p_prev[0]) > 0.0
+        ):
+            up.points[-1] = new_end
 
 
 def _convergence_line_order(
