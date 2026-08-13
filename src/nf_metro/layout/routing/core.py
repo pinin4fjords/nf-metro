@@ -684,6 +684,7 @@ def observe_route_edges(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    allow_convergence_clearance_requirements: bool = False,
 ) -> RouteObservation:
     """Route once and return the context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -695,6 +696,9 @@ def observe_route_edges(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        allow_convergence_clearance_requirements=(
+            allow_convergence_clearance_requirements
+        ),
     )
     assert plan is not None
     return RouteObservation(routes, plan)

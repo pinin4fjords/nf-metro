@@ -3366,7 +3366,11 @@ def _exempt_trunk_separation(
 
 
 def _dogleg_off_exempt_trunks(
-    routes: list[RoutedPath], ctx: _RoutingCtx, skip: set[int] | None = None
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    skip: set[int] | None = None,
+    *,
+    movable_owned_route_ids: frozenset[int] = frozenset(),
 ) -> None:
     """Offset a non-exempt trunk drawn collinear with an exempt run.
 
@@ -3400,7 +3404,10 @@ def _dogleg_off_exempt_trunks(
         return
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or route_system_owns_segment_boundary(t.route, t.idx):
+        owned = route_system_owns_segment_boundary(t.route, t.idx)
+        if id(t.route) in skip or (
+            owned and id(t.route) not in movable_owned_route_ids
+        ):
             continue
         hit = next(
             (
@@ -3410,6 +3417,11 @@ def _dogleg_off_exempt_trunks(
                 and abs(o.y - t.y) <= clearance
                 and t.x_lo < o.x_hi - COORD_TOLERANCE
                 and o.x_lo < t.x_hi - COORD_TOLERANCE
+                and (
+                    not owned
+                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
+                    is not None
+                )
             ),
             None,
         )
@@ -3453,7 +3465,10 @@ def _dogleg_off_exempt_trunks(
 
     step = ctx.offset_step
     for t in _collect_htrunks(routes):
-        if id(t.route) in skip or route_system_owns_segment_boundary(t.route, t.idx):
+        owned = route_system_owns_segment_boundary(t.route, t.idx)
+        if id(t.route) in skip or (
+            owned and id(t.route) not in movable_owned_route_ids
+        ):
             continue
         hit = next(
             (
@@ -3464,6 +3479,11 @@ def _dogleg_off_exempt_trunks(
                 < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
                 and t.x_lo < o.x_hi - COORD_TOLERANCE
                 and o.x_lo < t.x_hi - COORD_TOLERANCE
+                and (
+                    not owned
+                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
+                    is not None
+                )
             ),
             None,
         )
@@ -3640,6 +3660,14 @@ def _separate_fused_cotravelling_runs(
             for obstacle in obstacles
             for direction in (-1, 1)
         }
+        candidates.update(
+            blocker.coord + direction * step
+            for candidate in tuple(candidates)
+            for blocker in lanes
+            if blocker is not lane
+            and replace(lane, coord=candidate).fuses_with(blocker, step)
+            for direction in (-1, 1)
+        )
 
         def feasible(target: float) -> bool:
             delta = target - lane.coord

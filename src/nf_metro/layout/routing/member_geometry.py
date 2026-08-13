@@ -53,6 +53,7 @@ from nf_metro.layout.routing.normalize import (
     _coincide_fanout_opening_descents,
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
+    _dogleg_off_exempt_trunks,
     _hold_runs_in_corridor_clearance,
     _locate_slot_channel,
     _materialize_gap_slots,
@@ -1724,6 +1725,11 @@ def build_member_geometry_execution(
             normalization_population,
             ctx,
             movable_route_ids=complete_path_route_ids,
+        )
+        _dogleg_off_exempt_trunks(
+            normalization_population,
+            ctx,
+            movable_owned_route_ids=candidate_route_ids,
         )
         plans = tuple(
             _freeze_plan(
