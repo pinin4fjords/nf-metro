@@ -342,6 +342,25 @@ def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
     assert trunk.points[2] == pytest.approx((2722.0, 348.0))
 
 
+def test_seed_77_settled_entry_bundle_keeps_allocation_lanes() -> None:
+    """A settled member carries every destination peer's allocation lane."""
+    _graph, routes, _offsets = _route(FROZEN_FUZZ / "seed_77.mmd")
+    l1 = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_39", "s9__entry_right_25", "l1")
+    )
+    l3 = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_41", "s9__entry_right_25", "l3")
+    )
+
+    assert l1.points[-3][0] - l3.points[-3][0] == graph_offset_step(_graph)
+
+
 def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
     """A planned source turn retains its lane beside a straight continuation."""
     from nf_metro.api import RenderConfig, _emit_svg_plan, prepare_graph, resolve_theme

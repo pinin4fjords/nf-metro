@@ -80,6 +80,16 @@ def _with_settled_exit_turns(
     from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 
     allocated_by_edge = {plan.edge: plan for plan in allocation.plans}
+    reconciled_targets = {
+        ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
+        for plan in execution.plans
+        if (
+            (plan.edge.source, plan.edge.target, plan.edge.line_id)
+            in ctx.settled_exit_turns
+            or plan.member_id in execution.reconciled_member_ids
+            or plan.member_id in allocation.reconciled_member_ids
+        )
+    }
     plans = []
     for plan in execution.plans:
         settled = ctx.settled_exit_turns.get(
@@ -91,6 +101,8 @@ def _with_settled_exit_turns(
             settled is not None
             or plan.member_id in execution.reconciled_member_ids
             or plan.member_id in allocation.reconciled_member_ids
+            or ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
+            in reconciled_targets
         ) and allocated is not None:
             plans.append(
                 replace(
