@@ -22,6 +22,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
+    lanes_run_along_x,
     measured_distance,
     point_to_polyline_distance,
     spans_share_corridor,
@@ -1673,7 +1674,7 @@ def _reconcile_landing_handedness(
                             landing.edge.line_id,
                             section.id,
                         )
-                        if section is not None and section.direction in ("TB", "BT")
+                        if section is not None and lanes_run_along_x(section.direction)
                         else 0.0
                     )
                     if abs(source_x - opening_x) > COORD_TOLERANCE:
@@ -1725,7 +1726,7 @@ def _reconcile_landing_handedness(
                             landing.edge.line_id,
                             section.id,
                         )
-                        if section is not None and section.direction in ("TB", "BT")
+                        if section is not None and lanes_run_along_x(section.direction)
                         else 0.0
                     )
                     turn_y = (

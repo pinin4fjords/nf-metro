@@ -29,6 +29,7 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     lanes_run_along_x,
     lanes_run_along_y,
+    section_bbox_edges,
     spans_share_corridor,
 )
 from nf_metro.layout.route_topology import (
@@ -261,7 +262,7 @@ def col_right_edge(
 ) -> float:
     """Rightmost X extent of sections in *col* (optionally a single *row*)."""
     secs = _sections_in_col(graph, col, row)
-    return max((s.bbox_x + s.bbox_w for s in secs), default=default)
+    return max((section_bbox_edges(s)[2] for s in secs), default=default)
 
 
 def col_left_edge(

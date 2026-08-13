@@ -26,6 +26,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
     cotravelling_lanes_fuse,
+    section_bbox_edges,
     spans_share_corridor,
 )
 from nf_metro.layout.route_plan import ExitTurnPlanId
@@ -3240,20 +3241,20 @@ def _merge_feeder_groups(
                 continue
             source_section = resolve_section(graph, src_st, prefer_upstream=True)
             if source_section is not None and source_section.bbox_w > 0:
+                source_left, _source_top, source_right, _source_bottom = (
+                    section_bbox_edges(source_section)
+                )
                 within_source_band = (
-                    source_section.bbox_y + COORD_TOLERANCE
+                    _source_top + COORD_TOLERANCE
                     < src_st.y
-                    < source_section.bbox_y + source_section.bbox_h - COORD_TOLERANCE
+                    < _source_bottom - COORD_TOLERANCE
                 )
 
                 def crosses_source_interior(x: float) -> bool:
                     return (
                         within_source_band
-                        and min(src_st.x, x)
-                        < source_section.bbox_x
-                        + source_section.bbox_w
-                        - COORD_TOLERANCE
-                        and max(src_st.x, x) > source_section.bbox_x + COORD_TOLERANCE
+                        and min(src_st.x, x) < source_right - COORD_TOLERANCE
+                        and max(src_st.x, x) > source_left + COORD_TOLERANCE
                     )
 
                 if crosses_source_interior(trunk_ch.x) and not crosses_source_interior(
