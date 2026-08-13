@@ -3765,6 +3765,24 @@ def _restack_htrunk(
     rp = t.route
     pts = rp.points
     k = t.idx
+    owned_offsets = rp.concentric_corner_offsets_by_segment.get(k)
+    owned_bases = rp.concentric_corner_bases_by_segment.get(k)
+    if (
+        owned_offsets is not None
+        and owned_bases is not None
+        and all(value is not None for value in (*owned_offsets, *owned_bases))
+    ):
+        _reseat_concentric_flanking(
+            rp,
+            k,
+            new_y,
+            axis=1,
+            offset_in=owned_offsets[0],
+            offset_out=owned_offsets[1],
+            base_radius=owned_bases[0],
+            base_radius_out=owned_bases[1],
+        )
+        return
     pts[k] = (pts[k][0], new_y)
     pts[k + 1] = (pts[k + 1][0], new_y)
 
