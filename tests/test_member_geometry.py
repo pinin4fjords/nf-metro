@@ -9,7 +9,12 @@ import pytest
 
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
+from nf_metro.layout.constants import (
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    INTER_ROW_EDGE_CLEARANCE,
+    OFFSET_STEP,
+)
 from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceEndpointRole,
@@ -22,7 +27,13 @@ from nf_metro.layout.route_plan import (
     build_route_semantic_scaffold,
     serialize_route_plan,
 )
-from nf_metro.layout.routing.common import Direction, GapSlot, OffsetRegime, RoutedPath
+from nf_metro.layout.routing.common import (
+    Direction,
+    GapSlot,
+    OffsetRegime,
+    RoutedPath,
+    TrunkSlot,
+)
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
 from nf_metro.layout.routing.corners import (
@@ -227,6 +238,31 @@ def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> 
         (2, 2, Direction.D),
         (5, 2, Direction.U),
     ]
+
+
+def test_seed_15_freezes_canvas_dogleg_clearance_and_slot_atomically() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+    )
+    blocker = graph.sections["s6"]
+    trunk_y = plan.points[2][1]
+
+    assert trunk_y == pytest.approx(
+        blocker.bbox_y + blocker.bbox_h + INTER_ROW_EDGE_CLEARANCE
+    )
+    assert plan.trunk_slot == TrunkSlot(gap_upper_row=None)
+    assert plan.gap_channels[0].end[1] == pytest.approx(trunk_y)
+    assert plan.gap_channels[1].start[1] == pytest.approx(trunk_y)
+    _assert_channels_equal_emission(observation, plan)
 
 
 def test_live_claim_index_exposes_only_eligible_prior_systems_in_order() -> None:

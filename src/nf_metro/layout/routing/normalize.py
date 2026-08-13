@@ -3891,6 +3891,28 @@ def _exempt_trunk_separation(
     )
 
 
+def _seat_exempt_trunk_dogleg(
+    trunk: _HTrunk, target_y: float, ctx: _RoutingCtx
+) -> None:
+    """Move a dogleg trunk and bind its corridor declaration to the new run."""
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=1,
+        section_ids=_route_endpoint_section_ids(ctx.graph, trunk.route),
+        coordinate=target_y,
+        run_start=trunk.x_lo,
+        run_end=trunk.x_hi,
+    )
+    if (
+        band is not None
+        and band.boundary is None
+        and band.hi >= band.lo - COORD_TOLERANCE
+    ):
+        target_y = min(max(target_y, band.lo), band.hi)
+    _restack_htrunk(trunk, target_y, 0, 1, ctx.offset_step, ctx.curve_radius)
+    _reconcile_moved_trunk_slot(trunk.route, trunk.idx, target_y, ctx.graph)
+
+
 def _dogleg_off_exempt_trunks(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
@@ -3989,9 +4011,8 @@ def _dogleg_off_exempt_trunks(
         else:
             continue
         new_y = down_y if use_down else up_y
-        _restack_htrunk(t, new_y, 0, 1, ctx.offset_step, ctx.curve_radius)
+        _seat_exempt_trunk_dogleg(t, new_y, ctx)
 
-    step = ctx.offset_step
     for t in _collect_htrunks(routes):
         owned = route_system_owns_segment_boundary(t.route, t.idx)
         if id(t.route) in skip or (
@@ -4054,7 +4075,7 @@ def _dogleg_off_exempt_trunks(
                 changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
             continue
         target = below if use_below else above
-        _restack_htrunk(t, target, 0, 1, step, ctx.curve_radius)
+        _seat_exempt_trunk_dogleg(t, target, ctx)
     return changed
 
 

@@ -5205,29 +5205,31 @@ def _gap_channel_clearance_requirements(
 
     for plan in plans:
         for channel in _plan_gap_channels(plan, graph, lookup):
-            for fixed in fixed_channels:
+            for fixed_channel in fixed_channels:
                 if (
-                    channel.gap != fixed.gap
-                    or channel.line_ids.isdisjoint(fixed.line_ids)
-                    or channel.down is fixed.down
+                    channel.gap != fixed_channel.gap
+                    or channel.line_ids.isdisjoint(fixed_channel.line_ids)
+                    or channel.down is fixed_channel.down
                     or not spans_share_corridor(
                         channel.y_lo,
                         channel.y_hi,
-                        fixed.y_lo,
-                        fixed.y_hi,
+                        fixed_channel.y_lo,
+                        fixed_channel.y_hi,
                     )
                 ):
                     continue
-                clearance = _landing_channel_clearance(channel, fixed)
+                clearance = _landing_channel_clearance(channel, fixed_channel)
                 if (
                     clearance is None
-                    or abs(channel.coordinate - fixed.coordinate)
+                    or abs(channel.coordinate - fixed_channel.coordinate)
                     >= clearance - COORD_TOLERANCE
                 ):
                     continue
                 lower_col, row = channel.gap
                 left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=row)
-                candidate = max(channel.coordinate, fixed.coordinate) + clearance
+                candidate = (
+                    max(channel.coordinate, fixed_channel.coordinate) + clearance
+                )
                 if candidate <= right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE:
                     continue
                 requirement = _column_clearance_requirement(
