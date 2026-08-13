@@ -2189,6 +2189,7 @@ render_only:
   test_fixtures:
     - hash_seed_determinism/seed_15
     - hash_seed_determinism/seed_41
+    - hash_seed_determinism/seed_72
     - hash_seed_determinism/seed_77
     - multiline_labels
     - rnaseq_simple
