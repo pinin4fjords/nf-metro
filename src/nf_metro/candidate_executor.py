@@ -627,7 +627,11 @@ def _evaluate_attempt(
         try:
             begin(CandidateStage.ROUTE_PLAN)
             offsets = compute_station_offsets(graph)
-            observation = observe_route_edges(graph, station_offsets=offsets)
+            observation = observe_route_edges(
+                graph,
+                station_offsets=offsets,
+                allow_convergence_clearance_requirements=True,
+            )
             build_route_plan_query(observation.plan)
             route_evidence = _route_evidence(observation.plan)
             route_findings = observation.plan.diagnostics

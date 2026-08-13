@@ -89,7 +89,11 @@ from nf_metro.layout.routing.member_geometry import (
     empty_member_geometry_execution,
 )
 from nf_metro.layout.routing.orientation import direction_axis, lateral_axis
-from nf_metro.layout.routing.reserved_bands import ReservedBand
+from nf_metro.layout.routing.reserved_bands import (
+    ReservedBand,
+    corridor_clearance_band,
+    seat_run_in_corridor_clearance,
+)
 from nf_metro.layout.settlement_demand import (
     BoundaryClearanceRequirement,
     SettlementAxis,
@@ -440,16 +444,14 @@ def _connect_route_endpoint(
         and abs(route.points[-2][1] - target[1]) > COORD_TOLERANCE
     ):
         outward = 1.0 if port.side is PortSide.RIGHT else -1.0
-        for rank in range(len(route.points) - 3, -1, -1):
-            start, end = route.points[rank : rank + 2]
-            if (
-                abs(start[0] - end[0]) <= COORD_TOLERANCE
-                and outward * (start[0] - entry.x) >= SECTION_ROUTE_CLEARANCE
-            ):
-                route.points = route.points[: rank + 2]
-                dogleg_x = end[0]
-                route.points.extend([(dogleg_x, target[1]), target])
-                return True
+        prior = route.points[-2]
+        dogleg_x = entry.x + outward * (SECTION_ROUTE_CLEARANCE + 2 * ctx.offset_step)
+        route.points = route.points[:-2] + [
+            (dogleg_x, prior[1]),
+            (dogleg_x, target[1]),
+            target,
+        ]
+        return True
     if all(
         abs(actual - expected) <= COORD_TOLERANCE
         for actual, expected in zip(endpoint, target, strict=True)
@@ -470,6 +472,9 @@ def _connect_route_endpoint(
             if (
                 abs(start[0] - end[0]) <= COORD_TOLERANCE
                 and outward * (start[0] - entry.x) >= SECTION_ROUTE_CLEARANCE
+                and not _vertical_return_self_folds(
+                    route.points[: rank + 2], end[0], end[1], target[1]
+                )
             ):
                 route.points = route.points[: rank + 2]
                 dogleg_x = end[0]
@@ -504,6 +509,91 @@ def _connect_route_endpoint(
     return False
 
 
+def _vertical_return_self_folds(
+    points: list[tuple[float, float]],
+    x: float,
+    start_y: float,
+    end_y: float,
+) -> bool:
+    """Whether a proposed return retraces an earlier vertical run."""
+    proposed_sign = 1 if end_y > start_y else -1
+    proposed_lo, proposed_hi = sorted((start_y, end_y))
+    return any(
+        (1 if prior_end[1] > prior_start[1] else -1) != proposed_sign
+        and min(prior_start[1], prior_end[1]) < proposed_hi - COORD_TOLERANCE
+        and max(prior_start[1], prior_end[1]) > proposed_lo + COORD_TOLERANCE
+        for prior_start, prior_end in zip(points, points[1:])
+        if abs(prior_start[0] - x) <= COORD_TOLERANCE
+        and abs(prior_end[0] - x) <= COORD_TOLERANCE
+        and abs(prior_start[1] - prior_end[1]) > COORD_TOLERANCE
+    )
+
+
+def _connect_bypass_landing(
+    route: RoutedPath,
+    landing: ConvergenceLanding,
+    ctx: _RoutingCtx,
+) -> bool:
+    """Give a returning bypass its own outward endpoint channel."""
+    tail = _bypass_landing_tail(landing, ctx)
+    if tail is None:
+        return False
+    opening = landing.opening_turn_segment
+    assert opening is not None
+    opening_start, opening_end = opening
+    opening_rank = next(
+        (
+            rank
+            for rank, point in enumerate(route.points)
+            if _points_coincide(point, opening_start)
+        ),
+        None,
+    )
+    if opening_rank is None:
+        return False
+    route.points = route.points[: opening_rank + 1] + tail
+    if route.curve_radii is not None:
+        route.curve_radii = route.curve_radii[:opening_rank] + [
+            ctx.curve_radius for _rank in range(len(tail) - 1)
+        ]
+    return True
+
+
+def _bypass_landing_tail(
+    landing: ConvergenceLanding, ctx: _RoutingCtx
+) -> list[tuple[float, float]] | None:
+    """Return the endpoint tail used by an outward returning bypass."""
+    opening = landing.opening_turn_segment
+    if not landing.bypass or opening is None:
+        return None
+    entry_id = ctx.merge.entry_port_for.get(landing.edge.target)
+    port = ctx.graph.ports.get(entry_id) if entry_id else None
+    if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return None
+    outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+    opening_end = opening[1]
+    if abs(opening_end[1] - landing.join_point[1]) <= COORD_TOLERANCE:
+        return (
+            None
+            if _points_coincide(opening_end, landing.join_point)
+            else [opening_end, landing.join_point]
+        )
+    if (
+        outward * (opening_end[0] - landing.join_point[0]) < SECTION_ROUTE_CLEARANCE
+        or abs(opening_end[1] - landing.join_point[1]) <= COORD_TOLERANCE
+    ):
+        return None
+    bypass_x = landing.join_point[0] + outward * (
+        SECTION_ROUTE_CLEARANCE + landing.lane_rank * ctx.offset_step
+    )
+    return [
+        opening_end,
+        (bypass_x, opening_end[1]),
+        (bypass_x, landing.join_point[1]),
+        landing.join_point,
+    ]
+
+
 def _bake_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
     if route.offset_regime is OffsetRegime.DEFERRED:
         route.points = apply_route_offsets(route, ctx.station_offsets or {})
@@ -513,7 +603,14 @@ def _bake_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
 def _landing_approach(
     route: RoutedPath, join_point: tuple[float, float]
 ) -> tuple[Direction, TurnHandedness | None, float] | None:
-    for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
+    return _landing_approach_points(route.points, join_point)
+
+
+def _landing_approach_points(
+    points: list[tuple[float, float]], join_point: tuple[float, float]
+) -> tuple[Direction, TurnHandedness | None, float] | None:
+    """Describe the first run in *points* that reaches *join_point*."""
+    for rank, (start, end) in enumerate(zip(points, points[1:])):
         runway = abs(start[0] - join_point[0]) + abs(start[1] - join_point[1])
         if (
             runway <= COORD_TOLERANCE
@@ -523,7 +620,7 @@ def _landing_approach(
         approach = _direction(start, join_point)
         handedness = None
         if rank > 0:
-            prior = route.points[rank - 1]
+            prior = points[rank - 1]
             if abs(prior[0] - start[0]) + abs(prior[1] - start[1]) > COORD_TOLERANCE:
                 incoming = _direction(prior, start)
                 if direction_axis(incoming) is not direction_axis(approach):
@@ -767,6 +864,84 @@ def _required_shared_terminal_axis(
         raise UnsupportedConvergenceError(reason) from None
 
 
+def _replan_obstructed_horizontal_terminal(
+    routes: tuple[RoutedPath, ...],
+    carrier_rank: int,
+    axis: ConvergenceTrunkAxis,
+    entry: Station,
+    ctx: _RoutingCtx,
+) -> ConvergenceTrunkAxis:
+    """Move a shared terminal approach around its target section when required."""
+    entry_port = ctx.graph.ports.get(entry.id)
+    if (
+        entry_port is None
+        or entry_port.side not in (PortSide.LEFT, PortSide.RIGHT)
+        or axis.axis is not DemandAxis.X
+    ):
+        return axis
+    section = ctx.graph.sections.get(entry_port.section_id)
+    if section is None:
+        return axis
+    section_left = section.bbox_x
+    section_right = section.bbox_x + section.bbox_w
+    section_top = section.bbox_y
+    section_bottom = section.bbox_y + section.bbox_h
+    if not (
+        section_top + COORD_TOLERANCE
+        < axis.coordinate
+        < section_bottom - COORD_TOLERANCE
+        and axis.extent_end > section_left + COORD_TOLERANCE
+        and axis.extent_start < section_right - COORD_TOLERANCE
+    ):
+        return axis
+
+    outward = 1.0 if entry_port.side is PortSide.RIGHT else -1.0
+    exterior_x = entry.x + outward * (SECTION_ROUTE_CLEARANCE + ctx.offset_step)
+    clearance = SECTION_ROUTE_CLEARANCE + ctx.offset_step
+    carrier = routes[carrier_rank]
+    source_x, source_y = carrier.points[0]
+    target_y = axis.target_flank_coordinate
+    turn_x = axis.extent_start if axis.direction is Direction.R else axis.extent_end
+    terminal_y = section_bottom + clearance
+    carrier.points = [
+        (source_x, source_y),
+        (turn_x, source_y),
+        (turn_x, terminal_y),
+        (exterior_x, terminal_y),
+        (exterior_x, target_y),
+        (entry.x, target_y),
+    ]
+    for rank, route in enumerate(routes):
+        if rank == carrier_rank:
+            continue
+        from nf_metro.layout.routing.normalize import (
+            _opening_fanout_descent,
+            _seat_merge_feeder_opening,
+        )
+
+        opening = _opening_fanout_descent(route)
+        if opening is None:
+            raise ConvergenceOwnershipConflict(
+                "obstructed shared terminal feeder has no exterior opening"
+            )
+        _seat_merge_feeder_opening(route, exterior_x, ctx.graph, planned=True)
+        opening = _opening_fanout_descent(route)
+        assert opening is not None
+        route.points = route.points[: opening.idx + 2]
+        route.points[-1] = (exterior_x, terminal_y)
+    return ConvergenceTrunkAxis(
+        DemandAxis.X,
+        terminal_y,
+        min(turn_x, exterior_x),
+        max(turn_x, exterior_x),
+        Direction.R if exterior_x > turn_x else Direction.L,
+        source_y,
+        target_y,
+        source_x,
+        entry.x,
+    )
+
+
 def _flank_run(
     axis: DemandAxis,
     flank_coordinate: float,
@@ -1001,6 +1176,15 @@ def _build_planned_convergence(
             primary_member_id = member_by_edge[trunk_edge_key]
             primary_reason = ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
 
+        if primary_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:
+            incoming_routes = tuple(
+                trial_routes[edge_key] for edge_key in incoming_edges
+            )
+            carrier_rank = incoming_edges.index(trunk_edge_key)
+            trunk_axis = _replan_obstructed_horizontal_terminal(
+                incoming_routes, carrier_rank, trunk_axis, entry, ctx
+            )
+
     landings: list[ConvergenceLanding] = []
     trunk_points = trial_routes[trunk_edge_key].points
     for edge_key in incoming_edges:
@@ -1128,6 +1312,20 @@ def _build_planned_convergence(
             )
             else None
         )
+        if (
+            primary_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
+            and trunk_axis.target_endpoint_coordinate is not None
+            and abs(
+                trunk_axis.target_endpoint_coordinate
+                - (
+                    trunk_axis.extent_end
+                    if trunk_axis.direction in {Direction.R, Direction.D}
+                    else trunk_axis.extent_start
+                )
+            )
+            > COORD_TOLERANCE
+        ):
+            covered_by = primary_member_id
         if (
             carrier_edge is not None
             and covered_by is not None
@@ -1449,7 +1647,28 @@ def _reconcile_landing_handedness(
         landings: list[ConvergenceLanding] = []
         for landing in plan.landings:
             handedness = landing.corner_handedness
-            if handedness is not None and not landing.bypass:
+            if (
+                handedness is not None
+                and landing.bypass
+                and landing.opening_turn_segment is not None
+                and not _points_coincide(*landing.opening_turn_segment)
+            ):
+                incoming = _direction(*landing.opening_turn_segment)
+                if direction_axis(incoming) is not landing.approach_axis:
+                    handedness = turn_handedness(incoming, landing.approach_direction)
+            elif (
+                handedness is not None
+                and plan.trunk_axis is not None
+                and plan.primary_trunk_reason
+                is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
+                and landing.member_id == plan.primary_trunk_member_id
+                and not _points_coincide(*_trunk_segments(plan.trunk_axis)[3])
+                and not _points_coincide(*_trunk_segments(plan.trunk_axis)[4])
+            ):
+                incoming = _direction(*_trunk_segments(plan.trunk_axis)[3])
+                approach = _direction(*_trunk_segments(plan.trunk_axis)[4])
+                handedness = turn_handedness(incoming, approach)
+            elif handedness is not None and not landing.bypass:
                 source = graph.stations[landing.source_junction_id]
                 if landing.approach_axis is DemandAxis.X:
                     start = (landing.join_point[0], source.y)
@@ -1704,7 +1923,12 @@ def _move_landing_opening(
     return replace(plan, landings=tuple(landings)) if moved else None
 
 
-def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePlan:
+def _move_trunk_axis(
+    plan: ConvergencePlan,
+    coordinate: float,
+    *,
+    preserve_lane_offsets: bool = False,
+) -> ConvergencePlan:
     """Re-seat *plan*'s shared trunk on *coordinate* across its channel.
 
     The lateral coordinate is the one position every member standing on the
@@ -1718,13 +1942,21 @@ def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePla
     assert axis is not None
     lateral = 1 if axis.axis is DemandAxis.X else 0
     old_coordinate = axis.coordinate
+    delta = coordinate - old_coordinate
     central = _trunk_segments(axis)[0]
 
     def lifted(point: tuple[float, float]) -> tuple[float, float]:
+        if preserve_lane_offsets:
+            return (
+                (point[0], point[1] + delta)
+                if lateral == 1
+                else (point[0] + delta, point[1])
+            )
         return (point[0], coordinate) if lateral == 1 else (coordinate, point[1])
 
     def on_central(point: tuple[float, float]) -> bool:
-        return point_to_polyline_distance(point, central) <= COORD_TOLERANCE
+        tolerance = OFFSET_STEP if preserve_lane_offsets else 0.0
+        return point_to_polyline_distance(point, central) <= tolerance + COORD_TOLERANCE
 
     landings: list[ConvergenceLanding] = []
     moved_join_by_member: dict[EmissionMemberId, tuple[float, float]] = {}
@@ -1733,20 +1965,40 @@ def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePla
             landings.append(landing)
             continue
         join_point = lifted(landing.join_point)
+        approach_direction = landing.approach_direction
+        if preserve_lane_offsets:
+            approach_index = landing.approach_axis.point_index
+            approach_start = (
+                landing.join_point[approach_index]
+                - landing.minimum_runway * landing.approach_direction.sign
+            )
+            approach_delta = join_point[approach_index] - approach_start
+            if abs(approach_delta) > COORD_TOLERANCE:
+                if landing.approach_axis is DemandAxis.X:
+                    approach_direction = (
+                        Direction.R if approach_delta > 0 else Direction.L
+                    )
+                else:
+                    approach_direction = (
+                        Direction.D if approach_delta > 0 else Direction.U
+                    )
         opening_segment = landing.opening_turn_segment
         if opening_segment is not None:
             opening_segment = (
                 lifted(opening_segment[0])
-                if abs(opening_segment[0][lateral] - old_coordinate) <= COORD_TOLERANCE
+                if abs(opening_segment[0][lateral] - old_coordinate)
+                <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
                 else opening_segment[0],
                 lifted(opening_segment[1])
-                if abs(opening_segment[1][lateral] - old_coordinate) <= COORD_TOLERANCE
+                if abs(opening_segment[1][lateral] - old_coordinate)
+                <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
                 else opening_segment[1],
             )
         landings.append(
             replace(
                 landing,
                 join_point=join_point,
+                approach_direction=approach_direction,
                 minimum_runway=_reseated_runway(landing, join_point),
                 opening_turn_segment=opening_segment,
             )
@@ -1766,13 +2018,83 @@ def _move_trunk_axis(plan: ConvergencePlan, coordinate: float) -> ConvergencePla
         else item
         for item in plan.endpoint_ownership
     )
+    new_axis = replace(axis, coordinate=coordinate)
     return replace(
         plan,
-        trunk_axis=replace(axis, coordinate=coordinate),
+        trunk_axis=new_axis,
         landings=tuple(landings),
         outgoing_continuations=continuations,
         endpoint_ownership=ownership,
     )
+
+
+def _reconcile_bypass_landings(
+    plan: ConvergencePlan, ctx: _RoutingCtx
+) -> ConvergencePlan:
+    """Match bypass landing metadata to the geometry emitted after settlement."""
+    axis = plan.trunk_axis
+    if (
+        axis is None
+        or plan.primary_trunk_reason is not ConvergenceTrunkReason.LONGEST_BYPASS
+    ):
+        primary_points = None
+    else:
+        segments = _trunk_segments(axis)
+        primary_points = [
+            segments[2][1],
+            segments[2][0],
+            segments[1][0],
+            segments[3][0],
+            segments[4][0],
+            segments[4][1],
+        ]
+    landings = list(plan.landings)
+    for rank, landing in enumerate(landings):
+        opening = landing.opening_turn_segment
+        if (
+            landing.member_id != plan.primary_trunk_member_id
+            and landing.bypass
+            and opening is not None
+        ):
+            start_y, end_y = opening[0][1], opening[1][1]
+            join_y = landing.join_point[1]
+            y_lo, y_hi = sorted((start_y, end_y))
+            inside = (
+                y_lo + ctx.curve_radius - COORD_TOLERANCE
+                <= join_y
+                <= y_hi - COORD_TOLERANCE
+            )
+            extends = (end_y - start_y) * (join_y - end_y) > 0.0 and abs(
+                join_y - end_y
+            ) < ctx.curve_radius - COORD_TOLERANCE
+            if inside or extends:
+                landing = replace(
+                    landing,
+                    opening_turn_segment=(
+                        opening[0],
+                        (opening[1][0], landing.join_point[1]),
+                    ),
+                )
+        if landing.member_id == plan.primary_trunk_member_id:
+            points = primary_points
+        else:
+            tail = _bypass_landing_tail(landing, ctx)
+            if tail is not None and _points_coincide(tail[0], landing.join_point):
+                landings[rank] = landing
+                continue
+            points = None if tail is None else [opening[0], *tail]
+        if points is None:
+            continue
+        actual = _landing_approach_points(points, landing.join_point)
+        if actual is None:
+            continue
+        landings[rank] = replace(
+            landing,
+            approach_direction=actual[0],
+            corner_handedness=actual[1],
+            minimum_runway=actual[2],
+        )
+    return replace(plan, landings=tuple(landings))
 
 
 def _clear_lane_candidates(
@@ -2047,13 +2369,8 @@ def _member_corridor_runs(
     interior run between two turns is exposed: a first or last leg is the
     member's own approach to a station, which no bundle it passes through owns.
     """
-    owned_edges = frozenset(
-        edge for plan in plans for edge in plan.resolved_member_edges
-    )
     runs: list[_CotravellingRun] = []
     for plan in member_geometry.plans:
-        if plan.edge in owned_edges:
-            continue
         points = plan.points
         for rank in range(1, len(points) - 2):
             start, end = points[rank], points[rank + 1]
@@ -3342,6 +3659,101 @@ def _settle_reserved_gap_flanks(
     return tuple(settled)
 
 
+def _settle_reserved_trunk_axes(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    member_runs: tuple[_CotravellingRun, ...],
+) -> tuple[ConvergencePlan, ...]:
+    settled: list[ConvergencePlan] = []
+    for plan in plans:
+        axis = plan.trunk_axis
+        primary = next(
+            (
+                landing
+                for landing in plan.landings
+                if landing.member_id == plan.primary_trunk_member_id
+            ),
+            None,
+        )
+        if axis is None or axis.axis is not DemandAxis.X or primary is None:
+            settled.append(plan)
+            continue
+        band = ctx.reserved_bands.claimed_row_band(
+            primary.edge.source, primary.edge.target, primary.edge.line_id
+        )
+        coordinate = band.hold(axis.coordinate) if band is not None else axis.coordinate
+        run = _trunk_corridor_run(plan, graph)
+        source = graph.stations.get(primary.edge.source)
+        target = graph.stations.get(primary.edge.target)
+        section_ids = tuple(
+            section_id
+            for section_id in (
+                source.section_id if source is not None else None,
+                target.section_id if target is not None else None,
+            )
+            if section_id is not None
+        )
+        clearance_band = band
+        if band is None:
+            clearance_band = corridor_clearance_band(
+                graph,
+                axis=1,
+                section_ids=section_ids,
+                coordinate=axis.coordinate,
+                run_start=axis.extent_start,
+                run_end=axis.extent_end,
+            )
+            coordinate = seat_run_in_corridor_clearance(
+                graph,
+                axis=1,
+                section_ids=section_ids,
+                coordinate=axis.coordinate,
+                run_start=axis.extent_start,
+                run_end=axis.extent_end,
+            )
+        if run is not None:
+            seated_runs = tuple(
+                candidate
+                for settled_plan in settled
+                if (candidate := _trunk_corridor_run(settled_plan, graph)) is not None
+            )
+            neighbours = tuple(
+                item
+                for item in (*member_runs, *seated_runs)
+                if item.direction is run.direction
+                and item.line_ids != run.line_ids
+                and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
+            )
+            if any(
+                abs(item.coordinate - coordinate) < ctx.offset_step - COORD_TOLERANCE
+                for item in neighbours
+            ):
+                coordinate = min(
+                    (
+                        candidate
+                        for candidate in _clear_lane_candidates(
+                            tuple(item.coordinate for item in neighbours),
+                            ctx.offset_step,
+                        )
+                        if clearance_band is None
+                        or (
+                            clearance_band.lo - COORD_TOLERANCE
+                            <= candidate
+                            <= clearance_band.hi + COORD_TOLERANCE
+                        )
+                    ),
+                    key=lambda candidate: abs(candidate - axis.coordinate),
+                    default=coordinate,
+                )
+        settled.append(
+            _move_trunk_axis(plan, coordinate, preserve_lane_offsets=True)
+            if 0 < abs(coordinate - axis.coordinate) <= BUNDLE_TO_BUNDLE_CLEARANCE
+            else plan
+        )
+    return tuple(settled)
+
+
 def _settle_opposing_gap_flanks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
@@ -3690,13 +4102,327 @@ def _settle_stacked_elbow_openings(
     return tuple(settled)
 
 
+_GapCarrierKey: TypeAlias = tuple[
+    tuple[int, int | None],
+    float,
+    float,
+    float,
+    bool,
+    frozenset[str],
+    frozenset[str],
+]
+
+
+def _gap_carrier_key(channel: _PlanGapChannel) -> _GapCarrierKey:
+    """Identity of one physical carrier described by one or more plans."""
+    return (
+        channel.gap,
+        channel.coordinate,
+        channel.y_lo,
+        channel.y_hi,
+        channel.down,
+        channel.line_ids,
+        channel.source_junction_ids,
+    )
+
+
+def _repack_crowded_gap_channels(  # noqa: C901
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    curve_radius: float,
+    fixed_channels: tuple[_PlanGapChannel, ...],
+) -> tuple[ConvergencePlan, ...]:
+    """Pack a connected set of crowded plan carriers into its usable gap."""
+    lookup = gap_lookup_geometry(graph)
+    settled = list(plans)
+    gaps = sorted(
+        {
+            channel.gap
+            for plan in plans
+            for channel in _plan_gap_channels(plan, graph, lookup)
+        },
+        key=lambda gap: (gap[0], -1 if gap[1] is None else gap[1]),
+    )
+
+    for gap in gaps:
+        grouped: defaultdict[_GapCarrierKey, list[tuple[int, _PlanGapChannel]]] = (
+            defaultdict(list)
+        )
+        for plan_rank, plan in enumerate(settled):
+            for channel in _plan_gap_channels(plan, graph, lookup):
+                if channel.gap == gap:
+                    grouped[_gap_carrier_key(channel)].append((plan_rank, channel))
+        keys = tuple(
+            sorted(
+                grouped,
+                key=lambda key: (
+                    key[1],
+                    sorted(key[5]),
+                    sorted(key[6]),
+                    key[2],
+                    key[3],
+                ),
+            )
+        )
+        representatives = {key: grouped[key][0][1] for key in keys}
+        neighbours: dict[_GapCarrierKey, set[_GapCarrierKey]] = {
+            key: set() for key in keys
+        }
+        crowded_pairs: set[frozenset[_GapCarrierKey]] = set()
+        fixed_crowded_keys: set[_GapCarrierKey] = set()
+        for rank, first_key in enumerate(keys):
+            first = representatives[first_key]
+            for second_key in keys[rank + 1 :]:
+                second = representatives[second_key]
+                if (
+                    min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
+                    <= COORD_TOLERANCE
+                    or _landing_channel_clearance(first, second) is None
+                ):
+                    continue
+                neighbours[first_key].add(second_key)
+                neighbours[second_key].add(first_key)
+                if _landing_channels_crowd(first, second):
+                    crowded_pairs.add(frozenset((first_key, second_key)))
+        for key in keys:
+            channel = representatives[key]
+            if any(
+                fixed.gap[0] == gap[0]
+                and (
+                    _landing_channels_crowd(channel, fixed)
+                    or _stacked_elbow_channels_crowd(channel, fixed)
+                )
+                for fixed in fixed_channels
+            ):
+                fixed_crowded_keys.add(key)
+
+        pending = set(keys)
+        components: list[set[_GapCarrierKey]] = []
+        while pending:
+            seed = min(
+                pending,
+                key=lambda key: (key[1], sorted(key[5]), sorted(key[6])),
+            )
+            component: set[_GapCarrierKey] = set()
+            frontier = [seed]
+            while frontier:
+                key = frontier.pop()
+                if key in component:
+                    continue
+                component.add(key)
+                frontier.extend(neighbours[key] - component)
+            pending -= component
+            if any(pair <= component for pair in crowded_pairs) or (
+                component & fixed_crowded_keys
+            ):
+                components.append(component)
+
+        left, right = column_gap_edges(graph, gap[0], gap[0] + 1, row=gap[1])
+        usable_left = left + EDGE_TO_BUNDLE_CLEARANCE
+        usable_right = right - EDGE_TO_BUNDLE_CLEARANCE
+        for component in components:
+            ordered = tuple(key for key in keys if key in component)
+
+            def packed_positions(from_left: bool) -> dict[_GapCarrierKey, float]:
+                traversal = ordered if from_left else tuple(reversed(ordered))
+                positions: dict[_GapCarrierKey, float] = {}
+                for key in traversal:
+                    coordinate = usable_left if from_left else usable_right
+                    channel = representatives[key]
+                    for prior_key, prior_coordinate in positions.items():
+                        prior = representatives[prior_key]
+                        if (
+                            min(channel.y_hi, prior.y_hi)
+                            - max(channel.y_lo, prior.y_lo)
+                            <= COORD_TOLERANCE
+                        ):
+                            continue
+                        clearance = _landing_channel_clearance(channel, prior)
+                        if clearance is None:
+                            continue
+                        if from_left:
+                            coordinate = max(coordinate, prior_coordinate + clearance)
+                        else:
+                            coordinate = min(coordinate, prior_coordinate - clearance)
+                    for fixed in fixed_channels:
+                        if fixed.gap != gap and not _stacked_elbow_channels_crowd(
+                            channel, fixed
+                        ):
+                            continue
+                        clearance = _landing_channel_clearance(channel, fixed)
+                        if (
+                            clearance is None
+                            or abs(coordinate - fixed.coordinate)
+                            >= clearance - COORD_TOLERANCE
+                        ):
+                            continue
+                        coordinate = fixed.coordinate + (
+                            clearance if from_left else -clearance
+                        )
+                    positions[key] = coordinate
+                return positions
+
+            for positions in (packed_positions(True), packed_positions(False)):
+                if any(
+                    coordinate < usable_left - COORD_TOLERANCE
+                    or coordinate > usable_right + COORD_TOLERANCE
+                    for coordinate in positions.values()
+                ):
+                    continue
+                candidate = list(settled)
+                touched_ranks: set[int] = set()
+                moved_flanks: set[tuple[int, int]] = set()
+                moved_openings: set[tuple[int, frozenset[EmissionMemberId]]] = set()
+                feasible = True
+                for key in ordered:
+                    coordinate = positions[key]
+                    if abs(coordinate - key[1]) <= COORD_TOLERANCE:
+                        continue
+                    for plan_rank, channel in grouped[key]:
+                        touched_ranks.add(plan_rank)
+                        if channel.flank_rank is not None:
+                            move_key = (plan_rank, channel.flank_rank)
+                            if move_key in moved_flanks:
+                                continue
+                            moved_flanks.add(move_key)
+                            candidate[plan_rank] = _move_trunk_flank(
+                                candidate[plan_rank], channel.flank_rank, coordinate
+                            )
+                            continue
+                        move_key = (plan_rank, channel.claimant_member_ids)
+                        if move_key in moved_openings:
+                            continue
+                        moved_openings.add(move_key)
+                        moved = _move_landing_opening(
+                            candidate[plan_rank],
+                            channel.claimant_member_ids,
+                            coordinate,
+                            curve_radius,
+                        )
+                        if moved is None:
+                            feasible = False
+                            break
+                        candidate[plan_rank] = moved
+                    if not feasible:
+                        break
+                if not feasible:
+                    continue
+                candidate_tuple = tuple(candidate)
+                if (
+                    _landing_trunk_flank_conflict(candidate_tuple, graph, curve_radius)
+                    is not None
+                ):
+                    continue
+                moved_channels = tuple(
+                    channel
+                    for plan_rank in touched_ranks
+                    for channel in _plan_gap_channels(
+                        candidate[plan_rank], graph, lookup
+                    )
+                )
+                if any(
+                    not _channel_inside_gap(graph, channel)
+                    for channel in moved_channels
+                ):
+                    continue
+                gap_channels = tuple(
+                    channel
+                    for plan in candidate
+                    for channel in _plan_gap_channels(plan, graph, lookup)
+                    if channel.gap == gap
+                )
+                if any(
+                    _landing_channels_crowd(first, second)
+                    for rank, first in enumerate(gap_channels)
+                    for second in gap_channels[rank + 1 :]
+                    if _gap_carrier_key(first) in component
+                    or _gap_carrier_key(second) in component
+                ):
+                    continue
+                if any(
+                    _landing_channels_crowd(channel, fixed)
+                    for channel in moved_channels
+                    for fixed in fixed_channels
+                ):
+                    continue
+                settled = candidate
+                break
+    return tuple(settled)
+
+
+def _clear_fixed_gap_flanks(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    fixed_channels: tuple[_PlanGapChannel, ...],
+    *,
+    stacked_only: bool = False,
+) -> tuple[ConvergencePlan, ...]:
+    """Move plan-owned flanks off fixed member channels on the same boundary."""
+    lookup = gap_lookup_geometry(graph)
+    settled = list(plans)
+    for plan_rank, plan in enumerate(settled):
+        for channel in _plan_gap_channels(plan, graph, lookup):
+            if channel.flank_rank is None:
+                continue
+            obstacles = tuple(
+                fixed
+                for fixed in fixed_channels
+                if fixed.gap[0] == channel.gap[0]
+                and (
+                    not stacked_only
+                    and _landing_channels_crowd(channel, fixed)
+                    or _stacked_elbow_channels_crowd(channel, fixed)
+                )
+            )
+            if not obstacles:
+                continue
+            candidates = sorted(
+                {
+                    fixed.coordinate + sign * clearance
+                    for fixed in obstacles
+                    if (clearance := _landing_channel_clearance(channel, fixed))
+                    is not None
+                    for sign in (-1.0, 1.0)
+                },
+                key=lambda coordinate: (
+                    abs(coordinate - channel.coordinate),
+                    coordinate,
+                ),
+            )
+            for coordinate in candidates:
+                moved = _move_trunk_flank(plan, channel.flank_rank, coordinate)
+                moved_channels = tuple(
+                    item
+                    for item in _plan_gap_channels(moved, graph, lookup)
+                    if item.gap == channel.gap and item.flank_rank == channel.flank_rank
+                )
+                if any(
+                    not _channel_inside_gap(graph, item)
+                    or any(
+                        (
+                            _gap_channels_crowd(item, fixed)
+                            or _stacked_elbow_channels_crowd(item, fixed)
+                        )
+                        and not _member_represented_convergence_lane(
+                            item, fixed, fixed_channels
+                        )
+                        for fixed in fixed_channels
+                    )
+                    for item in moved_channels
+                ):
+                    continue
+                settled[plan_rank] = plan = moved
+                break
+    return tuple(settled)
+
+
 def _stacked_elbow_channels_crowd(
     first: _PlanGapChannel, second: _PlanGapChannel
 ) -> bool:
     """Whether two independently sourced columns need elbow clearance."""
     overlap = min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
     return (
-        first.gap == second.gap
+        first.gap[0] == second.gap[0]
         and not first.line_ids & second.line_ids
         and not first.source_junction_ids & second.source_junction_ids
         and COORD_TOLERANCE < overlap < MIN_CORRIDOR_Y_OVERLAP
@@ -3802,9 +4528,6 @@ def _planned_member_gap_channels(
     plans: tuple[ConvergencePlan, ...],
     member_geometry: MemberGeometryExecution,
 ) -> tuple[_PlanGapChannel, ...]:
-    owned_edges = frozenset(
-        edge for plan in plans for edge in plan.resolved_member_edges
-    )
     return tuple(
         _PlanGapChannel(
             None,
@@ -3822,7 +4545,6 @@ def _planned_member_gap_channels(
             True,
         )
         for plan in member_geometry.plans
-        if plan.edge not in owned_edges
         for channel in plan.gap_channels
     )
 
@@ -4129,6 +4851,114 @@ def _stacked_elbow_clearance_requirements(
     return tuple(widest[key] for key in sorted(widest))
 
 
+def _gap_channel_clearance_requirements(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    fixed_channels: tuple[_PlanGapChannel, ...] = (),
+) -> tuple[BoundaryClearanceRequirement, ...]:
+    """Request the width needed to pack every overlapping plan carrier."""
+    lookup = gap_lookup_geometry(graph)
+    channels_by_boundary: defaultdict[
+        int, list[tuple[int, ConvergencePlan | None, _PlanGapChannel]]
+    ] = defaultdict(list)
+    seen: set[_GapCarrierKey] = set()
+    for plan_rank, plan in enumerate(plans):
+        for channel in _plan_gap_channels(plan, graph, lookup):
+            key = _gap_carrier_key(channel)
+            if key in seen:
+                continue
+            seen.add(key)
+            channels_by_boundary[channel.gap[0]].append((plan_rank, plan, channel))
+    for channel_rank, channel in enumerate(fixed_channels, start=len(plans)):
+        key = _gap_carrier_key(channel)
+        if key in seen:
+            continue
+        seen.add(key)
+        channels_by_boundary[channel.gap[0]].append((channel_rank, None, channel))
+
+    requirements: list[BoundaryClearanceRequirement] = []
+    for lower_col, grouped in sorted(channels_by_boundary.items()):
+        ordered = sorted(
+            grouped,
+            key=lambda item: (item[2].coordinate, item[0], sorted(item[2].line_ids)),
+        )
+        positions: list[float] = []
+        for rank, (_plan_rank, _plan, channel) in enumerate(ordered):
+            position = 0.0
+            for prior_rank, (_prior_rank, _prior_plan, prior) in enumerate(
+                ordered[:rank]
+            ):
+                if (
+                    min(channel.y_hi, prior.y_hi) - max(channel.y_lo, prior.y_lo)
+                    <= COORD_TOLERANCE
+                ):
+                    continue
+                clearance = _landing_channel_clearance(channel, prior)
+                if clearance is not None:
+                    position = max(position, positions[prior_rank] + clearance)
+            positions.append(position)
+        required = 2 * EDGE_TO_BUNDLE_CLEARANCE + max(positions, default=0.0)
+        movable = tuple(channel for _rank, plan, channel in ordered if plan is not None)
+        fixed = tuple(channel for _rank, plan, channel in ordered if plan is None)
+        for channel in movable:
+            for obstacle in fixed:
+                if not _landing_channels_crowd(channel, obstacle):
+                    continue
+                clearance = _landing_channel_clearance(channel, obstacle)
+                assert clearance is not None
+                required = max(
+                    required,
+                    2 * EDGE_TO_BUNDLE_CLEARANCE + 2 * clearance,
+                )
+        left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=None)
+        if required <= measured_distance(left, right) + COORD_TOLERANCE:
+            continue
+        boundary = lower_col + 1
+        negative = [
+            section
+            for section in graph.sections.values()
+            if section.grid_col + section.grid_col_span - 1 == lower_col
+        ]
+        positive = [
+            section
+            for section in graph.sections.values()
+            if section.grid_col == boundary
+        ]
+        if not negative or not positive:
+            continue
+        negative_edge = max(section.bbox_x + section.bbox_w for section in negative)
+        positive_edge = min(section.bbox_x for section in positive)
+        owner = next(plan for _rank, plan, _channel in reversed(ordered) if plan)
+        requirements.append(
+            BoundaryClearanceRequirement(
+                SettlementAxis.COLUMN,
+                boundary,
+                str(owner.system_id),
+                max(required, measured_distance(negative_edge, positive_edge)),
+                tuple(
+                    sorted(
+                        section.id
+                        for section in negative
+                        if measured_distance(
+                            section.bbox_x + section.bbox_w, negative_edge
+                        )
+                        <= COORD_TOLERANCE
+                    )
+                ),
+                tuple(
+                    sorted(
+                        section.id
+                        for section in positive
+                        if measured_distance(section.bbox_x, positive_edge)
+                        <= COORD_TOLERANCE
+                    )
+                ),
+                f"convergence system {owner.system_id} gap channel clearance",
+            )
+        )
+    return tuple(requirements)
+
+
 def _segments_coincide(first: _Segment, second: _Segment) -> bool:
     """Whether two parallel runs stand on one coordinate, hence draw one stroke."""
     index = lateral_axis(_direction(*first)).point_index
@@ -4323,9 +5153,12 @@ def _validate_final_convergence_feasibility(
     )
     if allow_clearance_requirements:
         clearance_requirements.extend(stacked_requirements)
+        clearance_requirements.extend(
+            _gap_channel_clearance_requirements(plans, graph, fixed_channels)
+        )
     for plan, channel in plan_channels:
         for member_channel in fixed_channels:
-            if channel.gap != member_channel.gap or not spans_share_corridor(
+            if channel.gap[0] != member_channel.gap[0] or not spans_share_corridor(
                 channel.y_lo,
                 channel.y_hi,
                 member_channel.y_lo,
@@ -4372,6 +5205,8 @@ def _validate_final_convergence_feasibility(
                     f"final convergence plan {plan.id} crowds a short-overlap "
                     f"member channel in gap {channel.gap}"
                 )
+            if channel.gap != member_channel.gap:
+                continue
             if _gap_channels_crowd(
                 channel, member_channel
             ) and not _member_represented_convergence_lane(
@@ -4379,6 +5214,11 @@ def _validate_final_convergence_feasibility(
                 member_channel,
                 fixed_channels,
             ):
+                if any(
+                    requirement.boundary == channel.gap[0] + 1
+                    for requirement in clearance_requirements
+                ):
+                    continue
                 raise FinalConvergenceFeasibilityError(
                     f"final convergence plan {plan.id} crowds a planned "
                     f"member channel in gap {channel.gap}"
@@ -4660,6 +5500,9 @@ def build_convergence_plan_execution(
             )
             system_plans = _reconcile_continuation_ownership(system_plans)
             system_plans = _reconcile_landing_handedness(system_plans, graph)
+            system_plans = tuple(
+                _reconcile_bypass_landings(plan, ctx) for plan in system_plans
+            )
         except ConvergenceOwnershipConflict as error:
             reason = str(error)
             system_plans = tuple(
@@ -4701,6 +5544,7 @@ def _settle_convergence_geometry(
     member_runs: tuple[_CotravellingRun, ...] = (),
 ) -> tuple[ConvergencePlan, ...]:
     """Apply the shared convergence channel-settlement sequence."""
+
     settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
     settled = _separate_distinct_cotravelling_trunks(settled, graph, member_runs)
     settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
@@ -4723,7 +5567,42 @@ def _settle_convergence_geometry(
         ),
     )
     settled = _reconcile_continuation_ownership(settled)
-    return _reconcile_landing_handedness(settled, graph)
+    settled = _reconcile_landing_handedness(settled, graph)
+    settled = _settle_opposing_gap_flanks(
+        settled,
+        graph,
+        ctx.curve_radius,
+        _exit_owned_flanks(settled, exit_turn_plans),
+        fixed_channels,
+        (
+            _fixed_exit_axis_channels(exit_turn_plans)
+            if ctx.prior_exit_turn_dispositions is not None
+            else frozenset()
+        ),
+    )
+    settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels)
+    settled = _repack_crowded_gap_channels(
+        settled, graph, ctx.curve_radius, fixed_channels
+    )
+    settled = _settle_reserved_trunk_axes(settled, graph, ctx, member_runs)
+    settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels, stacked_only=True)
+    settled = _settle_opposing_gap_flanks(
+        settled,
+        graph,
+        ctx.curve_radius,
+        _exit_owned_flanks(settled, exit_turn_plans),
+        fixed_channels,
+        (
+            _fixed_exit_axis_channels(exit_turn_plans)
+            if ctx.prior_exit_turn_dispositions is not None
+            else frozenset()
+        ),
+    )
+    settled = _repack_crowded_gap_channels(
+        settled, graph, ctx.curve_radius, fixed_channels
+    )
+    settled = _reconcile_landing_handedness(settled, graph)
+    return tuple(_reconcile_bypass_landings(plan, ctx) for plan in settled)
 
 
 def _settle_eligible(
@@ -5353,11 +6232,57 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
                 )
         else:
             opening_rank = opening.idx
+            if (
+                landing.opening_turn_segment is not None
+                and landing.opening_turn_segment[1] == landing.join_point
+                and route.points[opening.idx + 1] != landing.join_point
+            ):
+                route.points = route.points[: opening.idx + 2]
+                route.points[-1] = landing.join_point
+                if route.curve_radii is not None:
+                    route.curve_radii = route.curve_radii[: opening.idx + 1]
     if plan.primary_trunk_member_id == membership.member_id:
         if plan.primary_trunk_reason is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH:
             _bake_route(route, ctx)
             _connect_route_endpoint(route, landing.join_point, ctx)
         assert plan.trunk_axis is not None
+        if (
+            plan.primary_trunk_reason is ConvergenceTrunkReason.LONGEST_BYPASS
+            or (
+                plan.primary_trunk_reason
+                is ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH
+                and plan.trunk_axis.target_endpoint_coordinate is not None
+                and abs(
+                    plan.trunk_axis.target_endpoint_coordinate
+                    - (
+                        plan.trunk_axis.extent_end
+                        if plan.trunk_axis.direction in {Direction.R, Direction.D}
+                        else plan.trunk_axis.extent_start
+                    )
+                )
+                > COORD_TOLERANCE
+            )
+        ) and not _route_covers_trunk(route, plan.trunk_axis):
+            segments = _trunk_segments(plan.trunk_axis)
+            old_radii = route.curve_radii
+            route.points = [
+                segments[2][1],
+                segments[2][0],
+                segments[1][0],
+                segments[3][0],
+                segments[4][0],
+                segments[4][1],
+            ]
+            route.curve_radii = (
+                None
+                if old_radii is None
+                else [
+                    old_radii[0],
+                    ctx.curve_radius,
+                    ctx.curve_radius,
+                    old_radii[-1],
+                ]
+            )
         lane_rank = plan.lane_order.index(route.line_id)
         lane_offset = (len(plan.lane_order) - lane_rank - 1) * ctx.offset_step
         _seat_route_on_trunk_flanks(
@@ -5370,6 +6295,7 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
             _trunk_segment_ranks(route, plan.trunk_axis)
             + (() if opening_rank is None else (opening_rank,))
         )
+        _refresh_convergence_gap_slots(route, ctx)
         if ctx.validate_final_route_frames and not clearance_pending:
             _assert_landing_geometry(route, plan, landing)
         return
@@ -5382,10 +6308,12 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
         if key in ctx.merge.branch_edges:
             _land_feeder_on_run(route, run, ctx)
     _bake_route(route, ctx)
-    _connect_route_endpoint(route, landing.join_point, ctx)
+    if not _connect_bypass_landing(route, landing, ctx):
+        _connect_route_endpoint(route, landing.join_point, ctx)
     route.convergence_owned_segment_ranks = _ordered_unique(
         (len(route.points) - 2,) + (() if opening_rank is None else (opening_rank,))
     )
+    _refresh_convergence_gap_slots(route, ctx)
     endpoint = route.points[-1]
     if not clearance_pending and any(
         abs(actual - expected) > COORD_TOLERANCE
@@ -5394,6 +6322,16 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
         raise ConvergenceInvariantError(convergence_failure(membership, endpoint))
     if ctx.validate_final_route_frames and not clearance_pending:
         _assert_landing_geometry(route, plan, landing)
+
+
+def _refresh_convergence_gap_slots(route: RoutedPath, ctx: _RoutingCtx) -> None:
+    """Declare the gap channels in the convergence-owned final geometry."""
+    from nf_metro.layout.routing.inter_section_handlers import (
+        _declare_placed_channels,
+    )
+
+    route.gap_slots.clear()
+    _declare_placed_channels(route, ctx)
 
 
 def validate_convergence_plans(

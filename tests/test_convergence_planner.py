@@ -58,10 +58,14 @@ GUIDE = ROOT / "examples" / "guide"
 FROZEN = ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 
-def _observe(path: Path):
+def _observe(path: Path, *, allow_clearance_requirements: bool = False):
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph)
-    observed = observe_route_edges(graph, station_offsets=offsets)
+    observed = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        allow_convergence_clearance_requirements=allow_clearance_requirements,
+    )
     return graph, offsets, observed
 
 
@@ -369,7 +373,9 @@ def test_multiple_lines_share_the_target_entry_bundle_order() -> None:
 
 @pytest.mark.parametrize("name", ("seed_15.mmd", "seed_41.mmd"))
 def test_frozen_recovery_seeds_have_complete_planned_convergences(name: str) -> None:
-    graph, offsets, observed = _observe(FROZEN / name)
+    graph, offsets, observed = _observe(
+        FROZEN / name, allow_clearance_requirements=True
+    )
 
     assert observed.plan.convergence_plans
     assert all(plan.owns_geometry for plan in observed.plan.convergence_plans)

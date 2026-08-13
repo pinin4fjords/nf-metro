@@ -1447,6 +1447,47 @@ def _settle_render_geometry(
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
+    preclearance_settlement: EnvelopeSettlement | None = None
+    if route_plan.boundary_clearance_requirements:
+        requested_plan = route_plan
+        clearance_plan = replace(
+            requested_plan, reservations=(), realised_reservations=()
+        )
+        preclearance_settlement = settle_route_envelopes(
+            graph,
+            clearance_plan,
+            clearance=lambda live_graph: measure_boundary_clearance_requirements(
+                live_graph, requested_plan.boundary_clearance_requirements
+            ),
+        )
+        station_offsets, routes, route_plan = _resettle(
+            reservation_translations=preclearance_settlement.coordinate_translations
+        )
+        if route_plan.boundary_clearance_requirements:
+            raise LayoutInvariantError(
+                "envelope settlement did not satisfy convergence boundary "
+                "clearance requirements"
+            )
+        corridor_settlement = settle_route_envelopes(graph, route_plan)
+        if corridor_settlement.translations:
+            station_offsets, routes, route_plan = _resettle(
+                route_plan,
+                (
+                    *preclearance_settlement.coordinate_translations,
+                    *corridor_settlement.coordinate_translations,
+                ),
+            )
+            preclearance_settlement = EnvelopeSettlement(
+                (
+                    *preclearance_settlement.translations,
+                    *corridor_settlement.translations,
+                ),
+                corridor_settlement.shortfalls,
+                (
+                    *preclearance_settlement.coordinate_translations,
+                    *corridor_settlement.coordinate_translations,
+                ),
+            )
     effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
         graph.permissive
     )
@@ -1489,7 +1530,7 @@ def _settle_render_geometry(
             graph, frozen_plan.boundary_clearance_requirements
         )
 
-    grant_settlement: EnvelopeSettlement | None = None
+    grant_settlement = preclearance_settlement
     settlement = settle_route_envelopes(
         graph, frozen_plan, clearance=_measure_clearance
     )
@@ -1512,15 +1553,15 @@ def _settle_render_geometry(
             )
         labels = _place(station_offsets, routes)
         assert_render_curve_invariants(graph, routes, station_offsets)
-        if pending_clearance:
-            granted_routes = routes
-            granted_plan = routed_plan
-            granted_polylines = [
-                apply_route_offsets(route, station_offsets) for route in granted_routes
-            ]
-            containment_requirements = drawn_corridor_clearance_requirements(
-                graph, granted_plan, granted_polylines
-            )
+        granted_routes = routes
+        granted_plan = routed_plan
+        granted_polylines = [
+            apply_route_offsets(route, station_offsets) for route in granted_routes
+        ]
+        containment_requirements = drawn_corridor_clearance_requirements(
+            graph, granted_plan, granted_polylines
+        )
+        if pending_clearance or containment_requirements:
             settlement = settle_route_envelopes(
                 graph,
                 granted_plan,
@@ -1555,7 +1596,7 @@ def _settle_render_geometry(
         # across the very step whose contract is coordinate translation only.
         # The routed observation exists to draw and to prove the decisions
         # frozen.
-        if not pending_clearance:
+        if not pending_clearance and not containment_requirements:
             route_plan = attach_reroute_ledger_delta(
                 adopt_route_reservation_ledger(
                     frozen_plan,

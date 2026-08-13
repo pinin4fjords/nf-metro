@@ -95,10 +95,14 @@ _REORDERABLE = """\
 """
 
 
-def _observe(path: Path):
+def _observe(path: Path, *, allow_clearance_requirements: bool = False):
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph)
-    observation = observe_route_edges(graph, station_offsets=offsets)
+    observation = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        allow_convergence_clearance_requirements=allow_clearance_requirements,
+    )
     return graph, observation.routes, observation.plan
 
 
@@ -721,7 +725,7 @@ def test_invalid_caller_line_order_is_not_recorded_as_typed_provenance() -> None
     "name", ["seed_15.mmd", "seed_41.mmd", "seed_72.mmd", "seed_77.mmd"]
 )
 def test_frozen_sources_have_canonical_plan_serialisation(name: str) -> None:
-    _graph, _routes, plan = _observe(FROZEN / name)
+    _graph, _routes, plan = _observe(FROZEN / name, allow_clearance_requirements=True)
 
     encoded = serialize_route_plan(plan)
     assert encoded == serialize_route_plan(plan)
@@ -747,7 +751,9 @@ for raw in __import__('sys').argv[1:]:
         warnings.simplefilter('ignore')
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         observed = observe_route_edges(
-            graph, station_offsets=compute_station_offsets(graph)
+            graph,
+            station_offsets=compute_station_offsets(graph),
+            allow_convergence_clearance_requirements=True,
         )
     result[path.name] = serialize_route_plan(observed.plan)
 print(json.dumps(result, sort_keys=True, separators=(',', ':')))

@@ -205,7 +205,7 @@ def drawn_corridor_clearance_requirements(
             continue
         requirements.append(
             DrawnCorridorClearanceRequirement(
-                reservation, realised.available_width + deficit
+                reservation, realised.available_width + 2 * deficit
             )
         )
     return tuple(requirements)

@@ -1897,6 +1897,137 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
             break
 
 
+def _reconcile_wholesale_bundle_corner_radii(
+    routes: list[RoutedPath], base_radius: float
+) -> None:
+    """Solve final concentric and coincident corner-radius constraints."""
+    nodes: dict[tuple[int, int], tuple[RoutedPath, int]] = {
+        (id(route), corner_rank): (route, corner_rank)
+        for route in routes
+        if route.curve_radii is not None
+        for corner_rank in range(1, len(route.points) - 1)
+    }
+    constraints: defaultdict[
+        tuple[int, int], list[tuple[tuple[int, int], float]]
+    ] = defaultdict(list)
+
+    def unit(
+        start: tuple[float, float], end: tuple[float, float]
+    ) -> tuple[float, float] | None:
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        if abs(dx) > COORD_TOLERANCE and abs(dy) <= COORD_TOLERANCE:
+            return (1.0 if dx > 0.0 else -1.0, 0.0)
+        if abs(dy) > COORD_TOLERANCE and abs(dx) <= COORD_TOLERANCE:
+            return (0.0, 1.0 if dy > 0.0 else -1.0)
+        return None
+
+    def wholesale_delta(
+        first: RoutedPath, second: RoutedPath, corner_rank: int
+    ) -> float | None:
+        first_points, second_points = first.points, second.points
+        incoming = unit(first_points[corner_rank - 1], first_points[corner_rank])
+        outgoing = unit(first_points[corner_rank], first_points[corner_rank + 1])
+        if (
+            incoming is None
+            or outgoing is None
+            or incoming
+            != unit(second_points[corner_rank - 1], second_points[corner_rank])
+            or outgoing
+            != unit(second_points[corner_rank], second_points[corner_rank + 1])
+            or abs(incoming[0] * outgoing[0] + incoming[1] * outgoing[1])
+            > COORD_TOLERANCE_FINE
+        ):
+            return None
+        dx = second_points[corner_rank][0] - first_points[corner_rank][0]
+        dy = second_points[corner_rank][1] - first_points[corner_rank][1]
+        tangent_shift = abs(
+            dx * (incoming[0] + outgoing[0])
+            + dy * (incoming[1] + outgoing[1])
+        )
+        incoming_offset = abs(dx * outgoing[0] + dy * outgoing[1])
+        outgoing_offset = abs(dx * incoming[0] + dy * incoming[1])
+        if not (
+            tangent_shift <= COORD_TOLERANCE_FINE
+            and max(incoming_offset, outgoing_offset) > COORD_TOLERANCE_FINE
+            and abs(incoming_offset - outgoing_offset) <= COORD_TOLERANCE_FINE
+        ):
+            return None
+        return -dx * (outgoing[0] - incoming[0])
+
+    def connect(first: tuple[int, int], second: tuple[int, int], delta: float) -> None:
+        constraints[first].append((second, delta))
+        constraints[second].append((first, -delta))
+
+    bundles: dict[tuple[str, str, int], list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        if route.curve_radii is not None:
+            bundles[route.edge.source, route.edge.target, len(route.points)].append(
+                route
+            )
+    for bundle in bundles.values():
+        for first_rank, first in enumerate(bundle):
+            for second in bundle[first_rank + 1 :]:
+                for corner_rank in range(1, len(first.points) - 1):
+                    delta = wholesale_delta(first, second, corner_rank)
+                    if delta is not None:
+                        connect(
+                            (id(first), corner_rank),
+                            (id(second), corner_rank),
+                            delta,
+                        )
+
+    coincident: defaultdict[
+        tuple[str, tuple[float, float], tuple[float, float], tuple[float, float]],
+        list[tuple[int, int]],
+    ] = defaultdict(list)
+    for key, (route, corner_rank) in nodes.items():
+        incoming = unit(route.points[corner_rank - 1], route.points[corner_rank])
+        outgoing = unit(route.points[corner_rank], route.points[corner_rank + 1])
+        if incoming is not None and outgoing is not None:
+            coincident[
+                route.line_id, route.points[corner_rank], incoming, outgoing
+            ].append(key)
+    for cohort in coincident.values():
+        for first, second in zip(cohort, cohort[1:]):
+            connect(first, second, 0.0)
+
+    unseen = set(constraints)
+    while unseen:
+        root = unseen.pop()
+        potentials = {root: 0.0}
+        frontier = [root]
+        consistent = True
+        while frontier:
+            current = frontier.pop()
+            for neighbour, delta in constraints[current]:
+                expected = potentials[current] + delta
+                if neighbour in potentials:
+                    consistent &= (
+                        abs(potentials[neighbour] - expected)
+                        <= COORD_TOLERANCE_FINE
+                    )
+                    continue
+                potentials[neighbour] = expected
+                unseen.discard(neighbour)
+                frontier.append(neighbour)
+        if not consistent:
+            continue
+        shift = base_radius - min(potentials.values())
+        for key, potential in potentials.items():
+            route, corner_rank = nodes[key]
+            radius_index = corner_rank - 1
+            desired = shift + potential
+            assert route.curve_radii is not None
+            route.curve_radii[radius_index] = concentric_corner_radius_at(
+                route.points[corner_rank - 1],
+                route.points[corner_rank],
+                route.points[corner_rank + 1],
+                0.0,
+                desired,
+            )
+            route.record_concentric_corner(radius_index, 0.0, desired)
+
+
 def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
     """Re-stack port approaches onto the slots their settled trunk depth earns.
 
@@ -1918,8 +2049,6 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
         n = len(bundle.per_line)
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            if tail_on_slot(tail, slot):
-                continue
             ch = _VChannel(
                 route=rp,
                 idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
@@ -1928,6 +2057,17 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 y_hi=max(tail.trunk_y, tail.port_y),
                 down=tail.port_y > tail.trunk_y,
             )
+            if tail_on_slot(tail, slot):
+                if ch.route.convergence_plan_id is not None:
+                    _restack_channel(
+                        ch,
+                        slot.peel_x,
+                        slot.rank,
+                        n,
+                        step,
+                        ctx.curve_radius,
+                    )
+                continue
             if _planner_owns_channel(ch):
                 continue
             _restack_channel(
@@ -2366,7 +2506,10 @@ def _reseat_concentric_flanking(
         (k - 1, offset_in, base_radius),
         (k, offset_out, radius_out),
     ):
-        if 0 <= radius_idx < len(rp.curve_radii):
+        if (
+            0 <= radius_idx < len(rp.curve_radii)
+            and radius_idx + 2 < len(pts)
+        ):
             rp.record_concentric_corner(radius_idx, offset, reference)
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
@@ -2577,8 +2720,8 @@ def _fan_opening_reference_radii(
             x, y = points[index]
             points[index] = (target_x, y)
         radius_indices = range(
-            channel.idx - 1,
-            min(channel.idx + 1, len(route.curve_radii)),
+            max(0, channel.idx - 1),
+            min(channel.idx + 1, len(route.curve_radii), len(points) - 2),
         )
         for side, radius_index in enumerate(radius_indices):
             required_reference = concentric_reference_radius_at(
@@ -2634,10 +2777,19 @@ def _bundle_divergent_distinct_descents(
         # offsets step across the section seam: a line reused on non-adjacent
         # fan legs can leave an empty interior lane there, which widens the
         # peel-x span past a tight bundle, so this pass would otherwise claim them.
+        junction_owned = all(
+            channel.route.edge.source.startswith("__junction_") for channel in chans
+        )
         targets = {c.route.edge.target for c in chans}
         if len(targets) == 1:
             port = ctx.graph.ports.get(next(iter(targets)))
-            if port is not None and port.is_entry:
+            xs = [c.x for c in chans]
+            tight = max(xs) - min(xs) <= step * (
+                len(by_line) - 1
+            ) + COORD_TOLERANCE
+            if port is not None and port.is_entry and not (
+                settle_frozen_arcs and tight and junction_owned
+            ):
                 continue
         target_sets = {
             frozenset(ch.route.edge.target for ch in line_channels)
@@ -2659,7 +2811,9 @@ def _bundle_divergent_distinct_descents(
         # ranks imply.  Those belong to the freeze: a plan holds its opening arc
         # from the freeze onward, so a group carrying one can be given a shared
         # arc centre there and nowhere later.
-        if frozen and not (settle_frozen_arcs and tight):
+        if frozen and not (
+            settle_frozen_arcs and tight and junction_owned
+        ):
             continue
         if (
             any(
@@ -3206,6 +3360,32 @@ def _plan_trunk_band(
     h_rank = {id(sg): r for r, sg in enumerate(h_ttb)}
     feats = {id(sg): _trunk_slot_features(sg) for sg in slot_groups}
 
+    def source_corner_crossings(perm: list[list[_HTrunk]]) -> int:
+        rank = {id(slot): value for value, slot in enumerate(perm)}
+        crossings = 0
+        for first_rank, first_slot in enumerate(slot_groups):
+            for second_slot in slot_groups[first_rank + 1 :]:
+                for first in first_slot:
+                    for second in second_slot:
+                        if (
+                            first.route.member_geometry_plan_id is not None
+                            or second.route.member_geometry_plan_id is not None
+                        ):
+                            continue
+                        if (
+                            first.route.edge.source != second.route.edge.source
+                            or first.route.edge.target != second.route.edge.target
+                        ):
+                            continue
+                        first_x = first.route.points[first.idx - 1][0]
+                        second_x = second.route.points[second.idx - 1][0]
+                        if abs(first_x - second_x) <= COORD_TOLERANCE:
+                            continue
+                        expected = first_x > second_x
+                        observed = rank[id(first_slot)] < rank[id(second_slot)]
+                        crossings += expected != observed
+        return crossings
+
     def _key(perm: list[list[_HTrunk]]) -> tuple[float, ...]:
         # Crossings first; then packed looseness so tight bundles beat split
         # ones; then heuristic position.  The heuristic scores (.., 0, 1, ..),
@@ -3214,6 +3394,7 @@ def _plan_trunk_band(
         s2d = perm if dips else list(reversed(perm))
         looseness = _band_looseness(s2d, _pack_band_tracks(s2d, span_of), span_of)
         return (
+            source_corner_crossings(perm),
             _band_order_crossings(perm, feats),
             looseness,
             *(h_rank[id(sg)] for sg in perm),
@@ -3718,7 +3899,22 @@ def _separate_fused_cotravelling_runs(
                 return False
             moved = replace(lane, coord=target)
             return not any(
-                moved.fuses_with(other, step) for other in lanes if other is not lane
+                moved.fuses_with(other, step)
+                or (
+                    moved.axis == other.axis
+                    and moved.sign != other.sign
+                    and moved.line_id == other.line_id
+                    and abs(moved.coord - other.coord)
+                    < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+                    and any(
+                        max(run.span[0], obstacle.span[0])
+                        < min(run.span[1], obstacle.span[1]) - COORD_TOLERANCE
+                        for run in moved.runs
+                        for obstacle in other.runs
+                    )
+                )
+                for other in lanes
+                if other is not lane
             )
 
         target = min(
