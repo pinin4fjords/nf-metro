@@ -3113,7 +3113,19 @@ def _bundle_divergent_distinct_descents(
             for lid, cs in by_line.items()
         }
         ordered = sorted(by_line, key=line_key.__getitem__)
-        tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+        current_order = sorted(
+            by_line,
+            key=lambda lid: min(channel.x for channel in by_line[lid]),
+        )
+        # A line that serves several targets has no single peel rank against
+        # which its shared descent can be reordered.
+        current_order_matches = current_order == ordered or any(
+            len(targets) > 1 for targets in target_sets
+        )
+        tight = (
+            max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+            and current_order_matches
+        )
         # A frozen coordinate is one this pass may not choose, which stands in
         # its way only where the group has to move onto tighter tracks: a group
         # already on them keeps every coordinate and takes only the arc sizes its
