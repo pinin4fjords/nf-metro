@@ -1907,9 +1907,9 @@ def _reconcile_wholesale_bundle_corner_radii(
         if route.curve_radii is not None
         for corner_rank in range(1, len(route.points) - 1)
     }
-    constraints: defaultdict[
-        tuple[int, int], list[tuple[tuple[int, int], float]]
-    ] = defaultdict(list)
+    constraints: defaultdict[tuple[int, int], list[tuple[tuple[int, int], float]]] = (
+        defaultdict(list)
+    )
 
     def unit(
         start: tuple[float, float], end: tuple[float, float]
@@ -1941,8 +1941,7 @@ def _reconcile_wholesale_bundle_corner_radii(
         dx = second_points[corner_rank][0] - first_points[corner_rank][0]
         dy = second_points[corner_rank][1] - first_points[corner_rank][1]
         tangent_shift = abs(
-            dx * (incoming[0] + outgoing[0])
-            + dy * (incoming[1] + outgoing[1])
+            dx * (incoming[0] + outgoing[0]) + dy * (incoming[1] + outgoing[1])
         )
         incoming_offset = abs(dx * outgoing[0] + dy * outgoing[1])
         outgoing_offset = abs(dx * incoming[0] + dy * incoming[1])
@@ -2003,8 +2002,7 @@ def _reconcile_wholesale_bundle_corner_radii(
                 expected = potentials[current] + delta
                 if neighbour in potentials:
                     consistent &= (
-                        abs(potentials[neighbour] - expected)
-                        <= COORD_TOLERANCE_FINE
+                        abs(potentials[neighbour] - expected) <= COORD_TOLERANCE_FINE
                     )
                     continue
                 potentials[neighbour] = expected
@@ -2506,10 +2504,7 @@ def _reseat_concentric_flanking(
         (k - 1, offset_in, base_radius),
         (k, offset_out, radius_out),
     ):
-        if (
-            0 <= radius_idx < len(rp.curve_radii)
-            and radius_idx + 2 < len(pts)
-        ):
+        if 0 <= radius_idx < len(rp.curve_radii) and radius_idx + 2 < len(pts):
             rp.record_concentric_corner(radius_idx, offset, reference)
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
@@ -2784,11 +2779,11 @@ def _bundle_divergent_distinct_descents(
         if len(targets) == 1:
             port = ctx.graph.ports.get(next(iter(targets)))
             xs = [c.x for c in chans]
-            tight = max(xs) - min(xs) <= step * (
-                len(by_line) - 1
-            ) + COORD_TOLERANCE
-            if port is not None and port.is_entry and not (
-                settle_frozen_arcs and tight and junction_owned
+            tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+            if (
+                port is not None
+                and port.is_entry
+                and not (settle_frozen_arcs and tight and junction_owned)
             ):
                 continue
         target_sets = {
@@ -2811,9 +2806,7 @@ def _bundle_divergent_distinct_descents(
         # ranks imply.  Those belong to the freeze: a plan holds its opening arc
         # from the freeze onward, so a group carrying one can be given a shared
         # arc centre there and nowhere later.
-        if frozen and not (
-            settle_frozen_arcs and tight and junction_owned
-        ):
+        if frozen and not (settle_frozen_arcs and tight and junction_owned):
             continue
         if (
             any(

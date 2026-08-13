@@ -2187,6 +2187,9 @@ render_only:
     - { id: variant_calling_tuned, output: nf_variant_calling_tuned_icons }
   # Stems from tests/fixtures/ rendered into the "Test Fixtures" render-diff section.
   test_fixtures:
+    - hash_seed_determinism/seed_15
+    - hash_seed_determinism/seed_41
+    - hash_seed_determinism/seed_77
     - multiline_labels
     - rnaseq_simple
     - genomeassembly_organellar

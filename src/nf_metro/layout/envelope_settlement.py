@@ -50,11 +50,12 @@ and a narrowed one fails.  Nothing is retried.
 Re-routing the settled geometry can produce a *different* ledger -- corridors
 appear, vanish, and change their required width -- so this function never
 iterates over successive ledgers.  Each invocation settles exactly the ledger
-it was handed.  The renderer has one bounded exception around a provisional
-convergence-clearance grant: it performs a strict fresh observation after the
-grant, measures that observation's drawn containment once, and settles that
-final ledger before a consuming re-route.  No clearance requirement may be
-published by either strict observation.
+it was handed.  The renderer has one bounded exception around strict drawn
+geometry.  After a provisional convergence-clearance grant, or when the
+consuming re-route places a drawn corridor past its frozen edge, it freezes the
+strict observation's measured containment and settles that final demand before
+one consuming re-route.  No clearance requirement may be published by the final
+strict observation.
 
 Every row- and column-gap claim this stage is handed is therefore allocatable:
 the measurement bounds a boundary by the sections that lie wholly on each side

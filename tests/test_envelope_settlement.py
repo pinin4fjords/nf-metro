@@ -80,6 +80,30 @@ TOPOLOGIES = ROOT / "examples" / "topologies"
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 REGRESSIONS = ROOT / "tests" / "fixtures" / "regressions"
 
+
+def test_drawn_corridor_grant_accounts_for_recentering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reservation = mock.Mock(region=RowGapRegion(0, 1), claims=())
+    plan = mock.Mock(reservations=(reservation,))
+    realised = mock.Mock(available_width=50.0)
+    containment = mock.Mock(positive_side_slack=-3.0)
+    monkeypatch.setattr(
+        envelope_settlement, "realise_reservation", lambda *_args: realised
+    )
+    monkeypatch.setattr(
+        envelope_settlement,
+        "drawn_corridor_containment",
+        lambda *_args: containment,
+    )
+
+    requirements = envelope_settlement.drawn_corridor_clearance_requirements(
+        mock.Mock(), plan, ()
+    )
+
+    assert requirements[0].required == pytest.approx(56.0)
+
+
 # Fixtures whose reservations carry a capacity deficit on unsettled geometry, so
 # settlement has real work to do.  Every member's deficit falls on a row
 # boundary, which is where the corpus puts one; ``COLUMN_DEFICIT_CORPUS`` carries

@@ -452,10 +452,7 @@ def _connect_route_endpoint(
             target,
         ]
         return True
-    if all(
-        abs(actual - expected) <= COORD_TOLERANCE
-        for actual, expected in zip(endpoint, target, strict=True)
-    ):
+    if endpoint_matches:
         route.points[-1] = target
         return False
     if (
@@ -4030,9 +4027,15 @@ def _settle_stacked_elbow_openings(
     """
     lookup = gap_lookup_geometry(graph)
     settled = list(plans)
+    channel_cache: dict[int, tuple[ConvergencePlan, tuple[_PlanGapChannel, ...]]] = {}
 
     def channels_of(plan: ConvergencePlan) -> tuple[_PlanGapChannel, ...]:
-        return _plan_gap_channels(plan, graph, lookup)
+        cached = channel_cache.get(id(plan))
+        if cached is not None and cached[0] is plan:
+            return cached[1]
+        channels = _plan_gap_channels(plan, graph, lookup)
+        channel_cache[id(plan)] = (plan, channels)
+        return channels
 
     for plan_rank, plan in enumerate(tuple(settled)):
         for channel in tuple(
@@ -4102,20 +4105,20 @@ def _settle_stacked_elbow_openings(
     return tuple(settled)
 
 
-_GapCarrierKey: TypeAlias = tuple[
-    tuple[int, int | None],
-    float,
-    float,
-    float,
-    bool,
-    frozenset[str],
-    frozenset[str],
-]
+@dataclass(frozen=True, slots=True)
+class _GapCarrierKey:
+    gap: tuple[int, int | None]
+    coordinate: float
+    y_lo: float
+    y_hi: float
+    down: bool
+    line_ids: frozenset[str]
+    source_junction_ids: frozenset[str]
 
 
 def _gap_carrier_key(channel: _PlanGapChannel) -> _GapCarrierKey:
     """Identity of one physical carrier described by one or more plans."""
-    return (
+    return _GapCarrierKey(
         channel.gap,
         channel.coordinate,
         channel.y_lo,
@@ -4135,12 +4138,18 @@ def _repack_crowded_gap_channels(  # noqa: C901
     """Pack a connected set of crowded plan carriers into its usable gap."""
     lookup = gap_lookup_geometry(graph)
     settled = list(plans)
+    channel_cache: dict[int, tuple[ConvergencePlan, tuple[_PlanGapChannel, ...]]] = {}
+
+    def channels_of(plan: ConvergencePlan) -> tuple[_PlanGapChannel, ...]:
+        cached = channel_cache.get(id(plan))
+        if cached is not None and cached[0] is plan:
+            return cached[1]
+        channels = _plan_gap_channels(plan, graph, lookup)
+        channel_cache[id(plan)] = (plan, channels)
+        return channels
+
     gaps = sorted(
-        {
-            channel.gap
-            for plan in plans
-            for channel in _plan_gap_channels(plan, graph, lookup)
-        },
+        {channel.gap for plan in plans for channel in channels_of(plan)},
         key=lambda gap: (gap[0], -1 if gap[1] is None else gap[1]),
     )
 
@@ -4149,18 +4158,18 @@ def _repack_crowded_gap_channels(  # noqa: C901
             defaultdict(list)
         )
         for plan_rank, plan in enumerate(settled):
-            for channel in _plan_gap_channels(plan, graph, lookup):
+            for channel in channels_of(plan):
                 if channel.gap == gap:
                     grouped[_gap_carrier_key(channel)].append((plan_rank, channel))
         keys = tuple(
             sorted(
                 grouped,
                 key=lambda key: (
-                    key[1],
-                    sorted(key[5]),
-                    sorted(key[6]),
-                    key[2],
-                    key[3],
+                    key.coordinate,
+                    sorted(key.line_ids),
+                    sorted(key.source_junction_ids),
+                    key.y_lo,
+                    key.y_hi,
                 ),
             )
         )
@@ -4201,7 +4210,11 @@ def _repack_crowded_gap_channels(  # noqa: C901
         while pending:
             seed = min(
                 pending,
-                key=lambda key: (key[1], sorted(key[5]), sorted(key[6])),
+                key=lambda key: (
+                    key.coordinate,
+                    sorted(key.line_ids),
+                    sorted(key.source_junction_ids),
+                ),
             )
             component: set[_GapCarrierKey] = set()
             frontier = [seed]
@@ -4276,7 +4289,7 @@ def _repack_crowded_gap_channels(  # noqa: C901
                 feasible = True
                 for key in ordered:
                     coordinate = positions[key]
-                    if abs(coordinate - key[1]) <= COORD_TOLERANCE:
+                    if abs(coordinate - key.coordinate) <= COORD_TOLERANCE:
                         continue
                     for plan_rank, channel in grouped[key]:
                         touched_ranks.add(plan_rank)
@@ -4316,9 +4329,7 @@ def _repack_crowded_gap_channels(  # noqa: C901
                 moved_channels = tuple(
                     channel
                     for plan_rank in touched_ranks
-                    for channel in _plan_gap_channels(
-                        candidate[plan_rank], graph, lookup
-                    )
+                    for channel in channels_of(candidate[plan_rank])
                 )
                 if any(
                     not _channel_inside_gap(graph, channel)
@@ -4328,7 +4339,7 @@ def _repack_crowded_gap_channels(  # noqa: C901
                 gap_channels = tuple(
                     channel
                     for plan in candidate
-                    for channel in _plan_gap_channels(plan, graph, lookup)
+                    for channel in channels_of(plan)
                     if channel.gap == gap
                 )
                 if any(
@@ -4355,7 +4366,7 @@ def _clear_fixed_gap_flanks(
     graph: MetroGraph,
     fixed_channels: tuple[_PlanGapChannel, ...],
     *,
-    stacked_only: bool = False,
+    include_long_overlaps: bool = True,
 ) -> tuple[ConvergencePlan, ...]:
     """Move plan-owned flanks off fixed member channels on the same boundary."""
     lookup = gap_lookup_geometry(graph)
@@ -4369,9 +4380,11 @@ def _clear_fixed_gap_flanks(
                 for fixed in fixed_channels
                 if fixed.gap[0] == channel.gap[0]
                 and (
-                    not stacked_only
-                    and _landing_channels_crowd(channel, fixed)
-                    or _stacked_elbow_channels_crowd(channel, fixed)
+                    _stacked_elbow_channels_crowd(channel, fixed)
+                    or (
+                        include_long_overlaps
+                        and _landing_channels_crowd(channel, fixed)
+                    )
                 )
             )
             if not obstacles:
@@ -4666,6 +4679,64 @@ def _landing_trunk_flank_candidates(
                         )
 
 
+def _column_clearance_requirement(
+    graph: MetroGraph,
+    lower_col: int,
+    row: int | None,
+    owner_id: str,
+    description: str,
+    *,
+    required_width: float = 0.0,
+    additional_width: float = 0.0,
+) -> BoundaryClearanceRequirement | None:
+    boundary = lower_col + 1
+    negative = [
+        section
+        for section in graph.sections.values()
+        if section.grid_col + section.grid_col_span - 1 == lower_col
+        and (
+            row is None
+            or section.grid_row <= row < section.grid_row + section.grid_row_span
+        )
+    ]
+    positive = [
+        section
+        for section in graph.sections.values()
+        if section.grid_col == boundary
+        and (
+            row is None
+            or section.grid_row <= row < section.grid_row + section.grid_row_span
+        )
+    ]
+    if not negative or not positive:
+        return None
+    negative_edge = max(section.bbox_x + section.bbox_w for section in negative)
+    positive_edge = min(section.bbox_x for section in positive)
+    live_width = measured_distance(negative_edge, positive_edge)
+    return BoundaryClearanceRequirement(
+        SettlementAxis.COLUMN,
+        boundary,
+        owner_id,
+        max(required_width, live_width + additional_width),
+        tuple(
+            sorted(
+                section.id
+                for section in negative
+                if measured_distance(section.bbox_x + section.bbox_w, negative_edge)
+                <= COORD_TOLERANCE
+            )
+        ),
+        tuple(
+            sorted(
+                section.id
+                for section in positive
+                if measured_distance(section.bbox_x, positive_edge) <= COORD_TOLERANCE
+            )
+        ),
+        description,
+    )
+
+
 def _landing_trunk_flank_clearance_requirements(
     plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
 ) -> tuple[BoundaryClearanceRequirement, ...]:
@@ -4719,52 +4790,17 @@ def _landing_trunk_flank_clearance_requirements(
         if gap is None:
             continue
         lower_col, row = gap
-        boundary = lower_col + 1
-        negative = [
-            section
-            for section in graph.sections.values()
-            if section.grid_col + section.grid_col_span - 1 == lower_col
-            and (
-                row is None
-                or section.grid_row <= row < section.grid_row + section.grid_row_span
-            )
-        ]
-        positive = [
-            section
-            for section in graph.sections.values()
-            if section.grid_col == boundary
-            and (
-                row is None
-                or section.grid_row <= row < section.grid_row + section.grid_row_span
-            )
-        ]
-        if not negative or not positive:
-            continue
-        negative_edge = max(section.bbox_x + section.bbox_w for section in negative)
-        positive_edge = min(section.bbox_x for section in positive)
-        requirement = BoundaryClearanceRequirement(
-            SettlementAxis.COLUMN,
-            boundary,
+        requirement = _column_clearance_requirement(
+            graph,
+            lower_col,
+            row,
             str(landing_plan.system_id),
-            measured_distance(negative_edge, positive_edge) + shortfall,
-            tuple(
-                sorted(
-                    section.id
-                    for section in negative
-                    if measured_distance(section.bbox_x + section.bbox_w, negative_edge)
-                    <= COORD_TOLERANCE
-                )
-            ),
-            tuple(
-                sorted(
-                    section.id
-                    for section in positive
-                    if measured_distance(section.bbox_x, positive_edge)
-                    <= COORD_TOLERANCE
-                )
-            ),
             f"convergence system {landing_plan.system_id} runway",
+            additional_width=shortfall,
         )
+        if requirement is None:
+            continue
+        boundary = lower_col + 1
         current = widest.get(boundary)
         if current is None or requirement.required > current.required:
             widest[boundary] = requirement
@@ -4790,60 +4826,17 @@ def _stacked_elbow_clearance_requirements(
                 required = candidate + EDGE_TO_BUNDLE_CLEARANCE - left
                 if candidate <= right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE:
                     continue
-                boundary = lower_col + 1
-                negative = [
-                    section
-                    for section in graph.sections.values()
-                    if section.grid_col + section.grid_col_span - 1 == lower_col
-                    and (
-                        row is None
-                        or section.grid_row
-                        <= row
-                        < section.grid_row + section.grid_row_span
-                    )
-                ]
-                positive = [
-                    section
-                    for section in graph.sections.values()
-                    if section.grid_col == boundary
-                    and (
-                        row is None
-                        or section.grid_row
-                        <= row
-                        < section.grid_row + section.grid_row_span
-                    )
-                ]
-                if not negative or not positive:
-                    continue
-                negative_edge = max(
-                    section.bbox_x + section.bbox_w for section in negative
-                )
-                positive_edge = min(section.bbox_x for section in positive)
-                requirement = BoundaryClearanceRequirement(
-                    SettlementAxis.COLUMN,
-                    boundary,
+                requirement = _column_clearance_requirement(
+                    graph,
+                    lower_col,
+                    row,
                     str(plan.system_id),
-                    max(required, measured_distance(negative_edge, positive_edge)),
-                    tuple(
-                        sorted(
-                            section.id
-                            for section in negative
-                            if measured_distance(
-                                section.bbox_x + section.bbox_w, negative_edge
-                            )
-                            <= COORD_TOLERANCE
-                        )
-                    ),
-                    tuple(
-                        sorted(
-                            section.id
-                            for section in positive
-                            if measured_distance(section.bbox_x, positive_edge)
-                            <= COORD_TOLERANCE
-                        )
-                    ),
                     f"convergence system {plan.system_id} stacked elbow clearance",
+                    required_width=required,
                 )
+                if requirement is None:
+                    continue
+                boundary = lower_col + 1
                 key = (boundary, str(plan.system_id))
                 current = widest.get(key)
                 if current is None or requirement.required > current.required:
@@ -4913,49 +4906,17 @@ def _gap_channel_clearance_requirements(
         left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=None)
         if required <= measured_distance(left, right) + COORD_TOLERANCE:
             continue
-        boundary = lower_col + 1
-        negative = [
-            section
-            for section in graph.sections.values()
-            if section.grid_col + section.grid_col_span - 1 == lower_col
-        ]
-        positive = [
-            section
-            for section in graph.sections.values()
-            if section.grid_col == boundary
-        ]
-        if not negative or not positive:
-            continue
-        negative_edge = max(section.bbox_x + section.bbox_w for section in negative)
-        positive_edge = min(section.bbox_x for section in positive)
         owner = next(plan for _rank, plan, _channel in reversed(ordered) if plan)
-        requirements.append(
-            BoundaryClearanceRequirement(
-                SettlementAxis.COLUMN,
-                boundary,
-                str(owner.system_id),
-                max(required, measured_distance(negative_edge, positive_edge)),
-                tuple(
-                    sorted(
-                        section.id
-                        for section in negative
-                        if measured_distance(
-                            section.bbox_x + section.bbox_w, negative_edge
-                        )
-                        <= COORD_TOLERANCE
-                    )
-                ),
-                tuple(
-                    sorted(
-                        section.id
-                        for section in positive
-                        if measured_distance(section.bbox_x, positive_edge)
-                        <= COORD_TOLERANCE
-                    )
-                ),
-                f"convergence system {owner.system_id} gap channel clearance",
-            )
+        requirement = _column_clearance_requirement(
+            graph,
+            lower_col,
+            None,
+            str(owner.system_id),
+            f"convergence system {owner.system_id} gap channel clearance",
+            required_width=required,
         )
+        if requirement is not None:
+            requirements.append(requirement)
     return tuple(requirements)
 
 
@@ -4971,13 +4932,12 @@ def _system_conflict(
 ) -> ConvergenceConflict | None:
     """Geometry this system's own plans cannot reconcile between themselves.
 
-    Only convergence-owned geometry is in question.  Every other edge of a
-    planned route system carries a :class:`RouteMemberGeometryPlan`, which
-    ``build_route_system_emission_execution`` requires under
-    ``require_member_geometry``: a member with neither owner rejects the whole
-    system.  So an edge outside :attr:`ConvergencePlan.resolved_member_edges`
-    is member-owned rather than unowned, and its corridor is settled against
-    the plans through the fixed member channels rather than contested here.
+    Only convergence-owned geometry is in question.  Every other emitted
+    segment carries exact member ownership through a
+    :class:`RouteMemberGeometryPlan`; its declared corridor runs and gap
+    channels are fixed obstacles even when the same edge also belongs to the
+    convergence's semantic member path.  Those segment-level obstacles settle
+    against the plans separately rather than being contested here.
     """
     complete_pairwise_system = len(plans) == 2
     opening_arms = tuple(
@@ -5585,7 +5545,9 @@ def _settle_convergence_geometry(
         settled, graph, ctx.curve_radius, fixed_channels
     )
     settled = _settle_reserved_trunk_axes(settled, graph, ctx, member_runs)
-    settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels, stacked_only=True)
+    settled = _clear_fixed_gap_flanks(
+        settled, graph, fixed_channels, include_long_overlaps=False
+    )
     settled = _settle_opposing_gap_flanks(
         settled,
         graph,

@@ -1309,13 +1309,13 @@ def _settle_render_geometry(
     the reserved band back rather than deriving one from the row edges the
     translation just moved.
 
-    Settlement runs exactly once, against one ledger.  Re-routing publishes a
-    different ledger -- corridors appear, vanish, and change their required
-    width -- so settling again against it would be a fixpoint search over a
-    moving constraint set rather than an allocation against fixed demand.  The
-    plan published here is therefore the frozen ledger projected through the
-    translations, and the closing guard measures that; where the re-routed
-    ledger's gap demand differs from it,
+    Each settlement consumes frozen demand rather than iterating toward a
+    fixpoint over successive ledgers.  One bounded final grant is permitted for
+    strict geometry: a fresh observation may publish convergence clearance or
+    reveal that its drawn corridor overruns a frozen edge, and that measured
+    demand is settled before one consuming re-route.  The plan published here
+    is the frozen final ledger projected through the translations, and the
+    closing guard measures that; where the re-routed ledger's gap demand differs,
     :func:`attach_reroute_ledger_delta` records the difference as a non-blocking
     diagnostic, so a demand this stage cannot chase is named rather than
     invisible.
@@ -1447,7 +1447,7 @@ def _settle_render_geometry(
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
-    preclearance_settlement: EnvelopeSettlement | None = None
+    applied_settlements: list[EnvelopeSettlement] = []
     if route_plan.boundary_clearance_requirements:
         requested_plan = route_plan
         clearance_plan = replace(
@@ -1460,6 +1460,7 @@ def _settle_render_geometry(
                 live_graph, requested_plan.boundary_clearance_requirements
             ),
         )
+        applied_settlements.append(preclearance_settlement)
         station_offsets, routes, route_plan = _resettle(
             reservation_translations=preclearance_settlement.coordinate_translations
         )
@@ -1469,20 +1470,10 @@ def _settle_render_geometry(
                 "clearance requirements"
             )
         corridor_settlement = settle_route_envelopes(graph, route_plan)
+        applied_settlements.append(corridor_settlement)
         if corridor_settlement.translations:
             station_offsets, routes, route_plan = _resettle(
                 route_plan,
-                (
-                    *preclearance_settlement.coordinate_translations,
-                    *corridor_settlement.coordinate_translations,
-                ),
-            )
-            preclearance_settlement = EnvelopeSettlement(
-                (
-                    *preclearance_settlement.translations,
-                    *corridor_settlement.translations,
-                ),
-                corridor_settlement.shortfalls,
                 (
                     *preclearance_settlement.coordinate_translations,
                     *corridor_settlement.coordinate_translations,
@@ -1530,17 +1521,16 @@ def _settle_render_geometry(
             graph, frozen_plan.boundary_clearance_requirements
         )
 
-    grant_settlement = preclearance_settlement
     settlement = settle_route_envelopes(
         graph, frozen_plan, clearance=_measure_clearance
     )
+    applied_settlements.append(settlement)
     if settlement.translations or _ledger_changes_live_derived_band(
         graph,
         frozen_plan,
         frozen_routes,
         settlement.coordinate_translations,
     ):
-        grant_settlement = settlement
         pending_clearance = bool(frozen_plan.boundary_clearance_requirements)
         station_offsets, routes, routed_plan = _resettle(
             frozen_plan,
@@ -1569,6 +1559,7 @@ def _settle_render_geometry(
                     live_graph, containment_requirements
                 ),
             )
+            applied_settlements.append(settlement)
             station_offsets, routes, consumed_plan = _resettle(
                 granted_plan, settlement.coordinate_translations
             )
@@ -1630,9 +1621,8 @@ def _settle_render_geometry(
     # from, would spend clearance the corridor has already been promised.
     if carried_ports:
         hold_port_anchored_edges(graph, carried_from, carried_ports)
-    route_plan = attach_settlement_diagnostics(route_plan, settlement)
-    if grant_settlement is not None and grant_settlement is not settlement:
-        route_plan = attach_settlement_diagnostics(route_plan, grant_settlement)
+    for applied_settlement in applied_settlements:
+        route_plan = attach_settlement_diagnostics(route_plan, applied_settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
     assert_reservations_are_settled(
         graph,
