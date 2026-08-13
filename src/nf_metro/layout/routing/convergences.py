@@ -2538,7 +2538,8 @@ def _separate_distinct_cotravelling_trunks(
         neighbours = tuple(
             item
             for item in seated
-            if item.direction is run.direction
+            if item.system_id != plan.system_id
+            and item.direction is run.direction
             and item.line_ids != run.line_ids
             and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
         )

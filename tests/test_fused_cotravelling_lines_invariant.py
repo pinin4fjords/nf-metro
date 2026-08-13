@@ -328,6 +328,20 @@ def test_seed_41_plan_owned_trunks_keep_the_nesting_step() -> None:
     assert separations[("l0", "l2", "Y")] >= graph_offset_step(graph)
 
 
+def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
+    """A convergence trunk does not cross the destination row's stations."""
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    _graph, routes, _offsets = _route(path)
+    trunk = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_42", "__merge_12", "l4")
+    )
+
+    assert trunk.points[2] == pytest.approx((2722.0, 348.0))
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
