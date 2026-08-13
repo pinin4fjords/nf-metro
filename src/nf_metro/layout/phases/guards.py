@@ -2256,46 +2256,11 @@ def _guard_no_stacked_elbow_graze(
     within ``BUNDLE_TO_BUNDLE_CLEARANCE`` of each other their opposing elbows
     overlap and the lines graze instead of reading as distinct streams.
     """
-    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.layout.routing.invariants import check_stacked_elbow_clearance
 
-    if offsets is None:
-        offsets = compute_station_offsets(graph)
-    if routes is None:
-        return
-    violations = check_stacked_elbow_clearance(graph, routes, offsets)
-    if not violations:
-        return
-    observation = observe_route_edges(
-        graph,
-        station_offsets=offsets,
-        allow_convergence_clearance_requirements=True,
+    _raise_on_first_violation(
+        graph, phase, check_stacked_elbow_clearance, offsets, routes
     )
-    requirements = tuple(
-        requirement
-        for requirement in observation.plan.boundary_clearance_requirements
-        if requirement.description.endswith("stacked elbow clearance")
-    )
-
-    def covered(violation: object) -> bool:
-        x_a = violation.x_a  # type: ignore[attr-defined]
-        x_b = violation.x_b  # type: ignore[attr-defined]
-        for requirement in requirements:
-            left = max(
-                graph.sections[section_id].bbox_x + graph.sections[section_id].bbox_w
-                for section_id in requirement.negative_section_ids
-            )
-            right = min(
-                graph.sections[section_id].bbox_x
-                for section_id in requirement.positive_section_ids
-            )
-            if left <= x_a <= right and left <= x_b <= right:
-                return True
-        return False
-
-    unresolved = next((item for item in violations if not covered(item)), None)
-    if unresolved is not None:
-        raise PhaseInvariantError(f"{phase}: {unresolved.message()}")
 
 
 def _guard_no_station_overlap(
@@ -6188,18 +6153,26 @@ def _ensure_pass_c_inputs(
     failure leaves ``routes`` as ``None`` (it surfaces elsewhere); guards that
     need routes are then skipped.
     """
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.layout.routing.core import route_edges_for_placement_guards
 
     if offsets is None:
         offsets = compute_station_offsets(graph)
     if routes is None:
         try:
-            routes = (
-                route_edges(graph, station_offsets=offsets)
-                if validate_final_geometry
-                else route_edges_for_placement_guards(graph, offsets)
-            )
+            if validate_final_geometry:
+                observation = observe_route_edges(
+                    graph,
+                    station_offsets=offsets,
+                    allow_convergence_clearance_requirements=True,
+                )
+                routes = (
+                    None
+                    if observation.plan.boundary_clearance_requirements
+                    else observation.routes
+                )
+            else:
+                routes = route_edges_for_placement_guards(graph, offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
     return offsets, routes
