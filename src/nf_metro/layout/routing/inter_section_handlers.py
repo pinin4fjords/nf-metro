@@ -4209,7 +4209,21 @@ def _anchor_l_shape_fan_source_lane(
     ):
         return
     source_y = src.y + _get_offset(ctx, route.edge.source, route.line_id)
-    route.points[:2] = [(point[0], source_y) for point in route.points[:2]]
+    lane_offsets = {
+        lane.rank: lane.planned_offset for lane in membership.plan.source_lanes
+    }
+    source_offset = lane_offsets[membership.assignment.source_lane_rank]
+    straight_offsets = tuple(
+        lane_offsets[assignment.source_lane_rank]
+        for assignment in membership.plan.assignments
+        if assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
+        and assignment.source_lane_rank != membership.assignment.source_lane_rank
+    )
+    shift = (
+        -ctx.offset_step if source_offset < min(straight_offsets) else ctx.offset_step
+    )
+    fan_y = source_y + shift
+    route.points[:2] = [(point[0], fan_y) for point in route.points[:2]]
 
 
 @dataclass(frozen=True, slots=True)

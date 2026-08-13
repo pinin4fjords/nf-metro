@@ -368,6 +368,29 @@ def test_seed_15_terminal_openings_keep_the_nesting_step() -> None:
     assert separations[("l0", "l2", "X")] == graph_offset_step(graph)
 
 
+def test_seed_77_candidate_executor_completes() -> None:
+    """The full production executor accepts the settled seed_77 route."""
+    from nf_metro.candidate_executor import (
+        CandidateExecutionRequest,
+        CandidateStage,
+        CandidateStatus,
+        ExecutionLimits,
+        execute_candidates,
+    )
+
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    baseline = execute_candidates(
+        CandidateExecutionRequest(
+            path.read_text(),
+            source_dir=str(path.parent),
+            limits=ExecutionLimits(1, 60.0, 70.0),
+        )
+    ).baseline
+
+    assert baseline.status is CandidateStatus.ACCEPTED
+    assert baseline.stage is CandidateStage.COMPLETE
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
