@@ -3852,11 +3852,23 @@ def check_concentric_bundle_corners(
         tuple[tuple[int, int], tuple[int, int]],
         tuple[_CornerObservation, _CornerObservation],
     ] = {}
+    stable_routes = sorted(
+        routes,
+        key=lambda route: (
+            route.edge.source,
+            route.edge.target,
+            route.line_id,
+            route.route_system_id or "",
+            route.emission_member_id or "",
+            tuple(route.points),
+        ),
+    )
+    route_order = {id(route): index for index, route in enumerate(stable_routes)}
     for cohort in corner_cohorts.values():
         for ai, observation_a in enumerate(cohort):
             for observation_b in cohort[ai + 1 :]:
-                key_a = (id(observation_a.route), observation_a.rank)
-                key_b = (id(observation_b.route), observation_b.rank)
+                key_a = (route_order[id(observation_a.route)], observation_a.rank)
+                key_b = (route_order[id(observation_b.route)], observation_b.rank)
                 if key_a <= key_b:
                     candidate_pairs[key_a, key_b] = observation_a, observation_b
                 else:
@@ -4017,18 +4029,10 @@ def _translated_corner(
     outgoing: tuple[float, float],
 ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
     """Resolve corresponding arc centres when both flanking legs translate."""
-    delta_x = point_b[0] - point_a[0]
-    delta_y = point_b[1] - point_a[1]
-    tangent_shift = abs(
-        delta_x * (incoming[0] + outgoing[0]) + delta_y * (incoming[1] + outgoing[1])
-    )
-    if tangent_shift > _WHOLESALE_LEG_TOLERANCE:
-        return None
-    incoming_leg_offset = abs(delta_x * outgoing[0] + delta_y * outgoing[1])
-    outgoing_leg_offset = abs(delta_x * incoming[0] + delta_y * incoming[1])
-    if (
-        max(incoming_leg_offset, outgoing_leg_offset) <= _WHOLESALE_LEG_TOLERANCE
-        or abs(incoming_leg_offset - outgoing_leg_offset) > _WHOLESALE_LEG_TOLERANCE
+    from nf_metro.layout.routing.corners import wholesale_corner_translation
+
+    if not wholesale_corner_translation(
+        point_a, point_b, incoming, outgoing, _WHOLESALE_LEG_TOLERANCE
     ):
         return None
     centre_a = _arc_centre(point_a, radius_a, incoming, outgoing)

@@ -130,6 +130,43 @@ def test_cross_system_landing_corners_are_concentric_across_route_shapes() -> No
     assert check_concentric_bundle_corners(graph, routes, offsets) == []
 
 
+def test_short_planned_source_leads_share_a_clamp_safe_reference_radius() -> None:
+    """A compact planned fan keeps one centre without moving its frozen axes."""
+    path = FIXTURES / "route_reservations" / "reportho.metro"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    source_turns = {
+        route.line_id: route
+        for route in routes
+        if route.edge.source == "__junction_12" and route.line_id in {"main", "report"}
+    }
+
+    radii = {}
+    centres = {}
+    for line_id, route in source_turns.items():
+        assert route.curve_radii is not None
+        radius = route.curve_radii[0]
+        radii[line_id] = radius
+        centres[line_id] = (
+            route.points[1][0] - radius,
+            route.points[1][1] + radius,
+        )
+    assert radii == {"main": pytest.approx(6.01), "report": pytest.approx(10.01)}
+    assert centres["main"] == pytest.approx((1075.49, 276.01))
+    assert centres["report"] == pytest.approx(centres["main"])
+    assert {
+        line_id: route.concentric_corner_offsets_by_segment[1][0]
+        for line_id, route in source_turns.items()
+    } == {"main": 0.0, "report": 4.0}
+    assert {
+        line_id: route.concentric_corner_bases_by_segment[1][0]
+        for line_id, route in source_turns.items()
+    } == {"main": pytest.approx(6.01), "report": pytest.approx(6.01)}
+    assert check_concentric_bundle_corners(graph, routes, offsets) == []
+
+
 # ---------------------------------------------------------------------------
 # Route-level positive/negative tests
 # ---------------------------------------------------------------------------
@@ -189,8 +226,8 @@ def test_same_edge_corner_matches_across_different_waypoint_counts() -> None:
     violations = check_concentric_bundle_corners(None, [a, b], {})
 
     assert len(violations) == 1
-    assert violations[0].edge_source == "target seam"
-    assert violations[0].edge_target == "__landing__"
+    assert violations[0].edge_source == "__src__"
+    assert violations[0].edge_target == "__tgt__"
     assert violations[0].centre_spread == pytest.approx(3.0 * 2**0.5)
 
 
@@ -216,6 +253,8 @@ def test_shared_target_corner_matches_across_route_systems() -> None:
     violations = check_concentric_bundle_corners(None, [a, b], {})
 
     assert len(violations) == 1
+    assert violations[0].edge_source == "target seam"
+    assert violations[0].edge_target == "__landing__"
     assert violations[0].centre_spread == pytest.approx(3.0 * 2**0.5)
 
 
