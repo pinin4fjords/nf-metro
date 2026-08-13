@@ -1080,6 +1080,11 @@ def _bundle_same_destination_tails(
     for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
+        settled_segments.update(
+            (id(trunk.route), trunk.idx)
+            for line_id, trunk in trunks.items()
+            if abs(trunk.y - targets[line_id]) <= COORD_TOLERANCE
+        )
         if movable_route_ids is not None and not any(
             id(trunk.route) in movable_route_ids for trunk in trunks.values()
         ):
@@ -2177,7 +2182,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not convergence_owns_segment_boundary(r, k):
+                elif is_through and not route_system_owns_segment_boundary(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue
@@ -3592,6 +3597,7 @@ def _separate_fused_cotravelling_runs(
     secondary_movable_route_ids: frozenset[int] = frozenset(),
     station_offsets: Mapping[tuple[str, str], float] | None = None,
     fixed_segment_keys: frozenset[tuple[int, int]] = frozenset(),
+    secondary_may_yield_at_shared_source: bool = False,
 ) -> None:
     """Restore the nesting step between co-travelling tracks of distinct lines.
 
@@ -3666,11 +3672,22 @@ def _separate_fused_cotravelling_runs(
         primary = movable_route_ids is None or all(
             id(run.route) in movable_route_ids for run in lane.runs
         )
-        if not primary and any(
-            any((id(run.route), run.idx) in fixed_segment_keys for run in other.runs)
+        fixed_obstacles = tuple(
+            other
             for other in obstacles
-        ):
-            continue
+            if any((id(run.route), run.idx) in fixed_segment_keys for run in other.runs)
+        )
+        if not primary and fixed_obstacles:
+            lane_sources = {run.route.edge.source for run in lane.runs}
+            fixed_sources = {
+                run.route.edge.source for other in fixed_obstacles for run in other.runs
+            }
+            if (
+                not secondary_may_yield_at_shared_source
+                or not lane_sources & fixed_sources
+                or any(run.route.exit_turn_plan_id is not None for run in lane.runs)
+            ):
+                continue
         candidates = {
             obstacle.coord + direction * step
             for obstacle in obstacles

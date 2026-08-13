@@ -1418,6 +1418,11 @@ def _seat_claimed_segments_before_freeze(
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
                 continue
+            if route.exit_lane_transition_plan_id is not None or (
+                route.exit_turn_segment_rank is not None
+                and abs(route.exit_turn_segment_rank - rank) <= 1
+            ):
+                continue
             band = _segment_claim_band(ctx, route, rank)
             if band is None:
                 continue
@@ -1710,6 +1715,7 @@ def build_member_geometry_execution(
             secondary_movable_route_ids=candidate_route_ids,
             station_offsets=ctx.station_offsets,
             fixed_segment_keys=settled_tail_segments,
+            secondary_may_yield_at_shared_source=True,
         )
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
