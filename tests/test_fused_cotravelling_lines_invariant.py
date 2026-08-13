@@ -360,6 +360,14 @@ def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
     ]
 
 
+def test_seed_15_terminal_openings_keep_the_nesting_step() -> None:
+    """Late same-line fusion preserves the lanes of distinct terminal feeds."""
+    graph, routes, offsets = _route(FROZEN_FUZZ / "seed_15.mmd")
+    separations = _pair_separations(routes, offsets)
+
+    assert separations[("l0", "l2", "X")] == graph_offset_step(graph)
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),

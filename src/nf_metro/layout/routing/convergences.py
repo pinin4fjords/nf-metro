@@ -2775,6 +2775,90 @@ def _fuse_shared_terminal_gap_channels(
     return tuple(settled)
 
 
+def _separate_distinct_terminal_gap_channels(
+    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+) -> tuple[ConvergencePlan, ...]:
+    """Keep distinct terminal-opening lanes one nesting step apart.
+
+    Same-line terminal fusion runs late because it has to read the settled
+    approach geometry.  Two independently planned lines can therefore arrive
+    on that fused carrier after the ordinary gap allocator has finished.  The
+    opening turn remains owned by its convergence plan, so repair the collision
+    here, before the plan freezes, by moving one terminal opening to the nearest
+    clear lane in its declared gap.
+    """
+    lookup = gap_lookup_geometry(graph)
+    settled = list(plans)
+
+    def channels_of(plan: ConvergencePlan) -> tuple[_PlanGapChannel, ...]:
+        return _plan_gap_channels(plan, graph, lookup)
+
+    for plan_rank, plan in enumerate(tuple(settled)):
+        for channel in tuple(
+            item for item in channels_of(plan) if item.flank_rank is None
+        ):
+            obstacles = tuple(
+                obstacle
+                for other_rank, other in enumerate(settled)
+                if other_rank != plan_rank
+                for obstacle in channels_of(other)
+                if _gap_channels_crowd(channel, obstacle)
+            )
+            if not obstacles:
+                continue
+            gap_edges = column_gap_edges(
+                graph, channel.gap[0], channel.gap[0] + 1, row=channel.gap[1]
+            )
+            candidates = sorted(
+                {
+                    obstacle.coordinate + direction * OFFSET_STEP
+                    for obstacle in obstacles
+                    for direction in (-1.0, 1.0)
+                },
+                key=lambda coordinate: (
+                    abs(coordinate - channel.coordinate),
+                    coordinate,
+                ),
+            )
+            for coordinate in candidates:
+                if not _inside_usable_gap(gap_edges, coordinate):
+                    continue
+                moved = _move_landing_opening(
+                    plan,
+                    channel.claimant_member_ids,
+                    coordinate,
+                    curve_radius,
+                )
+                if moved is None:
+                    continue
+                moved_channels = tuple(
+                    item
+                    for item in channels_of(moved)
+                    if item.claimant_member_ids == channel.claimant_member_ids
+                    and item.gap == channel.gap
+                )
+                if not moved_channels or any(
+                    _gap_channels_crowd(moved_channel, obstacle)
+                    for moved_channel in moved_channels
+                    for other_rank, other in enumerate(settled)
+                    if other_rank != plan_rank
+                    for obstacle in channels_of(other)
+                ):
+                    continue
+                candidate_plans = tuple(
+                    moved if rank == plan_rank else other
+                    for rank, other in enumerate(settled)
+                )
+                if (
+                    _landing_trunk_flank_conflict(candidate_plans, graph, curve_radius)
+                    is not None
+                ):
+                    continue
+                settled[plan_rank] = plan = moved
+                break
+    return tuple(settled)
+
+
 def _has_legacy_exit_geometry(ctx: _RoutingCtx, landing: ConvergenceLanding) -> bool:
     """Whether an upstream legacy exit template fixes this feeder opening."""
     membership = (
@@ -5790,6 +5874,7 @@ def _settle_convergence_geometry(
         settled, graph, ctx.curve_radius, fixed_channels
     )
     settled = _fuse_shared_terminal_gap_channels(settled, ctx)
+    settled = _separate_distinct_terminal_gap_channels(settled, graph, ctx.curve_radius)
     settled = tuple(_reconcile_bypass_landings(plan, ctx) for plan in settled)
     return _reconcile_landing_handedness(settled, ctx)
 
