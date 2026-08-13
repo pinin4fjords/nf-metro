@@ -47,7 +47,7 @@ _SCANNED_PACKAGES = ("layout", "parser", "render")
 _EXEMPT = frozenset({"layout/geometry.py"})
 
 # Lower these (never raise them) when a call site migrates onto AxisFrame.
-_LITERAL_BASELINE = 60
+_LITERAL_BASELINE = 58
 _NAMED_BASELINE = 266
 
 _FLOWS = frozenset(FLOW_DIRECTIONS)
