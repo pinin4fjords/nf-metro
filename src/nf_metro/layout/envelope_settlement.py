@@ -95,6 +95,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import measured_distance, shift_section
 from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
+    ConvergenceDisposition,
     DemandAxis,
     EmissionMemberId,
     RoutePlan,
@@ -191,6 +192,14 @@ def drawn_corridor_clearance_requirements(
 ) -> tuple[DrawnCorridorClearanceRequirement, ...]:
     """Freeze widths owed by strict routes drawn past a corridor edge."""
     requirements: list[DrawnCorridorClearanceRequirement] = []
+    fixed_member_ids = {
+        member_id
+        for convergence in (
+            plan.convergence_plans if isinstance(plan, RoutePlan) else ()
+        )
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for member_id in convergence.member_ids
+    }
     for reservation in plan.reservations:
         region = reservation.region
         if not isinstance(region, RowGapRegion | ColumnGapRegion):
@@ -204,9 +213,13 @@ def drawn_corridor_clearance_requirements(
         deficit = -containment.positive_side_slack
         if deficit <= COORD_TOLERANCE:
             continue
+        recentres = not reservation.claims or any(
+            claim.member_id not in fixed_member_ids for claim in reservation.claims
+        )
         requirements.append(
             DrawnCorridorClearanceRequirement(
-                reservation, realised.available_width + 2 * deficit
+                reservation,
+                realised.available_width + deficit * (2 if recentres else 1),
             )
         )
     return tuple(requirements)

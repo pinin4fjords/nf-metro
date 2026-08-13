@@ -2079,6 +2079,31 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     )
 
 
+def _simultaneous_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
+    """The widest stack drawn at one longitudinal coordinate."""
+    endpoints = sorted(
+        {
+            coordinate
+            for lane in lanes
+            for coordinate in (lane.leg.travel_start, lane.leg.travel_end)
+        }
+    )
+    return max(
+        (
+            _confined_stack_width(
+                [
+                    lane
+                    for lane in lanes
+                    if lane.leg.travel_start < midpoint < lane.leg.travel_end
+                ]
+            )
+            for start, end in zip(endpoints, endpoints[1:])
+            if (midpoint := (start + end) / 2.0) > start + COORD_TOLERANCE_FINE
+        ),
+        default=0.0,
+    )
+
+
 def _unfiled_lanes_in_band(
     group: tuple[_ObservedClaim, ...],
     band: _GroupBand,
@@ -2174,6 +2199,20 @@ def _peer_widths(
                 widths[index] = max(
                     widths[index], _confined_stack_width([*own, *confined])
                 )
+            band = bands[index]
+            assert band is not None
+            if not isinstance(groups[index][0].region, ColumnGapRegion):
+                continue
+            shared_band = [
+                peer
+                for peer in (*lanes, *unfiled_by_group[index])
+                if peer.group_index != index
+                and abs(peer.band_low - band.low) <= COORD_TOLERANCE_FINE
+                and abs(peer.band_high - band.high) <= COORD_TOLERANCE_FINE
+            ]
+            stack_width = _simultaneous_stack_width([*own, *shared_band])
+            if stack_width > band.high - band.low + COORD_TOLERANCE_FINE:
+                widths[index] = max(widths[index], stack_width)
     return dict(widths)
 
 

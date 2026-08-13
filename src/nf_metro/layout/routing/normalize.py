@@ -3913,6 +3913,25 @@ def _seat_exempt_trunk_dogleg(
     _reconcile_moved_trunk_slot(trunk.route, trunk.idx, target_y, ctx.graph)
 
 
+def _target_leaves_grid_corridor(
+    trunk: _HTrunk, target_y: float, ctx: _RoutingCtx
+) -> bool:
+    """Whether seating a trunk at *target_y* leaves its bounded row gap."""
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=1,
+        section_ids=_route_endpoint_section_ids(ctx.graph, trunk.route),
+        coordinate=target_y,
+        run_start=trunk.x_lo,
+        run_end=trunk.x_hi,
+    )
+    return band is not None and (
+        band.boundary is None
+        or target_y < band.lo - COORD_TOLERANCE
+        or target_y > band.hi + COORD_TOLERANCE
+    )
+
+
 def _dogleg_off_exempt_trunks(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
@@ -3954,7 +3973,7 @@ def _dogleg_off_exempt_trunks(
         return set()
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     changed: set[tuple[str, str, str]] = set()
-    same_line_trunks = () if nested_only else _collect_htrunks(routes)
+    same_line_trunks = _collect_htrunks(routes)
     for t in same_line_trunks:
         owned = route_system_owns_segment_boundary(t.route, t.idx)
         if id(t.route) in skip or (
@@ -4013,6 +4032,8 @@ def _dogleg_off_exempt_trunks(
         else:
             continue
         new_y = down_y if use_down else up_y
+        if nested_only and not _target_leaves_grid_corridor(t, new_y, ctx):
+            continue
         _seat_exempt_trunk_dogleg(t, new_y, ctx)
 
     for t in _collect_htrunks(routes):
@@ -4062,12 +4083,20 @@ def _dogleg_off_exempt_trunks(
         cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
         cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
         if nested_only:
-            if (cross_below is not None and cross_above is not None) or not (
-                below_ok or above_ok
-            ):
+            leaves_grid = (
+                below_ok and _target_leaves_grid_corridor(t, below, ctx)
+            ) or (above_ok and _target_leaves_grid_corridor(t, above, ctx))
+            if not leaves_grid:
+                if (cross_below is not None and cross_above is not None) or not (
+                    below_ok or above_ok
+                ):
+                    if reconcile_owned_corridor:
+                        changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+                continue
+            if cross_below is not None and cross_above is not None:
                 if reconcile_owned_corridor:
                     changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
-            continue
+                continue
         if cross_below is not None and cross_above is not None:
             if reconcile_owned_corridor:
                 changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))

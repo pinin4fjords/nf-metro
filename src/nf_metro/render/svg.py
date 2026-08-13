@@ -1490,12 +1490,9 @@ def _settle_render_geometry(
     applied_settlements: list[EnvelopeSettlement] = []
     if route_plan.boundary_clearance_requirements:
         requested_plan = route_plan
-        clearance_plan = replace(
-            requested_plan, reservations=(), realised_reservations=()
-        )
         preclearance_settlement = settle_route_envelopes(
             graph,
-            clearance_plan,
+            requested_plan,
             clearance=lambda live_graph: measure_boundary_clearance_requirements(
                 live_graph, requested_plan.boundary_clearance_requirements
             ),

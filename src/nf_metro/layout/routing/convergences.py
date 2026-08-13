@@ -5147,80 +5147,9 @@ def _gap_channel_clearance_requirements(
     graph: MetroGraph,
     fixed_channels: tuple[_PlanGapChannel, ...] = (),
 ) -> tuple[BoundaryClearanceRequirement, ...]:
-    """Request the width needed to pack every overlapping plan carrier."""
+    """Request space for an opposing member carrier that cannot move."""
     lookup = gap_lookup_geometry(graph)
-    channels_by_boundary: defaultdict[
-        int, list[tuple[int, ConvergencePlan | None, _PlanGapChannel]]
-    ] = defaultdict(list)
-    seen: set[_GapCarrierKey] = set()
-    for plan_rank, plan in enumerate(plans):
-        for channel in _plan_gap_channels(plan, graph, lookup):
-            key = _gap_carrier_key(channel)
-            if key in seen:
-                continue
-            seen.add(key)
-            channels_by_boundary[channel.gap[0]].append((plan_rank, plan, channel))
-    for channel_rank, channel in enumerate(fixed_channels, start=len(plans)):
-        key = _gap_carrier_key(channel)
-        if key in seen:
-            continue
-        seen.add(key)
-        channels_by_boundary[channel.gap[0]].append((channel_rank, None, channel))
-
     requirements: list[BoundaryClearanceRequirement] = []
-    for lower_col, grouped in sorted(channels_by_boundary.items()):
-        ordered = sorted(
-            grouped,
-            key=lambda item: (item[2].coordinate, item[0], sorted(item[2].line_ids)),
-        )
-        positions: list[float] = []
-        for rank, (_plan_rank, _plan, channel) in enumerate(ordered):
-            position = 0.0
-            for prior_rank, (_prior_rank, _prior_plan, prior) in enumerate(
-                ordered[:rank]
-            ):
-                if (
-                    min(channel.y_hi, prior.y_hi) - max(channel.y_lo, prior.y_lo)
-                    <= COORD_TOLERANCE
-                ):
-                    continue
-                clearance = _landing_channel_clearance(channel, prior)
-                if clearance is not None:
-                    position = max(position, positions[prior_rank] + clearance)
-            positions.append(position)
-        required = 2 * EDGE_TO_BUNDLE_CLEARANCE + max(positions, default=0.0)
-        movable = tuple(channel for _rank, plan, channel in ordered if plan is not None)
-        fixed = tuple(channel for _rank, plan, channel in ordered if plan is None)
-        for channel in movable:
-            for obstacle in fixed:
-                if not _landing_channels_crowd(channel, obstacle):
-                    continue
-                clearance = _landing_channel_clearance(channel, obstacle)
-                assert clearance is not None
-                required = max(
-                    required,
-                    2 * EDGE_TO_BUNDLE_CLEARANCE + 2 * clearance,
-                )
-        left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=None)
-        if required <= measured_distance(left, right) + COORD_TOLERANCE:
-            continue
-        owner = next(
-            (plan for _rank, plan, _channel in reversed(ordered) if plan), None
-        )
-        if owner is None:
-            continue
-        owner_system_id = owner.system_id
-        requirement = _column_clearance_requirement(
-            graph,
-            lower_col,
-            None,
-            str(owner_system_id),
-            f"route system {owner_system_id} gap channel clearance",
-            required_width=required,
-        )
-        if requirement is not None:
-            requirements.append(requirement)
-
     for plan in plans:
         for channel in _plan_gap_channels(plan, graph, lookup):
             for fixed_channel in fixed_channels:
@@ -5513,6 +5442,10 @@ def _validate_final_convergence_feasibility(
                     )
                     - COORD_TOLERANCE
                 ):
+                    if _channel_inside_gap(graph, channel) and _channel_inside_gap(
+                        graph, member_channel
+                    ):
+                        continue
                     if any(
                         requirement.owner_id == str(plan.system_id)
                         and requirement.boundary == channel.gap[0] + 1
@@ -5546,6 +5479,10 @@ def _validate_final_convergence_feasibility(
                 member_channel,
                 fixed_channels,
             ):
+                if _channel_inside_gap(graph, channel) and _channel_inside_gap(
+                    graph, member_channel
+                ):
+                    continue
                 if any(
                     requirement.boundary == channel.gap[0] + 1
                     for requirement in clearance_requirements
