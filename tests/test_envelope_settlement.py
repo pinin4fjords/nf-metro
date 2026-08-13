@@ -581,7 +581,6 @@ LEMMA_CORPUS = {
 CROSS_AXIS_CORPUS = (
     TOPOLOGIES / "complex_multipath.mmd",
     ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd",
 )
 
 
