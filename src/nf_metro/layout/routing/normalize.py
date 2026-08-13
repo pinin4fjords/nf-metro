@@ -64,6 +64,7 @@ from nf_metro.layout.routing.common import (
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
     section_ids_of_stations,
+    segment_direction,
     symmetric_bundle_midpoint,
     tail_on_slot,
     trunk_depths_contiguous,
@@ -80,12 +81,14 @@ from nf_metro.layout.routing.corners import (
     corner_radius,
     resolve_curve_radii,
     resolve_curve_radius_at,
+    wholesale_corner_translation,
     widest_coincident_radius,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
+from nf_metro.layout.routing.orientation import direction_vector
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     corridor_clearance_band,
@@ -1108,6 +1111,165 @@ def _bundle_same_destination_tails(
     return frozenset(settled_segments)
 
 
+class _SemanticEndCorner(NamedTuple):
+    route: RoutedPath
+    rank: int
+    points: list[tuple[float, float]]
+    incoming: tuple[int, int]
+    outgoing: tuple[int, int]
+
+
+def _rederive_semantic_end_corners(
+    routes: list[RoutedPath],
+    curve_radius: float,
+    station_offsets: Mapping[tuple[str, str], float],
+) -> None:
+    """Size wholesale-translated source and landing corner cohorts."""
+    cohorts: defaultdict[
+        tuple[str, str, Direction, Direction],
+        list[_SemanticEndCorner],
+    ] = defaultdict(list)
+    for route in routes:
+        if route.curve_radii is None or len(route.points) < 3:
+            continue
+        points = apply_route_offsets(route, station_offsets)
+        corners: list[tuple[int, Direction, Direction]] = []
+        for rank in range(1, len(points) - 1):
+            incoming = segment_direction(points[rank - 1], points[rank])
+            outgoing = segment_direction(points[rank], points[rank + 1])
+            if (
+                incoming is not None
+                and outgoing is not None
+                and incoming is not outgoing
+                and is_orthogonal_turn(points[rank - 1], points[rank], points[rank + 1])
+            ):
+                corners.append((rank, incoming, outgoing))
+        if not corners:
+            continue
+        for kind, owner, (rank, incoming, outgoing) in (
+            ("source", route.edge.source, corners[0]),
+            ("target", route.edge.target, corners[-1]),
+        ):
+            if (
+                kind == "source" and route.exit_lane_transition_plan_id is not None
+            ) or (kind == "target" and route.exit_turn_segment_rank == rank):
+                continue
+            cohorts[kind, owner, incoming, outgoing].append(
+                _SemanticEndCorner(
+                    route,
+                    rank,
+                    points,
+                    direction_vector(incoming),
+                    direction_vector(outgoing),
+                )
+            )
+
+    def wholesale_pair(a: _SemanticEndCorner, b: _SemanticEndCorner) -> bool:
+        return wholesale_corner_translation(
+            a.points[a.rank],
+            b.points[b.rank],
+            a.incoming,
+            a.outgoing,
+        )
+
+    for cohort in cohorts.values():
+        pending = set(range(len(cohort)))
+        while pending:
+            first = pending.pop()
+            component = {first}
+            frontier = [first]
+            while frontier:
+                member_index = frontier.pop()
+                for candidate in list(pending):
+                    if wholesale_pair(cohort[candidate], cohort[member_index]):
+                        pending.remove(candidate)
+                        component.add(candidate)
+                        frontier.append(candidate)
+            if len(component) < 2:
+                continue
+            members = [cohort[index] for index in sorted(component)]
+            incoming_vector = members[0].incoming
+            outgoing_vector = members[0].outgoing
+            turn_x = outgoing_vector[0] - incoming_vector[0]
+            xs = [member.points[member.rank][0] for member in members]
+            reference_x = min(xs) if turn_x < 0 else max(xs)
+            reference_radius = curve_radius
+            prepared: list[tuple[_SemanticEndCorner, int, float, list[float]]] = []
+            for member in members:
+                radius_index = member.rank - 1
+                offset = member.points[member.rank][0] - reference_x
+                radii = member.route.curve_radii
+                assert radii is not None
+                reference_radius = max(
+                    reference_radius,
+                    concentric_reference_radius_at(
+                        member.points[member.rank - 1],
+                        member.points[member.rank],
+                        member.points[member.rank + 1],
+                        offset,
+                        radii[radius_index],
+                    ),
+                )
+                prepared.append((member, radius_index, offset, list(radii)))
+
+            def reference_fits(candidate: float) -> bool:
+                for member, radius_index, offset, desired in prepared:
+                    desired[radius_index] = concentric_corner_radius_at(
+                        member.points[member.rank - 1],
+                        member.points[member.rank],
+                        member.points[member.rank + 1],
+                        offset,
+                        candidate,
+                    )
+                    if (
+                        desired[radius_index] < COORD_TOLERANCE_FINE
+                        or abs(
+                            resolve_curve_radius_at(
+                                member.points, desired, radius_index
+                            )
+                            - desired[radius_index]
+                        )
+                        > COORD_TOLERANCE_FINE
+                    ):
+                        return False
+                return True
+
+            if not reference_fits(reference_radius):
+                lower = max(
+                    concentric_reference_radius_at(
+                        member.points[member.rank - 1],
+                        member.points[member.rank],
+                        member.points[member.rank + 1],
+                        offset,
+                        COORD_TOLERANCE_FINE,
+                    )
+                    for member, _radius_index, offset, _desired in prepared
+                )
+                if not reference_fits(lower):
+                    continue
+                upper = reference_radius
+                for _ in range(32):
+                    midpoint = (lower + upper) / 2
+                    if reference_fits(midpoint):
+                        lower = midpoint
+                    else:
+                        upper = midpoint
+                reference_radius = lower
+            for member, radius_index, offset, _desired in prepared:
+                radii = member.route.curve_radii
+                assert radii is not None
+                radii[radius_index] = concentric_corner_radius_at(
+                    member.points[member.rank - 1],
+                    member.points[member.rank],
+                    member.points[member.rank + 1],
+                    offset,
+                    reference_radius,
+                )
+                member.route.record_concentric_corner(
+                    radius_index, offset, reference_radius
+                )
+
+
 def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     """Every horizontal bypass trunk whose handler declared a :class:`TrunkSlot`.
 
@@ -1588,6 +1750,14 @@ def _fanout_traverse_legs(
     return _group_channels_by(routes, _fanout_traverse_spans)
 
 
+def _fanout_traverse_group_is_movable(members: Sequence[_TraverseLeg]) -> bool:
+    """Whether one normalisation decision may re-rank the complete fan."""
+    return not any(
+        convergence_owns_segment_boundary(member.route, member.idx)
+        for member in members
+    )
+
+
 def _coincide_same_line_fanout_traverses(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
@@ -1748,12 +1918,11 @@ def _bundle_divergent_distinct_traverses(
     mirrors it), holding a constant bundle width until each line turns off.
     """
     step = ctx.offset_step
-    for members in _fanout_traverse_legs(routes).values():
-        if any(
-            convergence_owns_segment_boundary(member.route, member.idx)
-            for member in members
-        ):
-            continue
+    groups = filter(
+        _fanout_traverse_group_is_movable,
+        _fanout_traverse_legs(routes).values(),
+    )
+    for members in groups:
         by_line: dict[str, list[_TraverseLeg]] = defaultdict(list)
         for m in members:
             by_line[m.route.line_id].append(m)
@@ -2280,8 +2449,12 @@ def _stack_distinct_port_descents(
         x = target_x_by_line[lid]
         offset = x - x_inner
         for ch in by_line[lid]:
-            if abs(ch.x - x) > COORD_TOLERANCE or abs(offset) > COORD_TOLERANCE:
-                _set_vchannel_x(ch, x, offset)
+            _set_vchannel_x(ch, x, offset)
+
+
+def _bypass_nesting_leg_is_movable(route: RoutedPath, rank: int) -> bool:
+    """Whether bypass nesting owns the horizontal leg and its flanking corners."""
+    return not convergence_owns_segment_boundary(route, rank)
 
 
 def _nest_bypass_above_over_top_wrap(
@@ -2320,7 +2493,7 @@ def _nest_bypass_above_over_top_wrap(
                 lo, hi = min(x1, x2), max(x1, x2)
                 if is_wrap:
                     wrap_peaks.append((y1, lo, hi))
-                elif is_through and not route_system_owns_segment_boundary(r, k):
+                elif is_through and _bypass_nesting_leg_is_movable(r, k):
                     through_legs.append((r, k, y1, lo, hi))
         if not wrap_peaks or not through_legs:
             continue

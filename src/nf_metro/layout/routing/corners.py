@@ -26,12 +26,34 @@ import math
 from collections.abc import Iterable
 from typing import NamedTuple
 
-from nf_metro.layout.constants import CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.routing.common import Direction, bundle_width
 
 # ---------------------------------------------------------------------------
 # Primitive: reversed (inner/outer) offset
 # ---------------------------------------------------------------------------
+
+
+def wholesale_corner_translation(
+    point_a: tuple[float, float],
+    point_b: tuple[float, float],
+    incoming: tuple[float, float],
+    outgoing: tuple[float, float],
+    tolerance: float = COORD_TOLERANCE,
+) -> bool:
+    """Whether two matching corners translate both flanking legs equally."""
+    delta_x = point_b[0] - point_a[0]
+    delta_y = point_b[1] - point_a[1]
+    tangent_shift = abs(
+        delta_x * (incoming[0] + outgoing[0]) + delta_y * (incoming[1] + outgoing[1])
+    )
+    incoming_leg_offset = abs(delta_x * outgoing[0] + delta_y * outgoing[1])
+    outgoing_leg_offset = abs(delta_x * incoming[0] + delta_y * incoming[1])
+    return (
+        tangent_shift <= tolerance
+        and max(incoming_leg_offset, outgoing_leg_offset) > tolerance
+        and abs(incoming_leg_offset - outgoing_leg_offset) <= tolerance
+    )
 
 
 def resolve_curve_radius_at(

@@ -4906,13 +4906,18 @@ def _gap_channel_clearance_requirements(
         left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=None)
         if required <= measured_distance(left, right) + COORD_TOLERANCE:
             continue
-        owner = next(plan for _rank, plan, _channel in reversed(ordered) if plan)
+        owner = next(
+            (plan for _rank, plan, _channel in reversed(ordered) if plan), None
+        )
+        owner_system_id = (
+            owner.system_id if owner is not None else ordered[-1][2].system_id
+        )
         requirement = _column_clearance_requirement(
             graph,
             lower_col,
             None,
-            str(owner.system_id),
-            f"convergence system {owner.system_id} gap channel clearance",
+            str(owner_system_id),
+            f"route system {owner_system_id} gap channel clearance",
             required_width=required,
         )
         if requirement is not None:

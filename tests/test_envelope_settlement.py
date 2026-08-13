@@ -1392,10 +1392,9 @@ def test_planned_convergence_reroutes_strictly_with_settled_column_bands(
     _rendered_plan(path)
 
 
-# Route systems the convergence planner puts on its compatibility disposition
-# for want of "a wider shared settlement".  Each one's corridors reach their
-# required width, which is the evidence that what limits them is a channel
-# decision rather than envelope allocation.
+# Route systems that require shared convergence settlement. Each one's
+# corridors reach their required width, which is the evidence that what limits
+# them is a channel decision rather than envelope allocation.
 SHARED_SETTLEMENT_CANDIDATES = (
     TOPOLOGIES / "exit_run_three_drop_columns.mmd",
     TOPOLOGIES / "merge_trunk_out_of_range_section.mmd",
@@ -1411,7 +1410,7 @@ SHARED_SETTLEMENT_CANDIDATES = (
 @pytest.mark.parametrize(
     "path", SHARED_SETTLEMENT_CANDIDATES, ids=lambda item: item.name
 )
-def test_compatibility_systems_are_not_short_of_corridor(path: Path) -> None:
+def test_shared_settlement_candidates_are_not_short_of_corridor(path: Path) -> None:
     observed = _rendered_plan(path, permissive=True)
     assert _capacity_deficits(observed.route_plan) == {}
 

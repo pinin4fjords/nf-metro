@@ -1720,10 +1720,16 @@ def build_member_geometry_execution(
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
             route.exit_turn_segment_rank = segment_rank
+        opposing_movable_route_ids = frozenset(
+            id(route)
+            for route in candidate_routes
+            if route.exit_turn_plan_id not in pending_exit_turn_plan_ids
+            and route.exit_turn_axis_id is None
+        )
         _separate_declared_opposing_gap_bundles(
             normalization_population,
             ctx,
-            movable_route_ids=candidate_route_ids,
+            movable_route_ids=opposing_movable_route_ids,
         )
         _align_same_line_channels(
             _materialized_channels(tuple(candidates), ctx),

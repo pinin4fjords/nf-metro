@@ -24,8 +24,69 @@ from nf_metro.layout.routing.core import observe_route_edges
 from nf_metro.layout.routing.member_geometry import empty_member_geometry_execution
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser.route_topology import ResolvedEdge
+from nf_metro.render import render_svg
+from nf_metro.themes import THEMES
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_fixed_only_gap_channels_publish_owned_clearance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"fixed"}),
+        frozenset({"fixed-member"}),
+        frozenset({"fixed-source"}),
+        frozenset({"fixed-connector"}),
+        RouteSystemId("fixed-system"),
+        frozenset({"fixed-target"}),
+        True,
+    )
+    graph = SimpleNamespace(
+        sections={
+            "left": SimpleNamespace(
+                id="left",
+                grid_col=0,
+                grid_col_span=1,
+                grid_row=0,
+                grid_row_span=1,
+                bbox_x=0.0,
+                bbox_w=40.0,
+            ),
+            "right": SimpleNamespace(
+                id="right",
+                grid_col=1,
+                grid_col_span=1,
+                grid_row=0,
+                grid_row_span=1,
+                bbox_x=50.0,
+                bbox_w=40.0,
+            ),
+        }
+    )
+    monkeypatch.setattr(convergences, "gap_lookup_geometry", lambda _graph: None)
+    monkeypatch.setattr(
+        convergences, "column_gap_edges", lambda *_args, **_kwargs: (40.0, 50.0)
+    )
+
+    requirements = convergences._gap_channel_clearance_requirements((), graph, (fixed,))
+
+    assert len(requirements) == 1
+    assert requirements[0].owner_id == "fixed-system"
+
+
+def test_exit_turn_allocation_survives_member_geometry_settlement() -> None:
+    path = ROOT / "examples" / "topologies" / "multicarrier_offrow_exit_climb.mmd"
+    graph = prepare_graph(path.read_text())
+    graph.strict = True
+
+    render_svg(graph, THEMES["nfcore"])
 
 
 def test_same_source_channels_from_distinct_systems_never_share_a_carrier() -> None:
