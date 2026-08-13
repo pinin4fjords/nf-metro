@@ -1,6 +1,7 @@
 """Non-convergence member geometry is planned once and emitted exactly."""
 
 import json
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -8,7 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 import pytest
 
 import nf_metro.layout.routing.member_geometry as member_geometry
-from nf_metro.api import prepare_graph
+from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DIAGONAL_RUN,
@@ -27,6 +28,7 @@ from nf_metro.layout.route_plan import (
     build_route_semantic_scaffold,
     serialize_route_plan,
 )
+from nf_metro.layout.route_reservations import drawn_corridor_containment
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
@@ -51,6 +53,7 @@ from nf_metro.layout.routing.reserved_bands import (
 )
 from nf_metro.parser.model import Edge
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge
+from nf_metro.render.svg import build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
 
@@ -867,6 +870,37 @@ def test_reservation_reroute_keeps_identity_and_reuses_settled_template() -> Non
             assert tuple(
                 route.points[channel.segment_rank : channel.segment_rank + 2]
             ) == (channel.start, channel.end)
+
+
+def test_reservation_reroute_reseats_port_peeloff_after_reconciliation() -> None:
+    path = ROOT / "examples" / "topologies" / "convergence_stacked_sink.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    assert observed.route_plan is not None
+    plan = next(
+        item
+        for item in observed.route_plan.member_geometry_plans
+        if item.edge
+        == ResolvedEdge("dedup__exit_right_3", "merge_pt__entry_right_9", "main")
+    )
+    reservation, claim = next(
+        (reservation, claim)
+        for reservation in observed.route_plan.reservations
+        for claim in reservation.claims
+        if claim.member_id == plan.member_id and claim.segment_rank == 2
+    )
+    realised = build_route_plan_query(observed.route_plan).realised_reservation(
+        reservation.id
+    )
+
+    assert realised is not None
+    drawn = drawn_corridor_containment(
+        reservation, realised, observed.plan.route_polylines, (claim,)
+    )
+    assert drawn.negative_side_slack >= 0.0
+    assert drawn.positive_side_slack >= 0.0
 
 
 def test_failed_system_cannot_fall_back_from_member_geometry(

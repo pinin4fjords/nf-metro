@@ -1900,6 +1900,8 @@ def build_member_geometry_execution(
             ],
             ctx,
         )
+        if reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
         _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
         plans = tuple(
             _freeze_plan(
