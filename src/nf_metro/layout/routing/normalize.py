@@ -3112,6 +3112,22 @@ def _bundle_divergent_distinct_descents(
             lid: min(_fanout_descent_order_key(c) for c in cs)
             for lid, cs in by_line.items()
         }
+        source_y = {
+            lid: min(channel.route.points[0][1] for channel in line_channels)
+            for lid, line_channels in by_line.items()
+        }
+        if max(source_y.values()) - min(source_y.values()) > COORD_TOLERANCE and all(
+            not channel.route.edge.target.startswith("__merge_") for channel in chans
+        ):
+            # A direct destination branch keeps the source bundle's lane order
+            # through this turn. A merge arm has another topology-owned turn
+            # ahead, so its intermediate descent is ordered by peel depth.
+            opens_right = chans[0].route.points[1][0] > chans[0].route.points[0][0]
+            source_order_sign = -1 if opens_right == chans[0].down else 1
+            line_key = {
+                lid: (0, source_order_sign * coordinate)
+                for lid, coordinate in source_y.items()
+            }
         ordered = sorted(by_line, key=line_key.__getitem__)
         current_order = sorted(
             by_line,
