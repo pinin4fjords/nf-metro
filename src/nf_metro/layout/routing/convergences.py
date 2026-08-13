@@ -5202,6 +5202,44 @@ def _gap_channel_clearance_requirements(
         )
         if requirement is not None:
             requirements.append(requirement)
+
+    for plan in plans:
+        for channel in _plan_gap_channels(plan, graph, lookup):
+            for fixed in fixed_channels:
+                if (
+                    channel.gap != fixed.gap
+                    or channel.line_ids.isdisjoint(fixed.line_ids)
+                    or channel.down is fixed.down
+                    or not spans_share_corridor(
+                        channel.y_lo,
+                        channel.y_hi,
+                        fixed.y_lo,
+                        fixed.y_hi,
+                    )
+                ):
+                    continue
+                clearance = _landing_channel_clearance(channel, fixed)
+                if (
+                    clearance is None
+                    or abs(channel.coordinate - fixed.coordinate)
+                    >= clearance - COORD_TOLERANCE
+                ):
+                    continue
+                lower_col, row = channel.gap
+                left, right = column_gap_edges(graph, lower_col, lower_col + 1, row=row)
+                candidate = max(channel.coordinate, fixed.coordinate) + clearance
+                if candidate <= right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE:
+                    continue
+                requirement = _column_clearance_requirement(
+                    graph,
+                    lower_col,
+                    row,
+                    str(plan.system_id),
+                    f"convergence system {plan.system_id} opposing member clearance",
+                    required_width=candidate + EDGE_TO_BUNDLE_CLEARANCE - left,
+                )
+                if requirement is not None:
+                    requirements.append(requirement)
     return tuple(requirements)
 
 
@@ -5455,6 +5493,12 @@ def _validate_final_convergence_feasibility(
                     )
                     - COORD_TOLERANCE
                 ):
+                    if any(
+                        requirement.owner_id == str(plan.system_id)
+                        and requirement.boundary == channel.gap[0] + 1
+                        for requirement in clearance_requirements
+                    ):
+                        continue
                     joined = ", ".join(sorted(shared_lines))
                     raise FinalConvergenceFeasibilityError(
                         f"final convergence plan {plan.id} crowds an opposing "

@@ -241,6 +241,24 @@ def test_distinct_source_convergences_keep_opposing_same_line_channels(path) -> 
     )
 
 
+def test_seed_15_requests_column_space_for_opposing_member_channels() -> None:
+    """The settled seed delegates its crowded convergence lane to the grid."""
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+
+    requirements = observation.plan.boundary_clearance_requirements
+    assert len(requirements) == 1
+    requirement = requirements[0]
+    assert requirement.axis.value == "column"
+    assert requirement.boundary == 3
+    assert requirement.description.endswith("opposing member clearance")
+
+
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:
     path = ROOT / "examples" / "topologies" / "merge_around_below_leftmost.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))

@@ -201,6 +201,34 @@ def _assert_channels_equal_emission(observation, plan) -> None:
         )
 
 
+def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> None:
+    """A post-materialization climb retains its upward slot in the frozen plan."""
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+    )
+
+    assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
+        (2, 2, Direction.D),
+        (5, 2, Direction.U),
+    ]
+    assert [
+        (channel.gap_lo_col, channel.row, channel.direction)
+        for channel in plan.gap_channels
+    ] == [
+        (2, 2, Direction.D),
+        (5, 2, Direction.U),
+    ]
+
+
 def test_live_claim_index_exposes_only_eligible_prior_systems_in_order() -> None:
     failed = RouteSystemId("failed")
     survivor = RouteSystemId("survivor")

@@ -37,6 +37,8 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     column_gap_edges,
     convergence_owns_segment_boundary,
+    gap_lo_for_x,
+    iter_vertical_segments,
     segment_direction,
 )
 from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
@@ -786,9 +788,10 @@ def _freeze_plan(
     system_id = candidate.system_id
     resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
     member_id = scaffold.member_id_by_edge[resolved]
+    gap_slots = _frozen_gap_slots(route, ctx.graph)
     channels: list[RouteMemberGapChannel] = []
     channel_claims: set[tuple[int, int, int | None, Direction]] = set()
-    for slot in route.gap_slots:
+    for slot in gap_slots:
         channel = _locate_slot_channel(route, slot, ctx.graph)
         if channel is None:
             continue
@@ -823,7 +826,7 @@ def _freeze_plan(
         None if route.curve_radii is None else tuple(route.curve_radii),
         route.offset_regime,
         route.normalize_exempt,
-        tuple(route.gap_slots),
+        gap_slots,
         route.trunk_slot,
         tuple(channels),
         tuple(sorted(corner_offsets.items())),
@@ -841,6 +844,37 @@ def _freeze_plan(
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
         owns_complete_path=owns_complete_path,
     )
+
+
+def _frozen_gap_slots(route: RoutedPath, graph: MetroGraph) -> tuple[GapSlot, ...]:
+    """Bind each frozen slot to the leg its completed member route occupies."""
+    slots: list[GapSlot] = []
+    seen: set[tuple[int, int | None, Direction]] = set()
+    verticals = tuple(iter_vertical_segments(route))
+    for slot in route.gap_slots:
+        candidates = [
+            segment
+            for segment in verticals
+            if gap_lo_for_x(graph, segment[1], segment[2], segment[3])
+            == (slot.gap_lo_col, slot.row)
+        ]
+        if not candidates:
+            continue
+        _rank, _x, _y_lo, _y_hi, down = next(
+            (
+                segment
+                for segment in candidates
+                if (segment[4] and slot.direction is Direction.D)
+                or (not segment[4] and slot.direction is Direction.U)
+            ),
+            candidates[0],
+        )
+        frozen = replace(slot, direction=Direction.D if down else Direction.U)
+        key = (frozen.gap_lo_col, frozen.row, frozen.direction)
+        if key not in seen:
+            seen.add(key)
+            slots.append(frozen)
+    return tuple(slots)
 
 
 def _materialized_channels(
