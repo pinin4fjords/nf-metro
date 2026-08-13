@@ -1374,7 +1374,7 @@ def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:
 
 def _merge_fanout_pivot_spans(
     rp: RoutedPath, fanouts: set[str], merges: set[str]
-) -> Iterable[tuple[tuple[str, bool], _VChannel]]:
+) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
     """A merge-fanout branch's opening pivot, keyed by source and turn direction.
 
     Yields nothing for a route that is not a merge-fanout branch into a merge
@@ -1384,7 +1384,7 @@ def _merge_fanout_pivot_spans(
         return
     ch = _route_first_vertical(rp)
     if ch is not None:
-        yield (rp.edge.source, ch.down), ch
+        yield (rp.edge.source, rp.line_id, ch.down), ch
 
 
 def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
@@ -1410,7 +1410,7 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
     groups = _group_channels_by(
         routes, lambda rp: _merge_fanout_pivot_spans(rp, fanouts, merges)
     )
-    for (src, _down), chans in groups.items():
+    for (src, _line_id, _down), chans in groups.items():
         planned = [channel.x for channel in chans if _planner_owns_channel(channel)]
         if planned and max(planned) - min(planned) > COORD_TOLERANCE:
             continue

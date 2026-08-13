@@ -2500,7 +2500,7 @@ def check_merge_fanout_pivots_shared(
     if not fanouts:
         return []
     merges = set(convergence_junction_ids(graph, topology))
-    by_key: dict[tuple[str, bool], list[tuple[str, str, float]]] = defaultdict(list)
+    by_key: dict[tuple[str, str, bool], list[tuple[str, float]]] = defaultdict(list)
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fanouts:
             continue
@@ -2509,22 +2509,22 @@ def check_merge_fanout_pivots_shared(
         corner = _first_corner(apply_route_offsets(rp, offsets))
         if corner is not None:
             cx, down = corner
-            by_key[(rp.edge.source, down)].append((rp.edge.target, rp.line_id, cx))
+            by_key[(rp.edge.source, rp.line_id, down)].append((rp.edge.target, cx))
 
     violations: list[MergeFanoutPivotSplit] = []
-    for (src, _down), branches in by_key.items():
-        xs = [x for _tgt, _lid, x in branches]
+    for (src, line_id, _down), branches in by_key.items():
+        xs = [x for _target, x in branches]
         source_x = graph.stations[src].x if src in graph.stations else xs[0]
         ref = merge_fanout_pivot_reference(xs, source_x, COORD_TOLERANCE)
         if ref is None:
             continue
-        for tgt, lid, x in branches:
+        for target, x in branches:
             if abs(x - ref) > COORD_TOLERANCE:
                 violations.append(
                     MergeFanoutPivotSplit(
                         source=src,
-                        line_id=lid,
-                        target=tgt,
+                        line_id=line_id,
+                        target=target,
                         pivot_x=x,
                         reference_x=ref,
                     )
