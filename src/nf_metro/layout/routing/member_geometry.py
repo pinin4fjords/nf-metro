@@ -449,6 +449,7 @@ def _settled_exit_turns(
     """Read deferred source turns from the jointly seated route population."""
     if ctx.exit_turns is None or not pending_plan_ids:
         return MappingProxyType({})
+    routes = tuple(routes)
     candidates: list[_SettledTurnCandidate] = []
 
     for route in routes:
@@ -584,6 +585,39 @@ def _settled_exit_turns(
                 rank, candidate.corner_offsets
             ),
             candidate.validate_corner_radii,
+        )
+    reseated = _dogleg_off_exempt_trunks(
+        list(routes),
+        ctx,
+        movable_owned_route_ids=frozenset(id(route) for route in routes),
+        reconcile_owned_corridor=True,
+    )
+    for route in routes:
+        edge_key = (route.edge.source, route.edge.target, route.line_id)
+        if edge_key not in reseated:
+            continue
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if membership is None or membership.assignment is None:
+            continue
+        allocated = _allocated_turn(
+            route,
+            membership.assignment.run_direction,
+            membership.assignment.turn_direction,
+        )
+        if allocated is None:
+            continue
+        run_direction, turn_direction, rank = allocated
+        axis = direction_axis(run_direction).point_index
+        launch = route.points[rank - 1][axis]
+        coordinate = route.points[rank][axis]
+        settled[edge_key] = SettledExitTurn(
+            run_direction,
+            turn_direction,
+            launch,
+            abs(coordinate - launch),
+            coordinate,
+            route.concentric_corner_offsets_by_segment.get(rank, (None, None)),
+            EmissionRole.TERMINAL in membership.assignment.roles,
         )
     return MappingProxyType(settled)
 

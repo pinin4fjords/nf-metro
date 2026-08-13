@@ -34,6 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 FIXTURE_TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
+FROZEN_FUZZ = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 
 def _gather_fixtures() -> list[Path]:
@@ -124,3 +125,27 @@ def test_checker_passes_parallel_dogleg() -> None:
     """The checker stays silent when the trunk clears to the parallel side."""
     violations = check_no_dogleg_crosses_exempt_trunk(None, _routes(_BYP_ABOVE), {})
     assert not violations, "parallel bundle above the exempt run must not flag"
+
+
+def test_seed_72_strict_layout_unweaves_the_exempt_dogleg() -> None:
+    """Nested source doglegs retain both their lane spacing and clearance."""
+    graph = parse_metro_mermaid((FROZEN_FUZZ / "seed_72.mmd").read_text())
+    compute_layout(graph, validate=True)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    l6 = next(
+        route
+        for route in routes
+        if route.line_id == "l6"
+        and route.edge.source == "__junction_14"
+        and route.edge.target == "s4__entry_left_9"
+    )
+    l0 = next(
+        route
+        for route in routes
+        if route.line_id == "l0"
+        and route.edge.source == "__junction_14"
+        and route.edge.target == "s7__entry_right_10"
+    )
+    assert l6.points[1][0] > l0.points[1][0]
+    assert not check_no_dogleg_crosses_exempt_trunk(graph, routes, offsets)

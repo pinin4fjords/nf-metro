@@ -3850,7 +3850,8 @@ def _dogleg_off_exempt_trunks(
     skip: set[int] | None = None,
     *,
     movable_owned_route_ids: frozenset[int] = frozenset(),
-) -> None:
+    reconcile_owned_corridor: bool = False,
+) -> set[tuple[str, str, str]]:
     """Offset a non-exempt trunk drawn collinear with an exempt run.
 
     ``normalize_exempt`` horizontal runs are placed by their own handler and
@@ -3880,8 +3881,9 @@ def _dogleg_off_exempt_trunks(
         if t.route.normalize_exempt and id(t.route) not in skip
     ]
     if not obstacles:
-        return
+        return set()
     clearance = EDGE_TO_BUNDLE_CLEARANCE
+    changed: set[tuple[str, str, str]] = set()
     for t in _collect_htrunks(routes):
         owned = route_system_owns_segment_boundary(t.route, t.idx)
         if id(t.route) in skip or (
@@ -3954,8 +3956,12 @@ def _dogleg_off_exempt_trunks(
                 o
                 for o in obstacles
                 if o.route.line_id != t.route.line_id
-                and abs(o.y - t.y)
-                < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
+                and (
+                    abs(o.y - t.y)
+                    < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
+                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
+                    is not None
+                )
                 and t.x_lo < o.x_hi - COORD_TOLERANCE
                 and o.x_lo < t.x_hi - COORD_TOLERANCE
                 and (
@@ -3985,6 +3991,10 @@ def _dogleg_off_exempt_trunks(
         obstacle = _htrunk_seg(hit, hit.y)
         cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
         cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
+        if cross_below is not None and cross_above is not None:
+            if reconcile_owned_corridor:
+                changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+            continue
         prefer_below = t.y >= hit.y
         if below_ok and above_ok and (cross_below is None) != (cross_above is None):
             use_below = cross_below is None
@@ -3993,9 +4003,161 @@ def _dogleg_off_exempt_trunks(
         elif above_ok:
             use_below = False
         else:
+            if reconcile_owned_corridor:
+                changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
             continue
         target = below if use_below else above
         _restack_htrunk(t, target, 0, 1, step, ctx.curve_radius)
+    return changed
+
+
+def _unweave_exempt_trunk_riser(
+    trunk: _HTrunk,
+    obstacle: _HTrunk,
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Move a nested dogleg riser past its exempt counterpart."""
+    route = trunk.route
+    points = route.points
+    clearance = _exempt_trunk_separation(trunk, obstacle, ctx.curve_radius)
+    obstacle_segment = _htrunk_seg(obstacle, obstacle.y)
+    for rank in (trunk.idx, trunk.idx + 1):
+        before, corner, after = points[rank - 1 : rank + 2]
+        if (
+            abs(before[0] - corner[0]) > COORD_TOLERANCE
+            or abs(corner[1] - after[1]) > COORD_TOLERANCE
+        ):
+            continue
+        gap = gap_lo_for_x(
+            ctx.graph, corner[0], min(before[1], corner[1]), max(before[1], corner[1])
+        )
+        if gap is None:
+            continue
+        for obstacle_x in (obstacle_segment.xa, obstacle_segment.xb):
+            for candidate in (obstacle_x + clearance, obstacle_x - clearance):
+                if (
+                    abs(candidate - before[0]) < ctx.curve_radius - COORD_TOLERANCE
+                    or abs(candidate - after[0]) < ctx.curve_radius - COORD_TOLERANCE
+                    or gap_lo_for_x(
+                        ctx.graph,
+                        candidate,
+                        min(before[1], corner[1]),
+                        max(before[1], corner[1]),
+                    )
+                    != gap
+                ):
+                    continue
+                candidate_trunk = _htrunk_seg(trunk, trunk.y)
+                candidate_trunk = (
+                    HTrunkSeg(
+                        candidate_trunk.y,
+                        candidate,
+                        candidate_trunk.xb,
+                        candidate_trunk.before_y,
+                        candidate_trunk.after_y,
+                    )
+                    if rank == trunk.idx
+                    else HTrunkSeg(
+                        candidate_trunk.y,
+                        candidate_trunk.xa,
+                        candidate,
+                        candidate_trunk.before_y,
+                        candidate_trunk.after_y,
+                    )
+                )
+                channel = _VChannel(
+                    route,
+                    rank - 1,
+                    corner[0],
+                    min(before[1], corner[1]),
+                    max(before[1], corner[1]),
+                    corner[1] > before[1],
+                )
+                if trunk_segments_cross(
+                    candidate_trunk, obstacle_segment
+                ) is not None or _vchannel_move_crosses_foreign_section(
+                    channel, candidate, ctx.graph
+                ):
+                    continue
+                _set_vchannel_x(channel, candidate)
+                return _seat_unwoven_endpoint_fan(
+                    channel,
+                    routes,
+                    gap,
+                    route.edge.source if rank == trunk.idx else route.edge.target,
+                    ctx,
+                )
+    return set()
+
+
+def _seat_unwoven_endpoint_fan(
+    channel: _VChannel,
+    routes: list[RoutedPath],
+    gap: tuple[int, int | None],
+    endpoint_id: str,
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Reseat an endpoint's co-travelling risers inside their shared band."""
+    channels = [
+        _VChannel(route, idx, x, y_lo, y_hi, down)
+        for route in routes
+        if endpoint_id in (route.edge.source, route.edge.target)
+        for idx, x, y_lo, y_hi, down in iter_vertical_segments(route)
+        if gap_lo_for_x(ctx.graph, x, y_lo, y_hi) == gap
+    ]
+    anchor = next(
+        item
+        for item in channels
+        if item.route is channel.route and item.idx == channel.idx
+    )
+    group = [anchor]
+    remaining = [item for item in channels if item is not anchor]
+    while joined := [
+        item
+        for item in remaining
+        if any(
+            abs(item.x - peer.x) <= _co_travel_reach(ctx.offset_step)
+            and spans_share_corridor(item.y_lo, item.y_hi, peer.y_lo, peer.y_hi)
+            for peer in group
+        )
+    ]:
+        group.extend(joined)
+        remaining = [item for item in remaining if item not in joined]
+    section_ids = tuple(
+        sorted(
+            {
+                section_id
+                for item in group
+                for section_id in _route_endpoint_section_ids(ctx.graph, item.route)
+            }
+        )
+    )
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=0,
+        section_ids=section_ids,
+        coordinate=anchor.x,
+        run_start=min(item.y_lo for item in group),
+        run_end=max(item.y_hi for item in group),
+    )
+    if band is None:
+        return set()
+    shift = min(
+        max(0.0, band.lo - min(item.x for item in group)),
+        band.hi - max(item.x for item in group),
+    )
+    if abs(shift) <= COORD_TOLERANCE or any(
+        _vchannel_move_crosses_foreign_section(item, item.x + shift, ctx.graph)
+        for item in group
+    ):
+        return set()
+    for item in group:
+        _set_vchannel_x(item, item.x + shift)
+    return {
+        (item.route.edge.source, item.route.edge.target, item.route.line_id)
+        for item in group
+    }
 
 
 def _run_enters_section(

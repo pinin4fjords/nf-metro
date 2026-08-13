@@ -72,7 +72,6 @@ def _allocation_eligible_system_ids(
 def _with_settled_exit_turns(
     execution: MemberGeometryExecution,
     allocation: MemberGeometryExecution,
-    pending_member_ids: frozenset[EmissionMemberId],
     ctx: _RoutingCtx,
 ) -> MemberGeometryExecution:
     """Apply each allocated source axis to the fully normalized member path."""
@@ -80,13 +79,33 @@ def _with_settled_exit_turns(
     from nf_metro.layout.routing.exit_turns import planned_exit_turn_corner_offsets
     from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 
+    allocated_by_edge = {plan.edge: plan for plan in allocation.plans}
     plans = []
     for plan in execution.plans:
         settled = ctx.settled_exit_turns.get(
             (plan.edge.source, plan.edge.target, plan.edge.line_id)
         )
         rank = plan.exit_turn_segment_rank
-        if plan.member_id not in pending_member_ids or settled is None or rank is None:
+        allocated = allocated_by_edge.get(plan.edge)
+        if settled is not None and allocated is not None:
+            plans.append(
+                replace(
+                    plan,
+                    points=allocated.points,
+                    curve_radii=allocated.curve_radii,
+                    gap_slots=allocated.gap_slots,
+                    trunk_slot=allocated.trunk_slot,
+                    gap_channels=allocated.gap_channels,
+                    concentric_corner_offsets_by_segment=(
+                        allocated.concentric_corner_offsets_by_segment
+                    ),
+                    concentric_corner_bases_by_segment=(
+                        allocated.concentric_corner_bases_by_segment
+                    ),
+                )
+            )
+            continue
+        if settled is None or rank is None:
             plans.append(plan)
             continue
         if plan.curve_radii is None or ctx.exit_turns is None:
@@ -317,16 +336,9 @@ def prepare_route_system_planning(
                 pending_plan_ids,
             )
         )
-        pending_member_ids = frozenset(
-            member_id
-            for plan in provisional_exit_turns.plans
-            if plan.id in pending_plan_ids
-            for member_id in plan.member_ids
-        )
         member_geometry = _with_settled_exit_turns(
             member_geometry,
             allocation_geometry,
-            pending_member_ids,
             ctx,
         )
     elif ctx.prior_exit_turn_dispositions is not None:
