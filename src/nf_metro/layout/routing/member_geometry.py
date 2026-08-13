@@ -1900,6 +1900,7 @@ def build_member_geometry_execution(
             ],
             ctx,
         )
+        _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
         plans = tuple(
             _freeze_plan(
                 scaffold,
