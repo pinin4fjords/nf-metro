@@ -524,6 +524,12 @@ def _claim_views(
         final_start, final_end = record.points[-2:]
         if start[0] != end[0] or final_start[1] != final_end[1]:
             return lo, hi
+        if (
+            lo <= start[0] <= hi
+            or start[0] < lo - COORD_TOLERANCE
+            or start[0] > hi + COORD_TOLERANCE
+        ):
+            return lo, hi
         try:
             one_claim = replace(
                 reservation,
@@ -548,7 +554,7 @@ def _claim_views(
             return lo, hi
         return (
             min(lo, realised.region_start + realised.negative_side_clearance),
-            max(hi, realised.region_end - realised.positive_side_clearance),
+            max(hi, start[0]),
         )
 
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}

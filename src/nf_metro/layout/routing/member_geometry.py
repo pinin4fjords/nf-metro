@@ -1504,7 +1504,7 @@ def _seat_claimed_segments_before_freeze(
 ) -> None:
     """Seat reservation-owned interior runs before their member plan freezes."""
     grouped: defaultdict[
-        tuple[RouteSystemId, str, int, int],
+        tuple[RouteSystemId, int, int],
         list[tuple[RoutedPath, int, float, ReservedBand]],
     ] = defaultdict(list)
     for candidate in candidates:
@@ -1521,11 +1521,11 @@ def _seat_claimed_segments_before_freeze(
             if band is None:
                 continue
             if abs(start[1] - end[1]) <= COORD_TOLERANCE:
-                grouped[(candidate.system_id, candidate.carrier_id, rank, 1)].append(
+                grouped[(candidate.system_id, rank, 1)].append(
                     (route, rank, start[1], band)
                 )
             elif abs(start[0] - end[0]) <= COORD_TOLERANCE:
-                grouped[(candidate.system_id, candidate.carrier_id, rank, 0)].append(
+                grouped[(candidate.system_id, rank, 0)].append(
                     (route, rank, start[0], band)
                 )
 
@@ -1903,6 +1903,8 @@ def build_member_geometry_execution(
         if reservation_ids_by_member is not None:
             _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
         _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
+        if reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
         plans = tuple(
             _freeze_plan(
                 scaffold,

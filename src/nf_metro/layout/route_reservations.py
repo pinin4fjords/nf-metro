@@ -2204,7 +2204,7 @@ def _plan_owned_clearances(
     negative: float,
     positive: float,
     orientation: CorridorOrientation,
-    claims: Iterable[tuple[EmissionMemberId, RouteFamilyId | None, float]],
+    claims: Iterable[tuple[EmissionMemberId, RouteFamilyId | None, float, int]],
     plan: RoutePlan,
 ) -> tuple[float, float]:
     materialized = tuple(claims)
@@ -2225,9 +2225,14 @@ def _plan_owned_clearances(
         if axis.axis is allocation_axis
         for member_id in axis.claimant_member_ids
     }
+    exit_turn_segment_ranks = {
+        member_geometry.member_id: member_geometry.exit_turn_segment_rank
+        for member_geometry in plan.member_geometry_plans
+        if member_geometry.exit_turn_segment_rank is not None
+    }
     owned_coordinates = tuple(
         coordinate
-        for member_id, family_id, coordinate in materialized
+        for member_id, family_id, coordinate, segment_rank in materialized
         if (
             member_id in convergence_member_ids
             and family_id
@@ -2238,14 +2243,20 @@ def _plan_owned_clearances(
         )
         or any(
             member_id == axis_member_id
-            and abs(coordinate - axis_coordinate) <= COORD_TOLERANCE
+            and (
+                exit_turn_segment_ranks.get(member_id) == segment_rank
+                or (
+                    member_id not in exit_turn_segment_ranks
+                    and abs(coordinate - axis_coordinate) <= COORD_TOLERANCE
+                )
+            )
             for axis_member_id, axis_coordinate in exit_axis_coordinates
         )
     )
     if not owned_coordinates:
         return negative, positive
     coordinates = tuple(
-        coordinate for _member_id, _family_id, coordinate in materialized
+        coordinate for _member_id, _family_id, coordinate, _segment_rank in materialized
     )
     if min(owned_coordinates) <= min(coordinates) + COORD_TOLERANCE:
         negative = min(negative, CURVE_RADIUS)
@@ -2323,7 +2334,12 @@ def _build_symbolic_records(
             positive,
             first.orientation,
             (
-                (item.member.id, item.member.family_id, item.coordinate)
+                (
+                    item.member.id,
+                    item.member.family_id,
+                    item.coordinate,
+                    item.claim.segment_rank,
+                )
                 for item in group
             ),
             plan,
@@ -2829,9 +2845,27 @@ def drawn_corridor_containment(
         for claim in claims
         for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
     )
+    band_start = realised.region_start + realised.negative_side_clearance
+    band_end = realised.region_end - realised.positive_side_clearance
+    if isinstance(reservation.region, ColumnGapRegion):
+        for claim in claims:
+            polyline = route_polylines[claim.path_rank]
+            if claim.segment_end_rank != len(polyline) - 3:
+                continue
+            segment_start, segment_end = polyline[
+                claim.segment_end_rank : claim.segment_end_rank + 2
+            ]
+            final_start, final_end = polyline[-2:]
+            if segment_start[0] != segment_end[0] or final_start[1] != final_end[1]:
+                continue
+            coordinate = segment_start[0]
+            if band_start - COORD_TOLERANCE <= coordinate < band_start:
+                band_start = coordinate
+            elif band_end < coordinate <= band_end + COORD_TOLERANCE:
+                band_end = coordinate
     return DrawnCorridorContainment(
-        realised.region_start + realised.negative_side_clearance,
-        realised.region_end - realised.positive_side_clearance,
+        band_start,
+        band_end,
         min(drawn),
         max(drawn),
     )
@@ -3011,6 +3045,7 @@ def _validate_reservation_record(
                 claim.member_id,
                 members[claim.member_id].family_id,
                 claim.allocation_coordinate,
+                claim.segment_rank,
             )
             for claim in reservation.claims
         ),
