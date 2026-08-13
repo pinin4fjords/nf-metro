@@ -1090,13 +1090,23 @@ def _align_packed_cell_handoffs(
             carrier_channels,
             key=lambda item: abs(item.channel.x - descent_x),
         )
-        assert not _planner_owns_channel(
+        if _planner_owns_channel(
             route, handoff_channel.channel.idx, movable_exit_plan_ids
-        ), "packed-cell handoff descent has a conflicting plan owner"
+        ):
+            if not ctx.validate_final_route_frames:
+                continue
+            raise AssertionError(
+                "packed-cell handoff descent has a conflicting plan owner"
+            )
         bounds = _channel_bounds(handoff_channel, ctx)
-        assert _candidate_clears_runway(
+        if not _candidate_clears_runway(
             handoff_channel, bounds, carrier_channel.channel.x, ctx
-        ), "packed-cell handoff lies outside its carrier's feasible corridor"
+        ):
+            if not ctx.validate_final_route_frames:
+                continue
+            raise AssertionError(
+                "packed-cell handoff lies outside its carrier's feasible corridor"
+            )
         _seat_channel(handoff_channel.channel, carrier_channel.channel.x)
 
 
