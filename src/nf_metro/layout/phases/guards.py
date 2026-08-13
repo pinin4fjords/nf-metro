@@ -6167,7 +6167,7 @@ def _ensure_pass_c_inputs(
                     allow_convergence_clearance_requirements=True,
                 )
                 routes = (
-                    None
+                    route_edges_for_placement_guards(graph, offsets)
                     if observation.plan.boundary_clearance_requirements
                     else observation.routes
                 )
