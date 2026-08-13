@@ -54,7 +54,6 @@ KNOWN_NOT_RENDERING = frozenset(
     {
         "tests/fixtures/hash_seed_determinism/seed_15.mmd",
         "tests/fixtures/hash_seed_determinism/seed_41.mmd",
-        "tests/fixtures/hash_seed_determinism/seed_77.mmd",
         "tests/fixtures/invalid/backward_feed_rl.mmd",
         "tests/fixtures/invalid/merge_trunk_rightward_source.mmd",
         "tests/fixtures/invalid/mixed_entry_opposing.mmd",

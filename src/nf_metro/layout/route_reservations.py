@@ -2200,6 +2200,60 @@ def _shared_launch_anchors(
     return tuple(sorted(shared, key=lambda item: (item.station_id, item.runway)))
 
 
+def _plan_owned_clearances(
+    negative: float,
+    positive: float,
+    orientation: CorridorOrientation,
+    claims: Iterable[tuple[EmissionMemberId, RouteFamilyId | None, float]],
+    plan: RoutePlan,
+) -> tuple[float, float]:
+    materialized = tuple(claims)
+    convergence_member_ids = {
+        member_id
+        for convergence in plan.convergence_plans
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for member_id in convergence.member_ids
+    }
+    allocation_axis = (
+        DemandAxis.X if orientation is CorridorOrientation.VERTICAL else DemandAxis.Y
+    )
+    exit_axis_coordinates = {
+        (member_id, axis.coordinate)
+        for exit_turn in plan.exit_turn_plans
+        if exit_turn.disposition is ExitTurnDisposition.PLANNED
+        for axis in exit_turn.axes
+        if axis.axis is allocation_axis
+        for member_id in axis.claimant_member_ids
+    }
+    owned_coordinates = tuple(
+        coordinate
+        for member_id, family_id, coordinate in materialized
+        if (
+            member_id in convergence_member_ids
+            and family_id
+            in {
+                RouteFamilyId.NEAR_VERTICAL_JUNCTION,
+                RouteFamilyId.SAME_X_VERTICAL_DROP,
+            }
+        )
+        or any(
+            member_id == axis_member_id
+            and abs(coordinate - axis_coordinate) <= COORD_TOLERANCE
+            for axis_member_id, axis_coordinate in exit_axis_coordinates
+        )
+    )
+    if not owned_coordinates:
+        return negative, positive
+    coordinates = tuple(
+        coordinate for _member_id, _family_id, coordinate in materialized
+    )
+    if min(owned_coordinates) <= min(coordinates) + COORD_TOLERANCE:
+        negative = min(negative, CURVE_RADIUS)
+    if max(owned_coordinates) >= max(coordinates) - COORD_TOLERANCE:
+        positive = min(positive, CURVE_RADIUS)
+    return negative, positive
+
+
 def _build_symbolic_records(
     graph: MetroGraph,
     plan: RoutePlan,
@@ -2264,6 +2318,16 @@ def _build_symbolic_records(
         demand_id = DemandId(_stable_id("corridor-demand", reservation_id))
         lane_count = len(lanes)
         negative, positive, keepouts = _clearances(first.orientation, first.region)
+        negative, positive = _plan_owned_clearances(
+            negative,
+            positive,
+            first.orientation,
+            (
+                (item.member.id, item.member.family_id, item.coordinate)
+                for item in group
+            ),
+            plan,
+        )
         peer_width = max(0.0, peer_widths.get(group_index, 0.0) - bundle_width)
         families = tuple(
             family
@@ -2937,6 +3001,20 @@ def _validate_reservation_record(
 
     expected_negative, expected_positive, expected_keepouts = _clearances(
         reservation.orientation, reservation.region
+    )
+    expected_negative, expected_positive = _plan_owned_clearances(
+        expected_negative,
+        expected_positive,
+        reservation.orientation,
+        (
+            (
+                claim.member_id,
+                members[claim.member_id].family_id,
+                claim.allocation_coordinate,
+            )
+            for claim in reservation.claims
+        ),
+        plan,
     )
     if isinstance(reservation.region, CanvasRegion):
         # The margin against the canvas edge is the one policy term that tracks
