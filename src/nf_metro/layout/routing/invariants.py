@@ -3743,6 +3743,24 @@ def _resolved_corner_radii(
     return resolve_curve_radii(pts, rp.curve_radii)
 
 
+class _CornerCohortKey(NamedTuple):
+    kind: Literal["edge", "source", "target", "exit-plan"]
+    owner: str
+    target: str | None
+    order: int | None
+    reverse_order: int | None
+    incoming: tuple[float, float]
+    outgoing: tuple[float, float]
+
+
+class _CornerObservation(NamedTuple):
+    route: RoutedPath
+    points: list[tuple[float, float]]
+    rank: int
+    incoming: tuple[float, float]
+    outgoing: tuple[float, float]
+
+
 def check_concentric_bundle_corners(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -3755,84 +3773,148 @@ def check_concentric_bundle_corners(
     radius traceable to an approved helper can nest non-concentrically when the
     caller hand-picks the wrong sign.
 
-    Routes are grouped by ``(edge.source, edge.target)``.  For each bundled
-    pair sharing a waypoint count, every interior corner is classified from the
-    *final* offset-applied geometry: a corner is **wholesale-translated** (must
-    be concentric) when the two flanking legs are each offset from the mate by
-    the same perpendicular distance, and a **transition** corner (skipped) when
-    one leg is pinned.  At a wholesale corner the two arc centres
+    Corresponding corners are grouped by semantic edge position, shared source
+    or target ownership, and explicit exit-turn plans.  Waypoint indices are
+    local to each route and need not match.  Every corner is classified from
+    the *final* offset-applied geometry: a corner is **wholesale-translated**
+    (must be concentric) when the two flanking legs are each offset from the
+    mate by the same perpendicular distance, and a **transition** corner
+    (skipped) when one leg is pinned.  At a wholesale corner the two arc centres
     (``corner + radius * (turn_out - turn_in)``, using the segment-clamped
     radius) must coincide within tolerance; a larger spread is a visible pinch.
     """
-    bundles: dict[tuple[str, str], list[RoutedPath]] = defaultdict(list)
-    for r in routes:
-        bundles[(r.edge.source, r.edge.target)].append(r)
-
-    violations: list[NonConcentricCornerViolation] = []
-    for (src_id, tgt_id), bundle in bundles.items():
-        if len(bundle) < 2:
-            continue
-        rendered = [(r, apply_route_offsets(r, offsets)) for r in bundle]
-        radii = {id(r): _resolved_corner_radii(r, pts) for r, pts in rendered}
-        for ai in range(len(rendered)):
-            ra, pa = rendered[ai]
-            for bi in range(ai + 1, len(rendered)):
-                rb, pb = rendered[bi]
-                if len(pa) != len(pb) or len(pa) < 3:
-                    continue
-                v = _pair_corner_violation(
-                    src_id, tgt_id, ra, pa, radii[id(ra)], rb, pb, radii[id(rb)]
-                )
-                if v is not None:
-                    violations.append(v)
-    source_turns: dict[
-        tuple[str, str, tuple[float, float], tuple[float, float]],
-        list[tuple[RoutedPath, list[tuple[float, float]], list[float], int]],
-    ] = defaultdict(list)
+    corner_cohorts: dict[_CornerCohortKey, list[_CornerObservation]] = defaultdict(list)
     for route in routes:
-        rank = route.exit_turn_segment_rank
-        if route.exit_turn_plan_id is None or rank is None:
-            continue
         points = apply_route_offsets(route, offsets)
-        if not 0 < rank < len(points) - 1:
-            continue
-        incoming = _segment_unit(points[rank - 1], points[rank])
-        outgoing = _segment_unit(points[rank], points[rank + 1])
-        if incoming is None or outgoing is None:
-            continue
-        source_turns[
-            (route.exit_turn_plan_id, route.edge.source, incoming, outgoing)
-        ].append((route, points, _resolved_corner_radii(route, points), rank))
-    for (_plan_id, source_id, incoming, outgoing), cohort in source_turns.items():
-        for ai in range(len(cohort)):
-            route_a, points_a, radii_a, rank_a = cohort[ai]
-            for bi in range(ai + 1, len(cohort)):
-                route_b, points_b, radii_b, rank_b = cohort[bi]
-                if rank_a - 1 >= len(radii_a) or rank_b - 1 >= len(radii_b):
-                    continue
-                translated = _translated_corner(
-                    points_a[rank_a],
-                    radii_a[rank_a - 1],
-                    points_b[rank_b],
-                    radii_b[rank_b - 1],
+        corners: list[tuple[int, tuple[float, float], tuple[float, float]]] = []
+        for rank in range(1, len(points) - 1):
+            if not is_orthogonal_turn(points[rank - 1], points[rank], points[rank + 1]):
+                continue
+            incoming = _segment_unit(points[rank - 1], points[rank])
+            outgoing = _segment_unit(points[rank], points[rank + 1])
+            assert incoming is not None and outgoing is not None
+            corners.append((rank, incoming, outgoing))
+        for order, (rank, incoming, outgoing) in enumerate(corners):
+            observation = _CornerObservation(route, points, rank, incoming, outgoing)
+            reverse_order = len(corners) - order - 1
+            corner_cohorts[
+                _CornerCohortKey(
+                    "edge",
+                    route.edge.source,
+                    route.edge.target,
+                    order,
+                    reverse_order,
                     incoming,
                     outgoing,
                 )
-                if (
-                    translated is not None
-                    and translated[2] > _CONCENTRIC_CENTRE_TOLERANCE
-                ):
-                    violations.append(
-                        NonConcentricCornerViolation(
-                            edge_source=source_id,
-                            edge_target="source seam",
-                            line_a=route_a.line_id,
-                            line_b=route_b.line_id,
-                            corner_index=rank_a,
-                            corner_xy=points_a[rank_a],
-                            centre_spread=translated[2],
-                        )
+            ].append(observation)
+            if order == 0:
+                corner_cohorts[
+                    _CornerCohortKey(
+                        "source",
+                        route.edge.source,
+                        None,
+                        None,
+                        None,
+                        incoming,
+                        outgoing,
                     )
+                ].append(observation)
+            if reverse_order == 0:
+                corner_cohorts[
+                    _CornerCohortKey(
+                        "target",
+                        route.edge.target,
+                        None,
+                        None,
+                        None,
+                        incoming,
+                        outgoing,
+                    )
+                ].append(observation)
+            if (
+                route.exit_turn_plan_id is not None
+                and route.exit_turn_segment_rank == rank
+            ):
+                corner_cohorts[
+                    _CornerCohortKey(
+                        "exit-plan",
+                        route.exit_turn_plan_id,
+                        route.edge.source,
+                        None,
+                        None,
+                        incoming,
+                        outgoing,
+                    )
+                ].append(observation)
+
+    candidate_pairs: dict[
+        tuple[tuple[int, int], tuple[int, int]],
+        tuple[_CornerObservation, _CornerObservation],
+    ] = {}
+    stable_routes = sorted(
+        routes,
+        key=lambda route: (
+            route.edge.source,
+            route.edge.target,
+            route.line_id,
+            route.route_system_id or "",
+            route.emission_member_id or "",
+            tuple(route.points),
+        ),
+    )
+    route_order = {id(route): index for index, route in enumerate(stable_routes)}
+    for cohort in corner_cohorts.values():
+        for ai, observation_a in enumerate(cohort):
+            for observation_b in cohort[ai + 1 :]:
+                key_a = (route_order[id(observation_a.route)], observation_a.rank)
+                key_b = (route_order[id(observation_b.route)], observation_b.rank)
+                if key_a <= key_b:
+                    candidate_pairs[key_a, key_b] = observation_a, observation_b
+                else:
+                    candidate_pairs[key_b, key_a] = observation_b, observation_a
+
+    violations: list[NonConcentricCornerViolation] = []
+    radii_by_route: dict[int, list[float]] = {}
+    for observation_a, observation_b in candidate_pairs.values():
+        route_a, points_a, rank_a, incoming, outgoing = observation_a
+        route_b, points_b, rank_b, _incoming_b, _outgoing_b = observation_b
+        radii_a = radii_by_route.get(id(route_a))
+        if radii_a is None:
+            radii_a = _resolved_corner_radii(route_a, points_a)
+            radii_by_route[id(route_a)] = radii_a
+        radii_b = radii_by_route.get(id(route_b))
+        if radii_b is None:
+            radii_b = _resolved_corner_radii(route_b, points_b)
+            radii_by_route[id(route_b)] = radii_b
+        translated = _translated_corner(
+            points_a[rank_a],
+            radii_a[rank_a - 1],
+            points_b[rank_b],
+            radii_b[rank_b - 1],
+            incoming,
+            outgoing,
+        )
+        if translated is not None and translated[2] > _CONCENTRIC_CENTRE_TOLERANCE:
+            violations.append(
+                NonConcentricCornerViolation(
+                    edge_source=(
+                        route_a.edge.source
+                        if route_a.edge.source == route_b.edge.source
+                        else "target seam"
+                    ),
+                    edge_target=(
+                        route_a.edge.target
+                        if route_a.edge.target == route_b.edge.target
+                        else "source seam"
+                    ),
+                    line_a=route_a.line_id,
+                    line_b=route_b.line_id,
+                    corner_index=rank_a,
+                    corner_xy=points_a[rank_a],
+                    centre_spread=translated[2],
+                )
+            )
     return violations
 
 
@@ -3947,18 +4029,10 @@ def _translated_corner(
     outgoing: tuple[float, float],
 ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
     """Resolve corresponding arc centres when both flanking legs translate."""
-    delta_x = point_b[0] - point_a[0]
-    delta_y = point_b[1] - point_a[1]
-    tangent_shift = abs(
-        delta_x * (incoming[0] + outgoing[0]) + delta_y * (incoming[1] + outgoing[1])
-    )
-    if tangent_shift > _WHOLESALE_LEG_TOLERANCE:
-        return None
-    incoming_leg_offset = abs(delta_x * outgoing[0] + delta_y * outgoing[1])
-    outgoing_leg_offset = abs(delta_x * incoming[0] + delta_y * incoming[1])
-    if (
-        max(incoming_leg_offset, outgoing_leg_offset) <= _WHOLESALE_LEG_TOLERANCE
-        or abs(incoming_leg_offset - outgoing_leg_offset) > _WHOLESALE_LEG_TOLERANCE
+    from nf_metro.layout.routing.corners import wholesale_corner_translation
+
+    if not wholesale_corner_translation(
+        point_a, point_b, incoming, outgoing, _WHOLESALE_LEG_TOLERANCE
     ):
         return None
     centre_a = _arc_centre(point_a, radius_a, incoming, outgoing)
