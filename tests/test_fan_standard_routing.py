@@ -119,6 +119,15 @@ def test_stacked_right_entry_fan_continues_the_incoming_lanes() -> None:
     assert check_fan_opening_geometry(graph, routes, offsets)
 
 
+def test_l_shape_fan_keeps_an_already_separated_source_lane() -> None:
+    graph, routes, _offsets = _layout("fanout_bundle_plus_spurs")
+    junction_id = next(iter(graph.junction_ids))
+    incoming, outgoing = _junction_routes(routes, junction_id)
+
+    assert outgoing["b"].points[0][1] == pytest.approx(incoming["b"].points[-1][1])
+    assert outgoing["b"].points[1][1] == pytest.approx(incoming["b"].points[-1][1])
+
+
 def test_stacked_right_multiline_branch_keeps_lane_order_through_landing() -> None:
     graph, routes, offsets = _layout("bottom_exit_stacked_right_entry_multiline_branch")
     upper = {

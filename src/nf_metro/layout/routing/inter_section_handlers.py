@@ -4218,6 +4218,12 @@ def _anchor_l_shape_fan_source_lane(
         if assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
         and assignment.source_lane_rank != membership.assignment.source_lane_rank
     )
+    straight_ys = tuple(src.y + offset for offset in straight_offsets)
+    if not any(
+        abs(route.points[0][1] - straight_y) <= COORD_TOLERANCE
+        for straight_y in straight_ys
+    ):
+        return
     shift = (
         -ctx.offset_step if source_offset < min(straight_offsets) else ctx.offset_step
     )
