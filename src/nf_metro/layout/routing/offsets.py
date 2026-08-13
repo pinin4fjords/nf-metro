@@ -227,7 +227,7 @@ def _stores_reflected(ctx: _OffsetCtx, sec_id: str | None) -> bool:
     its bundle draws on the far side of the trunk for the reversed flow.  A
     vertical-flow (TB) section instead stores its arrival order positively and
     draws the rotation ``x - offset``
-    (:func:`context._tb_x_offset`); there the side is
+    (:func:`context._perpendicular_port_lane_offset`); there the side is
     carried by the draw sign, not by reflecting the stored slot, so the
     marker span and the drawn lines agree by construction.
 
@@ -236,7 +236,8 @@ def _stores_reflected(ctx: _OffsetCtx, sec_id: str | None) -> bool:
     order.  The seam-classifier arrival-order path (:func:`_reorder_reconvergence`)
     transposes order alone, so it cannot express this side flip; carrying the
     reverse-flow side without reflected storage needs a per-section lane sign (the
-    horizontal analogue of TB's :func:`context._tb_x_offset`).
+    horizontal analogue of
+    :func:`context._perpendicular_port_lane_offset`).
     """
     return sec_id in ctx.reversed_sections and sec_id not in ctx.tb_sections
 
@@ -1479,7 +1480,7 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
     the drop -> turn concentric corner nest without pinching.  The drop
     continues the in-section column order (raw internal offset for a RIGHT-entry
     section, its reverse otherwise, mirroring
-    :func:`_tb_x_offset`).  A RIGHT exit (down -> east turn)
+    :func:`context._perpendicular_port_lane_offset`). A RIGHT exit (down -> east turn)
     reverses the column across the corner, so its port
     order is the reverse of the column; a LEFT exit (down -> west turn) keeps
     it, so its port order equals the column.  Reversing unconditionally double-

@@ -30,11 +30,11 @@ from nf_metro.layout.routing.context import (  # noqa: F401
     _has_intervening_sections,
     _max_offset_at,
     _MergeRouting,
+    _perpendicular_port_lane_offset,
     _resolve_section_col,
     _resolve_section_colrow,
     _resolve_section_row,
     _RoutingCtx,
-    _tb_x_offset,
     compute_junction_fan_info,
 )
 from nf_metro.layout.routing.families import RouteFamilyId

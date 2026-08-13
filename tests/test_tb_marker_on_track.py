@@ -1,7 +1,8 @@
 """A TB station's marker sits centred on the lines drawn through it.
 
 A TB section draws each line at its offset *reversed* against the station's
-bundle max (``_tb_x_offset``), so the marker pill must span the reversed
+bundle max (``_perpendicular_port_lane_offset``), so the marker pill must span
+the reversed
 (drawn) offsets, not the stored ones -- otherwise a one-line or off-trunk-subset
 station draws its glyph beside its own track (issue #929).  This is the exact
 transpose of the LR case, which never reverses; the oracle below compares the

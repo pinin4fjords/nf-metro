@@ -102,8 +102,8 @@ from nf_metro.layout.routing.context import (
     _get_offset,
     _has_intervening_sections,
     _hop_needs_bypass,
+    _perpendicular_port_lane_offset,
     _RoutingCtx,
-    _tb_x_offset,
     is_near_vertical_drop,
 )
 from nf_metro.layout.routing.corners import (
@@ -2243,7 +2243,9 @@ def _tb_bottom_exit_geometry(
             _SourceSeam(run_direction, turn_direction, src.y, channel_y),
         )
 
-    x_offset = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
+    x_offset = _perpendicular_port_lane_offset(
+        ctx, edge.source, edge.line_id, src.section_id
+    )
     source_x = src.x + x_offset
     target_x = tgt.x + x_offset
     if abs(target_x - source_x) <= COORD_TOLERANCE:
@@ -2268,7 +2270,9 @@ def _tb_bottom_exit_geometry(
     riser_sign = -run_direction.sign
 
     def lane_offset(line_id: str) -> float:
-        return riser_sign * _tb_x_offset(ctx, edge.source, line_id, src.section_id)
+        return riser_sign * _perpendicular_port_lane_offset(
+            ctx, edge.source, line_id, src.section_id
+        )
 
     fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
     channel_y = src.y + run_direction.sign * max(
@@ -2434,7 +2438,9 @@ def _around_stack_geometry(
         # into ``tx`` (each feeder carries one line), so the lane fan is zero.
         if fans_distinct:
             return 0.0
-        return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
+        return -_perpendicular_port_lane_offset(
+            ctx, edge.source, line_id, src.section_id
+        )
 
     # The bundle fan lifts the jog's innermost line toward the source box, so
     # seat the corridor a fan width below the clearance that innermost lane owes
@@ -2599,7 +2605,7 @@ def _bottom_exit_junction_parts(
 
     def exit_x_offset(line_id: str) -> float:
         if ctx.station_offsets:
-            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+            return _perpendicular_port_lane_offset(ctx, exit_pid, line_id, exit_sec)
         bi, bn = ctx.bundle_info.get((edge.source, edge.target, line_id), (f.i, f.n))
         return l_shape_stagger(bi, bn, Direction.D, ctx.offset_step)
 
@@ -4398,7 +4404,9 @@ def _perp_exit_geometry(f: _InterFacts) -> _PerpExitGeometry | None:
     # so the leg is one straight segment.  Each line drops at the target trunk's
     # per-line X offset, keeping a co-travelling bundle parallel down to the
     # port and on into the trunk, merging only at the first station inside it.
-    drop_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
+    drop_x = tgt.x + _perpendicular_port_lane_offset(
+        ctx, edge.target, edge.line_id, tgt.section_id
+    )
     return _perp_exit_record(
         ((drop_x, src.y), (drop_x, tgt.y)),
         0.0,
@@ -4919,7 +4927,9 @@ def _perp_entry_landing_x(
     standing on that port's lead-in.
     """
     if tgt_sec is not None and _perp_entry_lands_on_its_own_lane(tgt_sec):
-        return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
+        return tx + _perpendicular_port_lane_offset(
+            ctx, edge.target, line_id, tgt_sec.id
+        )
     entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
     return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
 

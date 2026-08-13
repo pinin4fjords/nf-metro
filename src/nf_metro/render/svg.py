@@ -2948,7 +2948,8 @@ def _drawn_bundle_span(
 
     A vertical-flow (TB) section is the 90-degree rotation of a horizontal one:
     a line rides ``x - offset`` where an LR line rides ``y + offset`` (matching
-    :func:`_tb_x_offset`).  Spanning the marker over the drawn offsets keeps it
+    :func:`routing.context._perpendicular_port_lane_offset`). Spanning the marker
+    over the drawn offsets keeps it
     centred on the lines that actually pass through the station, so a one-line or
     off-trunk-subset station does not leave its glyph beside its own track.
     """

@@ -45,8 +45,8 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _get_offset,
+    _perpendicular_port_lane_offset,
     _RoutingCtx,
-    _tb_x_offset,
 )
 from nf_metro.layout.routing.perp import (
     _perp_riser_lateral,
@@ -430,7 +430,7 @@ def _route_perp_exit_bundle(
         # negated there to cancel it back.
         if tb_drop is not None:
             entry_id, tb_sec = tb_drop
-            d = _tb_x_offset(ctx, entry_id, line_id, tb_sec)
+            d = _perpendicular_port_lane_offset(ctx, entry_id, line_id, tb_sec)
         else:
             d = _perp_riser_lateral(ctx, edge.target, line_id, side, src.section_id)
         return d if is_top else -d

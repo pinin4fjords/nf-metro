@@ -723,13 +723,6 @@ def _perpendicular_port_lane_offset(
     return lane_delta(frame, offset)
 
 
-def _tb_x_offset(
-    ctx: _RoutingCtx, station_id: str, line_id: str, section_id: str | None
-) -> float:
-    """Compatibility name for the orientation-neutral lane accessor."""
-    return _perpendicular_port_lane_offset(ctx, station_id, line_id, section_id)
-
-
 def _resolve_section_col(graph: MetroGraph, station: Station) -> int | None:
     """Resolve the grid column for a port or junction station."""
     sec = resolve_section(graph, station, prefer_upstream=False)
