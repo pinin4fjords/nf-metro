@@ -589,11 +589,19 @@ def _settled_exit_turns(
             ),
             candidate.validate_corner_radii,
         )
+    pending_routes = tuple(candidate.route for candidate in candidates)
+    pending_route_ids = frozenset(id(route) for route in pending_routes)
+    settlement_population = [
+        route
+        for route in routes
+        if route.normalize_exempt or id(route) in pending_route_ids
+    ]
     reseated = _dogleg_off_exempt_trunks(
-        list(routes),
+        settlement_population,
         ctx,
-        movable_owned_route_ids=frozenset(id(route) for route in routes),
+        movable_owned_route_ids=pending_route_ids,
         reconcile_owned_corridor=True,
+        nested_only=True,
     )
     for route in routes:
         edge_key = (route.edge.source, route.edge.target, route.line_id)

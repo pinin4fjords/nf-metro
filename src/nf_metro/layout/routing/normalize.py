@@ -3920,6 +3920,7 @@ def _dogleg_off_exempt_trunks(
     *,
     movable_owned_route_ids: frozenset[int] = frozenset(),
     reconcile_owned_corridor: bool = False,
+    nested_only: bool = False,
 ) -> set[tuple[str, str, str]]:
     """Offset a non-exempt trunk drawn collinear with an exempt run.
 
@@ -3953,7 +3954,8 @@ def _dogleg_off_exempt_trunks(
         return set()
     clearance = EDGE_TO_BUNDLE_CLEARANCE
     changed: set[tuple[str, str, str]] = set()
-    for t in _collect_htrunks(routes):
+    same_line_trunks = () if nested_only else _collect_htrunks(routes)
+    for t in same_line_trunks:
         owned = route_system_owns_segment_boundary(t.route, t.idx)
         if id(t.route) in skip or (
             owned and id(t.route) not in movable_owned_route_ids
@@ -4059,6 +4061,13 @@ def _dogleg_off_exempt_trunks(
         obstacle = _htrunk_seg(hit, hit.y)
         cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
         cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
+        if nested_only:
+            if (cross_below is not None and cross_above is not None) or not (
+                below_ok or above_ok
+            ):
+                if reconcile_owned_corridor:
+                    changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+            continue
         if cross_below is not None and cross_above is not None:
             if reconcile_owned_corridor:
                 changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
