@@ -41,7 +41,7 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES, RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
     _route_inter_section,
@@ -1350,6 +1350,23 @@ def _claim_for_materialized_channel(
     )
 
 
+def _claims_share_carrier(
+    first: PreliminaryGapChannelClaim,
+    second: PreliminaryGapChannelClaim,
+) -> bool:
+    """Whether two claims describe the same physical semantic channel."""
+    return (
+        first.system_id == second.system_id
+        and first.gap == second.gap
+        and not first.line_ids.isdisjoint(second.line_ids)
+        and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
+        and (
+            not first.source_junction_ids.isdisjoint(second.source_junction_ids)
+            or not first.connector_ids.isdisjoint(second.connector_ids)
+        )
+    )
+
+
 def _allocate_member_gap_channels(
     candidates: tuple[_MemberCandidate, ...],
     preliminary_claims: tuple[PreliminaryGapChannelClaim, ...],
@@ -1532,6 +1549,7 @@ def build_member_geometry_execution(
     reservation_ids = reservation_ids_by_member or {}
     candidates: list[_MemberCandidate] = []
     context_routes: list[RoutedPath] = []
+    context_candidates: list[_MemberCandidate] = []
     failures: dict[RouteSystemId, str] = {}
     edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
     for resolved in scaffold.edge_order:
@@ -1550,6 +1568,19 @@ def build_member_geometry_execution(
                     )
                     if context is not None:
                         context_routes.append(context)
+                        context_candidates.append(
+                            _MemberCandidate(
+                                context,
+                                family_by_edge[resolved],
+                                system_id,
+                                semantic_route_id(
+                                    "member-channel-carrier",
+                                    resolved.source,
+                                    resolved.target,
+                                ),
+                                tuple(scaffold.connector_ids_for_edge(resolved)),
+                            )
+                        )
                     continue
                 if key in ctx.skip_edges:
                     continue
@@ -1592,18 +1623,6 @@ def build_member_geometry_execution(
         # makes that rank permanent, so the immutable convergence strokes travel
         # with the candidates rather than being discovered after the fact.
         member_population = [*candidate_routes, *context_routes]
-        deferred_exit_turn_ownership: list[
-            tuple[RoutedPath, str | None, int | None]
-        ] = []
-        if settled_exit_turn_plan_ids:
-            for route in candidate_routes:
-                if route.exit_turn_plan_id not in settled_exit_turn_plan_ids:
-                    continue
-                deferred_exit_turn_ownership.append(
-                    (route, route.exit_turn_axis_id, route.exit_turn_segment_rank)
-                )
-                route.exit_turn_axis_id = None
-                route.exit_turn_segment_rank = None
         allocation_population = (
             [*ctx.built_routes[built_start:], *context_routes]
             if pending_exit_turn_plan_ids
@@ -1621,10 +1640,28 @@ def build_member_geometry_execution(
         complete_path_route_ids = frozenset(
             id(route) for route in complete_path_population
         )
+        movable_gap_exit_plan_ids = (
+            frozenset(
+                plan.id
+                for plan in ctx.exit_turns.plans
+                if plan.id in pending_exit_turn_plan_ids
+                and any(
+                    assignment.planned_family_id
+                    in {
+                        *BYPASS_ROUTE_FAMILIES,
+                        RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+                    }
+                    for assignment in plan.assignments
+                )
+            )
+            if ctx.exit_turns is not None
+            else frozenset()
+        )
         _materialize_gap_slots(
             allocation_population,
             ctx,
-            movable_exit_plan_ids=pending_exit_turn_plan_ids,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+            deferred_exit_plan_ids=pending_exit_turn_plan_ids,
         )
         _settle_entry_wrap_leadouts(
             normalization_population,
@@ -1632,6 +1669,11 @@ def build_member_geometry_execution(
             movable_route_ids=complete_path_route_ids,
         )
         _materialize_trunk_slots(normalization_population, ctx)
+        from nf_metro.layout.routing.exit_turns import (
+            seat_planned_exit_turn_continuation_flanks,
+        )
+
+        seat_planned_exit_turn_continuation_flanks(normalization_population, ctx)
         # Trunk-slot materialization compares dip groups, never two flows that
         # entered one inter-row gap from opposite rows, so counter-running
         # trunks leave it within bundle pitch of each other and read as one
@@ -1640,7 +1682,11 @@ def build_member_geometry_execution(
         # running after emission, which skips a plan-owned trunk.
         _separate_opposing_inter_row_trunks(normalization_population, ctx)
         _reconcile_port_peeloff_risers(normalization_population, ctx)
-        _coincide_same_line_tracks(normalization_population, ctx)
+        _coincide_same_line_tracks(
+            normalization_population,
+            ctx,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+        )
         _coincide_fanout_opening_descents(
             normalization_population, ctx, settle_frozen_arcs=True
         )
@@ -1655,6 +1701,15 @@ def build_member_geometry_execution(
             preliminary_gap_claims,
             failures,
         )
+        context_claims = tuple(
+            _claim_for_materialized_channel(item)
+            for item in _materialized_channels(tuple(context_candidates), ctx)
+            if not any(
+                _claims_share_carrier(_claim_for_materialized_channel(item), existing)
+                for existing in eligible_claims
+            )
+        )
+        eligible_claims = (*eligible_claims, *context_claims)
         _allocate_preliminary_gap_claims(
             tuple(candidates),
             eligible_claims,
@@ -1717,14 +1772,13 @@ def build_member_geometry_execution(
             fixed_segment_keys=settled_tail_segments,
             secondary_may_yield_at_shared_source=True,
         )
-        for route, axis_id, segment_rank in deferred_exit_turn_ownership:
-            route.exit_turn_axis_id = axis_id
-            route.exit_turn_segment_rank = segment_rank
         opposing_movable_route_ids = frozenset(
             id(route)
             for route in candidate_routes
             if route.exit_turn_plan_id not in pending_exit_turn_plan_ids
             and route.exit_turn_axis_id is None
+            and route.fan_plan_id is None
+            and route.fan_route_emitter is None
         )
         _separate_declared_opposing_gap_bundles(
             normalization_population,

@@ -897,7 +897,10 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
 
 def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
     """Assign each clean divergence's settled slots in semantic peel order."""
-    for junction_id in ctx.divergence_exit_ports:
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        source_section = ctx.graph.section_for_port(ctx.graph.ports[exit_port_id])
+        if source_section.direction not in ("LR", "RL"):
+            continue
         peel_order = fanout_divergence_peel_order(
             ctx.graph, junction_id, ctx.line_priority, ctx.topology
         )
@@ -2185,7 +2188,7 @@ def _order_perp_entry_by_landing_column(ctx: _OffsetCtx) -> None:
         ):
             continue
         section = graph.section_for_port(port_obj)
-        if lanes_run_along_x(section.direction):
+        if not lanes_run_along_x(section.direction):
             continue
         lines = graph.station_lines(port_id)
         if len(lines) < 2:

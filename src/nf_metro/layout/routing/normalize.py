@@ -84,7 +84,10 @@ from nf_metro.layout.routing.corners import (
     wholesale_corner_translation,
     widest_coincident_radius,
 )
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import (
+    BYPASS_ROUTE_FAMILY_VALUES,
+    RouteFamilyId,
+)
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
@@ -645,6 +648,45 @@ def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
     )
 
 
+def _pending_exit_turn_owns_channel(channel: _VChannel, ctx: _RoutingCtx) -> bool:
+    """Whether deferred exit-turn allocation may place this gap channel."""
+    route = channel.route
+    if route.exit_turn_family_id in BYPASS_ROUTE_FAMILY_VALUES:
+        return True
+    if ctx.exit_turns is None:
+        return False
+    membership = ctx.exit_turns.membership_for_edge(route.edge)
+    assignment = membership.assignment if membership is not None else None
+    if (
+        assignment is None
+        or assignment.run_direction is None
+        or assignment.turn_direction is None
+        or len(route.points) < 3
+    ):
+        return False
+    before, corner, after = route.points[:3]
+    return (
+        channel.idx == 1
+        and segment_direction(before, corner) is assignment.run_direction
+        and segment_direction(corner, after) is assignment.turn_direction
+    )
+
+
+def _shares_terminal_carrier(
+    route: RoutedPath,
+    channel: _VChannel,
+    routes: Iterable[RoutedPath],
+) -> bool:
+    return any(
+        other is not route
+        and other.edge.target == route.edge.target
+        and other.line_id == route.line_id
+        and spans_share_corridor(channel.y_lo, channel.y_hi, y_lo, y_hi)
+        for other in routes
+        for _rank, _x, y_lo, y_hi, _down in iter_vertical_segments(other)
+    )
+
+
 def _fused_sibling_spans(
     routes: list[RoutedPath], chans: list[_VChannel]
 ) -> list[tuple[float, float]]:
@@ -677,6 +719,7 @@ def _materialize_gap_slots(
     ctx: _RoutingCtx,
     *,
     movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+    deferred_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> None:
     """Resolve every declared :class:`GapSlot` to a concentric channel X.
 
@@ -721,14 +764,23 @@ def _materialize_gap_slots(
             exit_plan_is_movable = (
                 rp.exit_turn_plan_id is not None
                 and rp.exit_turn_plan_id in movable_exit_plan_ids
+                and _pending_exit_turn_owns_channel(ch, ctx)
             )
             exit_plan_is_movable = exit_plan_is_movable and not (
                 convergence_owns_segment_boundary(rp, ch.idx)
+                or rp.fan_plan_id is not None
                 or rp.fan_route_emitter is not None
                 or ch.idx in rp.route_system_owned_segment_ranks
             )
             if rp.normalize_exempt or (
-                _planner_owns_channel(ch) and not exit_plan_is_movable
+                (
+                    (
+                        rp.exit_turn_plan_id in deferred_exit_plan_ids
+                        and not _shares_terminal_carrier(rp, ch, routes)
+                    )
+                    or _planner_owns_channel(ch)
+                )
+                and not exit_plan_is_movable
             ):
                 owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
             else:
@@ -1163,6 +1215,21 @@ def _rederive_semantic_end_corners(
                     direction_vector(outgoing),
                 )
             )
+        for ordinal, (rank, incoming, outgoing) in enumerate(corners[1:-1], start=1):
+            cohorts[
+                "edge",
+                f"{route.edge.source}\0{route.edge.target}\0{len(corners)}\0{ordinal}",
+                incoming,
+                outgoing,
+            ].append(
+                _SemanticEndCorner(
+                    route,
+                    rank,
+                    points,
+                    direction_vector(incoming),
+                    direction_vector(outgoing),
+                )
+            )
 
     def wholesale_pair(a: _SemanticEndCorner, b: _SemanticEndCorner) -> bool:
         return wholesale_corner_translation(
@@ -1172,7 +1239,7 @@ def _rederive_semantic_end_corners(
             a.outgoing,
         )
 
-    for cohort in cohorts.values():
+    for cohort_key, cohort in cohorts.items():
         pending = set(range(len(cohort)))
         while pending:
             first = pending.pop()
@@ -1200,16 +1267,17 @@ def _rederive_semantic_end_corners(
                 offset = member.points[member.rank][0] - reference_x
                 radii = member.route.curve_radii
                 assert radii is not None
-                reference_radius = max(
-                    reference_radius,
-                    concentric_reference_radius_at(
-                        member.points[member.rank - 1],
-                        member.points[member.rank],
-                        member.points[member.rank + 1],
-                        offset,
-                        radii[radius_index],
-                    ),
-                )
+                if cohort_key[0] != "edge":
+                    reference_radius = max(
+                        reference_radius,
+                        concentric_reference_radius_at(
+                            member.points[member.rank - 1],
+                            member.points[member.rank],
+                            member.points[member.rank + 1],
+                            offset,
+                            radii[radius_index],
+                        ),
+                    )
                 prepared.append((member, radius_index, offset, list(radii)))
 
             def reference_fits(candidate: float) -> bool:
@@ -1450,16 +1518,40 @@ def _reconcile_moved_trunk_slot(
         rp.declare_trunk_slot(gap_upper_row=row)
 
 
-def _snap_group(group: _Coincidence, ctx: _RoutingCtx) -> None:
+def _snap_group(
+    group: _Coincidence,
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Snap every channel in a coincidence group onto its shared reference X."""
-    planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
+    planned = [
+        channel
+        for channel in group.channels
+        if _planner_owns_channel(channel)
+        and channel.route.exit_turn_plan_id not in movable_exit_plan_ids
+    ]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
+        convergence_plan_ids = {
+            channel.route.convergence_plan_id for channel in planned
+        }
+        if None not in convergence_plan_ids and len(convergence_plan_ids) == 1:
+            return
         if ctx.validate_final_route_frames:
-            raise ValueError("one coincidence group contains conflicting planned axes")
+            detail = ", ".join(
+                f"{channel.route.edge.source}->{channel.route.edge.target}:"
+                f"{channel.route.line_id}@{channel.x:.1f}"
+                f"[rank={channel.idx},owned={channel.route.convergence_owned_segment_ranks}]"
+                for channel in planned
+            )
+            raise ValueError(
+                f"one coincidence group contains conflicting planned axes: {detail}"
+            )
         return
     for ch in group.channels:
-        if _planner_owns_channel(ch):
+        if _planner_owns_channel(ch) and (
+            ch.route.exit_turn_plan_id not in movable_exit_plan_ids
+        ):
             continue
         if abs(ch.x - ref_x) > COORD_TOLERANCE:
             _reconcile_moved_gap_slot(ch, ref_x, ctx.graph)
@@ -1616,7 +1708,11 @@ def _coincide_fanout_opening_descents(
     )
 
 
-def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _coincide_same_line_tracks(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Fuse same-line vertical legs that should read as a single stroke.
 
     Handlers route each edge independently, so one metro line carried by
@@ -1646,7 +1742,7 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     the handler could have anticipated.
     """
     for group in _convergent_port_groups(routes, ctx):
-        _snap_group(group, ctx)
+        _snap_group(group, ctx, movable_exit_plan_ids)
     for group in _merge_feeder_groups(routes, ctx):
         movable_channels = [
             channel for channel in group.channels if not _planner_owns_channel(channel)
@@ -2195,7 +2291,11 @@ def _reconcile_wholesale_bundle_corner_radii(
             route.record_concentric_corner(radius_index, 0.0, desired)
 
 
-def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _reconcile_port_peeloff_risers(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Re-stack port approaches onto the slots their settled trunk depth earns.
 
     The riser order is assigned during gap materialisation from the trunk
@@ -2235,7 +2335,9 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                         ctx.curve_radius,
                     )
                 continue
-            if _planner_owns_channel(ch):
+            if _planner_owns_channel(ch) and (
+                ch.route.exit_turn_plan_id not in movable_exit_plan_ids
+            ):
                 continue
             _restack_channel(
                 ch,
@@ -2454,7 +2556,7 @@ def _stack_distinct_port_descents(
 
 def _bypass_nesting_leg_is_movable(route: RoutedPath, rank: int) -> bool:
     """Whether bypass nesting owns the horizontal leg and its flanking corners."""
-    return not convergence_owns_segment_boundary(route, rank)
+    return not route_system_owns_segment_boundary(route, rank)
 
 
 def _nest_bypass_above_over_top_wrap(
@@ -3100,7 +3202,16 @@ def _merge_feeder_groups(
             section = resolve_section(graph, trunk_src_st, prefer_upstream=True)
             if section is not None and section.bbox_w > 0:
                 midpoint = section.bbox_x + section.bbox_w / 2
-                if (ch.x - midpoint) * (trunk_ch.x - midpoint) < 0:
+                exit_membership = (
+                    ctx.exit_turns.membership_for_edge(rp.edge)
+                    if ctx.exit_turns is not None
+                    else None
+                )
+                if (
+                    exit_membership is not None
+                    and exit_membership.plan.legacy_reason is None
+                    and (ch.x - midpoint) * (trunk_ch.x - midpoint) < 0
+                ):
                     continue
             members.append(ch)
         if members:

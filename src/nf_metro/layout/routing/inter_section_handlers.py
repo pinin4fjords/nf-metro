@@ -7019,6 +7019,7 @@ def _route_right_entry_wrap(f: _InterFacts) -> RoutedPath:
         slot_index=0,
         n_slots=1,
     )
+    _declare_placed_channels(route, ctx)
     return route
 
 

@@ -30,7 +30,7 @@ from nf_metro.themes import THEMES
 ROOT = Path(__file__).parents[1]
 
 
-def test_fixed_only_gap_channels_publish_owned_clearance(
+def test_fixed_only_gap_channels_do_not_request_convergence_clearance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fixed = convergences._PlanGapChannel(
@@ -77,8 +77,7 @@ def test_fixed_only_gap_channels_publish_owned_clearance(
 
     requirements = convergences._gap_channel_clearance_requirements((), graph, (fixed,))
 
-    assert len(requirements) == 1
-    assert requirements[0].owner_id == "fixed-system"
+    assert requirements == ()
 
 
 def test_exit_turn_allocation_survives_member_geometry_settlement() -> None:

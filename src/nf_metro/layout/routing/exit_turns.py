@@ -65,6 +65,7 @@ from nf_metro.layout.routing.common import (
     vertical_direction,
 )
 from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
     RouteFamilyId,
@@ -3473,6 +3474,98 @@ def planned_exit_turn_corner_offsets(
         for item in turn_cohort
     )
     return offset, offset if shares_terminal_destination_entry else 0.0
+
+
+def seat_planned_exit_turn_continuation_flanks(
+    routes: Iterable[RoutedPath],
+    ctx: _RoutingCtx,
+) -> None:
+    """Seat shared-terminal continuations in their planned source-lane frame."""
+    if ctx.exit_turns is None:
+        return
+    cohorts: defaultdict[
+        tuple[ExitTurnPlanId, EndpointGroupId, Direction, Direction],
+        list[tuple[RoutedPath, int, float]],
+    ] = defaultdict(list)
+    for route in routes:
+        if (
+            route.exit_turn_plan_id is None
+            or route.exit_turn_segment_rank is None
+            or route.fan_plan_id is not None
+            or route.fan_route_emitter is not None
+        ):
+            continue
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if (
+            membership is None
+            or membership.assignment is None
+            or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+            or membership.assignment.planned_family_id.value
+            not in BYPASS_ROUTE_FAMILY_VALUES
+        ):
+            continue
+        offsets = planned_exit_turn_corner_offsets(membership)
+        rank = route.exit_turn_segment_rank
+        if offsets is None or rank + 3 >= len(route.points):
+            continue
+        incoming = segment_direction(route.points[rank], route.points[rank + 1])
+        outgoing = segment_direction(route.points[rank + 1], route.points[rank + 2])
+        if (
+            incoming is None
+            or outgoing is None
+            or direction_axis(incoming) is direction_axis(outgoing)
+        ):
+            continue
+        cohorts[
+            (
+                membership.plan.id,
+                membership.assignment.entry_group_id,
+                incoming,
+                outgoing,
+            )
+        ].append((route, rank, offsets[1]))
+
+    for (_plan_id, _entry_group_id, incoming, outgoing), cohort in cohorts.items():
+        if len(cohort) < 2 or not any(
+            abs(offset) > COORD_TOLERANCE for _route, _rank, offset in cohort
+        ):
+            continue
+        reference = next(
+            (
+                (route, rank)
+                for route, rank, offset in cohort
+                if abs(offset) <= COORD_TOLERANCE
+            ),
+            None,
+        )
+        if reference is None:
+            continue
+        reference_route, reference_rank = reference
+        reference_radius = (
+            reference_route.curve_radii[reference_rank]
+            if reference_route.curve_radii is not None
+            and reference_rank < len(reference_route.curve_radii)
+            else ctx.curve_radius
+        )
+        continuation_axis = direction_axis(outgoing)
+        lateral_index = 1 if continuation_axis is DemandAxis.X else 0
+        reference_coordinate = reference_route.points[reference_rank + 1][lateral_index]
+        for route, rank, offset in cohort:
+            lateral_delta = -offset * outgoing.sign / incoming.sign
+            coordinate = reference_coordinate + lateral_delta
+            for point_rank in (rank + 1, rank + 2):
+                point = list(route.points[point_rank])
+                point[lateral_index] = coordinate
+                route.points[point_rank] = (point[0], point[1])
+            if route.curve_radii is not None and rank < len(route.curve_radii):
+                route.record_concentric_corner(rank, offset, reference_radius)
+                route.curve_radii[rank] = concentric_corner_radius_at(
+                    route.points[rank],
+                    route.points[rank + 1],
+                    route.points[rank + 2],
+                    offset,
+                    reference_radius,
+                )
 
 
 def consume_exit_turn_route(
