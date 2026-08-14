@@ -385,7 +385,7 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    assert crossings(disabled) == {(1302.0, 398.0), (1600.5, 398.0)}
+    assert crossings(disabled) == {(1280.0, 338.0), (1600.5, 382.0)}
 
 
 def test_seed_15_shared_opening_is_line_name_independent() -> None:

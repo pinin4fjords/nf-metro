@@ -1948,12 +1948,21 @@ def _reseat_landing_opening(
     if landing.opening_turn_segment is None:
         return None
     runway = landing.minimum_runway
+    join_point = landing.join_point
     if landing.approach_axis is DemandAxis.X:
-        runway = abs(landing.join_point[0] - coordinate)
+        # Signed along the approach: a seat on the join's far side would
+        # reverse the landing tail into a fold-back, so the join slides
+        # through to the seat's downstream side at the formed-curve runway.
+        runway = landing.approach_direction.sign * (join_point[0] - coordinate)
         if runway < curve_radius - COORD_TOLERANCE:
-            return None
+            runway = curve_radius
+            join_point = (
+                coordinate + landing.approach_direction.sign * runway,
+                join_point[1],
+            )
     return replace(
         landing,
+        join_point=join_point,
         minimum_runway=runway,
         opening_turn_coordinate=coordinate,
         opening_turn_segment=(
@@ -2001,15 +2010,27 @@ def _move_landing_opening(
     """Re-seat one independently owned vertical landing opening."""
     landings = list(plan.landings)
     moved = False
+    moved_join_by_member: dict[EmissionMemberId, tuple[float, float]] = {}
     for rank, landing in enumerate(landings):
         if landing.member_id not in member_ids:
             continue
         reseated = _reseat_landing_opening(landing, coordinate, curve_radius)
         if reseated is None:
             return None
+        if reseated.join_point != landing.join_point:
+            moved_join_by_member[landing.member_id] = reseated.join_point
         landings[rank] = reseated
         moved = True
-    return replace(plan, landings=tuple(landings)) if moved else None
+    if not moved:
+        return None
+    ownership = tuple(
+        replace(item, endpoint=moved_join_by_member[item.member_id])
+        if item.member_id in moved_join_by_member
+        and item.role is ConvergenceEndpointRole.FEEDER
+        else item
+        for item in plan.endpoint_ownership
+    )
+    return replace(plan, landings=tuple(landings), endpoint_ownership=ownership)
 
 
 def _move_trunk_axis(

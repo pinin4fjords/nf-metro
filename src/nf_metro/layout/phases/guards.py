@@ -2537,10 +2537,7 @@ def iter_opposing_line_overlaps(
     lines sharing a channel are carried on their own offset slots, not on the
     same track.
     """
-    from nf_metro.layout.routing.common import (
-        apply_route_offsets,
-        convergence_owns_segment_boundary,
-    )
+    from nf_metro.layout.routing.common import apply_route_offsets
 
     if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
@@ -2566,13 +2563,6 @@ def iter_opposing_line_overlaps(
                 if a.axis != b.axis or abs(a.coord - b.coord) > COLLINEAR_AXIS_TOL:
                     continue
                 if a.direction * b.direction >= 0:
-                    continue
-                if (
-                    a.route.convergence_plan_id is not None
-                    and a.route.convergence_plan_id == b.route.convergence_plan_id
-                    and convergence_owns_segment_boundary(a.route, a.rank)
-                    and convergence_owns_segment_boundary(b.route, b.rank)
-                ):
                     continue
                 if min(a.hi, b.hi) - max(a.lo, b.lo) > GUARD_TOLERANCE:
                     yield OpposingOverlap(
@@ -6186,11 +6176,9 @@ def _ensure_pass_c_inputs(
                     station_offsets=offsets,
                     allow_convergence_clearance_requirements=True,
                 )
-                routes = (
-                    None
-                    if observation.plan.boundary_clearance_requirements
-                    else observation.routes
-                )
+                deferred = bool(observation.plan.boundary_clearance_requirements)
+                graph._final_route_guards_deferred = deferred
+                routes = None if deferred else observation.routes
             else:
                 routes = route_edges_for_placement_guards(graph, offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere

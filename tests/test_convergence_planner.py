@@ -417,16 +417,16 @@ def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
     assert route.points == [
         (1612.0, 544.0),
         (1542.0, 544.0),
-        (1542.0, 264.0),
-        (1284.0, 264.0),
-        (1284.0, 544.0),
+        (1542.0, 398.0),
+        (1282.0, 398.0),
+        (1282.0, 544.0),
         (1246.0, 544.0),
     ]
     assert tuple(route.points) == member.points
     assert member.owned_segment_ranks == (1, 3)
     assert tuple(channel.segment_rank for channel in member.gap_channels) == (1, 3)
     assert member.trunk_slot is not None
-    assert member.trunk_slot.gap_upper_row is None
+    assert member.trunk_slot.gap_upper_row == 1
     assert not check_no_dogleg_crosses_exempt_trunk(graph, observed.routes, offsets)
 
     trunk_reservations = [

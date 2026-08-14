@@ -1534,25 +1534,30 @@ def _snap_group(
         convergence_plan_ids = {
             channel.route.convergence_plan_id for channel in planned
         }
-        if None not in convergence_plan_ids and len(convergence_plan_ids) == 1:
+        # One convergence plan separating its own members onto distinct lanes
+        # is the sanctioned distinct-lane fan: the shared-X premise does not
+        # hold within the plan, and foreign channels coincide with the plan's
+        # first lane.
+        if None in convergence_plan_ids or len(convergence_plan_ids) != 1:
+            if ctx.validate_final_route_frames:
+                detail = ", ".join(
+                    f"{channel.route.edge.source}->{channel.route.edge.target}:"
+                    f"{channel.route.line_id}@{channel.x:.1f}"
+                    f"[rank={channel.idx},owned={channel.route.convergence_owned_segment_ranks}]"
+                    for channel in planned
+                )
+                raise ValueError(
+                    f"one coincidence group contains conflicting planned axes: {detail}"
+                )
             return
-        if ctx.validate_final_route_frames:
-            detail = ", ".join(
-                f"{channel.route.edge.source}->{channel.route.edge.target}:"
-                f"{channel.route.line_id}@{channel.x:.1f}"
-                f"[rank={channel.idx},owned={channel.route.convergence_owned_segment_ranks}]"
-                for channel in planned
-            )
-            raise ValueError(
-                f"one coincidence group contains conflicting planned axes: {detail}"
-            )
-        return
     for ch in group.channels:
         if _planner_owns_channel(ch) and (
             ch.route.exit_turn_plan_id not in movable_exit_plan_ids
         ):
             continue
         if abs(ch.x - ref_x) > COORD_TOLERANCE:
+            if _snap_reverses_adjacent_run(ch, ref_x):
+                continue
             _reconcile_moved_gap_slot(ch, ref_x, ctx.graph)
             _set_vchannel_x(ch, ref_x)
 
@@ -2694,6 +2699,30 @@ def _reseat_concentric_flanking(
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
                 prev_pt, corner_pt, next_pt, offset, reference
             )
+
+
+def _snap_reverses_adjacent_run(ch: _VChannel, new_x: float) -> bool:
+    """Whether moving the channel to *new_x* reverses a flanking horizontal run.
+
+    A run that shrinks keeps its reading; a run whose direction flips draws the
+    line doubling back over the very track it just travelled (the #885
+    fold-back), so a snap that would flip either flanking run is not a legal
+    fuse.  A landing tail joining a merge trunk pins its far endpoint, which is
+    where a cross-join snap would otherwise reverse it.
+    """
+    points = ch.route.points
+    for a_idx, b_idx, moved in (
+        (ch.idx - 1, ch.idx, "b"),
+        (ch.idx + 1, ch.idx + 2, "a"),
+    ):
+        if not 0 <= a_idx < len(points) or not 0 <= b_idx < len(points):
+            continue
+        ax, bx = points[a_idx][0], points[b_idx][0]
+        old_run = bx - ax
+        new_run = (new_x - ax) if moved == "b" else (bx - new_x)
+        if abs(old_run) > COORD_TOLERANCE and old_run * new_run < 0:
+            return True
+    return False
 
 
 def _set_vchannel_x(
@@ -3939,27 +3968,7 @@ def _dogleg_off_exempt_trunks(
             owned and id(t.route) not in movable_owned_route_ids
         ):
             continue
-        hit = next(
-            (
-                o
-                for o in obstacles
-                if o.route.line_id != t.route.line_id
-                and (
-                    abs(o.y - t.y)
-                    < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
-                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
-                    is not None
-                )
-                and t.x_lo < o.x_hi - COORD_TOLERANCE
-                and o.x_lo < t.x_hi - COORD_TOLERANCE
-                and (
-                    not owned
-                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
-                    is not None
-                )
-            ),
-            None,
-        )
+        hit = _dogleg_counterpart(t, obstacles, ctx, owned=owned)
         if hit is None:
             continue
         separation = _exempt_trunk_separation(t, hit, ctx.curve_radius)
@@ -3994,15 +4003,25 @@ def _dogleg_off_exempt_trunks(
                     below_ok or above_ok
                 ):
                     if reconcile_owned_corridor:
-                        changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+                        changed.update(
+                            _unweave_against_crossing_obstacles(
+                                t, hit, obstacles, routes, ctx
+                            )
+                        )
                 continue
             if cross_below is not None and cross_above is not None:
                 if reconcile_owned_corridor:
-                    changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+                    changed.update(
+                        _unweave_against_crossing_obstacles(
+                            t, hit, obstacles, routes, ctx
+                        )
+                    )
                 continue
         if cross_below is not None and cross_above is not None:
             if reconcile_owned_corridor:
-                changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+                changed.update(
+                    _unweave_against_crossing_obstacles(t, hit, obstacles, routes, ctx)
+                )
             continue
         prefer_below = t.y >= hit.y
         if below_ok and above_ok and (cross_below is None) != (cross_above is None):
@@ -4013,11 +4032,80 @@ def _dogleg_off_exempt_trunks(
             use_below = False
         else:
             if reconcile_owned_corridor:
-                changed.update(_unweave_exempt_trunk_riser(t, hit, routes, ctx))
+                changed.update(
+                    _unweave_against_crossing_obstacles(t, hit, obstacles, routes, ctx)
+                )
             continue
         target = below if use_below else above
         _seat_exempt_trunk_dogleg(t, target, ctx)
     return changed
+
+
+def _dogleg_counterpart(
+    t: _HTrunk,
+    obstacles: list[_HTrunk],
+    ctx: _RoutingCtx,
+    *,
+    owned: bool,
+) -> _HTrunk | None:
+    """The exempt counterpart a dogleg trunk settles against, if any.
+
+    A crossing counterpart outranks a merely-close one: the crossing is the
+    geometric defect the dogleg pass exists to clear, while proximity is
+    stroke fusion, and settling against the near obstacle first would leave
+    the crossing pair unprocessed.  An owned trunk reacts only to crossings.
+    """
+    proximity_hit: _HTrunk | None = None
+    for o in obstacles:
+        if (
+            o.route.line_id == t.route.line_id
+            or t.x_lo >= o.x_hi - COORD_TOLERANCE
+            or o.x_lo >= t.x_hi - COORD_TOLERANCE
+        ):
+            continue
+        if trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y)) is not None:
+            return o
+        if (
+            proximity_hit is None
+            and not owned
+            and abs(o.y - t.y)
+            < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
+        ):
+            proximity_hit = o
+    return proximity_hit
+
+
+def _unweave_against_crossing_obstacles(
+    t: _HTrunk,
+    hit: _HTrunk,
+    obstacles: list[_HTrunk],
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Unweave *t* against *hit*, then against any other crossing counterpart.
+
+    A riser can pierce several exempt trunks stacked in one band, and the
+    retarget arm only engages the counterpart that shares the route's target,
+    so declining the chosen hit must not strand the crossing that a different
+    counterpart could clear.
+    """
+    changed = _unweave_exempt_trunk_riser(t, hit, routes, ctx)
+    if changed:
+        return changed
+    tried = {id(hit.route)}
+    for other in obstacles:
+        if id(other.route) in tried or other.route.line_id == t.route.line_id:
+            continue
+        if (
+            trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(other, other.y))
+            is None
+        ):
+            continue
+        changed = _unweave_exempt_trunk_riser(t, other, routes, ctx)
+        if changed:
+            return changed
+        tried.add(id(other.route))
+    return set()
 
 
 def _unweave_exempt_trunk_riser(
@@ -4516,6 +4604,95 @@ def _restack_htrunk(
         rp.curve_radii[k - 1] = r
     if k < len(rp.curve_radii) and k + 2 < len(pts):
         rp.curve_radii[k] = r
+
+
+def _fan_apart_junction_opening_legs(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    station_offsets: Mapping[tuple[str, str], float] | None,
+) -> None:
+    """Nest distinct lines' fan-mouth legs apart where line offsets fuse them.
+
+    A fan-out junction's outgoing legs are assigned raw lanes without seeing
+    the per-line separation the renderer adds, so two distinct lines whose raw
+    lanes differ by exactly the offset delta draw on one coordinate for the
+    whole mouth of the fan.  The opening leg is pinned to its source, which
+    keeps :func:`corridor_runs` (and so the general co-travel separation) away
+    from it; a junction source is an invisible fan point, so the leg may take
+    its own lane the way the rest of the fan already does.
+
+    Only the drawn coordinates are compared, and only a leg long enough to
+    read as a run is moved -- the mover steps a full nesting pitch to a lane
+    no other leg of the fan occupies, preferring a leg no plan owns.
+    """
+    if station_offsets is None:
+        return
+    from nf_metro.layout.route_topology import divergence_junction_sources
+
+    fanouts = divergence_junction_sources(ctx.graph, ctx.topology)
+    if not fanouts:
+        return
+    step = ctx.offset_step
+    by_source: defaultdict[str, list[RoutedPath]] = defaultdict(list)
+    for rp in routes:
+        if not rp.is_inter_section or len(rp.points) < 3:
+            continue
+        if rp.edge.source not in fanouts:
+            continue
+        a, b = rp.points[0], rp.points[1]
+        if abs(a[1] - b[1]) > COORD_TOLERANCE or abs(a[0] - b[0]) <= COORD_TOLERANCE:
+            continue
+        by_source[rp.edge.source].append(rp)
+    for group in by_source.values():
+        if len(group) < 2:
+            continue
+
+        def drawn_y(rp: RoutedPath) -> float:
+            return apply_route_offsets(rp, station_offsets)[0][1]
+
+        for rp in group:
+            for other in group:
+                if other is rp or other.line_id == rp.line_id:
+                    continue
+                if abs(drawn_y(rp) - drawn_y(other)) > COORD_TOLERANCE:
+                    continue
+                lo = max(
+                    min(rp.points[0][0], rp.points[1][0]),
+                    min(other.points[0][0], other.points[1][0]),
+                )
+                hi = min(
+                    max(rp.points[0][0], rp.points[1][0]),
+                    max(other.points[0][0], other.points[1][0]),
+                )
+                if hi - lo <= 2 * COORD_TOLERANCE:
+                    continue
+
+                def leg_is_plan_stated(candidate: RoutedPath) -> bool:
+                    return (
+                        0 in candidate.convergence_owned_segment_ranks
+                        or 0 in candidate.route_system_owned_segment_ranks
+                        or candidate.exit_turn_plan_id is not None
+                        or candidate.fan_plan_id is not None
+                        or bool(candidate.exit_shared_opening_points)
+                    )
+
+                mover, keeper = rp, other
+                if bool(mover.convergence_owned_segment_ranks) and not bool(
+                    keeper.convergence_owned_segment_ranks
+                ):
+                    mover, keeper = keeper, mover
+                if leg_is_plan_stated(mover):
+                    continue
+                occupied = {drawn_y(item) for item in group if item is not mover}
+                for delta in (step, -step):
+                    target = drawn_y(mover) + delta
+                    if all(
+                        abs(target - lane) > step - COORD_TOLERANCE for lane in occupied
+                    ):
+                        pts = mover.points
+                        pts[0] = (pts[0][0], pts[0][1] + delta)
+                        pts[1] = (pts[1][0], pts[1][1] + delta)
+                        break
 
 
 def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:

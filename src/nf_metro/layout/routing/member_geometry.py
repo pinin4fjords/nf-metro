@@ -59,6 +59,7 @@ from nf_metro.layout.routing.normalize import (
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
     _dogleg_off_exempt_trunks,
+    _fan_apart_junction_opening_legs,
     _hold_runs_in_corridor_clearance,
     _locate_slot_channel,
     _materialize_gap_slots,
@@ -2333,6 +2334,9 @@ def build_member_geometry_execution(
             )
         if final_dogleg_edges and reservation_ids_by_member is not None:
             _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        _fan_apart_junction_opening_legs(
+            normalization_population, ctx, ctx.station_offsets
+        )
         plans = tuple(
             _freeze_plan(
                 scaffold,

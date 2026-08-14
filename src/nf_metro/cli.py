@@ -759,11 +759,17 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
         if with_layout:
             try:
                 compute_layout(graph, validate=True)
+                if graph._final_route_guards_deferred:
+                    from nf_metro.render.svg import build_render_plan
+
+                    build_render_plan(graph, resolve_theme(None, graph))
             except (
                 CyclicGraphError,
                 BackwardFlowError,
                 MixedEntryDirectionError,
                 PhaseInvariantError,
+                FoldThresholdError,
+                ValueError,
             ) as e:
                 issues.append(ValidationIssue(ERROR, str(e)))
 

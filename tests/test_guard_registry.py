@@ -87,7 +87,7 @@ def test_final_runner_rejects_bad_routes_without_pending_clearance(monkeypatch) 
 
     with pytest.raises(PhaseInvariantError, match="bad final geometry"):
         guards.run_validate_guards(
-            object(), "after final", include_final=True, offsets={}
+            SimpleNamespace(), "after final", include_final=True, offsets={}
         )
 
 
@@ -171,29 +171,6 @@ def test_owned_shared_opening_is_not_a_needless_right_entry_dive(
     route.exit_shared_opening_points = tuple(route.points[:3])
     route.route_system_owned_segment_ranks = (0, 1)
     assert not check_right_entry_drop_in_when_clear(graph, [route])
-
-
-def test_one_convergence_may_own_opposing_legs_on_its_shared_carrier() -> None:
-    first = RoutedPath(
-        Edge("first-source", "merge", "line"),
-        "line",
-        [(0.0, 0.0), (100.0, 0.0)],
-    )
-    second = RoutedPath(
-        Edge("second-source", "merge", "line"),
-        "line",
-        [(80.0, 0.0), (20.0, 0.0)],
-    )
-
-    assert list(
-        guards.iter_opposing_line_overlaps(None, offsets={}, routes=[first, second])
-    )
-    first.convergence_plan_id = second.convergence_plan_id = "convergence"
-    first.convergence_owned_segment_ranks = (0,)
-    second.convergence_owned_segment_ranks = (0,)
-    assert not list(
-        guards.iter_opposing_line_overlaps(None, offsets={}, routes=[first, second])
-    )
 
 
 def _defined(module, prefix: str) -> set[str]:
