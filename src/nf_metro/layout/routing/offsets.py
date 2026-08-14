@@ -2936,6 +2936,49 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
             _apply_offsets_along_bundle(ctx, port_id, sec_id, new_offs)
 
 
+def _clear_carried_slot_collisions(
+    ctx: _OffsetCtx, station_id: str, carried: dict[str, float]
+) -> None:
+    """Re-slot a station's own lines off the slots a carried bundle just took.
+
+    A station downstream of a re-slot may carry a line the bundle does not, and
+    that line holds whatever slot it was given before the re-slot.  When the
+    carry lands on it the two lines draw as one stroke, so the line that is not
+    part of the carried order moves to the nearest slot on the station's own
+    pitch that nothing holds, on the side it already sits.
+    """
+    step = ctx.offset_step
+    taken = {
+        lid: ctx.offsets.get((station_id, lid), 0.0)
+        for lid in ctx.graph.station_lines(station_id)
+    }
+    for lid, value in sorted(taken.items(), key=lambda item: item[1]):
+        if lid in carried:
+            continue
+        if not any(
+            other != lid and abs(taken[other] - value) <= _OFFSET_EQ_TOLERANCE
+            for other in taken
+            if other in carried
+        ):
+            continue
+        occupied = [other_value for other, other_value in taken.items() if other != lid]
+        free = next(
+            (
+                candidate
+                for distance in range(1, len(taken) + 2)
+                for candidate in (value + distance * step, value - distance * step)
+                if not any(
+                    abs(candidate - held) <= _OFFSET_EQ_TOLERANCE for held in occupied
+                )
+            ),
+            None,
+        )
+        if free is None:
+            continue
+        taken[lid] = free
+        ctx.offsets[(station_id, lid)] = free
+
+
 def _apply_offsets_along_bundle(
     ctx: _OffsetCtx,
     start_id: str,
@@ -2987,6 +3030,7 @@ def _apply_offsets_along_bundle(
             for lid in graph.station_lines(tgt_id):
                 if lid in new_offs:
                     ctx.offsets[(tgt_id, lid)] = new_offs[lid]
+            _clear_carried_slot_collisions(ctx, tgt_id, new_offs)
             queue.append(tgt_id)
 
 
