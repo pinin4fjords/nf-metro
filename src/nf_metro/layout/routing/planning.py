@@ -136,6 +136,102 @@ def _allocated_points_in_source_frame(
     return tuple(points)
 
 
+def _reconciled_corner_inputs(
+    plan: RouteMemberGeometryPlan,
+    allocated: RouteMemberGeometryPlan,
+    allocated_points: tuple[tuple[float, float], ...],
+    allocation_changed_path: bool,
+) -> tuple[
+    tuple[float, ...] | None,
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+]:
+    """Reconcile a member's settled and allocated corner inputs, per corner.
+
+    An allocation that moved the path owns every corner outright.  On an
+    unchanged path the settled record wins corner by corner, with one
+    exception: a settled corner recording a family reference wider than the
+    standard radius at zero displacement is a provisional handler radius
+    laundered into a base (a real widened family records the displacement it
+    nests at, and a coincide-unified corner shares its vertex), so where the
+    allocation re-derived that corner on the standard base and its record
+    resolves on the allocated geometry, the allocated inputs replace it.
+    """
+    from nf_metro.layout.constants import CURVE_RADIUS
+    from nf_metro.layout.routing.corners import concentric_corner_radius_at
+
+    if allocation_changed_path or plan.curve_radii is None:
+        return (
+            allocated.curve_radii,
+            allocated.concentric_corner_offsets_by_segment,
+            allocated.concentric_corner_bases_by_segment,
+        )
+    if allocated.curve_radii is None or len(allocated.curve_radii) != len(
+        plan.curve_radii
+    ):
+        return (
+            plan.curve_radii,
+            plan.concentric_corner_offsets_by_segment,
+            plan.concentric_corner_bases_by_segment,
+        )
+    allocated_offsets = dict(allocated.concentric_corner_offsets_by_segment)
+    allocated_bases = dict(allocated.concentric_corner_bases_by_segment)
+    plan_offsets = dict(plan.concentric_corner_offsets_by_segment)
+    plan_bases = dict(plan.concentric_corner_bases_by_segment)
+    merged_radii = list(plan.curve_radii)
+    merged_offsets = dict(plan.concentric_corner_offsets_by_segment)
+    merged_bases = dict(plan.concentric_corner_bases_by_segment)
+    for i in range(len(merged_radii)):
+        plan_offset_pair = plan_offsets.get(i + 1)
+        plan_base_pair = plan_bases.get(i + 1)
+        plan_offset = plan_offset_pair[0] if plan_offset_pair is not None else None
+        plan_base = plan_base_pair[0] if plan_base_pair is not None else None
+        if (
+            plan_offset is None
+            or plan_base is None
+            or abs(plan_offset) > COORD_TOLERANCE
+            or plan_base <= CURVE_RADIUS + COORD_TOLERANCE
+        ):
+            continue
+        offset_pair = allocated_offsets.get(i + 1)
+        base_pair = allocated_bases.get(i + 1)
+        offset = offset_pair[0] if offset_pair is not None else None
+        base = base_pair[0] if base_pair is not None else None
+        if (
+            offset is None
+            or base is None
+            or base > CURVE_RADIUS + COORD_TOLERANCE
+            or i + 2 >= len(allocated_points)
+        ):
+            continue
+        implied = concentric_corner_radius_at(
+            allocated_points[i],
+            allocated_points[i + 1],
+            allocated_points[i + 2],
+            offset,
+            base,
+        )
+        if abs(implied - allocated.curve_radii[i]) > COORD_TOLERANCE:
+            continue
+        merged_radii[i] = allocated.curve_radii[i]
+        for segment_rank, tuple_index in ((i, 1), (i + 1, 0)):
+            source_pair = allocated_offsets.get(segment_rank)
+            source_base = allocated_bases.get(segment_rank)
+            if source_pair is None or source_base is None:
+                continue
+            offsets_pair = list(merged_offsets.get(segment_rank, (None, None)))
+            bases_pair = list(merged_bases.get(segment_rank, (None, None)))
+            offsets_pair[tuple_index] = source_pair[tuple_index]
+            bases_pair[tuple_index] = source_base[tuple_index]
+            merged_offsets[segment_rank] = (offsets_pair[0], offsets_pair[1])
+            merged_bases[segment_rank] = (bases_pair[0], bases_pair[1])
+    return (
+        tuple(merged_radii),
+        tuple(sorted(merged_offsets.items())),
+        tuple(sorted(merged_bases.items())),
+    )
+
+
 def _with_settled_exit_turns(
     execution: MemberGeometryExecution,
     allocation: MemberGeometryExecution,
@@ -183,28 +279,19 @@ def _with_settled_exit_turns(
                 )
                 for channel in allocated.gap_channels
             )
+            radii, offsets, bases = _reconciled_corner_inputs(
+                plan, allocated, allocated_points, allocation_changed_path
+            )
             plans.append(
                 replace(
                     plan,
                     points=allocated_points,
-                    curve_radii=(
-                        allocated.curve_radii
-                        if allocation_changed_path
-                        else plan.curve_radii
-                    ),
+                    curve_radii=radii,
                     gap_slots=allocated.gap_slots,
                     trunk_slot=allocated.trunk_slot,
                     gap_channels=gap_channels,
-                    concentric_corner_offsets_by_segment=(
-                        allocated.concentric_corner_offsets_by_segment
-                        if allocation_changed_path
-                        else plan.concentric_corner_offsets_by_segment
-                    ),
-                    concentric_corner_bases_by_segment=(
-                        allocated.concentric_corner_bases_by_segment
-                        if allocation_changed_path
-                        else plan.concentric_corner_bases_by_segment
-                    ),
+                    concentric_corner_offsets_by_segment=offsets,
+                    concentric_corner_bases_by_segment=bases,
                 )
             )
             continue

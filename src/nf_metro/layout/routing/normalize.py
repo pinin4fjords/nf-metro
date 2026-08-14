@@ -1280,6 +1280,19 @@ def _rederive_semantic_end_corners(
                     )
                 prepared.append((member, radius_index, offset, list(radii)))
 
+            if cohort_key[0] == "edge":
+                # An interior cohort names one edge's corners, which can be a
+                # fragment of a wider cross-edge family: members whose stored
+                # radii already agree on one concentric base are that family's
+                # correct nesting, and re-deriving the fragment from the flat
+                # base would collapse it onto a second arc center.
+                implied = [
+                    radii_list[radius_index] - offset
+                    for _member, radius_index, offset, radii_list in prepared
+                ]
+                if max(implied) - min(implied) <= COORD_TOLERANCE_FINE:
+                    continue
+
             def reference_fits(candidate: float) -> bool:
                 for member, radius_index, offset, desired in prepared:
                     desired[radius_index] = concentric_corner_radius_at(
