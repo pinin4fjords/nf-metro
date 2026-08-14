@@ -179,19 +179,24 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
 def _build_same_y_adj(
     graph: MetroGraph,
 ) -> dict[str, dict[str, list[tuple[str, str]]]]:
-    """Build same-Y adjacency index per section.
+    """Build same-lane-run adjacency index per section.
 
     For each section, maps station_id -> [(neighbour_id, line_id)] for
-    edges where both endpoints share the same Y coordinate (within
-    tolerance).  Used by offset phases that propagate changes along
-    horizontal runs.
+    edges whose endpoints share the flow-axis base coordinate - same Y in
+    a section whose lanes stack on Y (LR/RL), same X where lanes stack on
+    X (TB/BT).  Lane offsets displace across such an edge's straight run,
+    so offset phases propagate changes along exactly these edges.
     """
     same_y_adj: dict[str, dict[str, list[tuple[str, str]]]] = {}
     for edge in graph.edges:
         src, tgt = graph.edge_endpoints(edge)
         if not src.section_id or src.section_id != tgt.section_id:
             continue
-        if abs(src.y - tgt.y) > _SAME_Y_TOLERANCE:
+        section = graph.sections.get(src.section_id)
+        if section is not None and lanes_run_along_x(section.direction):
+            if abs(src.x - tgt.x) > _SAME_Y_TOLERANCE:
+                continue
+        elif abs(src.y - tgt.y) > _SAME_Y_TOLERANCE:
             continue
         sec_id = src.section_id
         if sec_id not in same_y_adj:
@@ -2312,8 +2317,6 @@ def _compact_station_gaps(
 
     graph = ctx.graph
     for sec_id, section in graph.sections.items():
-        if lanes_run_along_x(section.direction):
-            continue
         sec_stations = [
             sid for sid in section.station_ids if not graph.stations[sid].is_port
         ]
@@ -3442,6 +3445,61 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
             break
 
 
+def _align_stations_to_settled_port_frames(ctx: _OffsetCtx) -> None:
+    """Snap a station's lane onto its settled port frame across a flat seam.
+
+    The frame-settling phases rewrite a port's slots after the last
+    horizontal reconciliation, so a station one flat edge away can be left
+    on the pre-settlement lane, drawing a near-flat slope into the port.
+    The port's frame is the settled truth, so the station's line moves to
+    the port's slot when that slot is free at the station and every other
+    flat run-mate already rides it - moving against a disagreeing mate
+    would trade the port seam for a station seam.  A seam that does not
+    fit stays for the closing guards to report.
+    """
+    graph = ctx.graph
+
+    def flat_seam(a: Station, b: Station) -> bool:
+        if not a.section_id or a.section_id != b.section_id:
+            return False
+        section = graph.sections.get(a.section_id)
+        if section is not None and lanes_run_along_x(section.direction):
+            return abs(a.x - b.x) <= _SAME_Y_TOLERANCE
+        return abs(a.y - b.y) <= _SAME_Y_TOLERANCE
+
+    for edge in graph.edges:
+        src, tgt = graph.edge_endpoints(edge)
+        if src.is_port == tgt.is_port or not flat_seam(src, tgt):
+            continue
+        port, station = (src, tgt) if src.is_port else (tgt, src)
+        lid = edge.line_id
+        port_off = ctx.offsets.get((port.id, lid), 0.0)
+        station_off = ctx.offsets.get((station.id, lid), 0.0)
+        if abs(port_off - station_off) <= _OFFSET_EQ_TOLERANCE:
+            continue
+        if _would_collide(ctx, station.id, lid, port_off):
+            continue
+        mates_agree = all(
+            abs(ctx.offsets.get((other.id, lid), 0.0) - port_off)
+            <= _OFFSET_EQ_TOLERANCE
+            for mate_edge in graph.edges
+            if mate_edge.line_id == lid
+            and station.id in (mate_edge.source, mate_edge.target)
+            and (
+                other := graph.stations[
+                    mate_edge.target
+                    if mate_edge.source == station.id
+                    else mate_edge.source
+                ]
+            ).id
+            != port.id
+            and not other.is_port
+            and flat_seam(station, other)
+        )
+        if mates_agree:
+            ctx.offsets[(station.id, lid)] = port_off
+
+
 def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:
     """Centre a rail-laid section's boundary-port bundle on the port itself.
 
@@ -3952,6 +4010,7 @@ def compute_station_offsets(
     _settle_merge_outgoing_frames(ctx)
     _settle_exit_survivor_frames(ctx)
     _settle_vertical_station_continuations(ctx)
+    _align_stations_to_settled_port_frames(ctx)
     frames = _materialize_linear_entry_frames(ctx)
     _validate_linear_entry_frames(ctx, frames)
     _cache_linear_entry_pill_lines(ctx, frames)
@@ -3986,15 +4045,23 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
         if classify_merge_port_feeders(ctx.graph, port.id) is not None
     }
 
+    # One involution span per section: a per-station span would reverse a
+    # station's private subset of the bundle through a different pivot than
+    # its run-mates', breaking lane equality along a straight run.
+    section_span: dict[str, float] = {}
     for sid, station in ctx.graph.stations.items():
         if station.section_id not in affected:
             continue
-        lines = ctx.graph.station_lines(sid)
-        offs = [ctx.offsets.get((sid, lid), 0.0) for lid in lines]
-        if not offs:
+        for lid in ctx.graph.station_lines(sid):
+            off = ctx.offsets.get((sid, lid), 0.0)
+            key = station.section_id
+            section_span[key] = max(section_span.get(key, 0.0), off)
+
+    for sid, station in ctx.graph.stations.items():
+        if station.section_id not in affected:
             continue
-        max_off = max(offs)
-        for lid in lines:
+        max_off = section_span.get(station.section_id, 0.0)
+        for lid in ctx.graph.station_lines(sid):
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
