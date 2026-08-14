@@ -75,7 +75,9 @@ def test_fixed_only_gap_channels_do_not_request_convergence_clearance(
         convergences, "column_gap_edges", lambda *_args, **_kwargs: (40.0, 50.0)
     )
 
-    requirements = convergences._gap_channel_clearance_requirements((), graph, (fixed,))
+    requirements = convergences._gap_channel_clearance_requirements(
+        (), graph, (fixed,), CURVE_RADIUS
+    )
 
     assert requirements == ()
 
@@ -111,6 +113,43 @@ def test_same_source_channels_from_distinct_systems_never_share_a_carrier() -> N
     )
 
     assert not convergences._channels_share_source_carrier(first, second)
+
+
+def test_landing_channel_clearance_uses_active_curve_radius() -> None:
+    first = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"line"}),
+        frozenset({"first-member"}),
+        frozenset({"first-source"}),
+        frozenset({"first-connector"}),
+        RouteSystemId("first-system"),
+        frozenset({"first-target"}),
+        False,
+    )
+    second = replace(
+        first,
+        coordinate=140.0,
+        down=False,
+        claimant_member_ids=frozenset({"second-member"}),
+        source_junction_ids=frozenset({"second-source"}),
+        connector_ids=frozenset({"second-connector"}),
+        system_id=RouteSystemId("second-system"),
+        continuation_endpoint_ids=frozenset({"second-target"}),
+    )
+    curve_radius = CURVE_RADIUS * 2.0
+
+    clearance = convergences._landing_channel_clearance(first, second, curve_radius)
+
+    assert clearance == cotravelling_lane_clearance(
+        same_line=True,
+        counter_running=True,
+        curve_radius=curve_radius,
+    )
 
 
 def test_disjoint_same_system_exit_channels_do_not_share_a_carrier() -> None:

@@ -3874,7 +3874,8 @@ def _flank_lane_coordinate(
             ):
                 return False
             if any(
-                _landing_channels_crowd(channel, obstacle) for obstacle in obstacles
+                _landing_channels_crowd(channel, obstacle, curve_radius)
+                for obstacle in obstacles
             ):
                 return False
         return jointly_feasible is None or jointly_feasible(candidate)
@@ -4170,7 +4171,7 @@ def _settle_opposing_gap_flanks(  # noqa: C901
             return _gap_channels_crowd(channel, obstacle) or (
                 settle_stacked and _stacked_elbow_channels_crowd(channel, obstacle)
             )
-        return _landing_channels_crowd(channel, obstacle)
+        return _landing_channels_crowd(channel, obstacle, curve_radius)
 
     for current_rank, _plan in enumerate(ordered):
         resident = resident_channels(current_rank)
@@ -4315,7 +4316,11 @@ def _settle_opposing_gap_flanks(  # noqa: C901
                     {
                         obstacle.coordinate + sign * clearance
                         for obstacle in resident
-                        if (clearance := _landing_channel_clearance(channel, obstacle))
+                        if (
+                            clearance := _landing_channel_clearance(
+                                channel, obstacle, curve_radius
+                            )
+                        )
                         is not None
                         for sign in (-1.0, 1.0)
                     },
@@ -4600,19 +4605,19 @@ def _repack_crowded_gap_channels(  # noqa: C901
                 if (
                     min(first.y_hi, second.y_hi) - max(first.y_lo, second.y_lo)
                     <= COORD_TOLERANCE
-                    or _landing_channel_clearance(first, second) is None
+                    or _landing_channel_clearance(first, second, curve_radius) is None
                 ):
                     continue
                 neighbours[first_key].add(second_key)
                 neighbours[second_key].add(first_key)
-                if _landing_channels_crowd(first, second):
+                if _landing_channels_crowd(first, second, curve_radius):
                     crowded_pairs.add(frozenset((first_key, second_key)))
         for key in keys:
             channel = representatives[key]
             if any(
                 fixed.gap[0] == gap[0]
                 and (
-                    _landing_channels_crowd(channel, fixed)
+                    _landing_channels_crowd(channel, fixed, curve_radius)
                     or _stacked_elbow_channels_crowd(channel, fixed)
                 )
                 for fixed in fixed_channels
@@ -4664,7 +4669,9 @@ def _repack_crowded_gap_channels(  # noqa: C901
                             <= COORD_TOLERANCE
                         ):
                             continue
-                        clearance = _landing_channel_clearance(channel, prior)
+                        clearance = _landing_channel_clearance(
+                            channel, prior, curve_radius
+                        )
                         if clearance is None:
                             continue
                         if from_left:
@@ -4676,7 +4683,9 @@ def _repack_crowded_gap_channels(  # noqa: C901
                             channel, fixed
                         ):
                             continue
-                        clearance = _landing_channel_clearance(channel, fixed)
+                        clearance = _landing_channel_clearance(
+                            channel, fixed, curve_radius
+                        )
                         if (
                             clearance is None
                             or abs(coordinate - fixed.coordinate)
@@ -4757,7 +4766,7 @@ def _repack_crowded_gap_channels(  # noqa: C901
                     if channel.gap == gap
                 )
                 if any(
-                    _landing_channels_crowd(first, second)
+                    _landing_channels_crowd(first, second, curve_radius)
                     for rank, first in enumerate(gap_channels)
                     for second in gap_channels[rank + 1 :]
                     if _gap_carrier_key(first) in component
@@ -4765,7 +4774,7 @@ def _repack_crowded_gap_channels(  # noqa: C901
                 ):
                     continue
                 if any(
-                    _landing_channels_crowd(channel, fixed)
+                    _landing_channels_crowd(channel, fixed, curve_radius)
                     for channel in moved_channels
                     for fixed in fixed_channels
                 ):
@@ -4779,6 +4788,7 @@ def _clear_fixed_gap_flanks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     fixed_channels: tuple[_PlanGapChannel, ...],
+    curve_radius: float,
     *,
     include_long_overlaps: bool = True,
 ) -> tuple[ConvergencePlan, ...]:
@@ -4797,7 +4807,7 @@ def _clear_fixed_gap_flanks(
                     _stacked_elbow_channels_crowd(channel, fixed)
                     or (
                         include_long_overlaps
-                        and _landing_channels_crowd(channel, fixed)
+                        and _landing_channels_crowd(channel, fixed, curve_radius)
                     )
                 )
             )
@@ -4807,7 +4817,11 @@ def _clear_fixed_gap_flanks(
                 {
                     fixed.coordinate + sign * clearance
                     for fixed in obstacles
-                    if (clearance := _landing_channel_clearance(channel, fixed))
+                    if (
+                        clearance := _landing_channel_clearance(
+                            channel, fixed, curve_radius
+                        )
+                    )
                     is not None
                     for sign in (-1.0, 1.0)
                 },
@@ -4914,6 +4928,7 @@ def _channels_share_source_carrier(
 def _landing_channel_clearance(
     landing: _PlanGapChannel,
     obstacle: _PlanGapChannel,
+    curve_radius: float,
 ) -> float | None:
     """Return the lane clearance for two distinct semantic landing carriers."""
     overlap = min(landing.y_hi, obstacle.y_hi) - max(landing.y_lo, obstacle.y_lo)
@@ -4926,23 +4941,24 @@ def _landing_channel_clearance(
         return cotravelling_lane_clearance(
             same_line=True,
             counter_running=True,
-            curve_radius=CURVE_RADIUS,
+            curve_radius=curve_radius,
         )
     if COORD_TOLERANCE < overlap < MIN_CORRIDOR_Y_OVERLAP:
         return BUNDLE_TO_BUNDLE_CLEARANCE
     return cotravelling_lane_clearance(
         same_line=False,
         counter_running=landing.down is not obstacle.down,
-        curve_radius=CURVE_RADIUS,
+        curve_radius=curve_radius,
     )
 
 
 def _landing_channels_crowd(
     landing: _PlanGapChannel,
     obstacle: _PlanGapChannel,
+    curve_radius: float,
 ) -> bool:
     """Whether a movable landing crowds a distinct fixed carrier."""
-    clearance = _landing_channel_clearance(landing, obstacle)
+    clearance = _landing_channel_clearance(landing, obstacle, curve_radius)
     return bool(
         clearance is not None
         and landing.gap == obstacle.gap
@@ -5263,7 +5279,8 @@ def _stacked_elbow_clearance_requirements(
 def _gap_channel_clearance_requirements(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
-    fixed_channels: tuple[_PlanGapChannel, ...] = (),
+    fixed_channels: tuple[_PlanGapChannel, ...],
+    curve_radius: float,
 ) -> tuple[BoundaryClearanceRequirement, ...]:
     """Request space for an opposing member carrier that cannot move."""
     lookup = gap_lookup_geometry(graph)
@@ -5283,7 +5300,9 @@ def _gap_channel_clearance_requirements(
                     )
                 ):
                     continue
-                clearance = _landing_channel_clearance(channel, fixed_channel)
+                clearance = _landing_channel_clearance(
+                    channel, fixed_channel, curve_radius
+                )
                 if (
                     clearance is None
                     or abs(channel.coordinate - fixed_channel.coordinate)
@@ -5527,7 +5546,9 @@ def _validate_final_convergence_feasibility(
     if allow_clearance_requirements:
         clearance_requirements.extend(stacked_requirements)
         clearance_requirements.extend(
-            _gap_channel_clearance_requirements(plans, graph, fixed_channels)
+            _gap_channel_clearance_requirements(
+                plans, graph, fixed_channels, ctx.curve_radius
+            )
         )
     for plan, channel in plan_channels:
         for member_channel in fixed_channels:
@@ -5971,13 +5992,17 @@ def _settle_convergence_geometry(
         ),
         settle_stacked=True,
     )
-    settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels)
+    settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels, ctx.curve_radius)
     settled = _repack_crowded_gap_channels(
         settled, graph, ctx.curve_radius, fixed_channels
     )
     settled = _settle_reserved_trunk_axes(settled, graph, ctx, member_runs)
     settled = _clear_fixed_gap_flanks(
-        settled, graph, fixed_channels, include_long_overlaps=False
+        settled,
+        graph,
+        fixed_channels,
+        ctx.curve_radius,
+        include_long_overlaps=False,
     )
     settled = _settle_opposing_gap_flanks(
         settled,
@@ -6043,7 +6068,9 @@ def _settle_convergence_execution(
         else ()
     )
     pre_settlement_requirements = (
-        _gap_channel_clearance_requirements(eligible, graph, fixed_channels)
+        _gap_channel_clearance_requirements(
+            eligible, graph, fixed_channels, ctx.curve_radius
+        )
         if allow_clearance_requirements and member_geometry is not None
         else ()
     )
