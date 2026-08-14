@@ -27,6 +27,7 @@ from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
     SettlementShortfall,
+    SettlementTranslation,
     measure_boundary_clearance_requirements,
     quantised_allocation,
     settle_route_envelopes,
@@ -131,9 +132,7 @@ DEFICIT_CORPUS = (
 
 # Fixtures whose only deficit falls on a column boundary, so the column phase has
 # to translate rather than merely confirm.
-COLUMN_DEFICIT_CORPUS = (
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-)
+COLUMN_DEFICIT_CORPUS = (TOPOLOGIES / "complex_multipath.mmd",)
 
 # Offsets a whole map is moved by to check the allocation reads the deficit and
 # not the coordinates it is measured at.  None is a whole pixel and none is
@@ -243,6 +242,49 @@ def _observe_moved(path: Path, delta: float):
         observation = observe_route_edges(graph, station_offsets=offsets)
     polylines = [apply_route_offsets(route, offsets) for route in observation.routes]
     return graph, observation.plan, polylines
+
+
+def test_hidden_route_endpoints_follow_their_semantic_sections() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    _graph, plan = _observe(path)
+    translation = SettlementTranslation(
+        SettlementAxis.COLUMN,
+        3,
+        816.0,
+        57.0,
+        None,
+        (),
+        (),
+        ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"),
+        (),
+    )
+    projected = envelope_settlement._reservation_coordinate_translation(
+        translation, plan
+    )
+    member_by_edge = {
+        (member.edge.source, member.edge.target, member.edge.line_id): member.id
+        for member in plan.members
+    }
+    fully_owned = {
+        ("__junction_20", "__merge_8", "l0"),
+        ("__merge_8", "s4__entry_right_11", "l0"),
+        ("__junction_21", "s4__entry_right_11", "l1"),
+        ("__junction_22", "__merge_8", "l0"),
+        ("__junction_22", "s5__entry_right_16", "l0"),
+        ("__junction_23", "s5__entry_right_16", "l2"),
+        ("__junction_23", "s6__entry_right_14", "l2"),
+    }
+    assert {
+        edge
+        for edge in fully_owned
+        if member_by_edge[edge] in projected.fully_owned_member_ids
+    } == fully_owned
+
+    crossing = member_by_edge[("__junction_22", "__merge_10", "l1")]
+    held = member_by_edge[("__merge_10", "s8__entry_right_17", "l1")]
+    assert crossing in projected.crossing_member_ids
+    assert held not in projected.fully_owned_member_ids
+    assert held not in projected.crossing_member_ids
 
 
 def _allocations(graph, plan) -> dict[tuple[SettlementAxis, int], float]:
@@ -587,10 +629,7 @@ LEMMA_CORPUS = {
 
 # Fixtures that run a column translation while row corridors exist, so the row
 # phase's result is exposed to the column phase.
-CROSS_AXIS_CORPUS = (
-    TOPOLOGIES / "complex_multipath.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-)
+CROSS_AXIS_CORPUS = (TOPOLOGIES / "complex_multipath.mmd",)
 
 
 SECTION_EDGE_BLOCKERS = frozenset(
@@ -766,21 +805,20 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
     """Two corridors starved at one boundary are one widening, not two.
 
     ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1, short by 2px and by 6px, and one
-    translation of row 1 onward -- sized to the deeper of the two -- satisfies
-    both.
+    observed-run claim in row gap 0/1. Their lane envelopes leave both 14px
+    short, and one translation of row 1 onward satisfies both.
     """
     path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
     graph, plan = _observe(path)
     starved = _capacity_deficits(plan)
     assert len(starved) == 2
-    assert set(starved.values()) == {-2.0, -6.0}
+    assert set(starved.values()) == {-14.0}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
     assert translation.axis is SettlementAxis.ROW
     assert translation.boundary == 1
-    assert translation.amount == pytest.approx(6.0)
+    assert translation.amount == pytest.approx(14.0)
     assert {str(item) for item in translation.reservation_ids} == set(starved)
 
     for reservation_id in starved:
@@ -914,7 +952,7 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
-    """The 12 report feeders share one trunk lane needing 78px between rows.
+    """The 12 report feeders share one trunk lane needing 82px between rows.
 
     Rendered permissively because this map also puts two opposing channels in
     one column gap without separating them, which is a lane-placement defect
@@ -932,8 +970,8 @@ def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
     assert len(reservation.connector_ids) == 12
     realised = query.realised_reservation(reservation.id)
     assert realised is not None
-    assert reservation.minimum_width == 78
-    assert realised.available_width >= 78.0
+    assert reservation.minimum_width == 82
+    assert realised.available_width >= 82.0
     assert realised.capacity_slack >= 0.0
     assert _capacity_deficits(plan) == {}
 

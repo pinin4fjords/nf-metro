@@ -474,11 +474,32 @@ def _reservation_coordinate_translation(
     coordinates at or beyond the band's start move.
     """
     section_ids = frozenset(translation.section_ids)
+    endpoint_section_by_group = {
+        group.id: group.section_id for group in plan.endpoint_groups
+    }
+    hidden_endpoint_sections = {
+        divergence.junction_id: endpoint_section_by_group[divergence.exit_group_id]
+        for divergence in plan.divergences
+    }
+    hidden_endpoint_sections.update(
+        {
+            convergence.junction_id: endpoint_section_by_group[
+                convergence.entry_group_id
+            ]
+            for convergence in plan.convergences
+        }
+    )
     fully_owned: list[EmissionMemberId] = []
     crossing: list[EmissionMemberId] = []
     for member in plan.members:
-        source_owned = member.source.section_id in section_ids
-        target_owned = member.target.section_id in section_ids
+        source_section = member.source.section_id or hidden_endpoint_sections.get(
+            member.source.station_id
+        )
+        target_section = member.target.section_id or hidden_endpoint_sections.get(
+            member.target.station_id
+        )
+        source_owned = source_section in section_ids
+        target_owned = target_section in section_ids
         if source_owned and target_owned:
             fully_owned.append(member.id)
         elif source_owned != target_owned:

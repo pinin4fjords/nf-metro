@@ -899,6 +899,21 @@ def test_normal_api_and_cli_never_invoke_candidate_execution(
     assert "<svg" in output.read_text()
 
 
+def test_seed_15_final_artifact_keeps_terminal_approaches_distinct() -> None:
+    path = ROOT / "tests/fixtures/hash_seed_determinism/seed_15.mmd"
+    baseline = execute_candidates(
+        CandidateExecutionRequest(
+            path.read_text(),
+            source_dir=str(path.parent),
+            limits=ExecutionLimits(1, 20.0, 30.0),
+        )
+    ).baseline
+
+    assert baseline.status is CandidateStatus.ACCEPTED
+    assert baseline.stage is CandidateStage.COMPLETE
+    assert not baseline.evidence.artifact_findings
+
+
 def test_frozen_sources_are_results_not_frozen_stages_across_hash_seeds() -> None:
     script = ROOT / "tests/candidate_executor_oracle.py"
     observations: list[dict[str, dict[str, str]]] = []

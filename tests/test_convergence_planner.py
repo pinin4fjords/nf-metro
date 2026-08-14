@@ -383,6 +383,40 @@ def test_frozen_recovery_seeds_have_complete_planned_convergences(name: str) -> 
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
 
 
+def test_seed_15_owned_lane_envelope_requests_boundary_three_runway() -> None:
+    _graph, _offsets, observed = _observe(
+        FROZEN / "seed_15.mmd", allow_clearance_requirements=True
+    )
+
+    runway_boundaries = {
+        requirement.boundary
+        for requirement in observed.plan.boundary_clearance_requirements
+        if requirement.description.endswith(" runway")
+    }
+
+    assert runway_boundaries == {3}
+
+
+def test_seed_41_outer_owned_lane_needs_no_boundary_two_runway() -> None:
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+    _graph, _offsets, observed = _observe(
+        FROZEN / "seed_41.mmd", allow_clearance_requirements=True
+    )
+    route = next(
+        route
+        for route in observed.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_28", "__merge_10", "l0")
+    )
+
+    assert not any(
+        requirement.boundary == 2
+        for requirement in observed.plan.boundary_clearance_requirements
+    )
+    assert _opening_fanout_descent(route) is not None
+
+
 def test_mixed_direct_bypass_and_multirow_approaches_are_frozen() -> None:
     _graph, _offsets, observed = _observe(FROZEN / "seed_15.mmd")
     landings = [

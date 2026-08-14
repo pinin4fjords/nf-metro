@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 import nf_metro.render.section_header as section_header
-from nf_metro.api import resolve_theme
+from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import SECTION_HEADER_PROTRUSION
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
@@ -43,7 +43,7 @@ from nf_metro.render.section_header import (
     resolve_all_section_headers,
     resolve_section_header_placement,
 )
-from nf_metro.render.svg import apply_route_offsets
+from nf_metro.render.svg import _build_render_plan_result, apply_route_offsets
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -132,6 +132,73 @@ def test_nudge_clears_a_route_to_the_right_of_the_box() -> None:
     assert placement.mode == "nudge"
     clashes = check_section_headers_clear_routes({"s": placement}, polylines)
     assert not clashes, "\n".join(c.message() for c in clashes)
+
+
+def test_seed_15_header_stays_inside_its_right_canvas_routes() -> None:
+    path = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    render_plan, route_plan = _build_render_plan_result(
+        graph, resolve_theme(None, graph), chrome_css=False
+    )
+
+    from nf_metro.layout.route_reservations import CanvasRegion, CanvasSide
+
+    reservation = next(
+        item
+        for item in route_plan.reservations
+        if isinstance(item.region, CanvasRegion)
+        and item.region.side is CanvasSide.RIGHT
+        and len(item.claims) == 7
+    )
+    assert len(reservation.claimant_member_ids) == 9
+    barriers = section_header._right_canvas_barriers(
+        route_plan, [list(polyline) for polyline in render_plan.route_polylines]
+    )
+    claim_barriers = tuple(
+        barrier
+        for barrier in barriers
+        if barrier[0]
+        in {
+            point[0]
+            for claim in reservation.claims
+            for point in render_plan.route_polylines[claim.path_rank][
+                claim.segment_rank : claim.segment_end_rank + 2
+            ]
+        }
+    )
+    assert len(claim_barriers) == len(reservation.claims)
+
+    placement = render_plan.header_placements["s3"]
+    overlapping = tuple(
+        barrier
+        for barrier in claim_barriers
+        if section_header._intervals_overlap(
+            placement.keepout[1],
+            placement.keepout[3],
+            barrier[1],
+            barrier[2],
+        )
+    )
+    assert overlapping
+    assert placement.keepout[2] <= min(item[0] for item in overlapping) - (
+        SECTION_HEADER_ROUTE_PAD
+    )
+
+
+def test_right_canvas_claim_outside_header_band_does_not_constrain_it() -> None:
+    placement = section_header.SectionHeaderPlacement(
+        mode="nudge",
+        badge_cx=110.0,
+        badge_cy=90.0,
+        label_x=120.0,
+        label_y=90.0,
+        label_rotation=0.0,
+        label_lines=("Header",),
+        keepout=(100.0, 80.0, 200.0, 100.0),
+    )
+    assert section_header._placement_before_right_canvas(
+        placement, ((150.0, 101.0, 180.0),)
+    )
 
 
 @pytest.mark.parametrize(

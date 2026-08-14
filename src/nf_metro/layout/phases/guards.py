@@ -6152,6 +6152,11 @@ def _ensure_pass_c_inputs(
     observational even running mid-pipeline between Pass C stages.  A routing
     failure leaves ``routes`` as ``None`` (it surfaces elsewhere); guards that
     need routes are then skipped.
+
+    A final layout checkpoint can precede render-time envelope settlement.  If
+    its observation requests boundary clearance, the route-dependent guards
+    defer to the render chokepoint, which receives the settled routes.  Guards
+    without a route dependency continue to inspect the final layout state.
     """
     from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.layout.routing.core import route_edges_for_placement_guards
@@ -6167,7 +6172,7 @@ def _ensure_pass_c_inputs(
                     allow_convergence_clearance_requirements=True,
                 )
                 routes = (
-                    route_edges_for_placement_guards(graph, offsets)
+                    None
                     if observation.plan.boundary_clearance_requirements
                     else observation.routes
                 )

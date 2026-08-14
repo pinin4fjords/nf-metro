@@ -1978,6 +1978,7 @@ class ConvergenceLanding:
     bypass: bool
     long_haul: bool
     multiple_row: bool
+    bypass_tail_runway: float | None = None
 
     def __post_init__(self) -> None:
         if self.approach_axis is DemandAxis.BOTH:
@@ -1989,6 +1990,12 @@ class ConvergenceLanding:
             raise ValueError("convergence feeder ranks must be non-negative")
         if self.minimum_runway <= 0 or not math.isfinite(self.minimum_runway):
             raise ValueError("convergence feeder runway must be positive and finite")
+        if self.bypass_tail_runway is not None and (
+            self.bypass_tail_runway <= 0 or not math.isfinite(self.bypass_tail_runway)
+        ):
+            raise ValueError(
+                "convergence bypass tail runway must be positive and finite"
+            )
         if self.opening_turn_coordinate is not None and not math.isfinite(
             self.opening_turn_coordinate
         ):

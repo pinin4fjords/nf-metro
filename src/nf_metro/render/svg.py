@@ -1786,7 +1786,11 @@ def _build_render_plan_scaled(
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
     header_placements = resolve_all_section_headers(
-        graph, theme.section_label_font_size, header_polylines, theme.title_font_size
+        graph,
+        theme.section_label_font_size,
+        header_polylines,
+        theme.title_font_size,
+        route_plan,
     )
     _guard_section_headers_clear_routes(header_placements, header_polylines)
     _guard_section_headers_fit_box_width(graph, header_placements)

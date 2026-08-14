@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import inspect
 import re
+from types import SimpleNamespace
+
+import pytest
 
 from nf_metro.layout.phases import guards
-from nf_metro.layout.phases.guards import GUARD_REGISTRY
+from nf_metro.layout.phases.guards import GUARD_REGISTRY, PhaseInvariantError
 from nf_metro.layout.routing import invariants
 from nf_metro.layout.routing.invariants import (
     CHECK_REGISTRY,
@@ -22,6 +25,61 @@ from nf_metro.layout.routing.invariants import (
 )
 
 VALID_TIERS = {"A", "B", "C"}
+
+
+def test_final_runner_defers_only_route_guards_for_pending_clearance(
+    monkeypatch,
+) -> None:
+    called: list[str] = []
+
+    def structural_guard(graph, phase):
+        called.append("structural")
+
+    def route_guard(graph, phase, *, routes):
+        called.append("route")
+
+    monkeypatch.setattr(
+        guards,
+        "GUARD_REGISTRY",
+        (
+            guards.GuardSpec(structural_guard, "A"),
+            guards.GuardSpec(route_guard, "A", needs=frozenset({"routes"})),
+        ),
+    )
+    monkeypatch.setattr(
+        "nf_metro.layout.routing.observe_route_edges",
+        lambda *args, **kwargs: SimpleNamespace(
+            routes=[object()],
+            plan=SimpleNamespace(boundary_clearance_requirements=(object(),)),
+        ),
+    )
+
+    guards.run_validate_guards(object(), "after final", include_final=True, offsets={})
+
+    assert called == ["structural"]
+
+
+def test_final_runner_rejects_bad_routes_without_pending_clearance(monkeypatch) -> None:
+    def route_guard(graph, phase, *, routes):
+        raise PhaseInvariantError("bad final geometry")
+
+    monkeypatch.setattr(
+        guards,
+        "GUARD_REGISTRY",
+        (guards.GuardSpec(route_guard, "A", needs=frozenset({"routes"})),),
+    )
+    monkeypatch.setattr(
+        "nf_metro.layout.routing.observe_route_edges",
+        lambda *args, **kwargs: SimpleNamespace(
+            routes=[object()],
+            plan=SimpleNamespace(boundary_clearance_requirements=()),
+        ),
+    )
+
+    with pytest.raises(PhaseInvariantError, match="bad final geometry"):
+        guards.run_validate_guards(
+            object(), "after final", include_final=True, offsets={}
+        )
 
 
 def _defined(module, prefix: str) -> set[str]:

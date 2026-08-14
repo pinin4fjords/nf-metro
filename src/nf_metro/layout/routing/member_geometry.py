@@ -231,9 +231,6 @@ def settle_shared_opening_trunk_conflicts(
         )
         <= COORD_TOLERANCE
     )
-    if not fixed_claims:
-        return execution
-
     from nf_metro.layout.routing import convergences
 
     lookup = convergences.gap_lookup_geometry(graph)
@@ -246,10 +243,12 @@ def settle_shared_opening_trunk_conflicts(
 
     plans: list[RouteMemberGeometryPlan] = []
     changed = False
+    reconciled_member_ids: set[EmissionMemberId] = set()
     for plan in execution.plans:
         if (
             plan.member_id in convergence_member_ids
             or plan.exit_shared_opening_points
+            or plan.exit_turn_plan_id is not None
             or plan.fan_plan_id is not None
         ):
             plans.append(plan)
@@ -278,10 +277,12 @@ def settle_shared_opening_trunk_conflicts(
                 )
                 if (
                     interior_delta * movable_delta >= 0
-                    or abs(movable_delta) >= clearance - COORD_TOLERANCE_FINE
+                    and abs(movable_delta) > abs(interior_delta) + COORD_TOLERANCE
+                    or interior_delta * movable_delta < 0
+                    and abs(movable_delta) >= clearance - COORD_TOLERANCE_FINE
                 ):
                     continue
-                flank_sign = -1.0 if movable_delta < 0 else 1.0
+                flank_sign = -1.0 if interior_delta > 0 else 1.0
                 candidate_x = endpoint[0] + flank_sign * clearance
                 obstacles = [
                     (
@@ -342,10 +343,100 @@ def settle_shared_opening_trunk_conflicts(
                 moved_ranks.add(rank)
                 movable_x = candidate_x
                 break
+            terminal_obstacles = [
+                (
+                    obstacle.coordinate,
+                    obstacle.y_lo,
+                    obstacle.y_hi,
+                    obstacle.down,
+                )
+                for obstacle in convergence_channels
+                if obstacle.gap == (channel.gap_lo_col, channel.row)
+                and plan.edge.line_id not in obstacle.line_ids
+            ]
+            terminal_obstacles.extend(
+                (
+                    obstacle.start[0],
+                    min(obstacle.start[1], obstacle.end[1]),
+                    max(obstacle.start[1], obstacle.end[1]),
+                    obstacle.direction is Direction.D,
+                )
+                for other in execution.plans
+                if other.member_id != plan.member_id
+                and other.edge.line_id != plan.edge.line_id
+                for obstacle in other.gap_channels
+                if (obstacle.gap_lo_col, obstacle.row)
+                == (channel.gap_lo_col, channel.row)
+            )
+            relevant = tuple(
+                (
+                    obstacle_x,
+                    obstacle_down,
+                    cotravelling_lane_clearance(
+                        same_line=False,
+                        counter_running=(channel.direction is Direction.D)
+                        is not obstacle_down,
+                        curve_radius=curve_radius,
+                    ),
+                )
+                for (
+                    obstacle_x,
+                    obstacle_lo,
+                    obstacle_hi,
+                    obstacle_down,
+                ) in terminal_obstacles
+                if min(y_hi, obstacle_hi) - max(y_lo, obstacle_lo)
+                > MIN_CORRIDOR_Y_OVERLAP
+            )
+            if not any(
+                abs(movable_x - obstacle_x) < clearance - COORD_TOLERANCE_FINE
+                for obstacle_x, _obstacle_down, clearance in relevant
+            ):
+                continue
+            gap_left, gap_right = column_gap_edges(
+                graph,
+                channel.gap_lo_col,
+                channel.gap_lo_col + 1,
+                row=channel.row,
+            )
+            candidates = sorted(
+                {
+                    obstacle_x + sign * clearance
+                    for obstacle_x, _obstacle_down, clearance in relevant
+                    for sign in (-1.0, 1.0)
+                },
+                key=lambda candidate: (abs(candidate - movable_x), candidate),
+            )
+            before = points[rank - 1] if rank > 0 else None
+            after = points[rank + 2] if rank + 2 < len(points) else None
+            settled_x = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if gap_left + EDGE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+                    <= candidate
+                    <= gap_right - EDGE_TO_BUNDLE_CLEARANCE + COORD_TOLERANCE
+                    and before is not None
+                    and after is not None
+                    and abs(before[0] - candidate) >= curve_radius - COORD_TOLERANCE
+                    and abs(after[0] - candidate) >= curve_radius - COORD_TOLERANCE
+                    and all(
+                        abs(candidate - obstacle_x) >= clearance - COORD_TOLERANCE_FINE
+                        for obstacle_x, _obstacle_down, clearance in relevant
+                    )
+                ),
+                None,
+            )
+            if settled_x is None:
+                continue
+            points[rank] = (settled_x, points[rank][1])
+            points[rank + 1] = (settled_x, points[rank + 1][1])
+            moved_ranks.add(rank)
         if not moved_ranks:
             plans.append(plan)
             continue
         changed = True
+        reconciled_member_ids.add(plan.member_id)
         plans.append(
             replace(
                 plan,
@@ -370,7 +461,7 @@ def settle_shared_opening_trunk_conflicts(
         execution.failure_reasons,
         MappingProxyType({plan.edge: plan for plan in frozen_plans}),
         execution.settled_exit_turns,
-        execution.reconciled_member_ids,
+        execution.reconciled_member_ids | reconciled_member_ids,
     )
 
 
@@ -1784,6 +1875,8 @@ def _seat_claimed_segments_before_freeze(
         route = candidate.route
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
+                continue
+            if rank < len(route.exit_shared_opening_points):
                 continue
             if route.exit_lane_transition_plan_id is not None or (
                 route.exit_turn_segment_rank is not None

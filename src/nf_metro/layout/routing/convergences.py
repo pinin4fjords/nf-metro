@@ -559,6 +559,45 @@ def _connect_bypass_landing(
     return True
 
 
+def _bypass_tail_runway(landing: ConvergenceLanding, ctx: _RoutingCtx) -> float:
+    base = SECTION_ROUTE_CLEARANCE + landing.lane_rank * ctx.offset_step
+    return max(base, landing.bypass_tail_runway or 0.0)
+
+
+def _bypass_opening_candidate_feasible(
+    landing: ConvergenceLanding, coordinate: float, ctx: _RoutingCtx
+) -> bool:
+    opening = landing.opening_turn_segment
+    if (
+        not landing.bypass
+        or opening is None
+        or abs(opening[1][1] - landing.join_point[1]) <= COORD_TOLERANCE
+    ):
+        return True
+    entry_id = ctx.merge.entry_port_for.get(landing.edge.target)
+    port = ctx.graph.ports.get(entry_id) if entry_id else None
+    if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return True
+    outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+    bypass_x = landing.join_point[0] + outward * _bypass_tail_runway(landing, ctx)
+    return outward * (coordinate - bypass_x) >= ctx.curve_radius - COORD_TOLERANCE
+
+
+def _bypass_opening_boundary_candidate(
+    landing: ConvergenceLanding, ctx: _RoutingCtx
+) -> float | None:
+    if landing.opening_turn_segment is None or not landing.bypass:
+        return None
+    entry_id = ctx.merge.entry_port_for.get(landing.edge.target)
+    port = ctx.graph.ports.get(entry_id) if entry_id else None
+    if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return None
+    outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+    return landing.join_point[0] + outward * (
+        _bypass_tail_runway(landing, ctx) + ctx.curve_radius
+    )
+
+
 def _bypass_landing_tail(
     landing: ConvergenceLanding, ctx: _RoutingCtx
 ) -> list[tuple[float, float]] | None:
@@ -583,9 +622,7 @@ def _bypass_landing_tail(
         or abs(opening_end[1] - landing.join_point[1]) <= COORD_TOLERANCE
     ):
         return None
-    bypass_x = landing.join_point[0] + outward * (
-        SECTION_ROUTE_CLEARANCE + landing.lane_rank * ctx.offset_step
-    )
+    bypass_x = landing.join_point[0] + outward * _bypass_tail_runway(landing, ctx)
     return [
         opening_end,
         (bypass_x, opening_end[1]),
@@ -2492,6 +2529,7 @@ def _crossing_minimal_lane(
     run: _CotravellingRun,
     neighbours: tuple[_CotravellingRun, ...],
     clearance: float,
+    feasible: Callable[[float], bool] | None = None,
 ) -> float | None:
     """Nearest lane with the fewest crossings against adjacent fixed runs."""
     axis = plan.trunk_axis
@@ -2500,7 +2538,7 @@ def _crossing_minimal_lane(
         axis.source_flank_coordinate + axis.target_flank_coordinate
     ) / 2.0 - run.coordinate
     candidates = _clear_lane_candidates(
-        tuple(neighbour.coordinate for neighbour in neighbours), clearance
+        tuple(neighbour.coordinate for neighbour in neighbours), clearance, feasible
     )
 
     def crossing_count(candidate: float) -> int:
@@ -2551,6 +2589,47 @@ def _separate_distinct_cotravelling_trunks(
         )
         if obstacles:
             coordinate = _crossing_minimal_lane(plan, run, neighbours, step)
+            assert coordinate is not None
+            settled[plan_rank] = _move_trunk_axis(plan, coordinate)
+            moved = _trunk_corridor_run(settled[plan_rank], graph)
+            assert moved is not None
+            run = moved
+        seated.append(run)
+    return tuple(settled)
+
+
+def _separate_distinct_counter_running_trunks(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    member_runs: tuple[_CotravellingRun, ...],
+) -> tuple[ConvergencePlan, ...]:
+    """Seat distinct counter-running trunks on separate corridor channels."""
+    clearance = 2.0 * COORD_TOLERANCE
+    settled = list(plans)
+    seated = list(member_runs)
+    for plan_rank in reversed(range(len(settled))):
+        plan = settled[plan_rank]
+        run = _trunk_corridor_run(plan, graph)
+        if run is None:
+            continue
+        neighbours = tuple(
+            item
+            for item in seated
+            if item.direction is not run.direction
+            and item.line_ids != run.line_ids
+            and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
+        )
+        if any(
+            abs(item.coordinate - run.coordinate) < clearance - COORD_TOLERANCE
+            for item in neighbours
+        ):
+            corridor = run.corridor
+            candidates = _clear_lane_candidates(
+                tuple(item.coordinate for item in neighbours),
+                clearance,
+                lambda candidate: inter_row_gap_upper_row(graph, candidate) == corridor,
+            )
+            coordinate = min(candidates, default=None)
             assert coordinate is not None
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
             moved = _trunk_corridor_run(settled[plan_rank], graph)
@@ -2773,6 +2852,338 @@ def _fuse_shared_terminal_gap_channels(
                     continue
                 plan = moved
             settled[plan_rank] = plan
+    return tuple(settled)
+
+
+def _fuse_owned_legacy_terminal_flanks(
+    plans: tuple[ConvergencePlan, ...], ctx: _RoutingCtx
+) -> tuple[ConvergencePlan, ...]:
+    """Seat legacy terminal openings on their convergence-owned target flank."""
+    merge = getattr(ctx, "merge", None)
+    if merge is None:
+        return plans
+    settled: list[ConvergencePlan] = []
+    for plan_rank, plan in enumerate(plans):
+        axis = plan.trunk_axis
+        if axis is None or axis.axis is not DemandAxis.X:
+            settled.append(plan)
+            continue
+        target_flank_segment = _trunk_segments(axis)[3]
+        target_flank = target_flank_segment[0][0]
+        groups: defaultdict[tuple[str, str], list[int]] = defaultdict(list)
+        for rank, landing in enumerate(plan.landings):
+            target_id = merge.entry_port_for.get(
+                landing.edge.target, landing.edge.target
+            )
+            target = ctx.graph.stations.get(target_id)
+            if (
+                axis.target_endpoint_coordinate is not None
+                and target is not None
+                and not landing.multiple_row
+                and abs(target.x - axis.target_endpoint_coordinate) <= COORD_TOLERANCE
+            ):
+                groups[(landing.edge.line_id, target_id)].append(rank)
+        landings = list(plan.landings)
+        for ranks in groups.values():
+            if len(ranks) < 2:
+                continue
+            for rank in ranks:
+                landing = landings[rank]
+                source = ctx.graph.stations.get(landing.edge.source)
+                opening = landing.opening_turn_coordinate
+                if (
+                    source is None
+                    or opening is None
+                    or (source.x - landing.join_point[0])
+                    * (opening - landing.join_point[0])
+                    >= -COORD_TOLERANCE
+                ):
+                    continue
+                source_sign = 1.0 if source.x > landing.join_point[0] else -1.0
+                reseated = _reseat_landing_opening(
+                    landing,
+                    landing.join_point[0] + source_sign * ctx.curve_radius,
+                    ctx.curve_radius,
+                )
+                if reseated is None:
+                    continue
+                reseated_opening = reseated.opening_turn_coordinate
+                reseated_segment = reseated.opening_turn_segment
+                assert reseated_opening is not None
+                assert reseated_segment is not None
+                if abs(reseated_opening - source.x) >= (
+                    ctx.curve_radius - COORD_TOLERANCE
+                ) and _bypass_opening_candidate_feasible(
+                    landing, reseated_opening, ctx
+                ):
+                    if (
+                        landing.bypass
+                        and abs(reseated_segment[1][1] - reseated.join_point[1])
+                        > COORD_TOLERANCE
+                    ):
+                        reseated = replace(
+                            reseated,
+                            minimum_runway=_bypass_tail_runway(landing, ctx),
+                        )
+                    approach = Direction.L if source_sign > 0 else Direction.R
+                    incoming = _direction(*reseated_segment)
+                    landings[rank] = replace(
+                        reseated,
+                        approach_direction=approach,
+                        corner_handedness=turn_handedness(incoming, approach),
+                    )
+            plan = replace(plan, landings=tuple(landings))
+            displaced_ranks = tuple(
+                rank
+                for rank in ranks
+                if landings[rank].approach_axis is DemandAxis.X
+                and (opening := landings[rank].opening_turn_coordinate) is not None
+                and abs(opening - target_flank) >= ctx.curve_radius - COORD_TOLERANCE
+            )
+            if not displaced_ranks:
+                continue
+            claimant_ids = frozenset(landings[rank].member_id for rank in ranks)
+            lookup = gap_lookup_geometry(ctx.graph)
+            context_plans = (*settled, plan, *plans[plan_rank + 1 :])
+            channels = tuple(
+                channel
+                for candidate_plan in context_plans
+                for channel in _plan_gap_channels(candidate_plan, ctx.graph, lookup)
+            )
+            base_channel = next(
+                (
+                    channel
+                    for channel in _plan_gap_channels(plan, ctx.graph, lookup)
+                    if channel.flank_rank == 3
+                    and channel.claimant_member_ids & claimant_ids
+                ),
+                None,
+            )
+            if base_channel is None:
+                continue
+            obstacles = tuple(
+                channel
+                for channel in channels
+                if not channel.claimant_member_ids & claimant_ids
+            )
+            gap_edges = column_gap_edges(
+                ctx.graph,
+                base_channel.gap[0],
+                base_channel.gap[0] + 1,
+                row=base_channel.gap[1],
+            )
+            candidates = tuple(
+                sorted(
+                    {
+                        *_clearance_candidates(
+                            target_flank, base_channel.down, obstacles
+                        ),
+                        *(
+                            candidate
+                            for rank in displaced_ranks
+                            if (
+                                candidate := _bypass_opening_boundary_candidate(
+                                    landings[rank], ctx
+                                )
+                            )
+                            is not None
+                        ),
+                    },
+                    key=lambda coordinate: (
+                        abs(coordinate - target_flank),
+                        coordinate,
+                    ),
+                )
+            )
+            for candidate in candidates:
+                if not _inside_usable_gap(gap_edges, candidate):
+                    continue
+                candidate_channel = replace(base_channel, coordinate=candidate)
+                if any(
+                    _gap_channels_crowd(candidate_channel, obstacle)
+                    for obstacle in obstacles
+                ):
+                    continue
+                moved = _move_trunk_flank(plan, 3, candidate)
+                moved_axis = moved.trunk_axis
+                assert moved_axis is not None
+                moved_flank_segment = _trunk_segments(moved_axis)[3]
+                moved_landings = list(moved.landings)
+                for rank in displaced_ranks:
+                    landing = moved_landings[rank]
+                    source = ctx.graph.stations.get(landing.edge.source)
+                    if (
+                        landing.approach_axis is not DemandAxis.X
+                        or source is None
+                        or landing.opening_turn_coordinate is None
+                        or landing.opening_turn_segment is None
+                        or (source.x - landing.join_point[0])
+                        * (candidate - landing.join_point[0])
+                        < -COORD_TOLERANCE
+                        or abs(landing.opening_turn_coordinate - candidate)
+                        <= COORD_TOLERANCE
+                        or abs(candidate - landing.join_point[0])
+                        <= _bypass_tail_runway(landing, ctx) + COORD_TOLERANCE
+                        or not _bypass_opening_candidate_feasible(
+                            landing, candidate, ctx
+                        )
+                        or not spans_share_corridor(
+                            *sorted(
+                                (
+                                    landing.opening_turn_segment[0][1],
+                                    landing.opening_turn_segment[1][1],
+                                )
+                            ),
+                            *sorted(
+                                (
+                                    moved_flank_segment[0][1],
+                                    moved_flank_segment[1][1],
+                                )
+                            ),
+                        )
+                        or _direction(
+                            (candidate, landing.join_point[1]), landing.join_point
+                        )
+                        is not landing.approach_direction
+                    ):
+                        break
+                    reseated = _reseat_landing_opening(
+                        landing, candidate, ctx.curve_radius
+                    )
+                    if reseated is None:
+                        break
+                    reseated_segment = reseated.opening_turn_segment
+                    assert reseated_segment is not None
+                    if (
+                        landing.bypass
+                        and abs(reseated_segment[1][1] - reseated.join_point[1])
+                        > COORD_TOLERANCE
+                    ):
+                        reseated = replace(
+                            reseated,
+                            minimum_runway=_bypass_tail_runway(landing, ctx),
+                        )
+                    moved_landings[rank] = reseated
+                else:
+                    moved = replace(moved, landings=tuple(moved_landings))
+                    moved_channels = tuple(
+                        channel
+                        for channel in _plan_gap_channels(moved, ctx.graph, lookup)
+                        if channel.flank_rank == 3
+                        and channel.claimant_member_ids & claimant_ids
+                    )
+                    if moved_channels and all(
+                        _channel_inside_gap(ctx.graph, channel)
+                        and not any(
+                            _gap_channels_crowd(channel, obstacle)
+                            for obstacle in obstacles
+                        )
+                        for channel in moved_channels
+                    ):
+                        plan = moved
+                        axis = moved_axis
+                        target_flank = candidate
+                        target_flank_segment = moved_flank_segment
+                        landings = moved_landings
+                        break
+        settled.append(replace(plan, landings=tuple(landings)))
+    return tuple(settled)
+
+
+def _separate_cross_plan_terminal_approaches(
+    plans: tuple[ConvergencePlan, ...], ctx: _RoutingCtx
+) -> tuple[ConvergencePlan, ...]:
+    """Nest a returning bypass outside a distinct direct terminal approach."""
+
+    def horizontal_tail(landing: ConvergenceLanding) -> _Segment | None:
+        tail = _bypass_landing_tail(landing, ctx)
+        if tail is None:
+            return None
+        return next(
+            (
+                (start, end)
+                for start, end in zip(tail, tail[1:])
+                if abs(start[1] - end[1]) <= COORD_TOLERANCE
+                and abs(start[0] - end[0]) > COORD_TOLERANCE
+            ),
+            None,
+        )
+
+    settled = list(plans)
+    direct_landings = tuple(
+        landing
+        for plan in settled
+        for landing in plan.landings
+        if landing.opening_turn_segment is not None
+        and abs(landing.opening_turn_segment[1][1] - landing.join_point[1])
+        <= COORD_TOLERANCE
+    )
+    for plan_rank, plan in enumerate(tuple(settled)):
+        for landing in plan.landings:
+            if (
+                not landing.bypass
+                or landing.opening_turn_segment is None
+                or abs(landing.opening_turn_segment[1][1] - landing.join_point[1])
+                <= COORD_TOLERANCE
+            ):
+                continue
+            bypass_segment = horizontal_tail(landing)
+            if bypass_segment is None:
+                continue
+            for obstacle in direct_landings:
+                obstacle_segment = horizontal_tail(obstacle)
+                if (
+                    obstacle.edge.line_id == landing.edge.line_id
+                    or obstacle.source_junction_id != landing.source_junction_id
+                    or obstacle_segment is None
+                    or abs(obstacle.join_point[0] - landing.join_point[0])
+                    > COORD_TOLERANCE
+                    or not _parallel_segments_conflict(
+                        bypass_segment, obstacle_segment, COORD_TOLERANCE
+                    )
+                ):
+                    continue
+                entry_id = ctx.merge.entry_port_for.get(landing.edge.target)
+                port = ctx.graph.ports.get(entry_id) if entry_id else None
+                if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                    continue
+                outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+                assert obstacle.opening_turn_coordinate is not None
+                candidate = obstacle.opening_turn_coordinate + outward * (
+                    ctx.curve_radius + ctx.offset_step
+                )
+                if not _bypass_opening_candidate_feasible(landing, candidate, ctx):
+                    continue
+                moved = _move_landing_opening(
+                    settled[plan_rank],
+                    frozenset({landing.member_id}),
+                    candidate,
+                    ctx.curve_radius,
+                )
+                if moved is None:
+                    continue
+                settled[plan_rank] = moved
+                plan = moved
+                landing = next(
+                    item
+                    for item in moved.landings
+                    if item.member_id == landing.member_id
+                )
+                landing = replace(
+                    landing,
+                    minimum_runway=abs(candidate - landing.join_point[0])
+                    - ctx.curve_radius,
+                    bypass_tail_runway=abs(candidate - landing.join_point[0])
+                    - ctx.curve_radius,
+                )
+                moved_landings = tuple(
+                    landing if item.member_id == landing.member_id else item
+                    for item in moved.landings
+                )
+                settled[plan_rank] = plan = replace(moved, landings=moved_landings)
+                bypass_segment = horizontal_tail(landing)
+                if bypass_segment is None:
+                    break
     return tuple(settled)
 
 
@@ -5100,7 +5511,10 @@ def _landing_trunk_flank_conflict(
 
 
 def _landing_trunk_flank_candidates(
-    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    curve_radius: float,
+    translation_envelope: float | Callable[[ConvergenceLanding], float] = 0.0,
 ) -> Iterator[
     tuple[
         ConvergencePlan,
@@ -5123,12 +5537,17 @@ def _landing_trunk_flank_candidates(
                     continue
                 for rank in (1, 3):
                     flank = _trunk_segments(axis)[rank]
+                    envelope = (
+                        translation_envelope(landing)
+                        if callable(translation_envelope)
+                        else translation_envelope
+                    )
                     if (
                         landing.edge.line_id in trunk_plan.line_ids
                         and _direction(*landing_segment)
                         is not _trunk_run_travel_direction(axis, rank)
                         and _parallel_segments_conflict(
-                            landing_segment, flank, curve_radius
+                            landing_segment, flank, curve_radius + envelope
                         )
                     ):
                         yield (
@@ -5200,13 +5619,25 @@ def _column_clearance_requirement(
 
 
 def _landing_trunk_flank_clearance_requirements(
-    plans: tuple[ConvergencePlan, ...], graph: MetroGraph, curve_radius: float
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    curve_radius: float,
 ) -> tuple[BoundaryClearanceRequirement, ...]:
     """Column widths that would make an unseated landing/flank pair feasible."""
     clearance = cotravelling_lane_clearance(
         same_line=True, counter_running=True, curve_radius=curve_radius
     )
     lookup = gap_lookup_geometry(graph)
+    offset_step = graph_offset_step(graph)
+    owned_lane_offsets = {
+        landing.member_id: (len(plan.lane_order) - landing.lane_rank - 1) * offset_step
+        for plan in plans
+        for landing in plan.landings
+    }
+
+    def translation_envelope(landing: ConvergenceLanding) -> float:
+        return owned_lane_offsets[landing.member_id]
+
     widest: dict[int, BoundaryClearanceRequirement] = {}
     for (
         landing_plan,
@@ -5215,7 +5646,9 @@ def _landing_trunk_flank_clearance_requirements(
         trunk_plan,
         rank,
         flank,
-    ) in _landing_trunk_flank_candidates(plans, graph, curve_radius):
+    ) in _landing_trunk_flank_candidates(
+        plans, graph, curve_radius, translation_envelope
+    ):
         if _direction(*landing_segment) not in (Direction.U, Direction.D):
             continue
         axis = trunk_plan.trunk_axis
@@ -5547,10 +5980,11 @@ def _validate_final_convergence_feasibility(
     for system_id, system_plans in plans_by_system.items():
         conflict = _system_conflict(tuple(system_plans), ctx)
         if conflict is not None:
+            available_requirements = _landing_trunk_flank_clearance_requirements(
+                tuple(system_plans), graph, ctx.curve_radius
+            )
             requirements = (
-                _landing_trunk_flank_clearance_requirements(
-                    tuple(system_plans), graph, ctx.curve_radius
-                )
+                available_requirements
                 if allow_clearance_requirements
                 and conflict.kind is ConvergenceConflictKind.NO_APPROACH_SETTLEMENT_ROOM
                 else ()
@@ -5985,6 +6419,7 @@ def _settle_convergence_geometry(
 
     settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
     settled = _separate_distinct_cotravelling_trunks(settled, graph, member_runs)
+    settled = _separate_distinct_counter_running_trunks(settled, graph, member_runs)
     settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
     settled = _settle_shared_opening_pivots(settled, graph)
     settled = _settle_shared_source_openings(settled, ctx.curve_radius)
@@ -6053,6 +6488,9 @@ def _settle_convergence_geometry(
     settled = _fuse_shared_terminal_gap_channels(settled, ctx)
     settled = _separate_distinct_terminal_gap_channels(settled, graph, ctx.curve_radius)
     settled = tuple(_reconcile_bypass_landings(plan, ctx) for plan in settled)
+    settled = _reconcile_landing_handedness(settled, ctx)
+    settled = _separate_distinct_counter_running_trunks(settled, graph, member_runs)
+    settled = _fuse_owned_legacy_terminal_flanks(settled, ctx)
     return _reconcile_landing_handedness(settled, ctx)
 
 
@@ -6116,6 +6554,12 @@ def _settle_convergence_execution(
             else ()
         ),
     )
+    if (
+        member_geometry is not None
+        and not execution.clearance_requirements
+        and not pre_settlement_requirements
+    ):
+        settled = _separate_cross_plan_terminal_approaches(settled, ctx)
     settled = _dogleg_internal_counter_running_feeders(settled, graph, ctx.curve_radius)
     clearance_requirements = execution.clearance_requirements
     if member_geometry is not None:
@@ -6126,6 +6570,13 @@ def _settle_convergence_execution(
             fixed_channels,
             allow_clearance_requirements=allow_clearance_requirements,
         )
+        if allow_clearance_requirements:
+            measured_requirements = (
+                *measured_requirements,
+                *_landing_trunk_flank_clearance_requirements(
+                    settled, graph, ctx.curve_radius
+                ),
+            )
         clearance_requirements = tuple(
             {
                 (item.axis, item.boundary, item.owner_id): item

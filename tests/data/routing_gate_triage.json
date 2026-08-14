@@ -239,14 +239,6 @@
   "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident and by test_a_resident_gives_way_to_a_lane_clear_of_the_flanks_around_it.",
   "status": "needs-review"
  },
- "convergences.py::if (::#10": {
-  "note": "Pre-existing gap, re-keyed from #8 by the gates the restored conflict conditions inserted earlier in the file (same never-executed line, same [0,0] split). Dead sub-block of _settle_opposing_gap_flanks' landing-opening move: its enclosing `if not obstacles:` never takes the has-obstacles arm, so no non-flank plan gap channel is ever crowded by a resident one and nothing below line 3072 runs. What would settle it is a fixture whose settled convergence gap channel crowds a resident member channel of a different line in the same column gap.",
-  "status": "candidate-dead"
- },
- "convergences.py::if (::#15": {
-  "note": "Pre-existing gap, re-keyed from #11 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). validate_convergence_plans' re-check that a landing's join point sits on its plan's own trunk axis and on the trunk route's polyline. The join point is derived from the trunk axis when the plan is built and consume_convergence_route connects the emitted endpoint to it, so taking the raise arm means the planner contradicted its own axis: an engine bug and a hard abort, not a shippable topology.",
-  "status": "defensive"
- },
  "convergences.py::if (::#16": {
   "note": "Pre-existing gap, re-keyed from #12 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). The raise for a covered continuation absent from the carrier member that is recorded as covering it. _reconcile_continuation_ownership only names a carrier whose route already spans the continuation's endpoints, so the raise arm reports an engine bug and aborts the render; no valid topology reaches it.",
   "status": "defensive"
@@ -254,10 +246,6 @@
  "convergences.py::if (::#17": {
   "note": "Pre-existing gap, re-keyed from #13 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,0] split). Never executed rather than half-taken: its enclosing `if continuation.covered_by_member_id is not None:` never takes the None arm on any of the 18 fixtures that validate a planned convergence, so an uncovered outgoing continuation does not exist in this corpus. What would settle it is a topology whose continuation no endpoint owner's route spans, which _reconcile_continuation_ownership would then leave uncovered.",
   "status": "candidate-dead"
- },
- "convergences.py::if (::#4": {
-  "note": "_opposing_landing_approaches' SHARED_APPROACH_CHANNEL condition: two feeders of one line whose approach runs stand on one coordinate travelling against each other. The loop reaches this pair test on 17 fixtures, so the shape of the scan is exercised. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap, at separation 0 with 150px of overlap, so that pass alone is what keeps it silent; the two opening passes account for none of it. Reachable. Reaching it is now a feasibility refusal rather than a change of emitter -- see #1712.",
-  "status": "needs-review"
  },
  "convergences.py::if (::#6": {
   "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and laning moves that run rather than removing it, so the read that names the landing as a resident always finds a segment. The gate guards the Optional that read returns.",
@@ -299,10 +287,6 @@
   "note": "_channels_share_source_carrier's shared-claimant shortcut. Its sole caller is _validate_final_convergence_feasibility, which pairs a convergence plan channel against a frozen member channel; the intersection is non-empty only when the plan's channel names the very member it is compared with, which no corpus fixture produces. Reachable in principle, wants a fixture.",
   "status": "needs-review"
  },
- "convergences.py::if first.member_geometry_owned == second.member_geometry_owned:::#1": {
-  "note": "_channels_share_source_carrier's equal-ownership rejection. Its sole caller always pairs a convergence-owned channel with a member-owned one, so the two flags always differ and the rejection arm is unreachable from that caller. Reachable only if a second caller compares two channels of one owner.",
-  "status": "needs-review"
- },
  "convergences.py::if first_delta * second_delta < 0:::#1": {
   "note": "OPPOSING_OPENING_CHANNEL: two arms of one line that turn on one shared column and then open to opposite sides of their source. Six fixtures reach the test with a genuine shared-opening pair, and in every one the two trunks open the same way, which the code below reads as one stroke branching to several destinations. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap; neutralising _settle_shared_opening_pivots and _settle_shared_source_openings does not, and the pivot pass cannot suppress it in any case because its group key partitions by the travel direction of flank 1. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
   "status": "needs-review"
@@ -331,17 +315,9 @@
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
- "convergences.py::if not obstacles:::#2": {
-  "note": "The ordinal moved when the endpoint check left this condition; the arm is the ordinary no-crowding case _lane_trunk_flanks takes on most plans.",
-  "status": "defensive"
- },
  "convergences.py::if opposing_approaches is not None:::#1": {
   "note": "The refusal arm for the SHARED_APPROACH_CHANNEL conflict _opposing_landing_approaches reports. Un-exercised for exactly the reason that helper's own pair test is (`convergences.py::if (::#4`): the helper is called on 18 fixtures and returns None on every one. Reachable; closing it and closing #4 are the same fixture.",
   "status": "needs-review"
- },
- "convergences.py::if plan.edge in owned_edges:::#1": {
-  "note": "_member_corridor_runs skips a frozen member plan whose edge a convergence already owns, but the two sets are disjoint by construction: build_member_geometry_execution never freezes a plan for an edge in _convergence_member_edges (member_geometry.py:1010), and resolved_member_edges is derived from the same scaffold predicate. 3830 frozen member plans across 348 fixtures, zero hits.",
-  "status": "defensive"
  },
  "convergences.py::if plan.trunk_axis is None:::#1": {
   "note": "_turn_crosses_shared_run's no-trunk-axis skip, a gate the restored conflict conditions added whose ordinal collided with a pre-existing baseline key, so the ratchet acknowledged it without a verdict. Its sole caller is _system_conflict's trunk-pair scan, whose `trunks` tuple is built only from plans with a trunk axis, so the plan handed over always has one.",
@@ -453,10 +429,6 @@
  },
  "inter_section_handlers.py::elif gap_bottom > gap_top:::#1": {
   "note": "Reachable only via a defective render (inter-row corridor on a <78px gap); see #722.",
-  "status": "needs-review"
- },
- "inter_section_handlers.py::if (lo, matched_row, direction) in declared:::#1": {
-  "note": "The un-exercised arm is the fresh declaration, not the dedupe skip: declared is seeded from the slots the handler's targeted _declare_channel calls already made, and on the corpus every gap-landing leg of a frozen frame is one of those, so the sweep only ever skips. The declaration fires where two targeted declarations collapse onto one gap and direction, leaving a third leg holding a gap nothing named -- the case the left-entry corridor and U-bypass call sites are commented for.",
   "status": "needs-review"
  },
  "inter_section_handlers.py::if _corridor_is_viable(ctx, src, ep):::#1": {
@@ -735,10 +707,6 @@
   "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped. Bisecting the range shows 0f58d60c -- ranking member channels over a gap's whole population -- is what makes the claim and the channel coincide on arrival, not the bundle-pitch packing. Reachable; the frozen render corpus means no fixture was authored.",
   "status": "needs-review"
  },
- "member_geometry.py::if abs(coordinate - claim.coordinate) > COORD_TOLERANCE:::#1": {
-  "note": "The rejection inside feasible()'s same-line-carrier clause. Unreached for the same reason as its enclosing gate `if item.candidate.route.line_id in claim.line_ids and (:::#1`. Reachable.",
-  "status": "needs-review"
- },
  "member_geometry.py::if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:::#1": {
   "note": "_candidate_clears_runway's band rejection, unreachable while `if band is not None:::#1` never populates a band on this path. Reachable.",
   "status": "needs-review"
@@ -746,10 +714,6 @@
  "member_geometry.py::if context is not None:::#1": {
   "note": "_convergence_context_route returns None only when ctx.edge_by_key has no entry for the key, and edge_by_key is built from every graph.edge while the key comes from scaffold.edge_order, which is derived from the same edges. Same never-taken lookup as the sibling `if edge is None` guard on the non-convergence path (0 of 141 fixtures).",
   "status": "defensive"
- },
- "member_geometry.py::if item.candidate.route.line_id in claim.line_ids and (::#1": {
-  "note": "feasible()'s same-line-carrier clause, which forbids a candidate delta that would split a carrier the bundle already shares with a claim. No fixture reaches the feasibility search with a same-line source-compatible claim in range: _align_same_line_channels seats such a member on its claim before the bundle allocation runs. Reachable, wants a fixture.",
-  "status": "needs-review"
  },
  "member_geometry.py::if key in ctx.skip_edges:::#1": {
   "note": "Subsumed by the convergence-edge check two lines above. Instrumenting all 348 fixtures: ctx.skip_edges holds exactly one merge-junction->entry-port hop, it is always present in scaffold.edge_order, and it is always also a convergence member edge, so the loop continues at the convergence arm and never tests skip_edges (0 of 141 fixtures). Proposed simplification: drop the two lines. Not applied here -- deletion is a deliberate separate pass, and a skip hop that is not convergence-owned is not ruled out by contract.",
@@ -811,10 +775,6 @@
   "note": "_suboptimal_trunk_bands direction loop: validate-only, not on the render path.",
   "status": "defensive"
  },
- "normalize.py::held[0] - COORD_TOLERANCE < coord < held[1] + COORD_TOLERANCE::#1": {
-  "note": "Held-axis bracket in _run_enters_section, the section-intrusion veto's first test. No corpus separation target lands within a section's extent on the held axis, so the inside arm never fires; the same defensive reasoning as the veto it serves.",
-  "status": "defensive"
- },
  "normalize.py::if (::#1": {
   "note": "The settled exit-turn radius mismatch raises only after construction or a later pass changes a recorded planned corner without updating its concentric inputs. Valid production derives both values together; test_gap_plan_validator_rejects_a_changed_corner_radius exercises both failure flanks.",
   "status": "defensive"
@@ -863,18 +823,6 @@
   "note": "Never re-band a fan traverse across a section it does not belong to: the re-band would draw the traverse through an unrelated box. The corpus reached the crossing arm only through merge_trunk_over_low_section's pre-fix geometry, where a group carrying a member-geometry-owned channel was skipped and its traverses kept coordinates that crossed a foreign section. With the group gated on the coordinates a plan resolves outright, no fixture crosses one, so the guard keeps a real hazard with no corpus witness.",
   "status": "needs-review"
  },
- "normalize.py::if any(::#8": {
-  "note": "Compatibility convergence may not move a planner-owned final channel or reseat a channel through a foreign section. Complete direct-port opposing tails are unplanned and placement reserves their target band; the true arm therefore defends broken ownership or obstruction state. test_planner_owned_opposing_group_is_left_atomic and test_obstructed_opposing_group_is_left_atomic exercise both rejection reasons.",
-  "status": "defensive"
- },
- "normalize.py::if band is not None:::#1": {
-  "note": "Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band).",
-  "status": "defensive"
- },
- "normalize.py::if band is not None:::#2": {
-  "note": "Distinct-line dogleg: the band-found arm (->1327) is exercised by dogleg_exempt_distinct (#702). The remaining band-is-None arm (->1331) is defensive: a trunk reaching this second loop collides with an exempt bypass obstacle that lives in an inter-row gap, so _inter_row_gap_band(ctx, t.y) always resolves to a band - the same mechanism already accepted for the sibling 'if band is not None:::#1'.",
-  "status": "defensive"
- },
  "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1": {
   "note": "Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render.",
   "status": "defensive"
@@ -895,20 +843,12 @@
   "note": "Un-exercised on origin/main too; 897747b0 covered it on 13 fixtures and HEAD is back to main's [0,138] split, so this is a return to main's behaviour rather than a new gap. Reachable by construction (main's baseline lists it as an open gap already). No fixture authored -- the render corpus is frozen for a measurement against main.",
   "status": "needs-review"
  },
- "normalize.py::if down_ok and up_ok and (cross_down is None) != (cross_up is None):::#1": {
-  "note": "Same-line dogleg side selection. The crossing-decided true arm (->1297, pick the side whose riser does not pierce the exempt run) is exercised by dogleg_exempt_sameline. The false fall-through (->1298) needs either an out-of-band side or a crossing-equal tie, neither reachable by a clean topology: the reachable dogleg regime rigidly fixes the inter-row band so down_room/up_room stay >= min_sep=6 (observed 14/26 across the corpus and every constructed variant; perturbing the grid loses the regime), and the only realizable tie is both-cross (a crossing-free tie needs degenerate zero-length exempt risers) which co-occurs with section-crossing / dogleg-crosses-exempt guard failures and is never a shippable render.",
-  "status": "defensive"
- },
  "normalize.py::if feats is None:::#1": {
   "note": "Unused default-arg branch: all three callers of _band_order_crossings pass feats explicitly, so the feats-is-None compute-it arm is never taken.",
   "status": "defensive"
  },
  "normalize.py::if i in relocated:::#1": {
   "note": "Re-entry skip in the co-travelling separation worklist. A track is re-queued only while it is still un-relocated, so the second copy of a track queued twice before its first pop is the only way to reach the skip; across the corpus every re-queued track is popped before it moves, so the taken arm never fires. Defensive against a crowded stack whose neighbours re-queue one track twice, where taking it twice would break the one-move-per-track bound.",
-  "status": "defensive"
- },
- "normalize.py::if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:::#1": {
-  "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, while an alternate attached-source construction or a malformed hand-built route can add points; the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
   "status": "defensive"
  },
  "normalize.py::if k < len(rp.curve_radii) and k + 2 < len(pts):::#1": {

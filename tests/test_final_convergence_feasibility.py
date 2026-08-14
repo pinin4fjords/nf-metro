@@ -296,7 +296,11 @@ def test_seed_15_settles_emitted_bypass_tail_without_column_growth() -> None:
         == ResolvedEdge("__junction_22", "__merge_10", "l1")
     )
 
-    assert observation.plan.boundary_clearance_requirements == ()
+    assert {
+        requirement.boundary
+        for requirement in observation.plan.boundary_clearance_requirements
+        if requirement.description.endswith(" runway")
+    } == {3}
     assert route.points[-2][0] == 800.0
 
 

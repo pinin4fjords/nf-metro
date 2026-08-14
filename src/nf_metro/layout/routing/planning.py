@@ -64,6 +64,41 @@ class RoutePlanningExecution:
     published record is narrowed to planned systems."""
 
 
+def _publish_member_exit_axes(
+    execution: ExitTurnExecution,
+    member_geometry: MemberGeometryExecution,
+) -> ExitTurnExecution:
+    """Publish the exit axes carried by the final immutable member paths."""
+    by_member = {plan.member_id: plan for plan in member_geometry.plans}
+    replacements = {}
+    for exit_plan in execution.plans:
+        axes = []
+        changed = False
+        for axis in exit_plan.axes:
+            coordinates = tuple(
+                member.points[member.exit_turn_segment_rank][axis.axis.point_index]
+                for member_id in axis.claimant_member_ids
+                if (member := by_member.get(member_id)) is not None
+                and member.exit_turn_axis_id == axis.id
+                and member.exit_turn_segment_rank is not None
+            )
+            if not coordinates or any(
+                abs(coordinate - coordinates[0]) > COORD_TOLERANCE
+                for coordinate in coordinates[1:]
+            ):
+                axes.append(axis)
+                continue
+            published = replace(axis, coordinate=coordinates[0])
+            axes.append(published)
+            changed |= published != axis
+        if changed:
+            replacements[exit_plan.id] = replace(exit_plan, axes=tuple(axes))
+    if not replacements:
+        return execution
+    query = execution.query.replacing_plans(replacements)
+    return replace(execution, plans=query.plans, query=query)
+
+
 def _allocation_eligible_system_ids(
     preliminary_planned_ids: frozenset[RouteSystemId],
     member_failure_ids: frozenset[RouteSystemId],
@@ -440,6 +475,8 @@ def prepare_route_system_planning(
         graph,
         curve_radius=ctx.curve_radius,
     )
+    exit_turns = _publish_member_exit_axes(exit_turns, member_geometry)
+    ctx.exit_turns = exit_turns.query
     ctx.convergences = convergences.query
     route_systems = build_route_system_emission_execution(
         scaffold,
