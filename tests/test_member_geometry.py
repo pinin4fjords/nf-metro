@@ -206,9 +206,7 @@ def _assert_channels_equal_emission(observation, plan) -> None:
     route = _route_for_plan(observation, plan)
     assert route.route_system_disposition == "planned"
     assert str(plan.id) in route.route_plan_ids
-    assert route.route_system_owned_segment_ranks == tuple(
-        dict.fromkeys(channel.segment_rank for channel in plan.gap_channels)
-    )
+    assert route.route_system_owned_segment_ranks == plan.owned_segment_ranks
     assert tuple(route.gap_slots) == plan.gap_slots
     for channel in plan.gap_channels:
         assert tuple(route.points[channel.segment_rank : channel.segment_rank + 2]) == (
@@ -236,21 +234,21 @@ def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
         for plan in observation.plan.exit_turn_plans
         if plan.source_id == "__junction_23"
     )
-    assert exit_plan.disposition is ExitTurnDisposition.PLANNED
-    assert exit_plan.legacy_reason is None
+    assert exit_plan.disposition is ExitTurnDisposition.LEGACY
+    assert exit_plan.legacy_reason == "unsupported-subshape:left-exit-right-entry-step"
     assert len(exit_plan.shared_openings) == 1
     opening = (
         (1610.5, 338.0),
         (1600.5, 338.0),
         (1600.5, 186.0),
         (1748.0, 186.0),
-        (1748.0, 616.0),
+        (1748.0, 520.0),
     )
     assert {plan.exit_shared_opening_points for plan in plans} == {opening}
     assert {plan.points[: len(opening)] for plan in plans} == {opening}
     assert {plan.edge.target: plan.points[len(opening) :] for plan in plans} == {
-        "s5__entry_right_16": ((1550.0, 616.0), (1550.0, 504.0), (1478.0, 504.0)),
-        "s6__entry_right_14": ((1286.0, 616.0), (1286.0, 540.0), (1246.0, 540.0)),
+        "s5__entry_right_16": ((1550.0, 520.0), (1550.0, 504.0), (1478.0, 504.0)),
+        "s6__entry_right_14": ((1282.0, 520.0), (1282.0, 540.0), (1246.0, 540.0)),
     }
     for plan in plans:
         assert plan.consumed_reservation_ids == ()
@@ -320,8 +318,8 @@ def test_seed_15_shared_opening_is_line_name_independent() -> None:
         for plan in observation.plan.exit_turn_plans
         if plan.source_id == "__junction_23"
     )
-    assert plan.disposition is ExitTurnDisposition.PLANNED
-    assert plan.legacy_reason is None
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "unsupported-subshape:left-exit-right-entry-step"
     assert len(plan.shared_openings) == 1
 
 
@@ -349,8 +347,14 @@ def test_seed_15_shared_opening_skips_turn_axis_planning(monkeypatch) -> None:
     assert len(plan.shared_openings) == 1
 
 
-def test_exit_turn_plan_rejects_malformed_shared_opening_disposition() -> None:
+def test_shared_opening_does_not_erase_lane_ownership_failure(monkeypatch) -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    original = exit_turns._classify_assignment_seeds
+
+    def decline(*args, **kwargs):
+        return replace(original(*args, **kwargs), legacy_reason="missing-source-turn")
+
+    monkeypatch.setattr(exit_turns, "_classify_assignment_seeds", decline)
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
         graph,
@@ -362,32 +366,9 @@ def test_exit_turn_plan_rejects_malformed_shared_opening_disposition() -> None:
         for plan in observation.plan.exit_turn_plans
         if plan.source_id == "__junction_23"
     )
-    with pytest.raises(ValueError, match="disposition and legacy reason disagree"):
-        replace(plan, disposition=ExitTurnDisposition.LEGACY)
-    with pytest.raises(ValueError, match="disposition and legacy reason disagree"):
-        replace(plan, legacy_reason="malformed")
-
-    legacy = replace(
-        plan,
-        disposition=ExitTurnDisposition.LEGACY,
-        legacy_reason="declined",
-    )
-    member_id = legacy.shared_openings[0].member_ids[0]
-    edge = next(
-        member.edge for member in observation.plan.members if member.id == member_id
-    )
-    query = exit_turns.ExitTurnPlanQuery(
-        (legacy,),
-        MappingProxyType(
-            {
-                (edge.source, edge.target, edge.line_id): exit_turns._Membership(
-                    legacy, member_id, None, None
-                )
-            }
-        ),
-        MappingProxyType({}),
-    )
-    assert query.shared_opening_for_edge(edge) is None
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "missing-source-turn"
+    assert plan.shared_openings == ()
 
 
 def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:

@@ -257,7 +257,12 @@ class RouteMemberGeometryPlan:
         """Physical segments whose coordinates remain immutable after emission."""
         if self.owns_complete_path:
             return tuple(range(len(self.points) - 1))
-        return tuple(dict.fromkeys(item.segment_rank for item in self.gap_channels))
+        opening_ranks = range(max(0, len(self.exit_shared_opening_points) - 1))
+        return tuple(
+            dict.fromkeys(
+                (*opening_ranks, *(item.segment_rank for item in self.gap_channels))
+            )
+        )
 
 
 class EmissionRole(str, Enum):

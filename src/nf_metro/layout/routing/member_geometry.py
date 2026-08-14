@@ -719,6 +719,12 @@ def _route_template(
         )
         if route is None:
             raise MemberGeometryDeclinedError("shared exit opening omitted member")
+        source_section = ctx.graph.sections.get(source.section_id or "")
+        route.declare_trunk_slot(
+            gap_upper_row=(
+                None if source_section is None else max(0, source_section.grid_row - 1)
+            )
+        )
         assert ctx.exit_turns is not None
         membership = ctx.exit_turns.membership_for_edge(edge)
         if membership is not None:

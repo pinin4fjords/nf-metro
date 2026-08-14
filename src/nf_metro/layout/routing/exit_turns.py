@@ -58,6 +58,7 @@ from nf_metro.layout.routing.centrelines import (
 )
 from nf_metro.layout.routing.common import (
     Direction,
+    HTrunkSeg,
     OffsetRegime,
     RoutedPath,
     _vert_horiz_cross,
@@ -285,10 +286,7 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> ExitSharedOpening | None:
         membership = self.membership_for_edge(edge)
-        if (
-            membership is None
-            or membership.plan.disposition is not ExitTurnDisposition.PLANNED
-        ):
+        if membership is None:
             return None
         return next(
             (
@@ -2402,7 +2400,7 @@ def _shared_left_exit_opening(
     resolved_siblings = tuple(route for route in sibling_routes if route is not None)
     target_row = facts[0].tgt_row
     assert target_row is not None and facts[0].src_col is not None
-    barriers = []
+    barriers: list[tuple[RoutedPath, HTrunkSeg]] = []
     for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
         entry_port_id = ctx.merge.entry_port_for.get(merge_id)
         entry_port = (
@@ -2451,12 +2449,12 @@ def _shared_left_exit_opening(
             and horizontal.after_y > entry_section.bbox_y + COORD_TOLERANCE
             and all(crosses(route, trunk) for route in resolved_siblings)
         ):
-            barriers.append(trunk)
+            barriers.append((trunk, horizontal))
             if len(barriers) == 2:
                 return None
     if len(barriers) != 1:
         return None
-    trunk = barriers[0]
+    trunk, barrier = barriers[0]
     outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
     top_y = header_corridor_y(
         graph,
@@ -2465,14 +2463,7 @@ def _shared_left_exit_opening(
         base_radius=ctx.curve_radius,
         default=source.y,
     )
-    target_row = max(fact.tgt_row for fact in facts if fact.tgt_row is not None)
-    branch_y = header_corridor_y(
-        graph,
-        target_row,
-        below=True,
-        base_radius=ctx.curve_radius,
-        default=source.y,
-    )
+    branch_y = max(barrier.y, barrier.before_y, barrier.after_y) + 2 * ctx.curve_radius
     if outer_x <= source.x + ctx.curve_radius or branch_y <= source.y:
         return None
     exit_x = source.x - ctx.curve_radius
@@ -2646,7 +2637,12 @@ def _build_group_plan(
             reason = "family-changed-after-lane-compaction"
         else:
             seeds = final_classification.seeds
-    shared_opening = _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
+    shared_opening_reason = "unsupported-subshape:left-exit-right-entry-step"
+    shared_opening = (
+        _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
+        if reason in {None, shared_opening_reason}
+        else None
+    )
     axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
     if reason is None and shared_opening is None:
         assert run_direction is not None
@@ -2671,11 +2667,6 @@ def _build_group_plan(
         axis_by_member = MappingProxyType({})
         station_ids_by_line = MappingProxyType({})
         lane_transitions = ()
-    if shared_opening is not None:
-        reason = None
-        axes = axis_plan.axes
-        axis_by_member = axis_plan.axis_by_member
-        minimum_runway = axis_plan.minimum_runway
     disposition = (
         ExitTurnDisposition.PLANNED if reason is None else ExitTurnDisposition.LEGACY
     )
