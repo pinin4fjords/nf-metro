@@ -1348,8 +1348,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     return [
         t
         for t in _collect_htrunks(routes, include_exempt=True)
-        if t.route.trunk_slot is not None
-        and not route_system_owns_segment_boundary(t.route, t.idx)
+        if t.route.trunk_slot is not None and not planner_owns_segment(t.route, t.idx)
     ]
 
 

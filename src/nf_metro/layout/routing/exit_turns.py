@@ -2458,6 +2458,34 @@ def _shared_left_exit_opening(
         return None
     trunk, barrier, barrier_section_bottom = barriers[0]
     outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
+    target_x = min(fact.tgt.x for fact in facts)
+    crossing_trunk_bottom = barrier_section_bottom
+    for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
+        trunk_edge = next(
+            (
+                edge
+                for edge in graph.edges_from(trunk_source_id)
+                if edge.target == merge_id and edge.line_id != member_edges[0].line_id
+            ),
+            None,
+        )
+        if trunk_edge is None:
+            continue
+        candidate = _route_merge_trunk(
+            _build_inter_facts(trunk_edge, *graph.edge_endpoints(trunk_edge), ctx)
+        )
+        for _rank, horizontal in iter_horizontal_trunks(candidate):
+            if (
+                min(horizontal.xa, horizontal.xb) < outer_x - COORD_TOLERANCE
+                and target_x < max(horizontal.xa, horizontal.xb) - COORD_TOLERANCE
+                and horizontal.y > source.y + COORD_TOLERANCE
+            ):
+                crossing_trunk_bottom = max(
+                    crossing_trunk_bottom,
+                    horizontal.y,
+                    horizontal.before_y,
+                    horizontal.after_y,
+                )
     top_y = header_corridor_y(
         graph,
         source_section.grid_row,
@@ -2470,7 +2498,7 @@ def _shared_left_exit_opening(
             barrier.y,
             barrier.before_y,
             barrier.after_y,
-            barrier_section_bottom,
+            crossing_trunk_bottom,
         )
         + 2 * ctx.curve_radius
     )

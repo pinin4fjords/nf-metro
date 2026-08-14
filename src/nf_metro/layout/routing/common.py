@@ -2457,6 +2457,7 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         convergence_owns_segment_boundary(route, rank)
         or route.fan_route_emitter is not None
         or member_plan_owns_segment_boundary(route, rank)
+        or rank < len(route.exit_shared_opening_points)
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
