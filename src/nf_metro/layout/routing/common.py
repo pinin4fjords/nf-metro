@@ -1364,6 +1364,22 @@ def iter_eligible_destination_tail_bundles(
         base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
         targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
 
+        # The band is this bundle's own reordering of the corridor, so a target
+        # track can name a lane another line already holds there.  Seating on it
+        # would draw the two lines as one stroke, which the corridor fan the
+        # members arrive on has already spent tracks avoiding; leave them on it.
+        if any(
+            id(sibling.route) not in group_routes
+            and sibling.route.line_id != trunk.route.line_id
+            and sibling.sign_x == trunk.sign_x
+            and abs(sibling.y - targets[trunk.route.line_id]) < step - COORD_TOLERANCE
+            and min(sibling.x_hi, trunk.x_hi) - max(sibling.x_lo, trunk.x_lo)
+            > COORD_TOLERANCE
+            for trunk in trunks.values()
+            for sibling in all_trunks
+        ):
+            continue
+
         clear = True
         for route, _tail in bundle.entries:
             trunk = trunks[route.line_id]
