@@ -695,14 +695,6 @@
   "note": "Distinct-line dogleg move-up/skip branch: unreachable because the below branch is always taken (t.y == hit.y, below_ok true); covers both the move-up and the gap-too-tight continue.",
   "status": "defensive"
  },
- "normalize.py::elif below_ok and (not above_ok or prefer_below):::#1": {
-  "note": "Distinct-line dogleg tie fallback, reached only after L1341 is false (a tie), which a clean topology never produces (see that gate). The true arm (->1344, lean below) would fire on such a tie; the false arm (->1345) is unreachable because below_ok always holds and prefer_below is always true (t.y == hit.y in this regime).",
-  "status": "defensive"
- },
- "normalize.py::elif down_ok and (not up_ok or prefer_down):::#1": {
-  "note": "Same-line dogleg tie / out-of-band fallback, reached only after the L1296 if is false, which a clean topology never produces (see that gate): the true arm (->1299, lean down on a tie) needs a crossing-free tie that requires degenerate risers, and the false arm (->1300) needs down_ok False, which the regime's fixed inter-row band (down_room >= min_sep) never yields.",
-  "status": "defensive"
- },
  "normalize.py::elif far_y < t.y - COORD_TOLERANCE:::#1": {
   "note": "Degenerate-leg guard in _trunk_slot_features: a trunk's flanking legs are genuine vertical legs (far_y differs from the trunk y), so neither the below nor the above classification is skipped; the fall-through arm needs a zero-height leg the layout never produces.",
   "status": "defensive"
