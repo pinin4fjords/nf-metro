@@ -59,10 +59,6 @@
   "note": "A complete entry port assigns every distinct line a unique station-offset slot. Duplicate port-Y values therefore require a malformed route set that bypassed station offset allocation; test_invalid_opposing_candidate_is_rejected[duplicate-port-slot] exercises the rejection directly.",
   "status": "defensive"
  },
- "common.py::if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:::#1": {
-  "note": "A complete destination bundle receives one contiguous n-slot channel band from gap materialization, so its peel-X extent cannot exceed (n-1)*step. The wider-band arm protects hand-built or corrupted route geometry and is exercised by test_invalid_opposing_candidate_is_rejected[noncontiguous-channel-band].",
-  "status": "defensive"
- },
  "common.py::if n == 0:::#1": {
   "note": "Empty-bundle guard: all callers (normalize.py 291/1648, inter_section_handlers.py 783/796/2132) derive bundle_widths from a non-empty bundle line count, so n is always >=1; the empty-list arm is never taken.",
   "status": "defensive"
@@ -134,10 +130,6 @@
  "common.py::if top is None or bottom is None:::#1": {
   "note": "Defensive in iter_inter_row_gaps (consumed by inter_row_gap_upper_row and _inter_row_gap_band): adjacent rows in the sorted section-row set both contain sections, so row_bottom_edge / row_top_edge resolve; the None skip arm guards a row with no sections that the iteration never yields.",
   "status": "defensive"
- },
- "common.py::if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:::#1": {
-  "note": "Degenerate single-Y trunk band in iter_port_peeloff_bundles: a peel-off bundle is yielded only when its members ride trunks at distinct depths, so the equal-depth arm guards a same-Y bundle the trunk-slot materialization never leaves; render-diff confirms no visual change.",
-  "status": "needs-review"
  },
  "context.py::if edge.line_id in line_pos:::#1": {
   "note": "line_pos is built from the line IDs of the very all_outgoing list this loop iterates, so the membership test is always true: the reject/loop-back arm (L684) is an unreachable tautology and the enter-body static arc (L686) is a phantom of the real 685->687. Vestigial tautological guard. The deliberate gap is pinned by test_genuine_dead_arm_not_masked_as_covered (arc normalization must not merge the never-taken branch onto the live one). Reclassified defensive (#762).",
@@ -225,14 +217,6 @@
  },
  "convergences.py::for seat, obstacle in obstacles:::#1": {
   "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident and by test_a_resident_gives_way_to_a_lane_clear_of_the_flanks_around_it.",
-  "status": "needs-review"
- },
- "convergences.py::if (::#6": {
-  "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and laning moves that run rather than removing it, so the read that names the landing as a resident always finds a segment. The gate guards the Optional that read returns.",
-  "status": "defensive"
- },
- "convergences.py::if not moved_channels or any(::#1": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
  "convergences.py::if axis is None or axis.axis is not DemandAxis.X:::#3": {
@@ -699,10 +683,6 @@
   "note": "Bounded fixed-point repair for coincident corner radii. Production routes settle without a second correction pass; the multi-bucket propagation and loop-exhaustion paths are exercised directly by test_unify_refreshes_a_shared_route_after_changing_one_corner.",
   "status": "defensive"
  },
- "normalize.py::for _step in range(64):::#1": {
-  "note": "Fixed-iteration bisection used only when a defensive coincident-radius repair must lower one route. The correction and completed bisection are exercised by test_unify_uses_widest_radius_all_shared_legs_can_resolve.",
-  "status": "defensive"
- },
  "normalize.py::for grp in groups:::#3": {
   "note": "_suboptimal_trunk_bands diagnostic loop: validate-only, not reached by the render-path coverage sweep (see the len(trunks)<2 note).",
   "status": "defensive"
@@ -727,10 +707,6 @@
   "note": "_clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns.",
   "status": "defensive"
  },
- "normalize.py::if abs(delta) <= COORD_TOLERANCE:::#2": {
-  "note": "_snap_merge_feeder_group skips a merge feeder whose opening descent already sits on the trunk's shared column (no shift needed). The corpus's merge feeders all reach the trunk from a distinct column, so the already-coincident skip arm stays un-exercised. Defensive and idempotent across the routing replays a render performs.",
-  "status": "defensive"
- },
  "normalize.py::if abs(ly - pts[1][1]) < COORD_TOLERANCE:::#1": {
   "note": "A re-stacked gap channel at points-index 1 always has a horizontal lead-in (L-shape and bypass routes open with a horizontal segment); routes opening non-horizontally are normalize_exempt and skipped by the materialization. The non-horizontal-lead return in _restack_channel is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
@@ -741,10 +717,6 @@
  },
  "normalize.py::if abs(turn[1] - start[1]) > COORD_TOLERANCE or abs(dx) <= COORD_TOLERANCE:::#1": {
   "note": "The opening segment before a declared same-source divergence channel is a non-degenerate horizontal run by construction. The non-horizontal or zero-length arm defensively rejects a route shape that cannot provide a shared trunk endpoint.",
-  "status": "defensive"
- },
- "normalize.py::if actual - common <= COORD_TOLERANCE_FINE:::#1": {
-  "note": "Production coincident turns have enough shared runway after planning and already resolve to the same radius. The correction arm is a defensive repair for directly supplied or future route geometry and is exercised by the coincident-corner unit tests.",
   "status": "defensive"
  },
  "normalize.py::if allocated_offsets is None or allocated_bases is None:::#1": {
@@ -807,10 +779,6 @@
   "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
   "status": "defensive"
  },
- "normalize.py::if not changed:::#1": {
-  "note": "The production corpus reaches the immediate fixed point because coincident members already share an effective radius. The continue-for-propagation arm is a defensive repair path covered by test_unify_refreshes_a_shared_route_after_changing_one_corner.",
-  "status": "defensive"
- },
  "normalize.py::if not verticals:::#1": {
   "note": "Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597).",
   "status": "defensive"
@@ -821,14 +789,6 @@
  },
  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
   "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
-  "status": "defensive"
- },
- "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
-  "note": "The routing system assigns distinct x offsets to every line sharing a column gap, so two distinct lines in one gap-bundle corridor never share a representative x; the equal-rep_x tiebreak fall-through in _distinct_line_order is unreachable (exhaustive corpus scan confirms). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
- "normalize.py::if resolved < common:::#1": {
-  "note": "Both bisection directions belong to the defensive coincident-radius repair rather than ordinary topology dispatch. The short-runway unit case exercises the search and verifies the final common effective radius.",
   "status": "defensive"
  },
  "normalize.py::if route.curve_radii is None or membership is None:::#1": {
@@ -891,10 +851,6 @@
   "note": "This arm (single_exit=False due to multiple distinct exit ports feeding one junction) requires one junction to receive edges from two different exit ports. But _rewrite_edges_with_junctions in resolve.py creates exactly one junction per exit port fan-out, wired exclusively from that exit port's edges. A junction always has a single upstream exit port; the elif is structurally unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
  },
- "offsets.py::for _ in range(max_iterations):::#1": {
-  "note": "The iteration budget of _reconcile_horizontal_offsets. Its exhausted-without-break arm needs a corpus fixture whose offsets never settle within ten sweeps; every fixture reaches a fixed point and breaks out early, so the bound is a non-termination backstop rather than a reachable path.",
-  "status": "defensive"
- },
  "offsets.py::for other in lines:::#1": {
   "note": "In _reorder_one_exit_line, the loop over `lines` always finds the swap partner: desired_off is the min or max of all_offs, which by construction is held by another line, so the loop-exhausted-without-match arm is never taken (0/128). Defensive. Reclassified defensive (#762).",
   "status": "defensive"
@@ -914,10 +870,6 @@
  "offsets.py::if abs(nbr_cur - new_off) < _OFFSET_EQ_TOLERANCE:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
   "status": "needs-review"
- },
- "offsets.py::if any(::#4": {
-  "note": "This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state.",
-  "status": "defensive"
  },
  "offsets.py::if cur in seen:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
@@ -948,7 +900,7 @@
   "status": "defensive"
  },
  "offsets.py::if lid not in seen:::#1": {
-  "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable \u2014 the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
+  "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable — the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
  },
  "offsets.py::if local_offset is None or not (::#1": {
@@ -1135,10 +1087,6 @@
   "note": "Optional-boundary convenience for callers carrying an unresolved grid index (_left_exit_wrap_over_top_y takes tgt_row: int | None). Such a caller returns before it needs a band -- with no target row there is no gap above it to measure, so the wrap is rejected first -- leaving this arm a type-level accommodation no topology reaches.",
   "status": "defensive"
  },
- "reserved_bands.py::if realised is None:::#1": {
-  "note": "realise_reservation returns None only for a canvas-side corridor measured without canvas bounds; this loop has already narrowed to row-gap or column-gap claims, which always measure. The arm satisfies the optional return type rather than a reachable state.",
-  "status": "defensive"
- },
  "reserved_bands.py::if self.allocation is not None and not math.isfinite(self.allocation):::#1": {
   "note": "Published allocations originate from finite observed route coordinates plus finite reservation translations. A non-finite value can only reach ReservedBand through malformed direct construction; the guard keeps invalid coordinates out of planner seating.",
   "status": "defensive"
@@ -1193,6 +1141,14 @@
  },
  "tb_handlers.py::if tgt_sec is not None and tgt_sec.direction not in (\"TB\", \"BT\"):::#1": {
   "note": "Perp-entry drop crossing-X override: the edge's target is always a sectioned station, so tgt_sec resolves and the `tgt_sec is None` short-circuit to the plain drop is never taken; the `direction in (TB, BT)` arm (a drop continuing into a vertical-flow trunk) and the horizontal-target arm are both exercised.",
+  "status": "defensive"
+ },
+ "offsets.py::for _ in range(max_iterations):::#1": {
+  "note": "The iteration budget of _reconcile_horizontal_offsets. Its exhausted-without-break arm needs a corpus fixture whose offsets never settle within ten sweeps; every fixture reaches a fixed point and breaks out early, so the bound is a non-termination backstop rather than a reachable path.",
+  "status": "defensive"
+ },
+ "offsets.py::if any(::#4": {
+  "note": "This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state.",
   "status": "defensive"
  }
 }
