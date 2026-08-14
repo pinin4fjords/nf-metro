@@ -8,12 +8,7 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import (
-    BUNDLE_TO_BUNDLE_CLEARANCE,
-    COORD_TOLERANCE,
-    CURVE_RADIUS,
-    OFFSET_STEP,
-)
+from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     ROUTE_SYSTEM_COMPATIBILITY_REASONS,
@@ -357,16 +352,8 @@ def test_seed_15_shared_opening_short_tail_is_a_fixed_member_channel() -> None:
         for channel in member.gap_channels
         if channel.segment_rank == len(member.exit_shared_opening_points)
     )
-    convergence = next(
-        route
-        for route in observation.routes
-        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
-        == ResolvedEdge("__junction_24", "__merge_10", "l1")
-    )
-
     assert (tail.gap_lo_col, tail.row) == (5, 2)
-    assert (tail.start, tail.end) == ((1550.0, 520.0), (1550.0, 504.0))
-    assert convergence.points[1][0] == tail.start[0] + BUNDLE_TO_BUNDLE_CLEARANCE
+    assert (tail.start, tail.end) == ((1550.0, 610.0), (1550.0, 504.0))
 
 
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:

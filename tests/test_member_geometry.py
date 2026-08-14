@@ -242,13 +242,13 @@ def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
         (1600.5, 338.0),
         (1600.5, 186.0),
         (1748.0, 186.0),
-        (1748.0, 520.0),
+        (1748.0, 610.0),
     )
     assert {plan.exit_shared_opening_points for plan in plans} == {opening}
     assert {plan.points[: len(opening)] for plan in plans} == {opening}
     assert {plan.edge.target: plan.points[len(opening) :] for plan in plans} == {
-        "s5__entry_right_16": ((1550.0, 520.0), (1550.0, 504.0), (1478.0, 504.0)),
-        "s6__entry_right_14": ((1282.0, 520.0), (1282.0, 540.0), (1246.0, 540.0)),
+        "s5__entry_right_16": ((1550.0, 610.0), (1550.0, 504.0), (1478.0, 504.0)),
+        "s6__entry_right_14": ((1286.0, 610.0), (1286.0, 540.0), (1246.0, 540.0)),
     }
     for plan in plans:
         assert plan.consumed_reservation_ids == ()

@@ -2400,7 +2400,7 @@ def _shared_left_exit_opening(
     resolved_siblings = tuple(route for route in sibling_routes if route is not None)
     target_row = facts[0].tgt_row
     assert target_row is not None and facts[0].src_col is not None
-    barriers: list[tuple[RoutedPath, HTrunkSeg]] = []
+    barriers: list[tuple[RoutedPath, HTrunkSeg, float]] = []
     for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
         entry_port_id = ctx.merge.entry_port_for.get(merge_id)
         entry_port = (
@@ -2449,12 +2449,14 @@ def _shared_left_exit_opening(
             and horizontal.after_y > entry_section.bbox_y + COORD_TOLERANCE
             and all(crosses(route, trunk) for route in resolved_siblings)
         ):
-            barriers.append((trunk, horizontal))
+            barriers.append(
+                (trunk, horizontal, entry_section.bbox_y + entry_section.bbox_h)
+            )
             if len(barriers) == 2:
                 return None
     if len(barriers) != 1:
         return None
-    trunk, barrier = barriers[0]
+    trunk, barrier, barrier_section_bottom = barriers[0]
     outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
     top_y = header_corridor_y(
         graph,
@@ -2463,7 +2465,15 @@ def _shared_left_exit_opening(
         base_radius=ctx.curve_radius,
         default=source.y,
     )
-    branch_y = max(barrier.y, barrier.before_y, barrier.after_y) + 2 * ctx.curve_radius
+    branch_y = (
+        max(
+            barrier.y,
+            barrier.before_y,
+            barrier.after_y,
+            barrier_section_bottom,
+        )
+        + 2 * ctx.curve_radius
+    )
     if outer_x <= source.x + ctx.curve_radius or branch_y <= source.y:
         return None
     exit_x = source.x - ctx.curve_radius
