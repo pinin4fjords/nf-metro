@@ -2182,14 +2182,11 @@ def build_member_geometry_execution(
         # pass, and over the same whole gap population the passes above ranked --
         # a bundle carrying an immutable convergence stroke is pinned by it, and
         # holding the candidates alone would slide them off that stroke.
-        tail_ctx = replace(
-            ctx,
-            destination_tail_movable_route_ids=complete_path_route_ids,
-        )
         settled_tail_segments = (
             normalize._bundle_same_destination_tails(
                 normalization_population,
-                tail_ctx,
+                ctx,
+                movable_route_ids=complete_path_route_ids,
             )
             or frozenset()
         )

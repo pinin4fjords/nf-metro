@@ -1128,9 +1128,10 @@ def _collect_htrunks(
 def _bundle_same_destination_tails(
     routes: list[RoutedPath],
     ctx: _RoutingCtx,
+    *,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> frozenset[tuple[int, int]]:
     """Seat eligible same-port destination tails on one eager concentric band."""
-    movable_route_ids = ctx.destination_tail_movable_route_ids
     settled_segments: set[tuple[int, int]] = set()
     for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
@@ -2957,7 +2958,7 @@ def _bundle_divergent_distinct_descents(
         # fan legs can leave an empty interior lane there, which widens the
         # peel-x span past a tight bundle, so this pass would otherwise claim them.
         junction_owned = all(
-            channel.route.edge.source.startswith("__junction_") for channel in chans
+            channel.route.edge.source in ctx.graph.junctions for channel in chans
         )
         targets = {c.route.edge.target for c in chans}
         if len(targets) == 1:
@@ -2987,7 +2988,7 @@ def _bundle_divergent_distinct_descents(
             for lid, line_channels in by_line.items()
         }
         if max(source_y.values()) - min(source_y.values()) > COORD_TOLERANCE and all(
-            not channel.route.edge.target.startswith("__merge_") for channel in chans
+            channel.route.edge.target not in ctx.merge.junctions for channel in chans
         ):
             # A direct destination branch keeps the source bundle's lane order
             # through this turn. A merge arm has another topology-owned turn
