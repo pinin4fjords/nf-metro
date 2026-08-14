@@ -1193,7 +1193,9 @@ def _semantic_end_corner_cohorts(
         list[_SemanticEndCorner],
     ] = defaultdict(list)
     for route in routes:
-        if route.curve_radii is None or len(route.points) < 3:
+        # A route states one radius per turn; an unsettled mid-pipeline route
+        # can carry fewer, and its corners then have no radius to size.
+        if route.curve_radii is None or len(route.curve_radii) != len(route.points) - 2:
             continue
         points = apply_route_offsets(route, station_offsets)
         corners: list[tuple[int, Direction, Direction]] = []
