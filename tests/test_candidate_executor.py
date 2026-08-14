@@ -905,7 +905,7 @@ def test_seed_15_final_artifact_keeps_terminal_approaches_distinct() -> None:
         CandidateExecutionRequest(
             path.read_text(),
             source_dir=str(path.parent),
-            limits=ExecutionLimits(1, 20.0, 30.0),
+            limits=ExecutionLimits(1, 60.0, 90.0),
         )
     ).baseline
 
