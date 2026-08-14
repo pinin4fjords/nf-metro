@@ -34,6 +34,7 @@ from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
     build_member_geometry_execution,
     empty_member_geometry_execution,
+    settle_shared_opening_trunk_conflicts,
 )
 from nf_metro.layout.routing.system_emission import (
     RouteSystemEmissionExecution,
@@ -432,6 +433,12 @@ def prepare_route_system_planning(
         planned_system_ids=allocation_planned_ids,
         include_resources=False,
         allow_clearance_requirements=allow_convergence_clearance_requirements,
+    )
+    member_geometry = settle_shared_opening_trunk_conflicts(
+        member_geometry,
+        convergences.plans,
+        graph,
+        curve_radius=ctx.curve_radius,
     )
     ctx.convergences = convergences.query
     route_systems = build_route_system_emission_execution(

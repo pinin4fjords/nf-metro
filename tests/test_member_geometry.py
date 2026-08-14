@@ -256,6 +256,95 @@ def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
         _assert_channels_equal_emission(observation, plan)
 
 
+def test_seed_15_settles_member_clear_of_shared_opening_and_convergence() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    movable = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_24", "s6__entry_right_14", "l1")
+    )
+    fixed = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+    )
+    landing = next(
+        landing
+        for plan in observation.plan.convergence_plans
+        for landing in plan.landings
+        if landing.edge == ResolvedEdge("__junction_25", "__merge_9", "l0")
+    )
+
+    assert movable.gap_channels[0].start[0] == 1534.0
+    assert fixed.gap_channels[-1].start[0] == 1550.0
+    assert landing.minimum_runway == 52.0
+    assert landing.opening_turn_coordinate - landing.join_point[0] == 52.0
+
+
+@pytest.mark.parametrize("mirror", (1.0, -1.0))
+def test_shared_opening_settlement_supports_both_target_flanks(mirror) -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    selected = tuple(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge
+        in {
+            ResolvedEdge("__junction_23", "s5__entry_right_16", "l2"),
+            ResolvedEdge("__junction_24", "s6__entry_right_14", "l1"),
+        }
+    )
+
+    def mirrored(plan, *, movable=False):
+        points = tuple((mirror * x, y) for x, y in plan.points)
+        if movable:
+            points = tuple(
+                (mirror * 1542.0, y) if rank in {1, 2} else point
+                for rank, (point, (_x, y)) in enumerate(zip(points, plan.points))
+            )
+        return replace(
+            plan,
+            points=points,
+            exit_shared_opening_points=tuple(
+                (mirror * x, y) for x, y in plan.exit_shared_opening_points
+            ),
+            gap_channels=tuple(
+                replace(
+                    channel,
+                    start=points[channel.segment_rank],
+                    end=points[channel.segment_rank + 1],
+                )
+                for channel in plan.gap_channels
+            ),
+        )
+
+    plans = tuple(
+        mirrored(plan, movable=plan.edge.line_id == "l1") for plan in selected
+    )
+    execution = member_geometry.MemberGeometryExecution(
+        plans,
+        MappingProxyType({}),
+        MappingProxyType({plan.edge: plan for plan in plans}),
+    )
+    settled = member_geometry.settle_shared_opening_trunk_conflicts(
+        execution, (), graph, curve_radius=CURVE_RADIUS
+    )
+    movable = next(plan for plan in settled.plans if plan.edge.line_id == "l1")
+
+    assert movable.gap_channels[0].start[0] == mirror * 1538.0
+
+
 def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
     monkeypatch,
 ) -> None:

@@ -202,6 +202,178 @@ def empty_member_geometry_execution() -> MemberGeometryExecution:
     return MemberGeometryExecution((), MappingProxyType({}), MappingProxyType({}))
 
 
+def settle_shared_opening_trunk_conflicts(
+    execution: MemberGeometryExecution,
+    convergence_plans: Sequence[ConvergencePlan],
+    graph: MetroGraph,
+    *,
+    curve_radius: float,
+) -> MemberGeometryExecution:
+    """Move a member flank clear of a settled shared-opening trunk endpoint."""
+    convergence_member_ids = frozenset(
+        member_id for plan in convergence_plans for member_id in plan.member_ids
+    )
+    fixed_claims = tuple(
+        (
+            plan,
+            channel,
+            plan.points[channel.segment_rank - 1],
+            plan.points[channel.segment_rank],
+        )
+        for plan in execution.plans
+        if plan.exit_shared_opening_points and plan.trunk_slot is not None
+        for channel in plan.gap_channels
+        if channel.segment_rank == len(plan.exit_shared_opening_points)
+        and channel.segment_rank > 0
+        and abs(
+            plan.points[channel.segment_rank - 1][1]
+            - plan.points[channel.segment_rank][1]
+        )
+        <= COORD_TOLERANCE
+    )
+    if not fixed_claims:
+        return execution
+
+    from nf_metro.layout.routing import convergences
+
+    lookup = convergences.gap_lookup_geometry(graph)
+    convergence_channels = tuple(
+        channel
+        for convergence in convergence_plans
+        if convergence.owns_geometry
+        for channel in convergences._plan_gap_channels(convergence, graph, lookup)
+    )
+
+    plans: list[RouteMemberGeometryPlan] = []
+    changed = False
+    for plan in execution.plans:
+        if (
+            plan.member_id in convergence_member_ids
+            or plan.exit_shared_opening_points
+            or plan.fan_plan_id is not None
+        ):
+            plans.append(plan)
+            continue
+        points = list(plan.points)
+        moved_ranks: set[int] = set()
+        for channel in plan.gap_channels:
+            rank = channel.segment_rank
+            movable_x = points[rank][0]
+            y_lo, y_hi = sorted((points[rank][1], points[rank + 1][1]))
+            for fixed_plan, fixed_channel, interior, endpoint in fixed_claims:
+                if (
+                    fixed_plan.edge.line_id == plan.edge.line_id
+                    or (fixed_channel.gap_lo_col, fixed_channel.row)
+                    != (channel.gap_lo_col, channel.row)
+                    or fixed_channel.direction is channel.direction
+                    or not y_lo + COORD_TOLERANCE < endpoint[1] < y_hi - COORD_TOLERANCE
+                ):
+                    continue
+                interior_delta = interior[0] - endpoint[0]
+                movable_delta = movable_x - endpoint[0]
+                clearance = cotravelling_lane_clearance(
+                    same_line=False,
+                    counter_running=True,
+                    curve_radius=curve_radius,
+                )
+                if (
+                    interior_delta * movable_delta >= 0
+                    or abs(movable_delta) >= clearance - COORD_TOLERANCE_FINE
+                ):
+                    continue
+                flank_sign = -1.0 if movable_delta < 0 else 1.0
+                candidate_x = endpoint[0] + flank_sign * clearance
+                obstacles = [
+                    (
+                        obstacle.coordinate,
+                        obstacle.y_lo,
+                        obstacle.y_hi,
+                        obstacle.down,
+                        plan.edge.line_id in obstacle.line_ids,
+                    )
+                    for obstacle in convergence_channels
+                    if obstacle.gap == (channel.gap_lo_col, channel.row)
+                ]
+                obstacles.extend(
+                    (
+                        obstacle.start[0],
+                        min(obstacle.start[1], obstacle.end[1]),
+                        max(obstacle.start[1], obstacle.end[1]),
+                        obstacle.direction is Direction.D,
+                        other.edge.line_id == plan.edge.line_id,
+                    )
+                    for other in execution.plans
+                    if other.member_id != plan.member_id
+                    for obstacle in other.gap_channels
+                    if (obstacle.gap_lo_col, obstacle.row)
+                    == (channel.gap_lo_col, channel.row)
+                )
+                for (
+                    obstacle_x,
+                    obstacle_lo,
+                    obstacle_hi,
+                    obstacle_down,
+                    same_line,
+                ) in sorted(obstacles, key=lambda item: flank_sign * item[0]):
+                    if (
+                        min(y_hi, obstacle_hi) - max(y_lo, obstacle_lo)
+                        <= MIN_CORRIDOR_Y_OVERLAP
+                    ):
+                        continue
+                    required = cotravelling_lane_clearance(
+                        same_line=same_line,
+                        counter_running=(channel.direction is Direction.D)
+                        is not obstacle_down,
+                        curve_radius=curve_radius,
+                    )
+                    if abs(candidate_x - obstacle_x) < required - COORD_TOLERANCE_FINE:
+                        candidate_x = obstacle_x + flank_sign * required
+                before = points[rank - 1] if rank > 0 else None
+                after = points[rank + 2] if rank + 2 < len(points) else None
+                if (
+                    before is None
+                    or after is None
+                    or abs(before[0] - candidate_x) < curve_radius - COORD_TOLERANCE
+                    or abs(after[0] - candidate_x) < curve_radius - COORD_TOLERANCE
+                ):
+                    continue
+                points[rank] = (candidate_x, points[rank][1])
+                points[rank + 1] = (candidate_x, points[rank + 1][1])
+                moved_ranks.add(rank)
+                movable_x = candidate_x
+                break
+        if not moved_ranks:
+            plans.append(plan)
+            continue
+        changed = True
+        plans.append(
+            replace(
+                plan,
+                points=tuple(points),
+                gap_channels=tuple(
+                    replace(
+                        channel,
+                        start=points[channel.segment_rank],
+                        end=points[channel.segment_rank + 1],
+                    )
+                    if channel.segment_rank in moved_ranks
+                    else channel
+                    for channel in plan.gap_channels
+                ),
+            )
+        )
+    if not changed:
+        return execution
+    frozen_plans = tuple(plans)
+    return MemberGeometryExecution(
+        frozen_plans,
+        execution.failure_reasons,
+        MappingProxyType({plan.edge: plan for plan in frozen_plans}),
+        execution.settled_exit_turns,
+        execution.reconciled_member_ids,
+    )
+
+
 def _allocated_turn(
     route: RoutedPath,
     run_direction: Direction | None,
