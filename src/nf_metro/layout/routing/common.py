@@ -873,6 +873,11 @@ def apply_route_offsets(
     tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
     orig_sy = route.points[0][1]
     orig_ty = route.points[-1][1]
+    orig_sx = route.points[0][0]
+    orig_tx = route.points[-1][0]
+    # A same-row route leaves the vertical distance degenerate, so its
+    # interior points split at the nearer endpoint along the travel axis.
+    same_row = abs(orig_sy - orig_ty) <= COORD_TOLERANCE
     last = len(route.points) - 1
     pts: list[tuple[float, float]] = []
     for i, (x, y) in enumerate(route.points):
@@ -880,7 +885,11 @@ def apply_route_offsets(
             pts.append((x, y + src_off))
         elif i == last:
             pts.append((x, y + tgt_off))
-        elif abs(y - orig_sy) <= abs(y - orig_ty):
+        elif (
+            abs(x - orig_sx) <= abs(x - orig_tx)
+            if same_row
+            else abs(y - orig_sy) <= abs(y - orig_ty)
+        ):
             pts.append((x, y + src_off))
         else:
             pts.append((x, y + tgt_off))

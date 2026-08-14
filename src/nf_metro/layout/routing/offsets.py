@@ -3376,6 +3376,13 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
         if abs(ctx.graph.stations[edge.source].y - ctx.graph.stations[edge.target].y)
         <= _SAME_Y_TOLERANCE
     ]
+    flat_section_partners: dict[tuple[str, str], list[str]] = {}
+    for edge, same_section in candidates:
+        if not same_section:
+            continue
+        lid = edge.line_id
+        flat_section_partners.setdefault((edge.source, lid), []).append(edge.target)
+        flat_section_partners.setdefault((edge.target, lid), []).append(edge.source)
 
     for _ in range(max_iterations):
         changed = False
@@ -3398,11 +3405,21 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     # mismatch, but its endpoints feed fan, dogleg, and
                     # corridor geometry planned from their lanes, so only an
                     # endpoint whose lane is the whole story -- a single-line
-                    # port -- may move to meet its partner.
+                    # port -- may move to meet its partner.  A port whose flat
+                    # in-section run rides another lane stays with that run:
+                    # snapping it would trade the seam slope for a slope on
+                    # the station row, and the straight-connector ramp absorbs
+                    # the seam mismatch instead.
                     def _movable(sid: str) -> bool:
-                        return (
-                            sid in ctx.graph.ports
-                            and len(ctx.graph.station_lines(sid)) == 1
+                        if (
+                            sid not in ctx.graph.ports
+                            or len(ctx.graph.station_lines(sid)) != 1
+                        ):
+                            return False
+                        return all(
+                            ctx.offsets.get((partner, lid), 0.0) == candidate
+                            or not _would_collide(ctx, partner, lid, candidate)
+                            for partner in flat_section_partners.get((sid, lid), ())
                         )
 
                     if (src_moves and not _movable(edge.source)) or (
