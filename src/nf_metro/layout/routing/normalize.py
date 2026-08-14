@@ -91,7 +91,11 @@ from nf_metro.layout.routing.families import (
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
-from nf_metro.layout.routing.orientation import direction_vector
+from nf_metro.layout.routing.orientation import (
+    direction_axis,
+    direction_vector,
+    get_point_coordinate,
+)
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     corridor_clearance_band,
@@ -1171,12 +1175,19 @@ class _SemanticEndCorner(NamedTuple):
     outgoing: tuple[int, int]
 
 
-def _rederive_semantic_end_corners(
+def _semantic_end_corner_cohorts(
     routes: list[RoutedPath],
-    curve_radius: float,
     station_offsets: Mapping[tuple[str, str], float],
-) -> None:
-    """Size wholesale-translated source and landing corner cohorts."""
+) -> dict[tuple[str, str, Direction, Direction], list[_SemanticEndCorner]]:
+    """Group every route's turns by the relation that can make them one family.
+
+    A turn joins its source's and its target's cohort at the ends of a route
+    and an ordinal-keyed cohort in between.  It also joins a cohort keyed by
+    the *place* its final leg reaches: lanes of one bundle can land on routes
+    named by different targets - a merge junction alongside the entry port it
+    sits at - and the target owner alone would split a family that turns
+    together.
+    """
     cohorts: defaultdict[
         tuple[str, str, Direction, Direction],
         list[_SemanticEndCorner],
@@ -1198,14 +1209,15 @@ def _rederive_semantic_end_corners(
                 corners.append((rank, incoming, outgoing))
         if not corners:
             continue
-        for kind, owner, (rank, incoming, outgoing) in (
-            ("source", route.edge.source, corners[0]),
-            ("target", route.edge.target, corners[-1]),
-        ):
-            if (
-                kind == "source" and route.exit_lane_transition_plan_id is not None
-            ) or (kind == "target" and route.exit_turn_segment_rank == rank):
-                continue
+
+        def record(
+            kind: str,
+            owner: str,
+            corner: tuple[int, Direction, Direction],
+            points: list[tuple[float, float]] = points,
+            route: RoutedPath = route,
+        ) -> None:
+            rank, incoming, outgoing = corner
             cohorts[kind, owner, incoming, outgoing].append(
                 _SemanticEndCorner(
                     route,
@@ -1215,31 +1227,55 @@ def _rederive_semantic_end_corners(
                     direction_vector(outgoing),
                 )
             )
-        for ordinal, (rank, incoming, outgoing) in enumerate(corners[1:-1], start=1):
-            cohorts[
-                "edge",
-                f"{route.edge.source}\0{route.edge.target}\0{len(corners)}\0{ordinal}",
-                incoming,
-                outgoing,
-            ].append(
-                _SemanticEndCorner(
-                    route,
-                    rank,
-                    points,
-                    direction_vector(incoming),
-                    direction_vector(outgoing),
-                )
-            )
 
-    def wholesale_pair(a: _SemanticEndCorner, b: _SemanticEndCorner) -> bool:
-        return wholesale_corner_translation(
+        landing_rank, _landing_in, landing_out = corners[-1]
+        landing_settled = route.exit_turn_segment_rank == landing_rank
+        if route.exit_lane_transition_plan_id is None:
+            record("source", route.edge.source, corners[0])
+        if not landing_settled:
+            record("target", route.edge.target, corners[-1])
+            arrival = get_point_coordinate(points[-1], direction_axis(landing_out))
+            record("landing", f"{arrival:.3f}", corners[-1])
+        edge_key = f"{route.edge.source}\0{route.edge.target}\0{len(corners)}"
+        for ordinal, corner in enumerate(corners[1:-1], start=1):
+            record("edge", f"{edge_key}\0{ordinal}", corner)
+    return cohorts
+
+
+def _rederive_semantic_end_corners(
+    routes: list[RoutedPath],
+    curve_radius: float,
+    station_offsets: Mapping[tuple[str, str], float],
+) -> None:
+    """Size wholesale-translated source and landing corner cohorts."""
+    cohorts = _semantic_end_corner_cohorts(routes, station_offsets)
+
+    def wholesale_pair(
+        a: _SemanticEndCorner,
+        b: _SemanticEndCorner,
+        max_span: float | None = None,
+    ) -> bool:
+        if not wholesale_corner_translation(
             a.points[a.rank],
             b.points[b.rank],
             a.incoming,
             a.outgoing,
-        )
+        ):
+            return False
+        if max_span is None:
+            return True
+        ax, ay = a.points[a.rank]
+        bx, by = b.points[b.rank]
+        return max(abs(bx - ax), abs(by - ay)) < max_span
 
     for cohort_key, cohort in cohorts.items():
+        # A cohort keyed by place rather than by node holds every turn that
+        # arrives there, so its members nest only while they read as one
+        # bundle.  A full :data:`BUNDLE_TO_BUNDLE_CLEARANCE` apart is the
+        # breathing space that separates two streams, and giving two streams
+        # one arc centre draws the outer one as a lazy sweep across whatever
+        # runs between them.
+        max_span = BUNDLE_TO_BUNDLE_CLEARANCE if cohort_key[0] == "landing" else None
         pending = set(range(len(cohort)))
         while pending:
             first = pending.pop()
@@ -1248,7 +1284,9 @@ def _rederive_semantic_end_corners(
             while frontier:
                 member_index = frontier.pop()
                 for candidate in list(pending):
-                    if wholesale_pair(cohort[candidate], cohort[member_index]):
+                    if wholesale_pair(
+                        cohort[candidate], cohort[member_index], max_span
+                    ):
                         pending.remove(candidate)
                         component.add(candidate)
                         frontier.append(candidate)
