@@ -1365,11 +1365,13 @@ def _settle_render_geometry(
     render-time row shift, so a collision involving one is left for the guard to
     surface rather than reflowed into kinked tracks.
 
-    The Tier-A layout guards run once, on the settled geometry, alongside the
-    header-clearance guard: they judge what the renderer draws rather than an
-    intermediate the later stages then move.  Label growth legitimately carries a
-    bbox edge past a port, so ``carry_ports_with_section_edges`` moves the port
-    with the edge it is anchored to and the port guards see a consistent pair.
+    The layout guards run once, on the settled geometry, alongside the
+    header-clearance guard.  When boundary clearance deferred route-dependent
+    guards, the final pass includes every such registry guard.  They judge what
+    the renderer draws rather than an intermediate the later stages then move.
+    Label growth legitimately carries a bbox edge past a port, so
+    ``carry_ports_with_section_edges`` moves the port with the edge it is
+    anchored to and the port guards see a consistent pair.
 
     A ``group`` caption band below a section grows that section's bottom edge,
     and that edge is the blocker bounding the row corridor beneath it, so the
@@ -1487,6 +1489,9 @@ def _settle_render_geometry(
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
+    deferred_final_route_guards = graph._validate_active and bool(
+        route_plan.boundary_clearance_requirements
+    )
     applied_settlements: list[EnvelopeSettlement] = []
     if route_plan.boundary_clearance_requirements:
         requested_plan = route_plan
@@ -1669,12 +1674,16 @@ def _settle_render_geometry(
         strict=effective_strict,
     )
 
-    # The Tier-A layout guards read the settled routes and the settled boxes --
-    # the geometry the renderer is handed -- so a bbox, anchor, elbow,
-    # pass-through, band or crossing defect is judged on what gets drawn rather
-    # than on a first routing pass that later steps move.
+    # The layout guards read the settled routes and boxes.  Deferred
+    # route-dependent guards join the Tier-A set here, so every guard judges the
+    # geometry the renderer is handed rather than a routing pass that later
+    # steps move.
     assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
+        graph,
+        routes,
+        station_offsets,
+        strict=effective_strict or deferred_final_route_guards,
+        include_deferred_final=deferred_final_route_guards,
     )
     assert_render_header_clearance(graph, strict=effective_strict)
     return (

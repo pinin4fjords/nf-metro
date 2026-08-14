@@ -2480,12 +2480,13 @@ class _AxisLeg(NamedTuple):
     direction: int  # +1 advancing in the increasing-coordinate sense, else -1
     src: str
     tgt: str
+    route: RoutedPath
+    rank: int
 
 
 def _line_axis_segments(
     pts: list[tuple[float, float]],
-    src: str,
-    tgt: str,
+    route: RoutedPath,
 ) -> Iterator[_AxisLeg]:
     """Yield the axis-aligned legs of a rendered path.
 
@@ -2500,8 +2501,10 @@ def _line_axis_segments(
                 min(y1, y2),
                 max(y1, y2),
                 1 if y2 > y1 else -1,
-                src,
-                tgt,
+                route.edge.source,
+                route.edge.target,
+                route,
+                k,
             )
         elif abs(y1 - y2) <= COLLINEAR_AXIS_TOL and abs(x1 - x2) > GUARD_TOLERANCE:
             yield _AxisLeg(
@@ -2510,8 +2513,10 @@ def _line_axis_segments(
                 min(x1, x2),
                 max(x1, x2),
                 1 if x2 > x1 else -1,
-                src,
-                tgt,
+                route.edge.source,
+                route.edge.target,
+                route,
+                k,
             )
 
 
@@ -2532,7 +2537,10 @@ def iter_opposing_line_overlaps(
     lines sharing a channel are carried on their own offset slots, not on the
     same track.
     """
-    from nf_metro.layout.routing.common import apply_route_offsets
+    from nf_metro.layout.routing.common import (
+        apply_route_offsets,
+        convergence_owns_segment_boundary,
+    )
 
     if offsets is None:
         from nf_metro.layout.routing import compute_station_offsets
@@ -2549,7 +2557,7 @@ def iter_opposing_line_overlaps(
     by_line: dict[str, list[_AxisLeg]] = defaultdict(list)
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        for leg in _line_axis_segments(pts, r.edge.source, r.edge.target):
+        for leg in _line_axis_segments(pts, r):
             by_line[r.line_id].append(leg)
 
     for line_id, legs in by_line.items():
@@ -2558,6 +2566,13 @@ def iter_opposing_line_overlaps(
                 if a.axis != b.axis or abs(a.coord - b.coord) > COLLINEAR_AXIS_TOL:
                     continue
                 if a.direction * b.direction >= 0:
+                    continue
+                if (
+                    a.route.convergence_plan_id is not None
+                    and a.route.convergence_plan_id == b.route.convergence_plan_id
+                    and convergence_owns_segment_boundary(a.route, a.rank)
+                    and convergence_owns_segment_boundary(b.route, b.rank)
+                ):
                     continue
                 if min(a.hi, b.hi) - max(a.lo, b.lo) > GUARD_TOLERANCE:
                     yield OpposingOverlap(
@@ -6247,9 +6262,26 @@ _RENDER_LAYOUT_INVARIANT_SPECS: tuple[GuardSpec, ...] = tuple(
 )
 
 
-def render_layout_invariant_specs() -> tuple[GuardSpec, ...]:
-    """The Tier-A guards :func:`assert_render_layout_invariants` runs."""
-    return _RENDER_LAYOUT_INVARIANT_SPECS
+def deferred_final_route_guard_specs() -> tuple[GuardSpec, ...]:
+    """Final-checkpoint guards that require settled route geometry."""
+    return tuple(spec for spec in GUARD_REGISTRY if "routes" in spec.needs)
+
+
+def render_layout_invariant_specs(
+    *, include_deferred_final: bool = False
+) -> tuple[GuardSpec, ...]:
+    """The guards :func:`assert_render_layout_invariants` runs."""
+    if not include_deferred_final:
+        return _RENDER_LAYOUT_INVARIANT_SPECS
+    tier_a_names = {spec.name for spec in _RENDER_LAYOUT_INVARIANT_SPECS}
+    return (
+        *_RENDER_LAYOUT_INVARIANT_SPECS,
+        *(
+            spec
+            for spec in deferred_final_route_guard_specs()
+            if spec.name not in tier_a_names
+        ),
+    )
 
 
 def assert_render_layout_invariants(
@@ -6258,8 +6290,9 @@ def assert_render_layout_invariants(
     offsets: dict[tuple[str, str], float],
     *,
     strict: bool = False,
+    include_deferred_final: bool = False,
 ) -> None:
-    """Run the cheap Tier-A layout guards on the final settled geometry.
+    """Run layout guards on the final settled geometry.
 
     Sibling of :func:`assert_render_curve_invariants`: both run on the exact
     geometry the renderer is about to draw, so a layout defect is visible to
@@ -6267,15 +6300,20 @@ def assert_render_layout_invariants(
     already pays for ``offsets`` and ``routes``, and the guards are
     observational, so this is near-zero cost and cannot move a pixel.
 
-    Each Tier-A guard raises ``PhaseInvariantError`` on its first violation
-    rather than returning a list, so each runs in isolation and its message is
-    captured; the aggregate is one message.  Without *strict* the aggregate is
-    a :class:`UserWarning`; with *strict* it raises :class:`LayoutInvariantError`
-    (modelled on the ``NF_METRO_ALLOW_BAD_CURVES`` chokepoint).
+    Tier-A guards always run.  When final route checks were deferred for
+    settlement, ``include_deferred_final`` also runs every route-dependent
+    guard in the registry.  Each guard raises ``PhaseInvariantError`` on its
+    first violation rather than returning a list, so each runs in isolation and
+    its message is captured; the aggregate is one message.  Without *strict*
+    the aggregate is a :class:`UserWarning`; with *strict* it raises
+    :class:`LayoutInvariantError` (modelled on the
+    ``NF_METRO_ALLOW_BAD_CURVES`` chokepoint).
     """
     available: dict[str, Any] = {"offsets": offsets, "routes": routes}
     messages: list[str] = []
-    for spec in render_layout_invariant_specs():
+    for spec in render_layout_invariant_specs(
+        include_deferred_final=include_deferred_final
+    ):
         try:
             spec.fn(graph, "render", **{name: available[name] for name in spec.needs})
         except PhaseInvariantError as exc:
@@ -6284,8 +6322,9 @@ def assert_render_layout_invariants(
         return
 
     detail = "\n  ".join(messages)
+    invariant_set = "final" if include_deferred_final else "Tier-A"
     msg = (
-        "the settled layout violates Tier-A invariants the renderer is about "
+        f"the settled layout violates {invariant_set} invariants the renderer is about "
         "to draw. The map will render but is visibly broken; fix the layout "
         "(or the directive combination) that produced this geometry.\n  "
         f"{detail}"

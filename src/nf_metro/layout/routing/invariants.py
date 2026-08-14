@@ -82,6 +82,7 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
+    planner_owns_segment,
     resolve_section,
     tail_on_slot,
     trunk_segments_cross,
@@ -3543,7 +3544,9 @@ def check_no_dogleg_crosses_exempt_trunk(
     for rp in routes:
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
-        for _k, seg in iter_horizontal_trunks(rp):
+        for k, seg in iter_horizontal_trunks(rp):
+            if planner_owns_segment(rp, k):
+                continue
             for erp, eseg in exempt:
                 if erp.line_id == rp.line_id:
                     continue
@@ -5015,6 +5018,14 @@ def check_right_entry_drop_in_when_clear(
         box_bottom = tgt_sec.bbox_y + tgt_sec.bbox_h
         dive_y = max(y for _, y in r.points)
         if dive_y <= box_bottom + tol:
+            continue
+        shared_opening = r.exit_shared_opening_points
+        if shared_opening and any(
+            planner_owns_segment(r, rank)
+            and max(shared_opening[rank][1], shared_opening[rank + 1][1])
+            >= dive_y - tol
+            for rank in range(len(shared_opening) - 1)
+        ):
             continue
         src_station = graph.stations.get(r.edge.source)
         tgt_station = graph.stations.get(r.edge.target)
