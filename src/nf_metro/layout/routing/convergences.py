@@ -2495,6 +2495,57 @@ def _trunk_corridor_run(
     )
 
 
+def _plan_flank_corridor_runs(
+    plan: ConvergencePlan, graph: MetroGraph
+) -> tuple[_CotravellingRun, ...]:
+    """The horizontal flank runs *plan*'s trunk states either side of its lane.
+
+    A trunk is one chain -- lead, flank, central run, flank, lead -- and the
+    flank runs carry the trunk member on lanes of their own
+    (``source_flank_coordinate`` / ``target_flank_coordinate``).  They are plan
+    statements exactly like the central run, so the distinct-line separation
+    has to see them: a neighbouring plan's central lane can otherwise settle
+    onto a flank lane it never compared itself against.
+    """
+    axis = plan.trunk_axis
+    if axis is None or axis.axis is not DemandAxis.X:
+        return ()
+    segments = _trunk_segments(axis)
+    runs: list[_CotravellingRun] = []
+    for source_side, (riser, flank) in (
+        (True, (segments[1], segments[2])),
+        (False, (segments[3], segments[4])),
+    ):
+        (start_x, start_y), (end_x, end_y) = flank
+        if abs(start_y - end_y) > COORD_TOLERANCE:
+            continue
+        if abs(start_x - end_x) <= COORD_TOLERANCE:
+            continue
+        # A flank segment is stored riser-first; the member TRAVELS the source
+        # flank from its endpoint toward the riser, and the target flank the
+        # other way round.
+        travel = (flank[1], flank[0]) if source_side else (flank[0], flank[1])
+        runs.append(
+            _CotravellingRun(
+                plan.system_id,
+                start_y,
+                min(start_x, end_x),
+                max(start_x, end_x),
+                _direction(*travel),
+                frozenset(plan.line_ids),
+                frozenset(
+                    (
+                        *(landing.source_junction_id for landing in plan.landings),
+                        *plan.target_entry_port_ids,
+                    )
+                ),
+                inter_row_gap_upper_row(graph, start_y),
+                (riser, flank, flank),
+            )
+        )
+    return tuple(runs)
+
+
 def _member_corridor_runs(
     plans: tuple[ConvergencePlan, ...],
     member_geometry: MemberGeometryExecution,
@@ -2644,14 +2695,20 @@ def _separate_distinct_cotravelling_trunks(
     step = graph_offset_step(graph)
     settled = list(plans)
     seated = list(member_runs)
+    for plan in settled:
+        seated.extend(_plan_flank_corridor_runs(plan, graph))
     for plan_rank, plan in enumerate(settled):
         run = _trunk_corridor_run(plan, graph)
         if run is None:
             continue
+        # Carrier identity, not system identity: one route system can hold
+        # several convergences, and two distinct-line trunks fuse just as
+        # readily inside one system.  A plan's own runs share its carriers and
+        # are never their own neighbours.
         neighbours = tuple(
             item
             for item in seated
-            if item.system_id != plan.system_id
+            if item.carrier_ids != run.carrier_ids
             and item.direction is run.direction
             and item.line_ids != run.line_ids
             and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
