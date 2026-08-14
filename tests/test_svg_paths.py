@@ -795,6 +795,11 @@ class TestNestedCornerFamilies:
     frame than actually turns there collapses onto a second center.  Corners
     whose resolved radius is clamped by a short leg are exempt: a clamped
     radius is not shared geometry.
+
+    Membership is decided by the nesting geometry alone.  Reading the drawn
+    radii for a lane-pitch difference first would exempt the worst case:
+    two lanes offset diagonally that draw the *same* radius pivot a full
+    pitch apart and pinch shut through the turn.
     """
 
     CENTER_EPS = 1.5
@@ -842,8 +847,6 @@ class TestNestedCornerFamilies:
                 # staggered pair, not one family.
                 diag = (vaxis[0] - ua[0], vaxis[1] - ua[1])
                 if abs(dx * diag[1] - dy * diag[0]) > 0.01:
-                    continue
-                if abs(abs(radius_a - radius_b) - span) > 0.01:
                     continue
                 center_a = _arc_center(
                     ra.points[ka - 1], va, ra.points[ka + 1], radius_a
