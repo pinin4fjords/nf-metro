@@ -689,7 +689,7 @@ def _route_template(
         if ctx.exit_turns is not None
         else None
     )
-    if opening is not None and opening.is_planned:
+    if opening is not None:
         branch_y = opening.points[-1][1]
         if target.section_id is None:
             raise MemberGeometryDeclinedError(

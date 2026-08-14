@@ -1205,11 +1205,6 @@ class ExitSharedOpening:
     member_ids: tuple[EmissionMemberId, ...]
     points: tuple[tuple[float, float], ...]
 
-    @property
-    def is_planned(self) -> bool:
-        """This record owns emitted geometry even when turn axes do not."""
-        return True
-
     def __post_init__(self) -> None:
         if len(self.member_ids) < 2 or len(set(self.member_ids)) != len(
             self.member_ids

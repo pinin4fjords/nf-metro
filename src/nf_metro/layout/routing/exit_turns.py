@@ -64,6 +64,7 @@ from nf_metro.layout.routing.common import (
     apply_route_offsets,
     header_corridor_y,
     horizontal_direction,
+    iter_horizontal_trunks,
     segment_direction,
     vertical_direction,
 )
@@ -284,7 +285,10 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> ExitSharedOpening | None:
         membership = self.membership_for_edge(edge)
-        if membership is None:
+        if (
+            membership is None
+            or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+        ):
             return None
         return next(
             (
@@ -2431,33 +2435,25 @@ def _shared_left_exit_opening(
         )
         horizontal = next(
             (
-                (start, end)
-                for start, end in zip(trunk.points, trunk.points[1:])
-                if min(start[0], end[0]) + COORD_TOLERANCE
+                segment
+                for _rank, segment in iter_horizontal_trunks(trunk)
+                if segment.xa + COORD_TOLERANCE
                 < source.x
-                < max(start[0], end[0]) - COORD_TOLERANCE
-                and start[1] == end[1]
+                < segment.xb - COORD_TOLERANCE
+                and segment.after_y > segment.y
             ),
             None,
         )
         if horizontal is None:
             continue
-        _left, right = sorted(horizontal, key=lambda point: point[0])
-        downward = next(
-            (
-                end
-                for start, end in zip(trunk.points, trunk.points[1:])
-                if start == right and end[0] == right[0] and end[1] > right[1]
-            ),
-            None,
-        )
         if (
-            downward is not None
-            and right[0] > source.x + ctx.curve_radius
-            and downward[1] > entry_section.bbox_y + COORD_TOLERANCE
+            horizontal.xb > source.x + ctx.curve_radius
+            and horizontal.after_y > entry_section.bbox_y + COORD_TOLERANCE
             and all(crosses(route, trunk) for route in resolved_siblings)
         ):
             barriers.append(trunk)
+            if len(barriers) == 2:
+                return None
     if len(barriers) != 1:
         return None
     trunk = barriers[0]
@@ -2650,8 +2646,9 @@ def _build_group_plan(
             reason = "family-changed-after-lane-compaction"
         else:
             seeds = final_classification.seeds
+    shared_opening = _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
     axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
-    if reason is None:
+    if reason is None and shared_opening is None:
         assert run_direction is not None
         axis_plan = _plan_turn_axes(
             graph,
@@ -2674,10 +2671,8 @@ def _build_group_plan(
         axis_by_member = MappingProxyType({})
         station_ids_by_line = MappingProxyType({})
         lane_transitions = ()
-    shared_opening = _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
     if shared_opening is not None:
         reason = None
-        axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
         axes = axis_plan.axes
         axis_by_member = axis_plan.axis_by_member
         minimum_runway = axis_plan.minimum_runway

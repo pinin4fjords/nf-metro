@@ -325,6 +325,30 @@ def test_seed_15_shared_opening_is_line_name_independent() -> None:
     assert len(plan.shared_openings) == 1
 
 
+def test_seed_15_shared_opening_skips_turn_axis_planning(monkeypatch) -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    original = exit_turns._plan_turn_axes
+
+    def reject_shared_group(*args, **kwargs):
+        if args[3] == "__junction_23":
+            pytest.fail("shared opening reached turn-axis planning")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(exit_turns, "_plan_turn_axes", reject_shared_group)
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    assert len(plan.shared_openings) == 1
+
+
 def test_exit_turn_plan_rejects_malformed_shared_opening_disposition() -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -342,6 +366,28 @@ def test_exit_turn_plan_rejects_malformed_shared_opening_disposition() -> None:
         replace(plan, disposition=ExitTurnDisposition.LEGACY)
     with pytest.raises(ValueError, match="disposition and legacy reason disagree"):
         replace(plan, legacy_reason="malformed")
+
+    legacy = replace(
+        plan,
+        disposition=ExitTurnDisposition.LEGACY,
+        legacy_reason="declined",
+    )
+    member_id = legacy.shared_openings[0].member_ids[0]
+    edge = next(
+        member.edge for member in observation.plan.members if member.id == member_id
+    )
+    query = exit_turns.ExitTurnPlanQuery(
+        (legacy,),
+        MappingProxyType(
+            {
+                (edge.source, edge.target, edge.line_id): exit_turns._Membership(
+                    legacy, member_id, None, None
+                )
+            }
+        ),
+        MappingProxyType({}),
+    )
+    assert query.shared_opening_for_edge(edge) is None
 
 
 def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:
