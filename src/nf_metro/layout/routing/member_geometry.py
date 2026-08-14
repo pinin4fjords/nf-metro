@@ -32,10 +32,12 @@ from nf_metro.layout.route_plan import (
     RouteSystemId,
 )
 from nf_metro.layout.routing import normalize
+from nf_metro.layout.routing.centrelines import route_along
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     RoutedPath,
+    centre_inter_column_channel,
     column_gap_edges,
     convergence_owns_segment_boundary,
     gap_lo_for_x,
@@ -47,6 +49,7 @@ from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES, RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
+    _declare_placed_channels,
     _route_inter_section,
     packed_cell_handoff_carrier,
 )
@@ -679,7 +682,51 @@ def _route_template(
     family_id: RouteFamilyId,
     ctx: _RoutingCtx,
 ) -> RoutedPath:
+    """Build the immutable template, consuming a planned shared opening first."""
     source, target = ctx.graph.edge_endpoints(edge)
+    opening = (
+        ctx.exit_turns.shared_opening_for_edge(edge)
+        if ctx.exit_turns is not None
+        else None
+    )
+    if opening is not None and opening.is_planned:
+        branch_y = opening.points[-1][1]
+        if target.section_id is None:
+            raise MemberGeometryDeclinedError(
+                "shared exit opening has no target section"
+            )
+        target_section = ctx.graph.sections[target.section_id]
+        tail_x = centre_inter_column_channel(
+            ctx.graph,
+            target_section.grid_col,
+            target_section.grid_col + 1,
+            target_section.grid_row,
+        )
+        target_y = target.y + (ctx.station_offsets or {}).get(
+            (edge.target, edge.line_id), 0.0
+        )
+        route = route_along(
+            edge,
+            [(edge, edge.line_id, 0.0)],
+            [
+                *opening.points,
+                (tail_x, branch_y),
+                (tail_x, target_y),
+                (target.x, target_y),
+            ],
+            base_radius=ctx.curve_radius,
+            normalize_exempt=True,
+        )
+        if route is None:
+            raise MemberGeometryDeclinedError("shared exit opening omitted member")
+        assert ctx.exit_turns is not None
+        membership = ctx.exit_turns.membership_for_edge(edge)
+        if membership is not None:
+            route.exit_turn_plan_id = str(membership.plan.id)
+            route.exit_turn_member_id = str(membership.member_id)
+        route.exit_shared_opening_points = opening.points
+        _declare_placed_channels(route, ctx)
+        return route
     route = _route_inter_section(
         edge,
         source,
@@ -849,6 +896,9 @@ def _freeze_plan(
         ),
         fan_plan_id=_typed_id(FanPlanId, route.fan_plan_id),
         fan_route_emitter=route.fan_route_emitter,
+        exit_shared_opening_points=tuple(
+            getattr(route, "exit_shared_opening_points", ())
+        ),
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
         owns_complete_path=owns_complete_path,
     )
@@ -1966,6 +2016,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
         exit_turn_axis_id=plan.exit_turn_axis_id,
         fan_plan_id=plan.fan_plan_id,
         fan_route_emitter=plan.fan_route_emitter,
+        exit_shared_opening_points=plan.exit_shared_opening_points,
         exit_turn_segment_rank=plan.exit_turn_segment_rank,
         exit_lane_transition_plan_id=plan.exit_lane_transition_plan_id,
         member_geometry_plan_id=str(plan.id),
@@ -1992,6 +2043,12 @@ def validate_member_geometry_emission(
                 raise RuntimeError(
                     f"member geometry plan {plan.id} channel geometry changed"
                 )
+        if (
+            plan.exit_shared_opening_points
+            and tuple(route.points[: len(plan.exit_shared_opening_points)])
+            != plan.exit_shared_opening_points
+        ):
+            raise RuntimeError(f"member geometry plan {plan.id} changed shared opening")
         radii = route.curve_radii or ()
         planned_radii = plan.curve_radii or ()
         for channel in plan.gap_channels:

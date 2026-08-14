@@ -8,6 +8,7 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import (
@@ -19,6 +20,7 @@ from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceEndpointRole,
     EmissionMemberId,
+    ExitTurnDisposition,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
@@ -42,6 +44,7 @@ from nf_metro.layout.routing.corners import (
     concentric_corner_radius_at,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.invariants import _segments_properly_cross
 from nf_metro.layout.routing.normalize import _VChannel
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.planning import _allocation_eligible_system_ids
@@ -214,8 +217,7 @@ def _assert_channels_equal_emission(observation, plan) -> None:
         )
 
 
-def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> None:
-    """The direct cross-row step retains its downward destination channel."""
+def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
@@ -223,48 +225,80 @@ def test_seed_15_freezes_gap_slots_with_the_completed_member_leg_direction() -> 
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    plan = next(
+    plans = tuple(
         plan
         for plan in observation.plan.member_geometry_plans
-        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+        if plan.edge.source == "__junction_23" and plan.edge.line_id == "l2"
     )
-
-    assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
-        (5, 2, Direction.D),
-    ]
-    assert [
-        (channel.gap_lo_col, channel.row, channel.direction)
-        for channel in plan.gap_channels
-    ] == [
-        (5, 2, Direction.D),
-    ]
-
-
-def test_seed_15_freezes_clear_right_entry_step_atomically() -> None:
-    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    observation = observe_route_edges(
-        graph,
-        station_offsets=compute_station_offsets(graph),
-        allow_convergence_clearance_requirements=True,
-    )
-    plan = next(
+    assert len(plans) == 2
+    exit_plan = next(
         plan
-        for plan in observation.plan.member_geometry_plans
-        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
     )
-    assert plan.family_id is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP
-    assert plan.points == (
+    assert exit_plan.disposition is ExitTurnDisposition.PLANNED
+    assert exit_plan.legacy_reason is None
+    assert len(exit_plan.shared_openings) == 1
+    opening = (
         (1610.5, 338.0),
         (1600.5, 338.0),
-        (1600.5, 504.0),
-        (1478.0, 504.0),
+        (1600.5, 186.0),
+        (1748.0, 186.0),
+        (1748.0, 616.0),
     )
-    assert plan.trunk_slot is None
-    assert len(plan.gap_channels) == 1
-    assert plan.gap_channels[0].start == (1600.5, 338.0)
-    assert plan.gap_channels[0].end == (1600.5, 504.0)
-    _assert_channels_equal_emission(observation, plan)
+    assert {plan.exit_shared_opening_points for plan in plans} == {opening}
+    assert {plan.points[: len(opening)] for plan in plans} == {opening}
+    assert {plan.edge.target: plan.points[len(opening) :] for plan in plans} == {
+        "s5__entry_right_16": ((1550.0, 616.0), (1550.0, 504.0), (1478.0, 504.0)),
+        "s6__entry_right_14": ((1286.0, 616.0), (1286.0, 540.0), (1246.0, 540.0)),
+    }
+    for plan in plans:
+        assert plan.consumed_reservation_ids == ()
+        assert plan.gap_channels
+        _assert_channels_equal_emission(observation, plan)
+
+
+def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
+    monkeypatch,
+) -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+
+    def crossings(observation) -> set[tuple[float, float]]:
+        trunk = next(
+            route
+            for route in observation.routes
+            if route.edge == Edge("__junction_20", "__merge_8", "l0")
+        )
+        siblings = [
+            route
+            for route in observation.routes
+            if route.edge.source == "__junction_23" and route.line_id == "l2"
+        ]
+        return {
+            crossing
+            for sibling in siblings
+            for start_a, end_a in zip(sibling.points, sibling.points[1:])
+            for start_b, end_b in zip(trunk.points, trunk.points[1:])
+            if (crossing := _segments_properly_cross(start_a, end_a, start_b, end_b))
+            is not None
+        }
+
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    enabled = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    assert crossings(enabled) == set()
+
+    monkeypatch.setattr(exit_turns, "_shared_left_exit_opening", lambda *_: None)
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    disabled = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    assert crossings(disabled) == {(1600.5, 398.0), (1302.0, 398.0)}
 
 
 def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:

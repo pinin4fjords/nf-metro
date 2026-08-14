@@ -200,6 +200,7 @@ class RouteMemberGeometryPlan:
     exit_lane_transition_plan_id: ExitTurnPlanId | None = None
     fan_plan_id: FanPlanId | None = None
     fan_route_emitter: str | None = None
+    exit_shared_opening_points: tuple[tuple[float, float], ...] = ()
     consumed_reservation_ids: tuple[str, ...] = ()
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
     owns_complete_path: bool = False
@@ -213,6 +214,12 @@ class RouteMemberGeometryPlan:
             math.isfinite(value) for point in self.points for value in point
         ):
             raise ValueError("member geometry plan requires finite path geometry")
+        if (
+            self.exit_shared_opening_points
+            and tuple(self.points[: len(self.exit_shared_opening_points)])
+            != self.exit_shared_opening_points
+        ):
+            raise ValueError("member geometry plan lost its shared exit opening")
         claims = tuple(
             (
                 channel.segment_rank,
@@ -1192,6 +1199,29 @@ class ExitTurnAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class ExitSharedOpening:
+    """An immutable common outer corridor for sibling exit-turn members."""
+
+    member_ids: tuple[EmissionMemberId, ...]
+    points: tuple[tuple[float, float], ...]
+
+    @property
+    def is_planned(self) -> bool:
+        """This record owns emitted geometry even when turn axes do not."""
+        return True
+
+    def __post_init__(self) -> None:
+        if len(self.member_ids) < 2 or len(set(self.member_ids)) != len(
+            self.member_ids
+        ):
+            raise ValueError("shared exit opening requires distinct sibling members")
+        if len(self.points) < 2 or not all(
+            math.isfinite(value) for point in self.points for value in point
+        ):
+            raise ValueError("shared exit opening requires finite geometry")
+
+
+@dataclass(frozen=True, slots=True)
 class ExitTurnPlan:
     """Complete immutable source-bundle decision made before route emission."""
 
@@ -1220,9 +1250,11 @@ class ExitTurnPlan:
     disposition: ExitTurnDisposition
     legacy_reason: str | None
     provenance: tuple[ReservationDecisionRef, ...]
+    shared_openings: tuple[ExitSharedOpening, ...] = ()
 
     def __post_init__(self) -> None:
         planned = self.disposition is ExitTurnDisposition.PLANNED
+        owns_opening = bool(self.shared_openings)
         if not isinstance(self.lane_order_source, ExitLaneOrderSource):
             raise ValueError("exit-turn lane-order provenance must be typed")
         if (
@@ -1234,8 +1266,13 @@ class ExitTurnPlan:
             raise ValueError(
                 "exit-turn geometry requirements must be finite and positive"
             )
-        if planned != (self.legacy_reason is None):
+        if not owns_opening and planned != (self.legacy_reason is None):
             raise ValueError("exit-turn disposition and legacy reason disagree")
+        if owns_opening and any(
+            not set(opening.member_ids).issubset(self.member_ids)
+            for opening in self.shared_openings
+        ):
+            raise ValueError("shared exit opening exceeds plan membership")
         if (self.reference_id is not None) != (planned and bool(self.axes)):
             raise ValueError("only planned turn axes own a shared reference")
         expected_axis = (

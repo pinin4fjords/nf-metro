@@ -746,6 +746,8 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
+    exit_shared_opening_points: tuple[tuple[float, float], ...] = ()
+    """Immutable prefix emitted from a shared exit-turn opening record."""
     route_system_id: str | None = None
     """Canonical semantic system that owns this inter-section emission."""
     emission_member_id: str | None = None

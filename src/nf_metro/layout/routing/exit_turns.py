@@ -22,6 +22,7 @@ from nf_metro.layout.route_plan import (
     ExitLaneOrderSource,
     ExitLaneTransition,
     ExitLaneTransitionPlacement,
+    ExitSharedOpening,
     ExitSourceLane,
     ExitTurnAssignment,
     ExitTurnAxis,
@@ -60,6 +61,7 @@ from nf_metro.layout.routing.common import (
     OffsetRegime,
     RoutedPath,
     apply_route_offsets,
+    header_corridor_y,
     horizontal_direction,
     segment_direction,
     vertical_direction,
@@ -99,6 +101,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _PerpExitGeometry,
     _right_entry_over_top_geometry,
     _right_entry_wrap_geometry,
+    _route_merge_trunk,
     _SourceSeam,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
@@ -273,6 +276,21 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
+
+    def shared_opening_for_edge(
+        self, edge: Edge | ResolvedEdge
+    ) -> ExitSharedOpening | None:
+        membership = self.membership_for_edge(edge)
+        if membership is None:
+            return None
+        return next(
+            (
+                opening
+                for opening in membership.plan.shared_openings
+                if membership.member_id in opening.member_ids
+            ),
+            None,
+        )
 
     def replacing_plans(
         self, replacements: Mapping[ExitTurnPlanId, ExitTurnPlan]
@@ -2302,6 +2320,95 @@ def _fan_stated_offsets(
     }
 
 
+def _shared_left_exit_opening(
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    scaffold: RouteSemanticScaffold,
+    member_edges: tuple[ResolvedEdge, ...],
+) -> ExitSharedOpening | None:
+    """Plan the outer corridor for one left-exit line splitting below a trunk."""
+    if len(member_edges) != 2 or len({edge.line_id for edge in member_edges}) != 1:
+        return None
+    edges = tuple(_graph_edge(ctx.edge_by_key, edge) for edge in member_edges)
+    facts = tuple(
+        _build_inter_facts(edge, *graph.edge_endpoints(edge), ctx) for edge in edges
+    )
+    if not all(
+        fact.is_left_exit
+        and fact.entry_side is PortSide.RIGHT
+        and fact.src_row is not None
+        and fact.tgt_row is not None
+        and fact.tgt_row > fact.src_row
+        for fact in facts
+    ):
+        return None
+    families = tuple(
+        classify_inter_section_family(edge, *graph.edge_endpoints(edge), ctx)
+        for edge in edges
+    )
+    if set(families) != {
+        RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP,
+        RouteFamilyId.BYPASS_FAMILY,
+    }:
+        return None
+    source = facts[0].src
+    source_exit_edge = next(
+        (
+            edge
+            for edge in graph.edges_to(source.id)
+            if edge.source in graph.ports and not graph.ports[edge.source].is_entry
+        ),
+        None,
+    )
+    if source_exit_edge is None:
+        return None
+    source_exit = graph.ports[source_exit_edge.source]
+    source_section = graph.section_for_port(source_exit)
+    trunk_edge = next(
+        (
+            edge
+            for merge_id, trunk_source in ctx.merge.trunk_source.items()
+            if (edge := ctx.edge_by_key.get((trunk_source, merge_id, "l0"))) is not None
+        ),
+        None,
+    )
+    if source_section is None or trunk_edge is None:
+        return None
+    trunk_source, trunk_target = graph.edge_endpoints(trunk_edge)
+    trunk = _route_merge_trunk(
+        _build_inter_facts(trunk_edge, trunk_source, trunk_target, ctx)
+    )
+    outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
+    top_y = header_corridor_y(
+        graph,
+        source_section.grid_row,
+        below=False,
+        base_radius=ctx.curve_radius,
+        default=source.y,
+    )
+    target_row = max(fact.tgt_row for fact in facts if fact.tgt_row is not None)
+    branch_y = header_corridor_y(
+        graph,
+        target_row,
+        below=True,
+        base_radius=ctx.curve_radius,
+        default=source.y,
+    )
+    if outer_x <= source.x + ctx.curve_radius or branch_y <= source.y:
+        return None
+    exit_x = source.x - ctx.curve_radius
+    return ExitSharedOpening(
+        tuple(scaffold.member_id_by_edge[edge] for edge in member_edges),
+        (
+            (source.x, source.y),
+            (exit_x, source.y),
+            (exit_x, top_y),
+            (outer_x, top_y),
+            (outer_x, branch_y),
+        ),
+    )
+
+
 def _build_group_plan(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -2484,6 +2591,13 @@ def _build_group_plan(
         axis_by_member = MappingProxyType({})
         station_ids_by_line = MappingProxyType({})
         lane_transitions = ()
+    shared_opening = _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
+    if shared_opening is not None:
+        reason = None
+        axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
+        axes = axis_plan.axes
+        axis_by_member = axis_plan.axis_by_member
+        minimum_runway = axis_plan.minimum_runway
     disposition = (
         ExitTurnDisposition.PLANNED if reason is None else ExitTurnDisposition.LEGACY
     )
@@ -2530,6 +2644,7 @@ def _build_group_plan(
                 axis_by_member[seed.member_id].id
                 if disposition is ExitTurnDisposition.PLANNED
                 and seed.turn_direction is not None
+                and seed.member_id in axis_by_member
                 else None
             ),
         )
@@ -2664,6 +2779,7 @@ def _build_group_plan(
         disposition,
         reason,
         decision_refs,
+        () if shared_opening is None else (shared_opening,),
     )
     diagnostic = (
         RoutePlanDiagnostic(
@@ -3981,6 +4097,20 @@ def validate_exit_turn_plans(
                     )
                 )
             route = member_routes[0]
+            opening = next(
+                (
+                    item
+                    for item in exit_turn_plan.shared_openings
+                    if assignment.member_id in item.member_ids
+                ),
+                None,
+            )
+            if opening is not None:
+                if tuple(route.points[: len(opening.points)]) != opening.points:
+                    raise ExitTurnInvariantError(
+                        _failure(exit_turn_plan, "emitted shared opening changed")
+                    )
+                continue
             if route.exit_turn_family_id != assignment.planned_family_id.value:
                 raise ExitTurnInvariantError(
                     _failure(
