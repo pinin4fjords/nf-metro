@@ -1228,14 +1228,17 @@ def _semantic_end_corner_cohorts(
                 )
             )
 
-        landing_rank, _landing_in, landing_out = corners[-1]
-        landing_settled = route.exit_turn_segment_rank == landing_rank
-        if route.exit_lane_transition_plan_id is None:
-            record("source", route.edge.source, corners[0])
-        if not landing_settled:
-            record("target", route.edge.target, corners[-1])
-            arrival = get_point_coordinate(points[-1], direction_axis(landing_out))
-            record("landing", f"{arrival:.3f}", corners[-1])
+        arrival = get_point_coordinate(points[-1], direction_axis(corners[-1][2]))
+        for kind, owner, corner in (
+            ("source", route.edge.source, corners[0]),
+            ("target", route.edge.target, corners[-1]),
+            ("landing", f"{arrival:.3f}", corners[-1]),
+        ):
+            if (
+                kind == "source" and route.exit_lane_transition_plan_id is not None
+            ) or (kind != "source" and route.exit_turn_segment_rank == corner[0]):
+                continue
+            record(kind, owner, corner)
         edge_key = f"{route.edge.source}\0{route.edge.target}\0{len(corners)}"
         for ordinal, corner in enumerate(corners[1:-1], start=1):
             record("edge", f"{edge_key}\0{ordinal}", corner)
