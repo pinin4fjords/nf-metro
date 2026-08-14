@@ -31,10 +31,6 @@
   "note": "Mirror of the prev-flank guard: a bypass trunk's trailing flank is always vertical, so the next-flank-non-vertical reject in iter_horizontal_trunks is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
  },
- "common.py::if abs(pts[k - 1][0] - x0) > COORD_TOLERANCE:::#1": {
-  "note": "Interior horizontal segments only occur in 6-point bypass U-shapes whose flanking legs are always vertical (same x on each side); routes with non-vertical flanks are normalize_exempt and filtered out. The prev-flank-non-vertical reject in iter_horizontal_trunks is unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
  "common.py::if abs(y4 - y3) > COORD_TOLERANCE or abs(x4 - x3) <= COORD_TOLERANCE:::#1": {
   "note": "Trunk-not-horizontal guard in port_peeloff_tail, reached only after the earlier port-lead and riser checks returned early. In an orthogonal route segments alternate H/V, so the segment preceding a vertical riser is always horizontal; instrumenting the corpus the guard is reached but the non-horizontal-trunk arm never fires. Defensive against a degenerate collinear tail the router does not produce.",
   "status": "defensive"
@@ -317,10 +313,6 @@
  },
  "convergences.py::or abs(after[0] - end[0]) > COORD_TOLERANCE::#1": {
   "note": "Mirror of the leading-flank reject: an interior horizontal whose trailing flank is not vertical. Same H-D-H evidence and the same reason it is not covered by the common.py precedent. Wants a fixture.",
-  "status": "needs-review"
- },
- "convergences.py::or abs(before[0] - start[0]) > COORD_TOLERANCE::#1": {
-  "note": "Rejects an interior horizontal whose leading flank is not vertical. Reachable: _member_corridor_runs walks raw plan.points with no normalize filter, and the corpus already freezes an H-D-H member polyline (examples/topologies/rail_boundary_bundle_fan.mmd), so one extra leg makes a horizontal run diagonal-flanked. Not the same contract as the look-alike defensive pair in common.py::iter_horizontal_trunks, which is fed only normalize-filtered bypass U-shapes. Wants a fixture.",
   "status": "needs-review"
  },
  "core.py::if result is not None:::#1": {

@@ -475,7 +475,10 @@ def route_straight(
         points = [p_src, p_tgt]
         span = abs(p_tgt[0] - p_src[0])
         ramp = min(ctx.diagonal_run, span - 2 * base_radius)
-        if ramp > COORD_TOLERANCE:
+        # A multi-line bundle with mismatched endpoint lane orders crosses
+        # inside the seam; a ramp would fold that crossing into corners the
+        # bundle-order guard rejects, so only a lone line takes the ramp.
+        if len(members) == 1 and ramp > COORD_TOLERANCE:
             mid = (p_src[0] + p_tgt[0]) / 2
             step = ramp / 2 if p_tgt[0] > p_src[0] else -ramp / 2
             points = [
