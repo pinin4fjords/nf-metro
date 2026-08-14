@@ -870,6 +870,16 @@ def _freeze_plan(
                 slot.direction,
             )
         )
+    shared_opening_tail = _shared_opening_tail_gap_channel(route, ctx.graph)
+    if shared_opening_tail is not None:
+        claim = (
+            shared_opening_tail.segment_rank,
+            shared_opening_tail.gap_lo_col,
+            shared_opening_tail.row,
+            shared_opening_tail.direction,
+        )
+        if claim not in channel_claims:
+            channels.append(shared_opening_tail)
     plan_id = RouteMemberGeometryPlanId(
         semantic_route_id(
             "route-member-geometry", system_id, member_id, family_id.value
@@ -907,6 +917,31 @@ def _freeze_plan(
         ),
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
         owns_complete_path=owns_complete_path,
+    )
+
+
+def _shared_opening_tail_gap_channel(
+    route: RoutedPath, graph: MetroGraph
+) -> RouteMemberGapChannel | None:
+    """Describe the short target-column leg after a shared opening."""
+    opening_size = len(route.exit_shared_opening_points)
+    if not opening_size or opening_size + 1 >= len(route.points):
+        return None
+    start, end = route.points[opening_size : opening_size + 2]
+    direction = segment_direction(start, end)
+    if direction not in (Direction.U, Direction.D):
+        return None
+    _source, target = graph.edge_endpoints(route.edge)
+    if target.section_id is None:
+        return None
+    target_section = graph.sections[target.section_id]
+    return RouteMemberGapChannel(
+        opening_size,
+        start,
+        end,
+        target_section.grid_col,
+        target_section.grid_row,
+        direction,
     )
 
 

@@ -3656,6 +3656,36 @@ def _plan_gap_channels(
                 connector_ids_by_member[landing.member_id],
             )
         )
+        entry_port = next(
+            (
+                graph.ports[edge.target]
+                for edge in graph.edges_from(landing.edge.target)
+                if edge.target in graph.ports and graph.ports[edge.target].is_entry
+            ),
+            None,
+        )
+        if (
+            landing.bypass
+            and entry_port is not None
+            and entry_port.side in (PortSide.LEFT, PortSide.RIGHT)
+            and abs(segment[1][1] - landing.join_point[1]) > COORD_TOLERANCE
+        ):
+            outward = 1.0 if entry_port.side is PortSide.RIGHT else -1.0
+            bypass_x = landing.join_point[0] + outward * (
+                SECTION_ROUTE_CLEARANCE + landing.lane_rank * graph_offset_step(graph)
+            )
+            spans.append(
+                (
+                    None,
+                    bypass_x,
+                    segment[1][1],
+                    landing.join_point[1],
+                    frozenset({landing.edge.line_id}),
+                    frozenset({landing.member_id}),
+                    frozenset({landing.source_junction_id}),
+                    connector_ids_by_member[landing.member_id],
+                )
+            )
     channels: list[_PlanGapChannel] = []
     for (
         carrier_rank,

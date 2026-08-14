@@ -8,7 +8,12 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    OFFSET_STEP,
+)
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     ROUTE_SYSTEM_COMPATIBILITY_REASONS,
@@ -280,8 +285,7 @@ def test_distinct_source_convergences_keep_opposing_same_line_channels(path) -> 
     )
 
 
-def test_seed_15_requests_column_space_for_opposing_member_channels() -> None:
-    """The settled seed delegates its crowded convergence lane to the grid."""
+def test_seed_15_settles_emitted_bypass_tail_without_column_growth() -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observation = observe_route_edges(
@@ -290,12 +294,79 @@ def test_seed_15_requests_column_space_for_opposing_member_channels() -> None:
         allow_convergence_clearance_requirements=True,
     )
 
-    requirements = observation.plan.boundary_clearance_requirements
-    assert len(requirements) == 1
-    requirement = requirements[0]
-    assert requirement.axis.value == "column"
-    assert requirement.boundary == 3
-    assert requirement.description.endswith("opposing member clearance")
+    route = next(
+        route
+        for route in observation.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_22", "__merge_10", "l1")
+    )
+
+    assert observation.plan.boundary_clearance_requirements == ()
+    assert route.points[-2][0] == 800.0
+
+
+def test_seed_15_plan_channels_include_emitted_bypass_tail_lane() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.convergence_plans
+        if any(
+            landing.edge == ResolvedEdge("__junction_27", "__merge_11", "l0")
+            for landing in plan.landings
+        )
+    )
+    lookup = convergences.gap_lookup_geometry(graph)
+    channels = convergences._plan_gap_channels(plan, graph, lookup)
+    route = next(
+        route
+        for route in observation.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_27", "__merge_11", "l0")
+    )
+
+    assert any(
+        channel.member_geometry_owned is False
+        and channel.coordinate == route.points[-3][0]
+        and (channel.y_lo, channel.y_hi)
+        == tuple(sorted((route.points[-3][1], route.points[-2][1])))
+        for channel in channels
+    )
+
+
+def test_seed_15_shared_opening_short_tail_is_a_fixed_member_channel() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    member = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
+    )
+    tail = next(
+        channel
+        for channel in member.gap_channels
+        if channel.segment_rank == len(member.exit_shared_opening_points)
+    )
+    convergence = next(
+        route
+        for route in observation.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_24", "__merge_10", "l1")
+    )
+
+    assert (tail.gap_lo_col, tail.row) == (5, 2)
+    assert (tail.start, tail.end) == ((1550.0, 520.0), (1550.0, 504.0))
+    assert convergence.points[1][0] == tail.start[0] + BUNDLE_TO_BUNDLE_CLEARANCE
 
 
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:
