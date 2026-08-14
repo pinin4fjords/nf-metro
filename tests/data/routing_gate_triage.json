@@ -47,10 +47,6 @@
   "note": "Contract guard raising IndexError on an out-of-range bundle_index. Callers always pass an in-range index (0<=i<n); the raise arm fires only on a caller-contract violation no valid call produces.",
   "status": "defensive"
  },
- "common.py::if dx > 0:::#1": {
-  "note": "Leftward (dx<=0) near-source fallback: the symmetric mirror of the rightward fallback. Reached only when section info is unavailable AND no adjacent column resolves; valid layouts take the rightward fallback, but the leftward mirror is kept for robustness.",
-  "status": "defensive"
- },
  "common.py::if dy > 0:::#2": {
   "note": "Multi-row upward-crossing arm: grid rows are assigned topologically and upward inter-section routes take other handlers (a same-row/around-section path), never reaching inter_row_channel_y's multi-row branch with dy<=0; verified by an upward multi-row fixture that bypasses this code.",
   "status": "defensive"
@@ -231,33 +227,13 @@
   "note": "The flank follows a re-seated landing only where flank and landing are measured on one axis. Every primary-trunk landing the corpus re-seats approaches on its own trunk's axis, so the false arm wants a fixture whose trunk travels one axis while its primary trunk member's landing approaches on the other -- a perpendicular approach into a convergence, which is the class the widened scope newly admits. Reachable.",
   "status": "needs-review"
  },
- "convergences.py::for candidate_coordinate in direct_candidates:::#1": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
-  "status": "needs-review"
- },
  "convergences.py::for seat, obstacle in obstacles:::#1": {
   "note": "The give-way loop in _lane_trunk_flanks, entered only when no lane one clearance from the residents leaves the arriving flank a full turn radius to its endpoint. No corpus fixture crowds two same-line counter-running flanks that tightly, so the loop body is un-entered. Reachable, and exercised by test_a_flank_with_no_lane_of_its_own_is_given_way_to_by_the_resident and by test_a_resident_gives_way_to_a_lane_clear_of_the_flanks_around_it.",
   "status": "needs-review"
  },
- "convergences.py::if (::#16": {
-  "note": "Pre-existing gap, re-keyed from #12 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,18] split). The raise for a covered continuation absent from the carrier member that is recorded as covering it. _reconcile_continuation_ownership only names a carrier whose route already spans the continuation's endpoints, so the raise arm reports an engine bug and aborts the render; no valid topology reaches it.",
-  "status": "defensive"
- },
- "convergences.py::if (::#17": {
-  "note": "Pre-existing gap, re-keyed from #13 by the gates the restored conflict conditions inserted earlier in the file (unchanged [0,0] split). Never executed rather than half-taken: its enclosing `if continuation.covered_by_member_id is not None:` never takes the None arm on any of the 18 fixtures that validate a planned convergence, so an uncovered outgoing continuation does not exist in this corpus. What would settle it is a topology whose continuation no endpoint owner's route spans, which _reconcile_continuation_ownership would then leave uncovered.",
-  "status": "candidate-dead"
- },
  "convergences.py::if (::#6": {
   "note": "A landing enters `ordered` only because _landing_cross_segment admitted it, and laning moves that run rather than removing it, so the read that names the landing as a resident always finds a segment. The gate guards the Optional that read returns.",
   "status": "defensive"
- },
- "convergences.py::if any(::#3": {
-  "note": "_packed_lane's decline arm: packing a run onto the pitch of its nearest bundle neighbour would seat it inside a *second* neighbour's pitch. Reachable -- 3-lane bundles exist in the corpus (_packed_lane sees len(neighbours)==2 on examples/guide/03b_fan_in_merge.mmd) -- but no fixture makes the candidate breach the far lane. Wants a fixture.",
-  "status": "needs-review"
- },
- "convergences.py::if any(::#6": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
-  "status": "needs-review"
  },
  "convergences.py::if not moved_channels or any(::#1": {
   "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
@@ -271,10 +247,6 @@
   "note": "A resident flank in _give_way_to was seated from a plan whose trunk axis was read to build it, so the plan still states one. The guard narrows the Optional before the flank move.",
   "status": "defensive"
  },
- "convergences.py::if coordinate is None:::#3": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
-  "status": "needs-review"
- },
  "convergences.py::if coordinate is not None:::#3": {
   "note": "Pre-existing gap, re-keyed from #2 by the newly inserted packing gates (unchanged [0,2] split). _nearest_lane's fall-through when no flank candidate clears the runway: it runs 9 times, always against a single obstacle, and in 5 of those one of the two candidates is already rejected by the curve-radius runway test, so a shorter flank runway rejects both. Reachable; wants a fixture.",
   "status": "needs-review"
@@ -282,10 +254,6 @@
  "convergences.py::if endpoint is None:::#2": {
   "note": "_flank_lane needs the endpoint its flank turns onto to price the runway. ConvergenceTrunkAxis states source and target endpoint coordinates together or not at all, and every construction site in this module passes both, so the arm guards the Optional rather than a shape the planner builds.",
   "status": "defensive"
- },
- "convergences.py::if first.claimant_member_ids & second.claimant_member_ids:::#1": {
-  "note": "_channels_share_source_carrier's shared-claimant shortcut. Its sole caller is _validate_final_convergence_feasibility, which pairs a convergence plan channel against a frozen member channel; the intersection is non-empty only when the plan's channel names the very member it is compared with, which no corpus fixture produces. Reachable in principle, wants a fixture.",
-  "status": "needs-review"
  },
  "convergences.py::if first_delta * second_delta < 0:::#1": {
   "note": "OPPOSING_OPENING_CHANNEL: two arms of one line that turn on one shared column and then open to opposite sides of their source. Six fixtures reach the test with a genuine shared-opening pair, and in every one the two trunks open the same way, which the code below reads as one stroke branching to several destinations. Neutralising _settle_opposing_landing_channels makes it fire on merge_bottom_row_bypass and merge_feeder_shared_channel_gap; neutralising _settle_shared_opening_pivots and _settle_shared_source_openings does not, and the pivot pass cannot suppress it in any case because its group key partitions by the travel direction of flank 1. Reachable; reaching it is a feasibility refusal rather than a change of emitter -- see #1712.",
@@ -301,10 +269,6 @@
  },
  "convergences.py::if lane is None:::#1": {
   "note": "A resident asked to give way that has no reachable lane of its own either. Un-entered because the give-way path itself is un-entered on the corpus. Reachable; a fixture is a channel with no seat for either run, which is the population #1712 exists to give room to.",
-  "status": "needs-review"
- },
- "convergences.py::if not carries_coupled_primary and any(::#1": {
-  "note": "Reached by the corpus at 897747b0 and no longer: the branch's later commits (908637eb..04209e3d) changed which paths fire, so this arm lost its last covering fixture rather than becoming unreachable. Left un-exercised deliberately -- the render corpus is frozen for a measurement against main, so no fixture was authored.",
   "status": "needs-review"
  },
  "convergences.py::if not clearance_pending and any(::#1": {
@@ -365,10 +329,6 @@
  },
  "corners.py::if corner_idx < 0 or corner_idx >= n_corners:::#1": {
   "note": "Bounds check for resolve_curve_radius_at. Production callers use indices from range(n_corners) or recorded corner buckets, so an invalid index requires a caller-contract violation and is covered as an error case by the corner unit tests.",
-  "status": "defensive"
- },
- "exit_turns.py::if (::#10": {
-  "note": "The emission validation that raises when a rendered turn's axis, lead-in runway or direction differs from the assignment the route was bound to. The emitters derive all four from that same assignment, so the raise names an emitter ignoring its plan rather than a topology.",
   "status": "defensive"
  },
  "exit_turns.py::if abs(turn_delta) <= COORD_TOLERANCE:::#2": {
@@ -477,10 +437,6 @@
  },
  "inter_section_handlers.py::if entry_port is None:::#2": {
   "note": "Every caller of _corridor_is_viable passes a non-None entry_port.",
-  "status": "defensive"
- },
- "inter_section_handlers.py::if ep_port and ep_port.side == PortSide.LEFT:::#1": {
-  "note": "Contract guard in _route_inter_section: a merge entry port always resolves to a Port on the LEFT side here, so the non-LEFT/None arm (fall through to _route_l_shape at L344) is never taken (0/128). The earlier 'multiline phantom' note was inaccurate -- this is a recorded gate whose arm is never taken. Defensive guard. Reclassified defensive (#762).",
   "status": "defensive"
  },
  "inter_section_handlers.py::if ep_section and ep_section.bbox_w > 0:::#1": {
@@ -731,10 +687,6 @@
   "note": "Second half of the crossed-axis overlap test in _run_enters_section, reached only once the first half holds. No corpus separation target reaches it, so its short-circuit arm never fires.",
   "status": "defensive"
  },
- "normalize.py::and span[0] < crossed[1]::#1": {
-  "note": "Crossed-axis overlap test in _run_enters_section, reached only for a target already bracketed on the held axis. No corpus separation target is, so this operand's short-circuit arm never fires.",
-  "status": "defensive"
- },
  "normalize.py::dx is None::#1": {
   "note": "Every validation-eligible settled exit-turn corner must retain its allocated or planned offset. An absent value is incomplete engine ownership, exercised by test_gap_plan_radius_validator_rejects_incomplete_ownership.",
   "status": "defensive"
@@ -823,10 +775,6 @@
   "note": "Never re-band a fan traverse across a section it does not belong to: the re-band would draw the traverse through an unrelated box. The corpus reached the crossing arm only through merge_trunk_over_low_section's pre-fix geometry, where a group carrying a member-geometry-owned channel was skipped and its traverses kept coordinates that crossed a foreign section. With the group gated on the coordinates a plan resolves outright, no fixture crosses one, so the guard keeps a real hazard with no corpus witness.",
   "status": "needs-review"
  },
- "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1": {
-  "note": "Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render.",
-  "status": "defensive"
- },
  "normalize.py::if best < cur:::#1": {
   "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
   "status": "defensive"
@@ -865,10 +813,6 @@
  },
  "normalize.py::if len(trunks) < 2:::#1": {
   "note": "Early-return in _suboptimal_trunk_bands, called only from the _guard_* validator (phases/guards.py) and a unit test, never on the production render path. The coverage sweep renders with validate=False, so neither arm registers. Defensive (exercised via the validate=True guard / test surface; cf. #728 validate-only precedent).",
-  "status": "defensive"
- },
- "normalize.py::if len(turns) != 1:::#1": {
-  "note": "In _bundle_divergent_distinct_traverses: every fan in the corpus turns its traverses the same way, so the mixed-direction skip is never taken. Defensive.",
   "status": "defensive"
  },
  "normalize.py::if len({id(t.route) for t in grp}) < 2:::#2": {
@@ -967,31 +911,11 @@
   "note": "_reconcile_horizontal_offsets iterates at most 10 times and breaks early when no change occurs. The arc L1338->(-1310) represents loop exhaustion without early-break (all 10 iterations consumed). On any valid parsed graph, the reconciliation converges in at most a handful of iterations because each iteration resolves at least one edge conflict or reaches a fixed point. The 10-iteration ceiling is a backstop against hypothetical oscillating graphs; normal topologies stabilize in 1-3 passes.",
   "status": "defensive"
  },
- "offsets.py::for edge in graph.edges_to(jid):::#1": {
-  "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
-  "status": "defensive"
- },
- "offsets.py::for lid, off in desired.items():::#1": {
-  "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
-  "status": "defensive"
- },
- "offsets.py::for lid, off in desired.items():::#2": {
-  "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
-  "status": "defensive"
- },
  "offsets.py::for other in lines:::#1": {
   "note": "In _reorder_one_exit_line, the loop over `lines` always finds the swap partner: desired_off is the min or max of all_offs, which by construction is held by another line, so the loop-exhausted-without-match arm is never taken (0/128). Defensive. Reclassified defensive (#762).",
   "status": "defensive"
  },
  "offsets.py::for other_lid in nbr_lines:::#1": {
-  "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
-  "status": "needs-review"
- },
- "offsets.py::if (::#3": {
-  "note": "Inside _propagate_offset_swap's same-Y collision-swap block: across the corpus no same-Y adjacent multi-line neighbour needs an offset swap, so the inner collision check never executes (0/128). Defensive guard for a same-Y multi-line offset collision absent from current topologies. Reclassified defensive (#762).",
-  "status": "defensive"
- },
- "offsets.py::if (cur_sid, cur_lid) in visited:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
   "status": "needs-review"
  },
@@ -1006,10 +930,6 @@
  "offsets.py::if abs(nbr_cur - new_off) < _OFFSET_EQ_TOLERANCE:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
   "status": "needs-review"
- },
- "offsets.py::if all(::#1": {
-  "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive. The already-aligned arm (->1190) is exercised by the corpus; the body arm (->1192) is the reachable-but-defective one.",
-  "status": "defensive"
  },
  "offsets.py::if any(::#3": {
   "note": "This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state.",
@@ -1035,17 +955,9 @@
   "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive. Its lines-differ arm (->1147) is additionally defensive: a fan-out junction carries exactly its single exit port's fanned lines, so exit_lines == j_lines always.",
   "status": "defensive"
  },
- "offsets.py::if feeding_exit is None:::#1": {
-  "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive.",
-  "status": "defensive"
- },
  "offsets.py::if internal_offs:::#1": {
   "note": "Exit ports are only created when inter-section edges exist (resolve.py `_create_port_stations` iterates `exit_group_edges` which is populated only from actual edges). Every TB LEFT/RIGHT exit port therefore has at least one edge from an internal station, so `internal_offs` is never empty when the loop is entered. The false arm is a defensive guard against an impossible empty-feeder state.",
   "status": "defensive"
- },
- "offsets.py::if len(nbr_lines) < 2:::#1": {
-  "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
-  "status": "needs-review"
  },
  "offsets.py::if len(shared) < 2:::#1": {
   "note": "In _align_flat_tb_exit_to_entry: scopes the flat-seam reconciliation to multi-line bundles, where a constant per-line offset delta means the lines share an order and only the bundle anchoring differs (the auto-folded serpentine case in #1198). A single shared line carries no bundle order to preserve and is left to the single-line corridor passes; no corpus fixture reaches the pass with fewer than two shared lines, so the skip arm is never taken.",
@@ -1087,10 +999,6 @@
   "note": "The raise arm of _assert_sections_anchored_on_trunk, a backstop on the postcondition of _reindex_section_local: an independent section (no flat-frame neighbour) always lands on the contiguous top-anchored levels 0,step,...,(m-1)*step by construction, so the mismatch arm never fires across the corpus. It guards against a future change that stops re-anchoring such a section.",
   "status": "defensive"
  },
- "offsets.py::if other_lid == cur_lid:::#1": {
-  "note": "Inside _propagate_offset_swap's same-Y collision-swap block: across the corpus no same-Y adjacent multi-line neighbour needs an offset swap, so the loop body (incl. this self-skip guard) never executes (0/128). Defensive guard for a same-Y multi-line offset collision absent from current topologies. Reclassified defensive (#762).",
-  "status": "defensive"
- },
  "offsets.py::if paired_off is not None:::#1": {
   "note": "_compute_base_offsets sets ctx.offsets[(sid, lid)] for every station-line pair before _propagate_lr_rl_exit_to_entry runs. Exit ports are stations. The for-loop at L791 iterates graph.station_lines(port_id) which equals graph.station_lines(exit_port_id) (enforced by the exit_lines != entry_lines guard at L788). For each lid, ctx.offsets.get((exit_port_id, lid)) is therefore never None. The loop-back arc (793,791) for the paired_off-is-None case is structurally unreachable.",
   "status": "defensive"
@@ -1125,10 +1033,6 @@
  },
  "offsets.py::if source_col is None:::#1": {
   "note": "_convergence_feeders receives resolved sources feeding a registered LEFT entry port. Each source is a sectioned port or a junction resolvable through one, so the missing-column arm protects an incomplete graph.",
-  "status": "defensive"
- },
- "offsets.py::if src_n <= tgt_n:::#1": {
-  "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
   "status": "defensive"
  },
  "offsets.py::if src_port and not src_port.is_entry:::#2": {

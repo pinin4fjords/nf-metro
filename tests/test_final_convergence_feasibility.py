@@ -8,13 +8,19 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    OFFSET_STEP,
+)
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     ROUTE_SYSTEM_COMPATIBILITY_REASONS,
     ConvergenceConflictKind,
     RouteSystemId,
 )
+from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
     FinalConvergenceFeasibilityError,
@@ -636,9 +642,9 @@ def test_organellar_joint_allocation_freezes_member_before_emission() -> None:
 def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> None:
     path = ROOT / "examples" / "topologies" / "fan_in_merge.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
+    station_offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=station_offsets)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, station_offsets)
     plan = observation.plan.convergence_plans[0]
     system_id = plan.system_id
     edge_order = tuple(member.edge for member in observation.plan.members)
@@ -711,7 +717,7 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         settle_global_convergence_execution(
             execution,
             graph,
-            SimpleNamespace(curve_radius=8.0, prior_exit_turn_dispositions=None),
+            ctx,
             exit_turn_plans=(),
             member_geometry=empty_member_geometry_execution(),
             planned_system_ids=frozenset({system_id}),

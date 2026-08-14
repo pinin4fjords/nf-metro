@@ -108,7 +108,7 @@ def test_deferred_tier_b_guard_rejects_bad_settled_routes(monkeypatch) -> None:
         )
 
 
-def test_convergence_owned_dogleg_is_not_treated_as_movable() -> None:
+def test_plan_ownership_does_not_hide_a_dogleg_crossing() -> None:
     exempt = RoutedPath(
         Edge("exempt-source", "exempt-target", "fixed"),
         "fixed",
@@ -140,7 +140,7 @@ def test_convergence_owned_dogleg_is_not_treated_as_movable() -> None:
     assert check_no_dogleg_crosses_exempt_trunk(None, [exempt, movable], {})
     movable.convergence_plan_id = "convergence"
     movable.convergence_owned_segment_ranks = (2,)
-    assert not check_no_dogleg_crosses_exempt_trunk(None, [exempt, movable], {})
+    assert check_no_dogleg_crosses_exempt_trunk(None, [exempt, movable], {})
 
 
 def test_owned_shared_opening_is_not_a_needless_right_entry_dive(

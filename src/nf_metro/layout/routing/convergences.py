@@ -2528,6 +2528,8 @@ def _crossing_minimal_lane(
     neighbours: tuple[_CotravellingRun, ...],
     clearance: float,
     feasible: Callable[[float], bool] | None = None,
+    *,
+    require_clear_segments: bool = False,
 ) -> float | None:
     """Nearest lane with the fewest crossings against adjacent fixed runs."""
     axis = plan.trunk_axis
@@ -2538,6 +2540,32 @@ def _crossing_minimal_lane(
     candidates = _clear_lane_candidates(
         tuple(neighbour.coordinate for neighbour in neighbours), clearance, feasible
     )
+
+    if require_clear_segments:
+
+        def segment_defects(
+            candidate: float,
+        ) -> frozenset[tuple[int, int, int, str]]:
+            defects: set[tuple[int, int, int, str]] = set()
+            for moving_rank, moving in enumerate(_plan_segments(plan, candidate)):
+                for neighbour_rank, neighbour in enumerate(neighbours):
+                    for fixed_rank, fixed in enumerate(neighbour.segments):
+                        if _orthogonal_segments_cross(moving, fixed):
+                            defects.add(
+                                (moving_rank, neighbour_rank, fixed_rank, "crossing")
+                            )
+                        if _parallel_segments_conflict(moving, fixed, OFFSET_STEP):
+                            defects.add(
+                                (moving_rank, neighbour_rank, fixed_rank, "parallel")
+                            )
+            return frozenset(defects)
+
+        existing_defects = segment_defects(run.coordinate)
+        candidates = tuple(
+            candidate
+            for candidate in candidates
+            if segment_defects(candidate) <= existing_defects
+        )
 
     def crossing_count(candidate: float) -> int:
         return sum(
@@ -2600,9 +2628,14 @@ def _separate_distinct_counter_running_trunks(
     plans: tuple[ConvergencePlan, ...],
     graph: MetroGraph,
     member_runs: tuple[_CotravellingRun, ...],
+    curve_radius: float,
 ) -> tuple[ConvergencePlan, ...]:
     """Seat distinct counter-running trunks on separate corridor channels."""
-    clearance = 2.0 * COORD_TOLERANCE
+    clearance = cotravelling_lane_clearance(
+        same_line=False,
+        counter_running=True,
+        curve_radius=curve_radius,
+    )
     settled = list(plans)
     seated = list(member_runs)
     for plan_rank in reversed(range(len(settled))):
@@ -2617,18 +2650,28 @@ def _separate_distinct_counter_running_trunks(
             and item.line_ids != run.line_ids
             and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
         )
+        obstacles = tuple(
+            item
+            for item in seated
+            if item.line_ids != run.line_ids
+            and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
+        )
         if any(
             abs(item.coordinate - run.coordinate) < clearance - COORD_TOLERANCE
             for item in neighbours
         ):
             corridor = run.corridor
-            candidates = _clear_lane_candidates(
-                tuple(item.coordinate for item in neighbours),
+            coordinate = _crossing_minimal_lane(
+                plan,
+                run,
+                obstacles,
                 clearance,
                 lambda candidate: inter_row_gap_upper_row(graph, candidate) == corridor,
+                require_clear_segments=True,
             )
-            coordinate = min(candidates, default=None)
-            assert coordinate is not None
+            if coordinate is None:
+                seated.append(run)
+                continue
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
             moved = _trunk_corridor_run(settled[plan_rank], graph)
             assert moved is not None
@@ -6413,7 +6456,9 @@ def _settle_convergence_geometry(
 
     settled = _pack_cotravelling_corridor_runs(plans, graph, member_runs)
     settled = _separate_distinct_cotravelling_trunks(settled, graph, member_runs)
-    settled = _separate_distinct_counter_running_trunks(settled, graph, member_runs)
+    settled = _separate_distinct_counter_running_trunks(
+        settled, graph, member_runs, ctx.curve_radius
+    )
     settled = _settle_shared_trunk_channels(settled, ctx.curve_radius)
     settled = _settle_shared_opening_pivots(settled, graph)
     settled = _settle_shared_source_openings(settled, ctx.curve_radius)
@@ -6483,7 +6528,9 @@ def _settle_convergence_geometry(
     settled = _separate_distinct_terminal_gap_channels(settled, graph, ctx.curve_radius)
     settled = tuple(_reconcile_bypass_landings(plan, ctx) for plan in settled)
     settled = _reconcile_landing_handedness(settled, ctx)
-    settled = _separate_distinct_counter_running_trunks(settled, graph, member_runs)
+    settled = _separate_distinct_counter_running_trunks(
+        settled, graph, member_runs, ctx.curve_radius
+    )
     settled = _fuse_owned_legacy_terminal_flanks(settled, ctx)
     return _reconcile_landing_handedness(settled, ctx)
 

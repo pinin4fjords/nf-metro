@@ -3544,9 +3544,7 @@ def check_no_dogleg_crosses_exempt_trunk(
     for rp in routes:
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
-        for k, seg in iter_horizontal_trunks(rp):
-            if planner_owns_segment(rp, k):
-                continue
+        for _k, seg in iter_horizontal_trunks(rp):
             for erp, eseg in exempt:
                 if erp.line_id == rp.line_id:
                     continue

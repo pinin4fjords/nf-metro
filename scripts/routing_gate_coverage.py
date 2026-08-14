@@ -163,19 +163,22 @@ def _collect_corpus() -> list[tuple[Path, bool]]:
 
     Mirrors ``tests/conftest.py``'s ``content_corpus``: the ``examples/`` tree
     (``rglob`` already subsumes ``examples/topologies`` and ``examples/guide``),
-    the loose ``tests/fixtures/`` fixtures, and the Nextflow-DAG fixtures under
-    ``tests/fixtures/nextflow/`` (which need ``convert_nextflow_dag`` before
-    parsing). Widening past the original ``examples/``-only scope lets the test
-    fixtures retire gate arms the gallery never reaches. Unlike
-    ``content_corpus`` this keeps the ``rails`` fixtures -- their rail router is
-    a routing path the matrix should measure, not skip.
+    the loose ``tests/fixtures/`` fixtures, the stable hash-seed regression
+    fixtures, and the Nextflow-DAG fixtures under ``tests/fixtures/nextflow/``
+    (which need ``convert_nextflow_dag`` before parsing). Widening past the
+    original ``examples/``-only scope lets the test fixtures retire gate arms the
+    gallery never reaches. Unlike ``content_corpus`` this keeps the ``rails``
+    fixtures -- their rail router is a routing path the matrix should measure,
+    not skip.
     """
     examples = PROJECT_ROOT / "examples"
     fixtures = PROJECT_ROOT / "tests" / "fixtures"
+    hash_seed_determinism = fixtures / "hash_seed_determinism"
     nextflow = fixtures / "nextflow"
     sources: list[tuple[list[Path], bool]] = [
         (sorted(examples.rglob("*.mmd")), False),
         (sorted(fixtures.glob("*.mmd")), False),
+        (sorted(hash_seed_determinism.glob("*.mmd")), False),
         (sorted(nextflow.glob("*.mmd")), True),
     ]
     candidates = [(p, is_nextflow) for paths, is_nextflow in sources for p in paths]

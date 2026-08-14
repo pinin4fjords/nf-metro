@@ -403,7 +403,14 @@ def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     observed = build_observed_render_plan(graph, resolve_theme(None, graph))
     svg = _emit_svg_plan(graph, observed.plan, RenderConfig())
+    routes = {
+        (route.edge.source, route.edge.target, route.line_id): route
+        for route in observed.plan.routes
+    }
+    straight = routes[("__junction_36", "s4__entry_right_21", "l1")]
+    turning = routes[("__junction_42", "__merge_12", "l4")]
 
+    assert turning.points[2][0] - straight.points[3][0] == 3 * graph_offset_step(graph)
     assert not [
         finding
         for finding in validate_render(svg, plan=observed.plan)

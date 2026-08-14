@@ -4027,6 +4027,38 @@ def _unweave_exempt_trunk_riser(
     points = route.points
     clearance = _exempt_trunk_separation(trunk, obstacle, ctx.curve_radius)
     obstacle_segment = _htrunk_seg(obstacle, obstacle.y)
+    moving_segment = _htrunk_seg(trunk, trunk.y)
+    crossing = trunk_segments_cross(moving_segment, obstacle_segment)
+    if (
+        crossing is not None
+        and trunk.sign_x == obstacle.sign_x
+        and route.edge.target == obstacle.route.edge.target
+        and abs(crossing[0] - obstacle_segment.xb) > COORD_TOLERANCE
+        and route.exit_turn_axis_id is None
+        and route.fan_plan_id is None
+        and not route.exit_shared_opening_points
+    ):
+        endpoint_y = min(moving_segment.before_y, moving_segment.after_y)
+        exempt_sections = set(_route_endpoint_section_ids(ctx.graph, route))
+        for _upper, top, bottom in reversed(tuple(iter_inter_row_gaps(ctx.graph))):
+            target_y = bottom + EDGE_TO_BUNDLE_CLEARANCE
+            candidate_trunk = _htrunk_seg(trunk, target_y)
+            if (
+                bottom >= endpoint_y - ctx.curve_radius
+                or target_y < top + ctx.curve_radius
+                or _h_segment_crosses_other_section(
+                    ctx.graph,
+                    candidate_trunk.xa,
+                    candidate_trunk.xb,
+                    candidate_trunk.y,
+                    exempt_sections,
+                )
+                or trunk_segments_cross(candidate_trunk, obstacle_segment) is not None
+            ):
+                continue
+            _restack_htrunk(trunk, target_y, 0, 1, ctx.offset_step, ctx.curve_radius)
+            _reconcile_moved_trunk_slot(route, trunk.idx, target_y, ctx.graph)
+            return {(route.edge.source, route.edge.target, route.line_id)}
     for rank in (trunk.idx, trunk.idx + 1):
         before, corner, after = points[rank - 1 : rank + 2]
         if (

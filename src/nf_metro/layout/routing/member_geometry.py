@@ -2250,10 +2250,12 @@ def build_member_geometry_execution(
             ctx,
             movable_route_ids=candidate_route_ids,
         )
-        _dogleg_off_exempt_trunks(
-            normalization_population,
-            ctx,
-            movable_owned_route_ids=candidate_route_ids,
+        reconciled_edges.update(
+            _dogleg_off_exempt_trunks(
+                normalization_population,
+                ctx,
+                movable_owned_route_ids=candidate_route_ids,
+            )
         )
         _reconcile_port_peeloff_risers(
             [
@@ -2268,6 +2270,26 @@ def build_member_geometry_execution(
         _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
         if reservation_ids_by_member is not None:
             _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        final_dogleg_edges = _dogleg_off_exempt_trunks(
+            normalization_population,
+            ctx,
+            movable_owned_route_ids=candidate_route_ids,
+            reconcile_owned_corridor=True,
+        )
+        reconciled_edges.update(final_dogleg_edges)
+        if final_dogleg_edges:
+            _separate_fused_cotravelling_runs(
+                normalization_population,
+                ctx,
+                movable_route_ids=frozenset(
+                    id(route)
+                    for route in candidate_routes
+                    if (route.edge.source, route.edge.target, route.line_id)
+                    in final_dogleg_edges
+                ),
+                station_offsets=ctx.station_offsets,
+                fixed_segment_keys=settled_tail_segments,
+            )
         plans = tuple(
             _freeze_plan(
                 scaffold,
