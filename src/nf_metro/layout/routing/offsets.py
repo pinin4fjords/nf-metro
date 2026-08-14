@@ -3345,13 +3345,14 @@ def _recenter_partial_fan_branches(ctx: _OffsetCtx) -> None:
 
 
 def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> None:
-    """Snap offsets for same-section edges where endpoints share base Y.
+    """Snap offsets for edges whose endpoints share base Y.
 
-    Only processes edges where both endpoints belong to the same
-    section. Inter-section offset mismatches are handled by routing
-    (L-shaped paths with vertical segments), so they must not be
-    reconciled here - doing so cascades offsets across section
-    boundaries and breaks per-section reindexing.
+    Same-section edges reconcile freely.  An inter-section seam is far
+    more constrained: cascading offsets across a section boundary breaks
+    per-section reindexing, and routing usually absorbs the mismatch in
+    an L-shaped path's vertical segment, so only a single-line port may
+    move to meet its seam partner, and only carrying its whole flat
+    in-section run with it.
 
     For each qualifying edge, tries snapping both stations to the
     larger-magnitude offset first, then the smaller. A candidate is
@@ -3364,9 +3365,9 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
     """
     # Pre-filter to edges where both endpoints share the same Y. These
     # properties are immutable during reconciliation.  Same-Y inter-section
-    # seams qualify too: routing draws them as one straight run, so an
-    # endpoint lane mismatch has no vertical leg to resolve in and reads as
-    # an almost-horizontal slope across the seam.
+    # seams qualify too: routing may draw them as one straight run, which
+    # leaves an endpoint lane mismatch no vertical leg to resolve in and
+    # reads as an almost-horizontal slope across the seam.
     candidates = [
         (
             edge,
@@ -3377,12 +3378,25 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
         <= _SAME_Y_TOLERANCE
     ]
     flat_section_partners: dict[tuple[str, str], list[str]] = {}
+    flat_seam_partners: dict[tuple[str, str], list[str]] = {}
     for edge, same_section in candidates:
-        if not same_section:
-            continue
         lid = edge.line_id
-        flat_section_partners.setdefault((edge.source, lid), []).append(edge.target)
-        flat_section_partners.setdefault((edge.target, lid), []).append(edge.source)
+        partners = flat_section_partners if same_section else flat_seam_partners
+        partners.setdefault((edge.source, lid), []).append(edge.target)
+        partners.setdefault((edge.target, lid), []).append(edge.source)
+
+    def _flat_run(station_id: str, lid: str) -> list[str]:
+        """The station's flat in-section run, walked to both of its ends."""
+        run = [station_id]
+        seen = {station_id}
+        stack = [station_id]
+        while stack:
+            for partner in flat_section_partners.get((stack.pop(), lid), ()):
+                if partner not in seen:
+                    seen.add(partner)
+                    run.append(partner)
+                    stack.append(partner)
+        return run
 
     for _ in range(max_iterations):
         changed = False
@@ -3401,26 +3415,35 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                 src_moves = src_off != candidate
                 tgt_moves = tgt_off != candidate
                 if not same_section:
-                    # An inter-section seam has no vertical leg to absorb the
-                    # mismatch, but its endpoints feed fan, dogleg, and
-                    # corridor geometry planned from their lanes, so only an
-                    # endpoint whose lane is the whole story -- a single-line
-                    # port -- may move to meet its partner.  A port whose flat
-                    # in-section run rides another lane stays with that run:
-                    # snapping it would trade the seam slope for a slope on
-                    # the station row, and the straight-connector ramp absorbs
-                    # the seam mismatch instead.
+                    # A seam endpoint feeds fan, dogleg, and corridor geometry
+                    # planned from its lane, so only an endpoint whose lane is
+                    # the whole story -- a single-line port -- may move to meet
+                    # its partner, and only when its flat in-section run is
+                    # free to come along: a run held on another lane, whether
+                    # by a collision or by a seam of its own at the far end,
+                    # would keep the mismatch and merely relocate it onto the
+                    # much shorter station row, where it reads as a steep
+                    # diagonal rather than a seam the routed vertical legs or
+                    # the mid-seam ramp absorb.
                     def _movable(sid: str) -> bool:
                         if (
                             sid not in ctx.graph.ports
                             or len(ctx.graph.station_lines(sid)) != 1
                         ):
                             return False
-                        return all(
-                            ctx.offsets.get((partner, lid), 0.0) == candidate
-                            or not _would_collide(ctx, partner, lid, candidate)
-                            for partner in flat_section_partners.get((sid, lid), ())
-                        )
+                        for member in _flat_run(sid, lid):
+                            if ctx.offsets.get(
+                                (member, lid), 0.0
+                            ) != candidate and _would_collide(
+                                ctx, member, lid, candidate
+                            ):
+                                return False
+                            if any(
+                                ctx.offsets.get((far, lid), 0.0) != candidate
+                                for far in flat_seam_partners.get((member, lid), ())
+                            ):
+                                return False
+                        return True
 
                     if (src_moves and not _movable(edge.source)) or (
                         tgt_moves and not _movable(edge.target)
@@ -3433,8 +3456,20 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     ctx, edge.target, lid, candidate
                 )
                 if src_ok and tgt_ok:
-                    ctx.offsets[(edge.source, lid)] = candidate
-                    ctx.offsets[(edge.target, lid)] = candidate
+                    for endpoint, moves in (
+                        (edge.source, src_moves),
+                        (edge.target, tgt_moves),
+                    ):
+                        # A seam snap carries the port's whole flat run, which
+                        # _movable has cleared; splitting the two would put the
+                        # slope on the station row instead of the seam.
+                        movers = (
+                            _flat_run(endpoint, lid)
+                            if moves and not same_section
+                            else [endpoint]
+                        )
+                        for mover in movers:
+                            ctx.offsets[(mover, lid)] = candidate
                     applied = True
                     changed = True
                     break
