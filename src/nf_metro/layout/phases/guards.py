@@ -6183,6 +6183,12 @@ def _ensure_pass_c_inputs(
                 routes = route_edges_for_placement_guards(graph, offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
+            if validate_final_geometry:
+                # A caller that validates without rendering follows the
+                # deferral flag to a render-plan build, where the routing
+                # failure resurfaces instead of being swallowed as a run
+                # with every route guard skipped.
+                graph._final_route_guards_deferred = True
     return offsets, routes
 
 

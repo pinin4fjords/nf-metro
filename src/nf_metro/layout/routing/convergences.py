@@ -1943,18 +1943,27 @@ def _reseat_landing_opening(
     landing: ConvergenceLanding,
     coordinate: float,
     curve_radius: float,
+    *,
+    carry_join: bool = False,
 ) -> ConvergenceLanding | None:
-    """Re-seat a vertical landing opening when its runway remains feasible."""
+    """Re-seat a vertical landing opening when its runway remains feasible.
+
+    The runway is signed along the approach: a seat on the join's far side
+    would reverse the landing tail into a fold-back, so it is refused --
+    unless *carry_join* is set, when the join slides through to the seat's
+    downstream side at the formed-curve runway.  Carrying moves the member's
+    endpoint, so only a caller that re-syncs feeder endpoint ownership may
+    opt in.
+    """
     if landing.opening_turn_segment is None:
         return None
     runway = landing.minimum_runway
     join_point = landing.join_point
     if landing.approach_axis is DemandAxis.X:
-        # Signed along the approach: a seat on the join's far side would
-        # reverse the landing tail into a fold-back, so the join slides
-        # through to the seat's downstream side at the formed-curve runway.
         runway = landing.approach_direction.sign * (join_point[0] - coordinate)
         if runway < curve_radius - COORD_TOLERANCE:
+            if not carry_join:
+                return None
             runway = curve_radius
             join_point = (
                 coordinate + landing.approach_direction.sign * runway,
@@ -2014,7 +2023,9 @@ def _move_landing_opening(
     for rank, landing in enumerate(landings):
         if landing.member_id not in member_ids:
             continue
-        reseated = _reseat_landing_opening(landing, coordinate, curve_radius)
+        reseated = _reseat_landing_opening(
+            landing, coordinate, curve_radius, carry_join=True
+        )
         if reseated is None:
             return None
         if reseated.join_point != landing.join_point:

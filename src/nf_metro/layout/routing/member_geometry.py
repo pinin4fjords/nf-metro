@@ -1914,20 +1914,18 @@ def _seat_claimed_segments_before_freeze(
             # but only when the clamp keeps the nesting pitch to every mate,
             # since two runs on one coordinate draw as a single stroke.
             pitch = 2 * ctx.offset_step
+            live = {id(route): coordinate for route, _r, coordinate, _b in component}
             for route, rank, coordinate, band in component:
                 clamped = min(max(coordinate, band.lo), band.hi)
                 if abs(clamped - coordinate) <= COORD_TOLERANCE_FINE:
                     continue
-                mates = [
-                    other_coordinate
-                    for other_route, _r, other_coordinate, _b in component
-                    if other_route is not route
-                ]
                 if all(
                     abs(clamped - other) >= pitch - COORD_TOLERANCE_FINE
-                    for other in mates
+                    for other_id, other in live.items()
+                    if other_id != id(route)
                 ):
                     _carry_seated_run(route, rank, axis, clamped)
+                    live[id(route)] = clamped
 
 
 def _band_overlap_components(

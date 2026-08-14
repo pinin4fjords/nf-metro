@@ -3982,8 +3982,8 @@ def _dogleg_off_exempt_trunks(
             below_ok = above_ok = True
         claim_band = _segment_claim_band(ctx, t.route, t.idx)
         if claim_band is not None:
-            below_in_band = below_ok and below <= claim_band.hi
-            above_in_band = above_ok and above >= claim_band.lo
+            below_in_band = below_ok and claim_band.lo <= below <= claim_band.hi
+            above_in_band = above_ok and claim_band.lo <= above <= claim_band.hi
             if below_in_band or above_in_band:
                 below_ok, above_ok = below_in_band, above_in_band
         # Pick the side that keeps the trunk a crossing-free parallel bundle:
@@ -4623,7 +4623,10 @@ def _fan_apart_junction_opening_legs(
 
     Only the drawn coordinates are compared, and only a leg long enough to
     read as a run is moved -- the mover steps a full nesting pitch to a lane
-    no other leg of the fan occupies, preferring a leg no plan owns.
+    no other leg of the fan occupies, preferring a leg no plan owns.  The
+    paired same-line ``port -> junction`` tail carries with the fanned leg,
+    so the line stays continuous through the junction instead of jogging a
+    lane at the handoff.
     """
     if station_offsets is None:
         return
@@ -4689,10 +4692,50 @@ def _fan_apart_junction_opening_legs(
                     if all(
                         abs(target - lane) > step - COORD_TOLERANCE for lane in occupied
                     ):
+                        start_drawn = apply_route_offsets(mover, station_offsets)[0]
                         pts = mover.points
                         pts[0] = (pts[0][0], pts[0][1] + delta)
                         pts[1] = (pts[1][0], pts[1][1] + delta)
+                        _carry_fanned_upstream_tails(
+                            mover, routes, station_offsets, start_drawn, delta
+                        )
                         break
+
+
+def _carry_fanned_upstream_tails(
+    mover: RoutedPath,
+    routes: list[RoutedPath],
+    station_offsets: Mapping[tuple[str, str], float],
+    start_drawn: tuple[float, float],
+    delta: float,
+) -> None:
+    """Carry a fanned leg's paired upstream tails onto the leg's new lane.
+
+    *start_drawn* is the fanned leg's drawn start before its lane change.  A
+    same-line ``port -> junction`` tail whose drawn endpoint sits there is the
+    other half of one continuous stroke, so its endpoint follows the lane
+    change; a tail ending anywhere else is a seam another pass owns and is
+    left alone.  A horizontal tail moves whole (both waypoints share the
+    lane); a vertical tail stretches to the new lane through its existing
+    corner.
+    """
+    for upstream in routes:
+        if (
+            upstream.edge.target != mover.edge.source
+            or upstream.line_id != mover.line_id
+            or len(upstream.points) < 2
+        ):
+            continue
+        drawn = apply_route_offsets(upstream, station_offsets)
+        if (
+            abs(drawn[-1][0] - start_drawn[0]) > COORD_TOLERANCE
+            or abs(drawn[-1][1] - start_drawn[1]) > COORD_TOLERANCE
+        ):
+            continue
+        up = upstream.points
+        if abs(up[-1][1] - up[-2][1]) <= COORD_TOLERANCE:
+            up[-2] = (up[-2][0], up[-2][1] + delta)
+        up[-1] = (up[-1][0], up[-1][1] + delta)
 
 
 def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:

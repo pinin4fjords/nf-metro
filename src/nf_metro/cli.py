@@ -763,14 +763,7 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
                     from nf_metro.render.svg import build_render_plan
 
                     build_render_plan(graph, resolve_theme(None, graph))
-            except (
-                CyclicGraphError,
-                BackwardFlowError,
-                MixedEntryDirectionError,
-                PhaseInvariantError,
-                FoldThresholdError,
-                ValueError,
-            ) as e:
+            except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
                 issues.append(ValidationIssue(ERROR, str(e)))
 
     issues.extend(ValidationIssue(WARNING, str(w.message)) for w in caught)

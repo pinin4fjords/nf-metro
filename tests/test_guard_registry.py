@@ -59,7 +59,9 @@ def test_final_runner_runs_deferred_tier_b_route_guard_on_settled_geometry(
         ),
     )
 
-    guards.run_validate_guards(object(), "after final", include_final=True, offsets={})
+    guards.run_validate_guards(
+        SimpleNamespace(), "after final", include_final=True, offsets={}
+    )
 
     assert called == ["structural"]
     guards.assert_render_layout_invariants(
