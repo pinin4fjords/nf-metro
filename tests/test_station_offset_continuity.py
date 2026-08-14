@@ -16,10 +16,12 @@ from pathlib import Path
 import pytest
 
 from nf_metro.api import prepare_graph
+from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.routing.offsets import compute_station_offsets
 
 ROOT = Path(__file__).parents[1]
 FROZEN = ROOT / "tests" / "fixtures" / "hash_seed_determinism"
+EXAMPLES = ROOT / "examples"
 
 
 def _graph_and_offsets(path: Path):
@@ -70,6 +72,36 @@ def test_tb_station_slots_are_contiguous_for_present_lines() -> None:
         off for (sid, _line), off in offsets.items() if sid == "n5_0"
     )
     assert station_offsets == [0.0, 4.0, 8.0]
+
+
+def _lane_holes(graph, offsets, station_id: str) -> list[float]:
+    step = graph_offset_step(graph)
+    lanes = sorted(off for (sid, _line), off in offsets.items() if sid == station_id)
+    return [
+        lower + step
+        for lower, upper in zip(lanes, lanes[1:])
+        if upper - lower > step + 0.01
+    ]
+
+
+@pytest.mark.parametrize(
+    ("relpath", "station_id"),
+    [
+        ("longread_variant_calling.mmd", "ontspectre_cnvcaller"),
+        ("topologies/rail_boundary_bundle_fan.mmd", "hub"),
+    ],
+)
+def test_station_bundles_leave_no_empty_lane(relpath: str, station_id: str) -> None:
+    # A slot left unoccupied inside a station's bundle stretches its marker
+    # over empty space and strands whatever rides the vacated lane elsewhere,
+    # so a line only leaves its lane when the bundle closes up behind it.
+    graph, offsets = _graph_and_offsets(EXAMPLES / relpath)
+    assert not _lane_holes(graph, offsets, station_id)
+
+
+def test_gallery_flat_in_section_runs_keep_their_lane() -> None:
+    graph, offsets = _graph_and_offsets(EXAMPLES / "longread_variant_calling.mmd")
+    assert not _flat_run_slopes(graph, offsets)
 
 
 def test_port_seam_alignment_respects_disagreeing_run_mates() -> None:

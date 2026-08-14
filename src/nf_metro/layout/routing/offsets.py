@@ -2776,6 +2776,25 @@ def _would_collide(
     )
 
 
+def _leaves_lane_hole(
+    ctx: _OffsetCtx, station_id: str, line_id: str, value: float
+) -> bool:
+    """Check if setting (station_id, line_id) to value strands an empty slot.
+
+    A bundle whose occupied lanes skip a slot draws its marker across empty
+    space, so a line may only leave its slot when the bundle closes up
+    behind it.
+    """
+    lanes = sorted(
+        value if lid == line_id else ctx.offsets.get((station_id, lid), 0.0)
+        for lid in ctx.graph.station_lines(station_id)
+    )
+    return any(
+        upper - lower > ctx.offset_step + _OFFSET_EQ_TOLERANCE
+        for lower, upper in zip(lanes, lanes[1:])
+    )
+
+
 def _align_junction_to_entry_port(ctx: _OffsetCtx) -> None:
     """Resolve same-Y junction-to-entry-port slants left by Path 2.
 
@@ -3504,10 +3523,12 @@ def _align_stations_to_settled_port_frames(ctx: _OffsetCtx) -> None:
     horizontal reconciliation, so a station one flat edge away can be left
     on the pre-settlement lane, drawing a near-flat slope into the port.
     The port's frame is the settled truth, so the station's line moves to
-    the port's slot when that slot is free at the station and every other
-    flat run-mate already rides it - moving against a disagreeing mate
-    would trade the port seam for a station seam.  A seam that does not
-    fit stays for the closing guards to report.
+    the port's slot when that slot is free at the station, every other flat
+    run-mate - station or port - already rides it, and the station's bundle
+    closes up behind the move.  Moving against a disagreeing mate would
+    trade the port seam for a mate's seam, and vacating a slot the bundle
+    cannot close over strands an empty lane inside the station's marker.
+    A seam that does not fit stays for the closing guards to report.
     """
     graph = ctx.graph
 
@@ -3531,6 +3552,8 @@ def _align_stations_to_settled_port_frames(ctx: _OffsetCtx) -> None:
             continue
         if _would_collide(ctx, station.id, lid, port_off):
             continue
+        if _leaves_lane_hole(ctx, station.id, lid, port_off):
+            continue
         mates_agree = all(
             abs(ctx.offsets.get((other.id, lid), 0.0) - port_off)
             <= _OFFSET_EQ_TOLERANCE
@@ -3545,7 +3568,6 @@ def _align_stations_to_settled_port_frames(ctx: _OffsetCtx) -> None:
                 ]
             ).id
             != port.id
-            and not other.is_port
             and flat_seam(station, other)
         )
         if mates_agree:
