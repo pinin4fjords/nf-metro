@@ -19,8 +19,6 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
-    NEXT_ROW_HEADER_BADGE_CLEARANCE,
-    SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
@@ -46,6 +44,7 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    fan_corridor_band,
     gap_lo_for_x,
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
@@ -3897,14 +3896,13 @@ def _dogleg_off_exempt_trunks(
         )
         if hit is None:
             continue
-        # Lower edge reserves the next row's header badge plus the clearance
-        # margin the header-clearance invariant requires; up_room only reserves
+        # Lower edge reserves the same inter-row header clearance the
+        # reservation ledger enforces on drawn claims; up_room only reserves
         # the upper box edge.
         band = _inter_row_gap_band(ctx, t.y)
         if band is not None:
             top, bottom = band
-            header_top = bottom - SECTION_HEADER_PROTRUSION
-            down_room = (header_top - NEXT_ROW_HEADER_BADGE_CLEARANCE) - hit.y
+            down_room = (bottom - INTER_ROW_HEADER_CLEARANCE) - hit.y
             up_room = hit.y - top
         else:
             down_room = up_room = clearance
@@ -3969,10 +3967,16 @@ def _dogleg_off_exempt_trunks(
         below, above = hit.y + separation, hit.y - separation
         if band is not None:
             top, bottom = band
-            below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
+            below_ok = below <= bottom - INTER_ROW_HEADER_CLEARANCE
             above_ok = above >= top
         else:
             below_ok = above_ok = True
+        claim_band = _segment_claim_band(ctx, t.route, t.idx)
+        if claim_band is not None:
+            below_in_band = below_ok and below <= claim_band.hi
+            above_in_band = above_ok and above >= claim_band.lo
+            if below_in_band or above_in_band:
+                below_ok, above_ok = below_in_band, above_in_band
         # Pick the side that keeps the trunk a crossing-free parallel bundle:
         # nudging it onto the side whose riser would pierce the exempt run (or
         # whose run the exempt riser would pierce) trades one fused stroke for
@@ -4041,11 +4045,12 @@ def _unweave_exempt_trunk_riser(
         endpoint_y = min(moving_segment.before_y, moving_segment.after_y)
         exempt_sections = set(_route_endpoint_section_ids(ctx.graph, route))
         for _upper, top, bottom in reversed(tuple(iter_inter_row_gaps(ctx.graph))):
-            target_y = bottom + EDGE_TO_BUNDLE_CLEARANCE
+            target_y = fan_corridor_band(top, bottom, 0.0)
+            if target_y is None:
+                continue
             candidate_trunk = _htrunk_seg(trunk, target_y)
             if (
                 bottom >= endpoint_y - ctx.curve_radius
-                or target_y < top + ctx.curve_radius
                 or _h_segment_crosses_other_section(
                     ctx.graph,
                     candidate_trunk.xa,

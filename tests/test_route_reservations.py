@@ -257,9 +257,7 @@ def test_reportho_preserves_the_full_authored_corridor() -> None:
     assert reservation.bundle_width == 0
     assert reservation.negative_side_clearance == 26
     assert reservation.positive_side_clearance == 52
-    assert reservation.negative_lane_offset_envelope == 0
-    assert reservation.positive_lane_offset_envelope == 4
-    assert reservation.minimum_width == 82
+    assert reservation.minimum_width == 78
     assert len(reservation.connector_ids) == 12
     assert len(reservation.claimant_member_ids) == 2
     assert len(reservation.claims) == 1
@@ -272,27 +270,25 @@ def test_reportho_preserves_the_full_authored_corridor() -> None:
     assert all(len(str(item)) < 64 for item in reservation.demand_ids)
     assert len(str(reservation.id)) < 64
 
-    assert realised.coordinate == pytest.approx(494.0)
+    assert realised.coordinate == pytest.approx(492.0)
     assert realised.longitudinal_axis.value == "x"
     assert realised.longitudinal_start == pytest.approx(356.0)
     assert realised.longitudinal_end == pytest.approx(2314.0)
     assert realised.region_start == pytest.approx(466.0)
     assert realised.region_end == pytest.approx(544.0)
     assert realised.available_width == pytest.approx(78.0)
-    assert realised.required_width == pytest.approx(82.0)
-    assert realised.capacity_slack == pytest.approx(-4.0)
+    assert realised.required_width == pytest.approx(78.0)
+    assert realised.capacity_slack == pytest.approx(0.0)
     assert realised.negative_side_slack == pytest.approx(0.0)
-    assert realised.positive_side_slack == pytest.approx(-4.0)
+    assert realised.positive_side_slack == pytest.approx(0.0)
     assert realised.negative_blocker_ids == ("section-bottom:fetch_ortho",)
     assert realised.positive_blocker_ids == ("section-header:report",)
 
-    diagnostics = [
+    assert not [
         item
         for item in plan.reservation_diagnostics
         if item.reservation_id == reservation.id
     ]
-    assert len(diagnostics) == 1
-    assert diagnostics[0].capacity_slack == pytest.approx(-4.0)
 
     assert graph.route_topology is not None
     connector_by_id = {
@@ -980,11 +976,7 @@ def test_a_boundary_is_sized_for_the_corridors_confined_with_each_other() -> Non
         assert corridor.bundle_width == pytest.approx(0.0)
         assert corridor.peer_width == pytest.approx(owed)
         assert corridor.minimum_width == pytest.approx(
-            corridor.negative_side_clearance
-            + corridor.positive_side_clearance
-            + corridor.negative_lane_offset_envelope
-            + corridor.positive_lane_offset_envelope
-            + owed
+            corridor.negative_side_clearance + corridor.positive_side_clearance + owed
         )
 
 

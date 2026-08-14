@@ -320,8 +320,6 @@ class RouteReservation:
     demand_ids: tuple[DemandId, ...]
     provenance: tuple[ReservationDecisionRef, ...]
     description: str
-    negative_lane_offset_envelope: float = 0.0
-    positive_lane_offset_envelope: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.connector_ids:
@@ -345,17 +343,13 @@ class RouteReservation:
             or self.peer_clearance < 0
             or self.negative_side_clearance < 0
             or self.positive_side_clearance < 0
-            or self.negative_lane_offset_envelope < 0
-            or self.positive_lane_offset_envelope < 0
             or self.minimum_width < 0
         ):
             raise ValueError("reservation widths and clearances cannot be negative")
         expected = (
             self.negative_side_clearance
-            + self.negative_lane_offset_envelope
             + self.bundle_width
             + self.peer_width
-            + self.positive_lane_offset_envelope
             + self.positive_side_clearance
         )
         if abs(self.minimum_width - expected) > COORD_TOLERANCE:
@@ -642,8 +636,6 @@ class _ObservedClaim:
     travel_start: float
     travel_end: float
     coordinate: float
-    negative_lane_offset_envelope: float
-    positive_lane_offset_envelope: float
 
     @property
     def line_id(self) -> str:
@@ -1486,20 +1478,6 @@ def _route_launch_anchor(
     return None
 
 
-def _lane_offset_envelope(
-    orientation: CorridorOrientation,
-    member: EmissionMember,
-    station_offsets: Mapping[tuple[str, str], float],
-) -> tuple[float, float]:
-    if orientation is CorridorOrientation.VERTICAL:
-        return 0.0, 0.0
-    offsets = (
-        station_offsets.get((member.edge.source, member.line_id), 0.0),
-        station_offsets.get((member.edge.target, member.line_id), 0.0),
-    )
-    return max(0.0, -min(offsets)), max(0.0, max(offsets))
-
-
 def _observe_route_geometry(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -1576,9 +1554,6 @@ def _observe_route_geometry(
                 if segment.orientation is CorridorOrientation.HORIZONTAL
                 else CorridorKind.INTER_COLUMN_CHANNEL
             )
-            negative_offset, positive_offset = _lane_offset_envelope(
-                segment.orientation, member, station_offsets
-            )
             claims.append(
                 _ObservedClaim(
                     member.system_id,
@@ -1614,8 +1589,6 @@ def _observe_route_geometry(
                     segment.span_start,
                     segment.span_end,
                     segment.coordinate,
-                    negative_offset,
-                    positive_offset,
                 )
             )
     return _ObservedGeometry(tuple(claims), tuple(unfiled))
@@ -2371,12 +2344,6 @@ def _build_symbolic_records(
         )
         claims = tuple(item.claim for item in ordered_group)
         lanes, bundle_width = _allocate_physical_lanes(claims)
-        negative_offset_envelope = max(
-            item.negative_lane_offset_envelope for item in ordered_group
-        )
-        positive_offset_envelope = max(
-            item.positive_lane_offset_envelope for item in ordered_group
-        )
         connector_set = {
             connector_id for item in group for connector_id in item.connector_ids
         }
@@ -2448,12 +2415,7 @@ def _build_symbolic_records(
             BUNDLE_TO_BUNDLE_CLEARANCE,
             negative,
             positive,
-            negative
-            + negative_offset_envelope
-            + bundle_width
-            + peer_width
-            + positive_offset_envelope
-            + positive,
+            negative + bundle_width + peer_width + positive,
             None,
             keepouts,
             families,
@@ -2461,8 +2423,6 @@ def _build_symbolic_records(
             (demand_id,),
             provenance,
             _description(first.kind, first.region, span, lane_count),
-            negative_lane_offset_envelope=negative_offset_envelope,
-            positive_lane_offset_envelope=positive_offset_envelope,
         )
         reference = SharedReference(
             reference_id,
@@ -2660,10 +2620,8 @@ def _projected_claim_bounds(
         longitudinal_axis,
         min(item[0] for item in projected_claims),
         max(item[1] for item in projected_claims),
-        min(item[2] for item in projected_claims)
-        - reservation.negative_lane_offset_envelope,
-        max(item[2] for item in projected_claims)
-        + reservation.positive_lane_offset_envelope,
+        min(item[2] for item in projected_claims),
+        max(item[2] for item in projected_claims),
     )
 
 
@@ -2819,10 +2777,8 @@ def _realise_one(
     )
     required = (
         negative_clearance
-        + reservation.negative_lane_offset_envelope
         + reservation.bundle_width
         + reservation.peer_width
-        + reservation.positive_lane_offset_envelope
         + positive_clearance
     )
     available = measured_distance(measurement.start, measurement.end)
@@ -2928,16 +2884,8 @@ def drawn_corridor_containment(
         for claim in claims
         for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
     )
-    band_start = (
-        realised.region_start
-        + realised.negative_side_clearance
-        - reservation.negative_lane_offset_envelope
-    )
-    band_end = (
-        realised.region_end
-        - realised.positive_side_clearance
-        + reservation.positive_lane_offset_envelope
-    )
+    band_start = realised.region_start + realised.negative_side_clearance
+    band_end = realised.region_end - realised.positive_side_clearance
     if isinstance(reservation.region, ColumnGapRegion):
         for claim in claims:
             polyline = route_polylines[claim.path_rank]
@@ -3161,10 +3109,8 @@ def _validate_reservation_record(
             expected_positive = reserved_margin
     expected_minimum = (
         expected_negative
-        + reservation.negative_lane_offset_envelope
         + expected_bundle_width
         + reservation.peer_width
-        + reservation.positive_lane_offset_envelope
         + expected_positive
     )
     if (
@@ -3460,10 +3406,8 @@ def _validate_reservation_realisation(
         expected_occupied_end = expected_bounds.occupied_end
     expected_required = (
         realised.negative_side_clearance
-        + reservation.negative_lane_offset_envelope
         + reservation.bundle_width
         + reservation.peer_width
-        + reservation.positive_lane_offset_envelope
         + realised.positive_side_clearance
     )
     expected_capacity = realised.available_width - expected_required

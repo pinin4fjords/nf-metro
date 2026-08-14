@@ -1503,9 +1503,7 @@ def _settle_render_geometry(
             ),
         )
         applied_settlements.append(preclearance_settlement)
-        station_offsets, routes, route_plan = _resettle(
-            reservation_translations=preclearance_settlement.coordinate_translations
-        )
+        station_offsets, routes, route_plan = _resettle()
         if route_plan.boundary_clearance_requirements:
             raise LayoutInvariantError(
                 "envelope settlement did not satisfy convergence boundary "
@@ -1516,10 +1514,7 @@ def _settle_render_geometry(
         if corridor_settlement.translations:
             station_offsets, routes, route_plan = _resettle(
                 route_plan,
-                (
-                    *preclearance_settlement.coordinate_translations,
-                    *corridor_settlement.coordinate_translations,
-                ),
+                corridor_settlement.coordinate_translations,
             )
     effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
         graph.permissive

@@ -805,20 +805,20 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
     """Two corridors starved at one boundary are one widening, not two.
 
     ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1. Their lane envelopes leave both 14px
-    short, and one translation of row 1 onward satisfies both.
+    observed-run claim in row gap 0/1. Both fall short at that boundary, and
+    one translation of row 1 onward sized to the deeper deficit satisfies both.
     """
     path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
     graph, plan = _observe(path)
     starved = _capacity_deficits(plan)
     assert len(starved) == 2
-    assert set(starved.values()) == {-14.0}
+    assert set(starved.values()) == {-6.0, -2.0}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
     assert translation.axis is SettlementAxis.ROW
     assert translation.boundary == 1
-    assert translation.amount == pytest.approx(14.0)
+    assert translation.amount == pytest.approx(6.0)
     assert {str(item) for item in translation.reservation_ids} == set(starved)
 
     for reservation_id in starved:
@@ -970,8 +970,8 @@ def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
     assert len(reservation.connector_ids) == 12
     realised = query.realised_reservation(reservation.id)
     assert realised is not None
-    assert reservation.minimum_width == 82
-    assert realised.available_width >= 82.0
+    assert reservation.minimum_width == 78
+    assert realised.available_width >= 78.0
     assert realised.capacity_slack >= 0.0
     assert _capacity_deficits(plan) == {}
 

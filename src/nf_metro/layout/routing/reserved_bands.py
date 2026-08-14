@@ -541,9 +541,7 @@ def _claim_views(
                 bundle_width=0.0,
                 minimum_width=(
                     reservation.negative_side_clearance
-                    + reservation.negative_lane_offset_envelope
                     + reservation.peer_width
-                    + reservation.positive_lane_offset_envelope
                     + reservation.positive_side_clearance
                 ),
             )

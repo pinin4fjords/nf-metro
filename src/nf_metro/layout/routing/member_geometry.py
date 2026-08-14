@@ -1896,13 +1896,54 @@ def _seat_claimed_segments_before_freeze(
                 )
 
     for (*_identity, axis), items in grouped.items():
-        travel = bundle_travel(
-            [(band, coordinate) for _route, _rank, coordinate, band in items]
-        )
-        if abs(travel) <= COORD_TOLERANCE_FINE:
-            continue
-        for route, rank, coordinate, _band in items:
-            _carry_seated_run(route, rank, axis, coordinate + travel)
+        # Same-rank runs in disjoint corridors are not one bundle: a run pinned
+        # at its own band edge must not veto the travel of runs whose bands it
+        # does not even overlap, so items split into band-overlap components
+        # and each component travels as its own bundle.
+        for component in _band_overlap_components(items):
+            travel = bundle_travel(
+                [(band, coordinate) for _route, _rank, coordinate, band in component]
+            )
+            if abs(travel) > COORD_TOLERANCE_FINE:
+                for route, rank, coordinate, _band in component:
+                    _carry_seated_run(route, rank, axis, coordinate + travel)
+                continue
+            # The component cannot travel rigidly (a mate is already pinned at
+            # its own band edge), so an out-of-band run is clamped alone --
+            # but only when the clamp keeps the nesting pitch to every mate,
+            # since two runs on one coordinate draw as a single stroke.
+            pitch = 2 * ctx.offset_step
+            for route, rank, coordinate, band in component:
+                clamped = min(max(coordinate, band.lo), band.hi)
+                if abs(clamped - coordinate) <= COORD_TOLERANCE_FINE:
+                    continue
+                mates = [
+                    other_coordinate
+                    for other_route, _r, other_coordinate, _b in component
+                    if other_route is not route
+                ]
+                if all(
+                    abs(clamped - other) >= pitch - COORD_TOLERANCE_FINE
+                    for other in mates
+                ):
+                    _carry_seated_run(route, rank, axis, clamped)
+
+
+def _band_overlap_components(
+    items: list[tuple[RoutedPath, int, float, ReservedBand]],
+) -> list[list[tuple[RoutedPath, int, float, ReservedBand]]]:
+    """*items* partitioned into components of transitively overlapping bands."""
+    ordered = sorted(items, key=lambda item: item[3].lo)
+    components: list[list[tuple[RoutedPath, int, float, ReservedBand]]] = []
+    reach = float("-inf")
+    for item in ordered:
+        band = item[3]
+        if not components or band.lo > reach + COORD_TOLERANCE:
+            components.append([item])
+        else:
+            components[-1].append(item)
+        reach = max(reach, band.hi)
+    return components
 
 
 def _allocate_preliminary_gap_claims(
@@ -2290,6 +2331,8 @@ def build_member_geometry_execution(
                 station_offsets=ctx.station_offsets,
                 fixed_segment_keys=settled_tail_segments,
             )
+        if final_dogleg_edges and reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
         plans = tuple(
             _freeze_plan(
                 scaffold,
