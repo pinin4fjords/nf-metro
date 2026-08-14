@@ -3359,19 +3359,24 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
     Iterates until stable, since fixing one edge can propagate
     through port -> station chains within the same section.
     """
-    # Pre-filter to edges where both endpoints share the same Y and
-    # section. These properties are immutable during reconciliation.
+    # Pre-filter to edges where both endpoints share the same Y. These
+    # properties are immutable during reconciliation.  Same-Y inter-section
+    # seams qualify too: routing draws them as one straight run, so an
+    # endpoint lane mismatch has no vertical leg to resolve in and reads as
+    # an almost-horizontal slope across the seam.
     candidates = [
-        edge
+        (
+            edge,
+            _same_section(ctx.graph, edge.source, edge.target),
+        )
         for edge in ctx.graph.edges
         if abs(ctx.graph.stations[edge.source].y - ctx.graph.stations[edge.target].y)
         <= _SAME_Y_TOLERANCE
-        and _same_section(ctx.graph, edge.source, edge.target)
     ]
 
     for _ in range(max_iterations):
         changed = False
-        for edge in candidates:
+        for edge, same_section in candidates:
             lid = edge.line_id
             src_off = ctx.offsets.get((edge.source, lid), 0.0)
             tgt_off = ctx.offsets.get((edge.target, lid), 0.0)
@@ -3383,10 +3388,28 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
 
             applied = False
             for candidate in (larger, smaller):
-                src_ok = src_off == candidate or not _would_collide(
+                src_moves = src_off != candidate
+                tgt_moves = tgt_off != candidate
+                if not same_section:
+                    # An inter-section seam has no vertical leg to absorb the
+                    # mismatch, but its endpoints feed fan, dogleg, and
+                    # corridor geometry planned from their lanes, so only an
+                    # endpoint whose lane is the whole story -- a single-line
+                    # port -- may move to meet its partner.
+                    def _movable(sid: str) -> bool:
+                        return (
+                            sid in ctx.graph.ports
+                            and len(ctx.graph.station_lines(sid)) == 1
+                        )
+
+                    if (src_moves and not _movable(edge.source)) or (
+                        tgt_moves and not _movable(edge.target)
+                    ):
+                        continue
+                src_ok = not src_moves or not _would_collide(
                     ctx, edge.source, lid, candidate
                 )
-                tgt_ok = tgt_off == candidate or not _would_collide(
+                tgt_ok = not tgt_moves or not _would_collide(
                     ctx, edge.target, lid, candidate
                 )
                 if src_ok and tgt_ok:
@@ -3395,6 +3418,9 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     applied = True
                     changed = True
                     break
+
+            if not applied and not same_section:
+                continue
 
             if not applied:
                 # Both candidates collide; shift the bundle at the
