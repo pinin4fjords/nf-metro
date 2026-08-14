@@ -25,7 +25,13 @@ import pytest
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.route_plan import ExitTurnDisposition
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    observe_route_edges,
+    route_edges,
+)
+from nf_metro.layout.routing.common import Direction, segment_direction
 from nf_metro.layout.routing.invariants import (
     check_concentric_bundle_corners,
     check_no_split_same_line_fanout_descents,
@@ -84,8 +90,40 @@ def test_opposite_opening_directions_are_separate_planned_fans() -> None:
     graph = parse_metro_mermaid((FROZEN / "seed_15.mmd").read_text())
 
     compute_layout(graph)
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
 
-    assert graph.stations["__junction_23"].x == pytest.approx(1610.5)
+    plans = tuple(
+        plan for plan in observation.plan.exit_turn_plans if plan.shared_openings
+    )
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert len(plan.shared_openings) == 1
+
+    opening = plan.shared_openings[0]
+    outbound = tuple(
+        route
+        for route in observation.routes
+        if route.exit_turn_plan_id == plan.id and route.edge.source == plan.source_id
+    )
+    assert len(outbound) == 2
+    assert {route.line_id for route in outbound} == {"l2"}
+    assert {route.emission_member_id for route in outbound} == set(opening.member_ids)
+    assert len(opening.member_ids) == 2
+
+    source = graph.stations[plan.source_id]
+    assert opening.points[0] == pytest.approx((source.x, source.y))
+    assert segment_direction(*opening.points[:2]) is Direction.L
+    assert segment_direction(*opening.points[1:3]) is Direction.U
+    assert source.x - opening.points[1][0] >= plan.minimum_runway
+    assert all(
+        tuple(route.points[: len(opening.points)]) == opening.points
+        for route in outbound
+    )
 
 
 def _opening_descents(routes) -> list[tuple[str, str, float]]:
