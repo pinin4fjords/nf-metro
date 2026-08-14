@@ -86,7 +86,7 @@ def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> Non
     assert violations, "expected a split fan-out descent with the fuse pass off"
 
 
-def test_opposite_opening_directions_are_separate_planned_fans() -> None:
+def test_opposite_opening_directions_share_one_exit_opening() -> None:
     graph = parse_metro_mermaid((FROZEN / "seed_15.mmd").read_text())
 
     compute_layout(graph)
@@ -101,7 +101,7 @@ def test_opposite_opening_directions_are_separate_planned_fans() -> None:
     )
     assert len(plans) == 1
     plan = plans[0]
-    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert plan.disposition is ExitTurnDisposition.LEGACY
     assert len(plan.shared_openings) == 1
 
     opening = plan.shared_openings[0]

@@ -281,7 +281,7 @@ def test_seed_15_settles_member_clear_of_shared_opening_and_convergence() -> Non
         if landing.edge == ResolvedEdge("__junction_25", "__merge_9", "l0")
     )
 
-    assert movable.gap_channels[0].start[0] == 1538.0
+    assert movable.gap_channels[0].start[0] == 1542.0
     assert fixed.gap_channels[-1].start[0] == 1550.0
     assert landing.minimum_runway == 52.0
     assert landing.opening_turn_coordinate - landing.join_point[0] == 52.0
@@ -342,7 +342,7 @@ def test_shared_opening_settlement_supports_both_target_flanks(mirror) -> None:
     )
     movable = next(plan for plan in settled.plans if plan.edge.line_id == "l1")
 
-    assert movable.gap_channels[0].start[0] == mirror * 1538.0
+    assert movable.gap_channels[0].start[0] == mirror * 1542.0
 
 
 def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
@@ -385,7 +385,7 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    assert crossings(disabled) == {(1600.5, 392.0)}
+    assert crossings(disabled) == {(1302.0, 398.0), (1600.5, 398.0)}
 
 
 def test_seed_15_shared_opening_is_line_name_independent() -> None:

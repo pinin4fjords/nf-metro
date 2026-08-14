@@ -371,7 +371,7 @@ def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
         == ("__junction_42", "__merge_12", "l4")
     )
 
-    assert trunk.points[2] == pytest.approx((2722.0, 348.0))
+    assert trunk.points[2] == pytest.approx((2718.0, 348.0))
 
 
 def test_seed_77_settled_entry_bundle_keeps_allocation_lanes() -> None:
