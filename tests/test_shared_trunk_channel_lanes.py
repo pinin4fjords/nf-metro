@@ -310,6 +310,16 @@ def _planned_plan(
     )
 
 
+def test_bypass_tail_runway_cannot_disagree_with_minimum_runway() -> None:
+    landing = _planned_plan("runway", DemandAxis.X, Direction.R, 10.0).landings[0]
+
+    with pytest.raises(
+        ValueError,
+        match="bypass tail runway must equal its minimum runway",
+    ):
+        replace(landing, bypass_tail_runway=landing.minimum_runway + 1.0)
+
+
 @pytest.mark.parametrize(
     ("axis", "forward", "backward"),
     (

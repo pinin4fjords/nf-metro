@@ -1679,8 +1679,6 @@ def _reconcile_landing_handedness(
     plans: tuple[ConvergencePlan, ...], ctx: _RoutingCtx
 ) -> tuple[ConvergencePlan, ...]:
     """Derive each planned corner from its settled cross-run and approach."""
-    if not isinstance(getattr(ctx, "graph", None), MetroGraph):
-        return plans
     graph = ctx.graph
     reconciled: list[ConvergencePlan] = []
     for plan in plans:
@@ -2788,8 +2786,6 @@ def _fuse_shared_terminal_gap_channels(
     plans: tuple[ConvergencePlan, ...], ctx: _RoutingCtx
 ) -> tuple[ConvergencePlan, ...]:
     """Seat co-directed same-line terminal legs on one physical carrier."""
-    if not isinstance(getattr(ctx, "graph", None), MetroGraph):
-        return plans
     graph = ctx.graph
     lookup = gap_lookup_geometry(graph)
     grouped: defaultdict[
@@ -2859,9 +2855,7 @@ def _fuse_owned_legacy_terminal_flanks(
     plans: tuple[ConvergencePlan, ...], ctx: _RoutingCtx
 ) -> tuple[ConvergencePlan, ...]:
     """Seat legacy terminal openings on their convergence-owned target flank."""
-    merge = getattr(ctx, "merge", None)
-    if merge is None:
-        return plans
+    merge = ctx.merge
     settled: list[ConvergencePlan] = []
     for plan_rank, plan in enumerate(plans):
         axis = plan.trunk_axis
@@ -4440,9 +4434,7 @@ def _settle_reserved_trunk_axes(
     ctx: _RoutingCtx,
     member_runs: tuple[_CotravellingRun, ...],
 ) -> tuple[ConvergencePlan, ...]:
-    reserved_bands = getattr(ctx, "reserved_bands", None)
-    if reserved_bands is None:
-        return plans
+    reserved_bands = ctx.reserved_bands
     settled: list[ConvergencePlan] = []
     for plan in plans:
         axis = plan.trunk_axis
@@ -4472,9 +4464,9 @@ def _settle_reserved_trunk_axes(
             )
             if section_id is not None
         )
-        clearance_band = band
+        clearance_bounds = (band.lo, band.hi) if band is not None else None
         if band is None:
-            clearance_band = corridor_clearance_band(
+            corridor_band = corridor_clearance_band(
                 graph,
                 axis=1,
                 section_ids=section_ids,
@@ -4482,6 +4474,8 @@ def _settle_reserved_trunk_axes(
                 run_start=axis.extent_start,
                 run_end=axis.extent_end,
             )
+            if corridor_band is not None:
+                clearance_bounds = (corridor_band.lo, corridor_band.hi)
             coordinate = seat_run_in_corridor_clearance(
                 graph,
                 axis=1,
@@ -4514,11 +4508,11 @@ def _settle_reserved_trunk_axes(
                             tuple(item.coordinate for item in neighbours),
                             ctx.offset_step,
                         )
-                        if clearance_band is None
+                        if clearance_bounds is None
                         or (
-                            clearance_band.lo - COORD_TOLERANCE
+                            clearance_bounds[0] - COORD_TOLERANCE
                             <= candidate
-                            <= clearance_band.hi + COORD_TOLERANCE
+                            <= clearance_bounds[1] + COORD_TOLERANCE
                         )
                     ),
                     key=lambda candidate: abs(candidate - axis.coordinate),

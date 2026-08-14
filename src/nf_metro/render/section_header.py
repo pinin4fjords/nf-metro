@@ -898,21 +898,7 @@ def _leftmost_clear_band_start(
     stopping at the leftmost such position rather than sweeping past routes the
     finite-width header would never reach.
     """
-    pad = SECTION_HEADER_ROUTE_PAD
-    _, band_top, _, band_bottom = above.keepout
-    y_lo, y_hi = band_top - pad, band_bottom + pad
-    start = section.bbox_x
-    while True:
-        band = (start - pad, y_lo, start + length + pad, y_hi)
-        spans = (
-            _segment_rect_xspan(poly[i], poly[i + 1], band)
-            for poly in polylines
-            for i in range(len(poly) - 1)
-        )
-        rightmost = max((s[1] for s in spans if s is not None), default=None)
-        if rightmost is None or rightmost + pad <= start:
-            return start
-        start = rightmost + pad
+    return _clear_band_start(section, above, length, polylines, direction=1)
 
 
 def _rightmost_clear_band_start(
@@ -922,21 +908,50 @@ def _rightmost_clear_band_start(
     polylines: list[Polyline],
     limit: float,
 ) -> float:
+    return _clear_band_start(
+        section, above, length, polylines, direction=-1, limit=limit
+    )
+
+
+def _clear_band_start(
+    section: Section,
+    above: SectionHeaderPlacement,
+    length: float,
+    polylines: list[Polyline],
+    *,
+    direction: Literal[-1, 1],
+    limit: float | None = None,
+) -> float:
+    """Find the first route-clear header position in ``direction``."""
     pad = SECTION_HEADER_ROUTE_PAD
     _, band_top, _, band_bottom = above.keepout
     y_lo, y_hi = band_top - pad, band_bottom + pad
-    start = min(section.bbox_x, limit - length)
+    if direction > 0:
+        start = section.bbox_x
+    else:
+        if limit is None:
+            raise ValueError("a leftward header search requires a limit")
+        start = min(section.bbox_x, limit - length)
     while True:
         band = (start - pad, y_lo, start + length + pad, y_hi)
-        spans = (
-            _segment_rect_xspan(poly[i], poly[i + 1], band)
+        occupied = [
+            span
             for poly in polylines
             for i in range(len(poly) - 1)
-        )
-        leftmost = min((span[0] for span in spans if span is not None), default=None)
-        if leftmost is None or start + length <= leftmost - pad:
+            if (span := _segment_rect_xspan(poly[i], poly[i + 1], band)) is not None
+        ]
+        if not occupied:
             return start
-        start = leftmost - pad - length
+        if direction > 0:
+            obstruction = max(span[1] for span in occupied)
+            if obstruction + pad <= start:
+                return start
+            start = obstruction + pad
+        else:
+            obstruction = min(span[0] for span in occupied)
+            if start + length <= obstruction - pad:
+                return start
+            start = obstruction - pad - length
 
 
 def check_section_headers_hold_the_reserved_band(

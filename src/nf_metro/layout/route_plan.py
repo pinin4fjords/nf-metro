@@ -1996,6 +1996,15 @@ class ConvergenceLanding:
             raise ValueError(
                 "convergence bypass tail runway must be positive and finite"
             )
+        if self.bypass_tail_runway is not None and not math.isclose(
+            self.bypass_tail_runway,
+            self.minimum_runway,
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                "convergence bypass tail runway must equal its minimum runway"
+            )
         if self.opening_turn_coordinate is not None and not math.isfinite(
             self.opening_turn_coordinate
         ):
