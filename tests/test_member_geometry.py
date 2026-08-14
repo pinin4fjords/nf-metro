@@ -301,6 +301,49 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
     assert crossings(disabled) == {(1600.5, 398.0), (1302.0, 398.0)}
 
 
+def test_seed_15_shared_opening_is_line_name_independent() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    source = (
+        path.read_text()
+        .replace("l0", "main")
+        .replace("l1", "l0")
+        .replace("l2", "branch")
+    )
+    graph = prepare_graph(source, source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert plan.legacy_reason is None
+    assert len(plan.shared_openings) == 1
+
+
+def test_exit_turn_plan_rejects_malformed_shared_opening_disposition() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    with pytest.raises(ValueError, match="disposition and legacy reason disagree"):
+        replace(plan, disposition=ExitTurnDisposition.LEGACY)
+    with pytest.raises(ValueError, match="disposition and legacy reason disagree"):
+        replace(plan, legacy_reason="malformed")
+
+
 def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
     graph, observation = _observe(path)

@@ -1254,7 +1254,6 @@ class ExitTurnPlan:
 
     def __post_init__(self) -> None:
         planned = self.disposition is ExitTurnDisposition.PLANNED
-        owns_opening = bool(self.shared_openings)
         if not isinstance(self.lane_order_source, ExitLaneOrderSource):
             raise ValueError("exit-turn lane-order provenance must be typed")
         if (
@@ -1266,9 +1265,9 @@ class ExitTurnPlan:
             raise ValueError(
                 "exit-turn geometry requirements must be finite and positive"
             )
-        if not owns_opening and planned != (self.legacy_reason is None):
+        if planned != (self.legacy_reason is None):
             raise ValueError("exit-turn disposition and legacy reason disagree")
-        if owns_opening and any(
+        if any(
             not set(opening.member_ids).issubset(self.member_ids)
             for opening in self.shared_openings
         ):

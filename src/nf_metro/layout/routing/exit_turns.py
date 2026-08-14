@@ -60,6 +60,7 @@ from nf_metro.layout.routing.common import (
     Direction,
     OffsetRegime,
     RoutedPath,
+    _vert_horiz_cross,
     apply_route_offsets,
     header_corridor_y,
     horizontal_direction,
@@ -102,6 +103,8 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _right_entry_over_top_geometry,
     _right_entry_wrap_geometry,
     _route_merge_trunk,
+    _route_right_entry_cross_row,
+    _route_u_bypass_family,
     _SourceSeam,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
@@ -2364,20 +2367,100 @@ def _shared_left_exit_opening(
         return None
     source_exit = graph.ports[source_exit_edge.source]
     source_section = graph.section_for_port(source_exit)
-    trunk_edge = next(
-        (
-            edge
-            for merge_id, trunk_source in ctx.merge.trunk_source.items()
-            if (edge := ctx.edge_by_key.get((trunk_source, merge_id, "l0"))) is not None
-        ),
-        None,
-    )
-    if source_section is None or trunk_edge is None:
+    if source_section is None:
         return None
-    trunk_source, trunk_target = graph.edge_endpoints(trunk_edge)
-    trunk = _route_merge_trunk(
-        _build_inter_facts(trunk_edge, trunk_source, trunk_target, ctx)
+
+    def crosses(first: RoutedPath, second: RoutedPath) -> bool:
+        for (ax0, ay0), (ax1, ay1) in zip(first.points, first.points[1:]):
+            for (bx0, by0), (bx1, by1) in zip(second.points, second.points[1:]):
+                if (
+                    ax0 == ax1
+                    and by0 == by1
+                    and _vert_horiz_cross(ax0, ay0, ay1, by0, bx0, bx1)
+                ):
+                    return True
+                if (
+                    bx0 == bx1
+                    and ay0 == ay1
+                    and _vert_horiz_cross(bx0, by0, by1, ay0, ax0, ax1)
+                ):
+                    return True
+        return False
+
+    sibling_routes = tuple(
+        _route_right_entry_cross_row(fact)
+        if family is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP
+        else _route_u_bypass_family(fact)
+        for fact, family in zip(facts, families, strict=True)
     )
+    if any(route is None for route in sibling_routes):
+        return None
+    resolved_siblings = tuple(route for route in sibling_routes if route is not None)
+    target_row = facts[0].tgt_row
+    assert target_row is not None and facts[0].src_col is not None
+    barriers = []
+    for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
+        entry_port_id = ctx.merge.entry_port_for.get(merge_id)
+        entry_port = (
+            graph.ports.get(entry_port_id) if entry_port_id is not None else None
+        )
+        entry_section = (
+            graph.section_for_port(entry_port) if entry_port is not None else None
+        )
+        if (
+            entry_port is None
+            or entry_section is None
+            or entry_port.side is not PortSide.RIGHT
+            or entry_section.grid_col != facts[0].src_col
+            or entry_section.grid_row != target_row
+        ):
+            continue
+        trunk_edge = next(
+            (
+                edge
+                for edge in graph.edges_from(trunk_source_id)
+                if edge.target == merge_id and edge.line_id != member_edges[0].line_id
+            ),
+            None,
+        )
+        if trunk_edge is None:
+            continue
+        trunk_source, trunk_target = graph.edge_endpoints(trunk_edge)
+        trunk = _route_merge_trunk(
+            _build_inter_facts(trunk_edge, trunk_source, trunk_target, ctx)
+        )
+        horizontal = next(
+            (
+                (start, end)
+                for start, end in zip(trunk.points, trunk.points[1:])
+                if min(start[0], end[0]) + COORD_TOLERANCE
+                < source.x
+                < max(start[0], end[0]) - COORD_TOLERANCE
+                and start[1] == end[1]
+            ),
+            None,
+        )
+        if horizontal is None:
+            continue
+        _left, right = sorted(horizontal, key=lambda point: point[0])
+        downward = next(
+            (
+                end
+                for start, end in zip(trunk.points, trunk.points[1:])
+                if start == right and end[0] == right[0] and end[1] > right[1]
+            ),
+            None,
+        )
+        if (
+            downward is not None
+            and right[0] > source.x + ctx.curve_radius
+            and downward[1] > entry_section.bbox_y + COORD_TOLERANCE
+            and all(crosses(route, trunk) for route in resolved_siblings)
+        ):
+            barriers.append(trunk)
+    if len(barriers) != 1:
+        return None
+    trunk = barriers[0]
     outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
     top_y = header_corridor_y(
         graph,
