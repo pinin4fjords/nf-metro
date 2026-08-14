@@ -1290,15 +1290,6 @@ def _build_planned_convergence(
             edge = ctx.edge_by_key[(edge_key.source, edge_key.target, edge_key.line_id)]
             continuation_route = _trial_route(edge, ctx)
             trial_routes[edge_key] = continuation_route
-        start_point = (
-            _axis_source_point(trunk_axis)
-            if primary_reason
-            in {
-                ConvergenceTrunkReason.OUTGOING_CONTINUATION,
-                ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH,
-            }
-            else _axis_target_point(trunk_axis)
-        )
         end_point = continuation_route.points[-1]
         hop_start_point = continuation_route.points[0]
         feeder_at_start = any(
@@ -1310,6 +1301,20 @@ def _build_planned_convergence(
             )
             for item in incoming_edges
         )
+        # A feeder that ends exactly where the continuation begins hands the
+        # stroke over there, so the plan states that handover point; the axis
+        # endpoint can sit beyond the junction when a member's own descent
+        # column lies outboard of it, and a start stated there would disagree
+        # with the emitted stub.
+        if primary_reason in {
+            ConvergenceTrunkReason.OUTGOING_CONTINUATION,
+            ConvergenceTrunkReason.SHARED_TERMINAL_APPROACH,
+        }:
+            start_point = (
+                hop_start_point if feeder_at_start else _axis_source_point(trunk_axis)
+            )
+        else:
+            start_point = _axis_target_point(trunk_axis)
         endpoint_carriers = tuple(
             item
             for item in incoming_edges
