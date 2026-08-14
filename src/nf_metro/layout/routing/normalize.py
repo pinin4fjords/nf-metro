@@ -1642,6 +1642,7 @@ def _seat_merge_feeder_opening(
     *,
     planned: bool = False,
     carry_tail: bool = True,
+    opening_end_y: float | None = None,
 ) -> None:
     """Seat a merge feeder's opening turn on its planned shared axis.
 
@@ -1649,6 +1650,13 @@ def _seat_merge_feeder_opening(
     keeps a route whose whole run hangs off that turn intact.  A caller whose
     plan states the rest of the run independently passes ``False``: carrying the
     tail there would slide geometry the plan has already positioned.
+
+    ``opening_end_y`` replays the plan's opening drop length: the emitted drop
+    ends on the plan's stated Y.  A handler derives its trunk from live
+    geometry, which other routes' seating can move between the plan's trial
+    and this emission, and the plan's segment is the frozen truth.  With
+    ``carry_tail`` the run past the drop translates along; without it only the
+    drop endpoint moves, since the plan states and seats the rest itself.
     """
     channel = (
         _opening_fanout_descent(route) if planned else _initial_fanout_descent(route)
@@ -1656,17 +1664,31 @@ def _seat_merge_feeder_opening(
     if channel is None:
         return
     delta = coordinate - channel.x
-    if abs(delta) <= COORD_TOLERANCE:
+    if abs(delta) > COORD_TOLERANCE:
+        tail_start = channel.idx + 2
+        _reconcile_moved_gap_slot(channel, coordinate, graph)
+        _set_vchannel_x(channel, coordinate)
+        if carry_tail:
+            route.points = [
+                (x + delta, y) if rank >= tail_start else (x, y)
+                for rank, (x, y) in enumerate(route.points)
+            ]
+    if opening_end_y is None:
         return
-    tail_start = channel.idx + 2
-    _reconcile_moved_gap_slot(channel, coordinate, graph)
-    _set_vchannel_x(channel, coordinate)
-    if not carry_tail:
+    end_idx = channel.idx + 1
+    if end_idx >= len(route.points):
         return
-    route.points = [
-        (x + delta, y) if rank >= tail_start else (x, y)
-        for rank, (x, y) in enumerate(route.points)
-    ]
+    y_delta = opening_end_y - route.points[end_idx][1]
+    if abs(y_delta) <= COORD_TOLERANCE:
+        return
+    if carry_tail:
+        route.points = [
+            (x, y + y_delta) if rank >= end_idx else (x, y)
+            for rank, (x, y) in enumerate(route.points)
+        ]
+    else:
+        x_end, y_end = route.points[end_idx]
+        route.points[end_idx] = (x_end, y_end + y_delta)
 
 
 def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:

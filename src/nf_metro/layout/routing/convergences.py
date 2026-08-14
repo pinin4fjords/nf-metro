@@ -2079,11 +2079,34 @@ def _move_trunk_axis(
         tolerance = OFFSET_STEP if preserve_lane_offsets else 0.0
         return point_to_polyline_distance(point, central) <= tolerance + COORD_TOLERANCE
 
+    def lifted_opening(
+        opening_segment: tuple[tuple[float, float], tuple[float, float]] | None,
+    ) -> tuple[tuple[float, float], tuple[float, float]] | None:
+        if opening_segment is None:
+            return None
+        return (
+            lifted(opening_segment[0])
+            if abs(opening_segment[0][lateral] - old_coordinate)
+            <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
+            else opening_segment[0],
+            lifted(opening_segment[1])
+            if abs(opening_segment[1][lateral] - old_coordinate)
+            <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
+            else opening_segment[1],
+        )
+
     landings: list[ConvergenceLanding] = []
     moved_join_by_member: dict[EmissionMemberId, tuple[float, float]] = {}
     for landing in plan.landings:
+        # An opening turn that reaches down to the moved run follows it even
+        # when the landing's own join sits on a flank rather than the run.
+        opening_segment = lifted_opening(landing.opening_turn_segment)
         if not on_central(landing.join_point):
-            landings.append(landing)
+            landings.append(
+                landing
+                if opening_segment == landing.opening_turn_segment
+                else replace(landing, opening_turn_segment=opening_segment)
+            )
             continue
         join_point = lifted(landing.join_point)
         approach_direction = landing.approach_direction
@@ -2103,18 +2126,6 @@ def _move_trunk_axis(
                     approach_direction = (
                         Direction.D if approach_delta > 0 else Direction.U
                     )
-        opening_segment = landing.opening_turn_segment
-        if opening_segment is not None:
-            opening_segment = (
-                lifted(opening_segment[0])
-                if abs(opening_segment[0][lateral] - old_coordinate)
-                <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
-                else opening_segment[0],
-                lifted(opening_segment[1])
-                if abs(opening_segment[1][lateral] - old_coordinate)
-                <= (OFFSET_STEP if preserve_lane_offsets else 0.0) + COORD_TOLERANCE
-                else opening_segment[1],
-            )
         landings.append(
             replace(
                 landing,
@@ -7216,6 +7227,11 @@ def consume_convergence_route(route: RoutedPath, ctx: _RoutingCtx) -> None:
             # The trunk member's every run and both endpoints are stated by the
             # plan, and the seat below puts each on the coordinate it names.
             carry_tail=plan.primary_trunk_member_id != membership.member_id,
+            opening_end_y=(
+                landing.opening_turn_segment[1][1]
+                if landing.opening_turn_segment is not None
+                else None
+            ),
         )
         opening = _opening_fanout_descent(route)
         if opening is None:
