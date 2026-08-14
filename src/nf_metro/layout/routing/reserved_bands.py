@@ -393,23 +393,32 @@ def _measured_gap_bands(
     """Every gap reservation in *plan* with the band it leaves clear.
 
     A band is the corridor region inset by each side's clearance, which is what
-    a channel placed there may occupy.  Canvas corridors are excluded: their
-    region is a margin against the canvas edge rather than a boundary a channel
-    is allocated within.
+    a channel placed there may occupy.  A canvas corridor is bounded on one
+    side by content and on the other by the canvas edge; once the canvas has
+    been sized both edges are known, so its clearance reads the same way and a
+    bundle in it can be held off the content it runs beside.  Until then the
+    region does not realise, and the corridor publishes no band.
     """
     from nf_metro.layout.route_reservations import (
+        CanvasRegion,
         ColumnGapRegion,
         RowGapRegion,
+        canvas_content_band,
         realise_reservation,
     )
 
     for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+        if not isinstance(
+            reservation.region, RowGapRegion | ColumnGapRegion | CanvasRegion
+        ):
             continue
         realised = realise_reservation(
             graph, reservation, coordinate_translations=translations
         )
         if realised is None:
+            content_band = canvas_content_band(graph, reservation, translations)
+            if content_band is not None:
+                yield (reservation, *content_band)
             continue
         yield (
             reservation,
@@ -565,14 +574,22 @@ def _claim_views(
     column_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
     for reservation, lo, hi in measured:
         is_row = isinstance(reservation.region, RowGapRegion)
+        is_column = isinstance(reservation.region, ColumnGapRegion)
         allocation_axis = DemandAxis.Y if is_row else DemandAxis.X
-        band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
+        band_key = (
+            (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
+            if is_row or is_column
+            else (0, 0)
+        )
         for claim in reservation.claims:
             claim_lo, claim_hi = terminal_landing_band(reservation, claim, lo, hi)
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
-            bands_by_edge = row_by_edge if is_row else column_by_edge
-            bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
+            # The per-edge views answer "which grid boundary does this edge's
+            # corridor cross", which a canvas margin crosses none of.
+            if is_row or is_column:
+                bands_by_edge = row_by_edge if is_row else column_by_edge
+                bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
             allocation = (
                 project_reservation_coordinate(
                     claim.allocation_coordinate,

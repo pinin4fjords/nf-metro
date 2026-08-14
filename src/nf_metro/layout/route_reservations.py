@@ -2577,6 +2577,37 @@ def _canvas_region_measurement(
     )
 
 
+def canvas_content_band(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+) -> tuple[float, float] | None:
+    """The span a canvas corridor's bundle may occupy on its content side.
+
+    A canvas corridor is bounded by content on one side and the canvas edge on
+    the other.  The content edge is live geometry and readable at any point;
+    the canvas edge is sized from the content it ends up holding, so it is not.
+    The half-band this returns is therefore open toward the canvas: it says how
+    far the corridor must stay off the boxes it runs beside, and leaves growing
+    the canvas to the sizing that follows.  ``None`` for a non-canvas region.
+    """
+    region = reservation.region
+    if not isinstance(region, CanvasRegion):
+        return None
+    projected = _projected_claim_bounds(reservation, coordinate_translations)
+    measurement = _canvas_region_measurement(
+        graph,
+        region,
+        projected.longitudinal_start,
+        projected.longitudinal_end,
+        math.inf,
+        math.inf,
+    )
+    if region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE:
+        return (-math.inf, measurement.end - reservation.positive_side_clearance)
+    return (measurement.start + reservation.negative_side_clearance, math.inf)
+
+
 @dataclass(frozen=True, slots=True)
 class _ProjectedClaimBounds:
     allocation_axis: DemandAxis
