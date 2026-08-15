@@ -1154,14 +1154,14 @@ def test_flow_exit_port_anchors_to_carrying_station(fixture):
         )
 
 
-def test_seed_72_flow_exit_reconciles_to_carrier_without_moving_consumer_entry():
+def test_flow_exit_reconciles_to_carrier_without_moving_consumer_entry():
     """A carrier-anchored exit keeps its downstream entry on the consumer row."""
-    graph = _layout("hash_seed_determinism/seed_72.mmd", center_ports=False)
+    graph = _layout("topologies/asymmetric_tree.mmd", center_ports=False)
 
-    exit_port = graph.stations["s7__exit_left_5"]
-    carrier = graph.stations["n7_3"]
-    entry_port = graph.stations["s8__entry_right_13"]
-    consumer = graph.stations["n8_0"]
+    exit_port = graph.stations["branch_med_1__exit_right_1"]
+    carrier = graph.stations["m2"]
+    entry_port = graph.stations["branch_med_2__entry_left_7"]
+    consumer = graph.stations["m3"]
 
     assert abs(exit_port.y - carrier.y) <= _Y_TOL
     assert abs(entry_port.y - consumer.y) <= _Y_TOL
