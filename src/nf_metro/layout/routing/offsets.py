@@ -2795,6 +2795,32 @@ def _leaves_lane_hole(
     )
 
 
+def _passing_lanes_undisturbed(
+    ctx: _OffsetCtx,
+    desired: Mapping[str, float],
+    current: Mapping[str, float],
+    passing: Mapping[str, float],
+) -> bool:
+    """Whether re-slotting onto *desired* leaves the *passing* lanes intact.
+
+    Lines that leave a junction for somewhere other than the entry port keep
+    their own lane, stay on the same side of every re-slotted line, and leave
+    a bundle that closes up behind the move.
+    """
+    lanes = sorted([*desired.values(), *passing.values()])
+    if any(
+        upper - lower > ctx.offset_step + _OFFSET_EQ_TOLERANCE
+        for lower, upper in zip(lanes, lanes[1:])
+    ):
+        return False
+    return all(
+        abs(want - held) > _OFFSET_EQ_TOLERANCE
+        and (want > held) == (current[lid] > held)
+        for lid, want in desired.items()
+        for held in passing.values()
+    )
+
+
 def _align_junction_to_entry_port(ctx: _OffsetCtx) -> None:
     """Resolve same-Y junction-to-entry-port slants left by Path 2.
 
@@ -2805,12 +2831,13 @@ def _align_junction_to_entry_port(ctx: _OffsetCtx) -> None:
     a small per-line offset mismatch becomes a visible diagonal between
     the junction and the entry port.
 
-    For each junction where every outbound non-junction target is an
-    entry port at the junction's own base Y, and every junction line
-    maps to a single such target with a known offset, snap the junction
-    offsets to the target offsets. If the swap matches the feeding
-    exit port's lines exactly, mirror the change there too so the
-    10-px exit-to-junction segment stays horizontal.
+    For each junction, the lines that reach a single entry port at the
+    junction's own base Y snap to that port's offsets, so the bundle
+    arrives on the lanes it rides inside the section. Lines that leave the
+    junction elsewhere hold their lane, and the snap is abandoned unless
+    they can. If the swap matches the feeding exit port's lines exactly,
+    mirror the change there too so the 10-px exit-to-junction segment stays
+    horizontal.
     """
     graph = ctx.graph
     for jid in graph.junctions:
@@ -2824,37 +2851,36 @@ def _align_junction_to_entry_port(ctx: _OffsetCtx) -> None:
         for edge in graph.edges_from(jid):
             line_targets.setdefault(edge.line_id, []).append(edge.target)
         line_to_target: dict[str, str] = {}
-        ok = True
         for lid in j_lines:
             targets = line_targets.get(lid, [])
             if len(targets) != 1:
-                ok = False
-                break
+                continue
             tgt_id = targets[0]
             tgt_st = graph.stations.get(tgt_id)
             tgt_port = graph.ports.get(tgt_id)
             if not tgt_st or not tgt_port or not tgt_port.is_entry:
-                ok = False
-                break
+                continue
             if tgt_port.side not in (PortSide.LEFT, PortSide.RIGHT):
-                ok = False
-                break
+                continue
             if abs(tgt_st.y - j_st.y) > _SAME_Y_TOLERANCE:
-                ok = False
-                break
+                continue
             if (tgt_id, lid) not in ctx.offsets:
-                ok = False
-                break
+                continue
             line_to_target[lid] = tgt_id
-        if not ok or len(line_to_target) != len(j_lines):
+        if len(line_to_target) < 2:
             continue
 
-        desired = {lid: ctx.offsets[(line_to_target[lid], lid)] for lid in j_lines}
+        desired = {
+            lid: ctx.offsets[(line_to_target[lid], lid)] for lid in line_to_target
+        }
         if len(set(desired.values())) != len(desired):
             continue
         current = {lid: ctx.offsets.get((jid, lid), 0.0) for lid in j_lines}
+        passing = {lid: current[lid] for lid in j_lines if lid not in desired}
+        if passing and not _passing_lanes_undisturbed(ctx, desired, current, passing):
+            continue
         if all(
-            abs(desired[lid] - current[lid]) <= _OFFSET_EQ_TOLERANCE for lid in j_lines
+            abs(desired[lid] - current[lid]) <= _OFFSET_EQ_TOLERANCE for lid in desired
         ):
             continue
 
@@ -2876,7 +2902,12 @@ def _align_junction_to_entry_port(ctx: _OffsetCtx) -> None:
             ctx.offsets[(jid, lid)] = off
         if single_exit and feeding_exit is not None:
             exit_lines = set(graph.station_lines(feeding_exit))
-            if exit_lines == set(j_lines):
+            shares_lanes = all(
+                abs(ctx.offsets.get((feeding_exit, lid), 0.0) - current[lid])
+                <= _OFFSET_EQ_TOLERANCE
+                for lid in j_lines
+            )
+            if exit_lines == set(j_lines) and shares_lanes:
                 exit_st = graph.stations[feeding_exit]
                 if abs(exit_st.y - j_st.y) <= _SAME_Y_TOLERANCE:
                     for lid, off in desired.items():
