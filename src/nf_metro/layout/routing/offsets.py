@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -2447,6 +2454,25 @@ def _recompact_fan_port_bordering_stations(
         _propagate_touched_exit_ports_to_entries(ctx, touched)
 
 
+def _refresh_divergence_junctions(ctx: _OffsetCtx, touched: Collection[str]) -> None:
+    """Re-copy the bundle of every divergence junction fed by a moved exit port.
+
+    A junction has no section of its own, so it holds nothing but the verbatim
+    copy :func:`_propagate_to_junctions` gave it.  Any later pass that moves the
+    exit port leaves that copy stale, and the two 10-px stubs the junction sits
+    between then draw the difference -- a jog, or a crossing when the move was a
+    reversal.
+    """
+    graph = ctx.graph
+    for jid, exit_port_id in ctx.divergence_exit_ports.items():
+        if exit_port_id not in touched:
+            continue
+        for line_id in graph.station_lines(jid):
+            port_off = ctx.offsets.get((exit_port_id, line_id))
+            if port_off is not None:
+                ctx.offsets[(jid, line_id)] = port_off
+
+
 def _propagate_touched_exit_ports_to_entries(
     ctx: _OffsetCtx, touched: set[str]
 ) -> None:
@@ -2473,13 +2499,7 @@ def _propagate_touched_exit_ports_to_entries(
     junction sits between.
     """
     graph = ctx.graph
-    for jid, exit_port_id in ctx.divergence_exit_ports.items():
-        if exit_port_id not in touched:
-            continue
-        for line_id in graph.station_lines(jid):
-            port_off = ctx.offsets.get((exit_port_id, line_id))
-            if port_off is not None:
-                ctx.offsets[(jid, line_id)] = port_off
+    _refresh_divergence_junctions(ctx, touched)
     for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
@@ -4340,14 +4360,17 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
             key = station.section_id
             section_span[key] = max(section_span.get(key, 0.0), off)
 
+    reversed_ids = set()
     for sid, station in ctx.graph.stations.items():
         if station.section_id not in affected:
             continue
+        reversed_ids.add(sid)
         max_off = section_span.get(station.section_id, 0.0)
         for lid in ctx.graph.station_lines(sid):
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
+    _refresh_divergence_junctions(ctx, reversed_ids)
 
 
 def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None:

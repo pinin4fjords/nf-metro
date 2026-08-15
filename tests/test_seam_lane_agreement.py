@@ -41,9 +41,7 @@ CORPUS = sorted(
     key=lambda p: (p.parent.name, p.name),
 )
 
-_STUB_SLOPE_XFAILS = {
-    "seed_41": "s4__exit_left_4 hands its pair to __junction_29 transposed",
-}
+_STUB_SLOPE_XFAILS: dict[str, str] = {}
 _APPROACH_LANE_XFAILS = {
     "seed_15": "s8__exit_left_8 and __junction_26 land off s10__entry_right_19",
     "seed_77": "the two U-detour feeders land on s9__entry_right_25 transposed",
