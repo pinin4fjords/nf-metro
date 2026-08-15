@@ -2595,14 +2595,19 @@ def canvas_content_band(
     if not isinstance(region, CanvasRegion):
         return None
     projected = _projected_claim_bounds(reservation, coordinate_translations)
-    measurement = _canvas_region_measurement(
-        graph,
-        region,
-        projected.longitudinal_start,
-        projected.longitudinal_end,
-        math.inf,
-        math.inf,
-    )
+    try:
+        measurement = _canvas_region_measurement(
+            graph,
+            region,
+            projected.longitudinal_start,
+            projected.longitudinal_end,
+            math.inf,
+            math.inf,
+        )
+    except ValueError:
+        # No box lies beside the corridor over its own run, so there is no
+        # content edge to hold it off and the margin is the canvas edge alone.
+        return None
     if region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE:
         return (-math.inf, measurement.end - reservation.positive_side_clearance)
     return (measurement.start + reservation.negative_side_clearance, math.inf)
