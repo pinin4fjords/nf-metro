@@ -2417,8 +2417,20 @@ def _propagate_touched_exit_ports_to_entries(
     or a reversing seam each carry the line on their own arrival-order lane
     rather than the feeder's raw stored offset, so a direct copy there would
     be wrong, not merely redundant.
+
+    A divergence junction carries a verbatim copy of its exit port's bundle
+    (:func:`_propagate_to_junctions`), so it re-inherits outright; a copy
+    taken before the recompaction draws a jog on each of the two stubs the
+    junction sits between.
     """
     graph = ctx.graph
+    for jid, exit_port_id in ctx.divergence_exit_ports.items():
+        if exit_port_id not in touched:
+            continue
+        for line_id in graph.station_lines(jid):
+            port_off = ctx.offsets.get((exit_port_id, line_id))
+            if port_off is not None:
+                ctx.offsets[(jid, line_id)] = port_off
     for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
