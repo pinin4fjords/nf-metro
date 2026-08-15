@@ -307,7 +307,7 @@ def test_seed_15_settles_emitted_bypass_tail_without_column_growth() -> None:
         for requirement in observation.plan.boundary_clearance_requirements
         if requirement.description.endswith(" runway")
     } == {3}
-    assert route.points[-2][0] == 800.0
+    assert route.points[-2][0] == 776.0
 
 
 def test_seed_15_plan_channels_include_emitted_bypass_tail_lane() -> None:
@@ -335,11 +335,11 @@ def test_seed_15_plan_channels_include_emitted_bypass_tail_lane() -> None:
         == ResolvedEdge("__junction_27", "__merge_11", "l0")
     )
 
-    assert any(
-        channel.member_geometry_owned is False
-        and channel.coordinate == route.points[-3][0]
-        and (channel.y_lo, channel.y_hi)
-        == tuple(sorted((route.points[-3][1], route.points[-2][1])))
+    # The landing member reaches its merge on a straight lane run, so the
+    # plan states no bypass-tail vertical for it and no channel may claim one.
+    assert route.points == [(806.0, 508.0), (770.0, 508.0)]
+    assert not any(
+        channel.member_geometry_owned and "l0" in channel.line_ids
         for channel in channels
     )
 
@@ -363,7 +363,7 @@ def test_seed_15_shared_opening_short_tail_is_a_fixed_member_channel() -> None:
         if channel.segment_rank == len(member.exit_shared_opening_points)
     )
     assert (tail.gap_lo_col, tail.row) == (5, 2)
-    assert (tail.start, tail.end) == ((1550.0, 644.0), (1550.0, 504.0))
+    assert (tail.start, tail.end) == ((1550.0, 604.0), (1550.0, 504.0))
 
 
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:

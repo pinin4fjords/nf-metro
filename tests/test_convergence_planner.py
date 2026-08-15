@@ -415,12 +415,12 @@ def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
     )
 
     assert route.points == [
-        (1612.0, 544.0),
-        (1542.0, 544.0),
-        (1542.0, 398.0),
-        (1282.0, 398.0),
-        (1282.0, 544.0),
-        (1246.0, 544.0),
+        (1612.0, 504.0),
+        (1562.0, 504.0),
+        (1562.0, 398.0),
+        (1266.0, 398.0),
+        (1266.0, 504.0),
+        (1246.0, 504.0),
     ]
     assert tuple(route.points) == member.points
     assert member.owned_segment_ranks == (1, 3)

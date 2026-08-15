@@ -242,13 +242,13 @@ def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
         (1600.5, 338.0),
         (1600.5, 186.0),
         (1748.0, 186.0),
-        (1748.0, 644.0),
+        (1748.0, 604.0),
     )
     assert {plan.exit_shared_opening_points for plan in plans} == {opening}
     assert {plan.points[: len(opening)] for plan in plans} == {opening}
     assert {plan.edge.target: plan.points[len(opening) :] for plan in plans} == {
-        "s5__entry_right_16": ((1550.0, 644.0), (1550.0, 504.0), (1478.0, 504.0)),
-        "s6__entry_right_14": ((1286.0, 644.0), (1286.0, 540.0), (1246.0, 540.0)),
+        "s5__entry_right_16": ((1550.0, 604.0), (1550.0, 504.0), (1478.0, 504.0)),
+        "s6__entry_right_14": ((1270.0, 604.0), (1270.0, 500.0), (1246.0, 500.0)),
     }
     for plan in plans:
         assert plan.consumed_reservation_ids == ()
@@ -281,10 +281,10 @@ def test_seed_15_settles_member_clear_of_shared_opening_and_convergence() -> Non
         if landing.edge == ResolvedEdge("__junction_25", "__merge_9", "l0")
     )
 
-    assert movable.gap_channels[0].start[0] == 1542.0
+    assert movable.gap_channels[0].start[0] == 1562.0
     assert fixed.gap_channels[-1].start[0] == 1550.0
     assert landing.minimum_runway == 52.0
-    assert landing.opening_turn_coordinate - landing.join_point[0] == 52.0
+    assert landing.opening_turn_coordinate is None
 
 
 @pytest.mark.parametrize("mirror", (1.0, -1.0))
@@ -385,7 +385,7 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    assert crossings(disabled) == {(1280.0, 338.0), (1600.5, 382.0)}
+    assert crossings(disabled) == {(1280.0, 338.0), (1600.5, 398.0)}
 
 
 def test_seed_15_shared_opening_is_line_name_independent() -> None:
@@ -474,9 +474,9 @@ def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:
         (1488.0, 128.0),
         (1536.0, 128.0),
         (1536.0, 40.0),
-        (627.0, 40.0),
-        (627.0, 540.0),
-        (580.0, 540.0),
+        (614.0, 40.0),
+        (614.0, 500.0),
+        (580.0, 500.0),
     )
     assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
         (1, 2, Direction.D),
