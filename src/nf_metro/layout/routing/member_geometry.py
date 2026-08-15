@@ -1465,6 +1465,24 @@ def _align_packed_cell_handoffs(
         _seat_channel(handoff_channel.channel, carrier_channel.channel.x)
 
 
+def _claim_shares_opening_turn(
+    item: _MaterializedChannel, claim: PreliminaryGapChannelClaim
+) -> bool:
+    """Whether a claim and a member leg open from one turn on a shared lane.
+
+    A same-line pair leaving one junction can diverge up and down from the lane
+    it travels, so their spans meet at that lane rather than overlapping.  The
+    two legs are one opening turn and hold one column; read on span overlap
+    alone they read as unrelated and drift apart into a staggered fork.
+    """
+    channel = item.channel
+    return (
+        channel.down is not claim.down
+        and abs(min(channel.y_hi, claim.y_hi) - max(channel.y_lo, claim.y_lo))
+        <= COORD_TOLERANCE
+    )
+
+
 def _align_same_line_channels(
     materialized: tuple[_MaterializedChannel, ...],
     claims_by_system_gap: Mapping[
@@ -1489,7 +1507,10 @@ def _align_same_line_channels(
             )
             if route.line_id in claim.line_ids
             and _claim_source_compatible(item, claim)
-            and spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
+            and (
+                spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
+                or _claim_shares_opening_turn(item, claim)
+            )
         )
         coordinates = {claim.coordinate for claim in matching}
         if len(coordinates) != 1:

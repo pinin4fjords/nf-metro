@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
@@ -49,6 +50,8 @@ from nf_metro.layout.route_plan import (
     FanPlanId,
     GridSpan,
     KeepOutClass,
+    RouteMemberGapChannel,
+    RouteMemberGeometryPlan,
     RoutePlanDiagnostic,
     RouteSemanticScaffold,
     RouteSystemId,
@@ -4113,6 +4116,23 @@ def _dogleg_internal_counter_running_feeders(
     return tuple(settled)
 
 
+@dataclass(frozen=True, slots=True)
+class _LaneRun:
+    """A horizontal run a gap channel turns onto, named by the lane it holds.
+
+    The run reaches from the channel's own column to ``far``, so it follows the
+    column wherever a settling move seats it: only ``far`` is fixed elsewhere
+    (a station, a junction, the trunk it joins).
+    """
+
+    lane: float
+    far: float
+
+    def span(self, coordinate: float) -> tuple[float, float]:
+        """The extent this run covers with its channel seated at *coordinate*."""
+        return min(coordinate, self.far), max(coordinate, self.far)
+
+
 @dataclass(frozen=True)
 class _PlanGapChannel:
     """One vertical leg a convergence plan pins inside an inter-column gap.
@@ -4121,7 +4141,9 @@ class _PlanGapChannel:
     settling move knows which :func:`_move_trunk_flank` call re-seats the whole
     stack standing on it; ``None`` marks a leg on a column no flank owns, which
     only ever acts as an obstacle. ``line_ids`` and ``claimant_member_ids``
-    describe this physical leg, not the wider convergence plan.
+    describe this physical leg, not the wider convergence plan.  ``lane_runs``
+    are the horizontal runs the leg turns onto at its ends; two legs whose Y
+    spans merely abut contend for the lane they both turn onto.
     """
 
     flank_rank: int | None
@@ -4137,12 +4159,40 @@ class _PlanGapChannel:
     system_id: RouteSystemId
     continuation_endpoint_ids: frozenset[str]
     member_geometry_owned: bool
+    lane_runs: tuple[_LaneRun, ...] = ()
 
     def __post_init__(self) -> None:
         if not (
             self.claimant_member_ids and self.source_junction_ids and self.connector_ids
         ):
             raise ValueError("planned gap channel requires complete carrier provenance")
+
+
+def _landing_lane_runs(
+    landing: ConvergenceLanding,
+    column: float,
+    source_lane: float,
+    trunk_lane: float,
+    graph: MetroGraph,
+) -> tuple[_LaneRun, ...]:
+    """The lanes a landing's opening turn joins its source and its trunk on.
+
+    The lead-in reaches the turn along the lane the landing leaves its source
+    junction on; the lead-out reaches the join point along the trunk's lane
+    when the opening lands straight on it.  A bypass whose lead-out drops to a
+    different corridor states no lead-out lane here: the leg carrying it is the
+    separate bypass span.
+    """
+    runs: list[_LaneRun] = []
+    source = graph.stations.get(landing.source_junction_id)
+    if source is not None and abs(source.x - column) > COORD_TOLERANCE:
+        runs.append(_LaneRun(source_lane, source.x))
+    if (
+        abs(trunk_lane - landing.join_point[1]) <= COORD_TOLERANCE
+        and abs(landing.join_point[0] - column) > COORD_TOLERANCE
+    ):
+        runs.append(_LaneRun(trunk_lane, landing.join_point[0]))
+    return tuple(runs)
 
 
 def _plan_gap_channels(
@@ -4198,6 +4248,7 @@ def _plan_gap_channels(
             frozenset[EmissionMemberId],
             frozenset[str],
             frozenset[str],
+            tuple[_LaneRun, ...],
         ]
     ] = []
     flank_columns: dict[int, tuple[float, frozenset[str], _Segment]] = {}
@@ -4227,6 +4278,7 @@ def _plan_gap_channels(
                     frozenset({plan.primary_trunk_member_id}),
                     frozenset({primary_edge.source}),
                     connector_ids_by_line[primary_edge.line_id],
+                    (),
                 )
             )
     for landing in plan.landings:
@@ -4258,6 +4310,7 @@ def _plan_gap_channels(
                 frozenset({landing.member_id}),
                 frozenset({landing.source_junction_id}),
                 connector_ids_by_member[landing.member_id],
+                _landing_lane_runs(landing, start_x, start_y, end_y, graph),
             )
         )
         entry_port = next(
@@ -4288,6 +4341,7 @@ def _plan_gap_channels(
                     frozenset({landing.member_id}),
                     frozenset({landing.source_junction_id}),
                     connector_ids_by_member[landing.member_id],
+                    (),
                 )
             )
     channels: list[_PlanGapChannel] = []
@@ -4300,6 +4354,7 @@ def _plan_gap_channels(
         claimant_member_ids,
         source_junction_ids,
         connector_ids,
+        lane_runs,
     ) in spans:
         y_lo, y_hi = sorted((start_y, end_y))
         gap = gap_lo_for_x(graph, x, y_lo, y_hi, lookup=lookup)
@@ -4320,6 +4375,7 @@ def _plan_gap_channels(
                 plan.system_id,
                 continuation_endpoints,
                 False,
+                lane_runs,
             )
         )
     return tuple(channels)
@@ -5187,8 +5243,15 @@ def _repack_crowded_gap_channels(  # noqa: C901
     graph: MetroGraph,
     curve_radius: float,
     fixed_channels: tuple[_PlanGapChannel, ...],
+    lane_obstacles: tuple[_PlanGapChannel, ...] = (),
 ) -> tuple[ConvergencePlan, ...]:
-    """Pack a connected set of crowded plan carriers into its usable gap."""
+    """Pack a connected set of crowded plan carriers into its usable gap.
+
+    ``lane_obstacles`` are frozen handler legs whose lanes the packed carriers
+    have to stay off.  They order columns rather than space them: a carrier
+    whose run reaches along an obstacle's lane has to sit on the side its own
+    fixed end lies, so the two runs meet end to end instead of overlaying.
+    """
     lookup = gap_lookup_geometry(graph)
     settled = list(plans)
     channel_cache: dict[int, tuple[ConvergencePlan, tuple[_PlanGapChannel, ...]]] = {}
@@ -5255,6 +5318,9 @@ def _repack_crowded_gap_channels(  # noqa: C901
                     or _stacked_elbow_channels_crowd(channel, fixed)
                 )
                 for fixed in fixed_channels
+            ) or any(
+                obstacle.gap[0] == gap[0] and _lane_runs_overlay(channel, obstacle)
+                for obstacle in lane_obstacles
             ):
                 fixed_crowded_keys.add(key)
 
@@ -5329,6 +5395,26 @@ def _repack_crowded_gap_channels(  # noqa: C901
                         coordinate = fixed.coordinate + (
                             clearance if from_left else -clearance
                         )
+                    for obstacle in (
+                        *(
+                            replace(
+                                representatives[prior_key], coordinate=prior_coordinate
+                            )
+                            for prior_key, prior_coordinate in positions.items()
+                        ),
+                        *(
+                            obstacle
+                            for obstacle in lane_obstacles
+                            if obstacle.gap[0] == gap[0]
+                        ),
+                    ):
+                        lane_lo, lane_hi = _lane_run_seat_bounds(
+                            channel, obstacle, BUNDLE_TO_BUNDLE_CLEARANCE
+                        )
+                        if from_left and math.isfinite(lane_lo):
+                            coordinate = max(coordinate, lane_lo)
+                        elif not from_left and math.isfinite(lane_hi):
+                            coordinate = min(coordinate, lane_hi)
                     positions[key] = coordinate
                 return positions
 
@@ -5413,6 +5499,13 @@ def _repack_crowded_gap_channels(  # noqa: C901
                     for fixed in fixed_channels
                 ):
                     continue
+                if any(
+                    _lane_runs_overlay(channel, obstacle)
+                    for channel in moved_channels
+                    for obstacle in lane_obstacles
+                    if obstacle.gap[0] == gap[0]
+                ):
+                    continue
                 settled = candidate
                 break
     return tuple(settled)
@@ -5489,6 +5582,57 @@ def _clear_fixed_gap_flanks(
                 settled[plan_rank] = plan = moved
                 break
     return tuple(settled)
+
+
+def _lane_runs_overlay(
+    first: _PlanGapChannel,
+    second: _PlanGapChannel,
+    first_coordinate: float | None = None,
+) -> bool:
+    """Whether two distinct-line legs draw over each other on a shared lane.
+
+    Two legs stacked end to end in one gap share no Y span, so no channel
+    clearance speaks for them; what they do share is the lane they both turn
+    onto, and there their columns order the runs.  The run reaching further
+    along the lane has to sit outside the one that stops at its own column,
+    which is a statement about their columns, not about the space between them.
+    """
+    if first.line_ids & second.line_ids:
+        return False
+    coordinate = first.coordinate if first_coordinate is None else first_coordinate
+    return any(
+        abs(run.lane - other.lane) <= COORD_TOLERANCE
+        and min(run.span(coordinate)[1], other.span(second.coordinate)[1])
+        - max(run.span(coordinate)[0], other.span(second.coordinate)[0])
+        > COORD_TOLERANCE
+        for run in first.lane_runs
+        for other in second.lane_runs
+    )
+
+
+def _lane_run_seat_bounds(
+    channel: _PlanGapChannel, obstacle: _PlanGapChannel, clearance: float
+) -> tuple[float, float]:
+    """The columns that keep *channel*'s lane runs clear of *obstacle*'s.
+
+    An empty range (``lo > hi``) says no column on this lane clears the
+    obstacle, because the run's fixed far end already reaches inside it.
+    """
+    lo, hi = -math.inf, math.inf
+    if channel.line_ids & obstacle.line_ids:
+        return lo, hi
+    for run in channel.lane_runs:
+        for other in obstacle.lane_runs:
+            if abs(run.lane - other.lane) > COORD_TOLERANCE:
+                continue
+            other_lo, other_hi = other.span(obstacle.coordinate)
+            if run.far <= other_lo - clearance:
+                hi = min(hi, other_lo - clearance)
+            elif run.far >= other_hi + clearance:
+                lo = max(lo, other_hi + clearance)
+            else:
+                return math.inf, -math.inf
+    return lo, hi
 
 
 def _stacked_elbow_channels_crowd(
@@ -5603,6 +5747,36 @@ def _landing_channels_crowd(
     )
 
 
+def _member_channel_lane_runs(
+    plan: RouteMemberGeometryPlan, channel: RouteMemberGapChannel
+) -> tuple[_LaneRun, ...]:
+    """The horizontal runs a frozen member's gap leg turns onto at its ends."""
+    points = plan.points
+    rank = channel.segment_rank
+    if not (
+        0 <= rank
+        and rank + 1 < len(points)
+        and points[rank : rank + 2]
+        == (
+            channel.start,
+            channel.end,
+        )
+    ):
+        return ()
+    runs: list[_LaneRun] = []
+    for corner, neighbour in ((rank, rank - 1), (rank + 1, rank + 2)):
+        if not 0 <= neighbour < len(points):
+            continue
+        turn, beyond = points[corner], points[neighbour]
+        if (
+            abs(beyond[1] - turn[1]) > COORD_TOLERANCE
+            or abs(beyond[0] - turn[0]) <= COORD_TOLERANCE
+        ):
+            continue
+        runs.append(_LaneRun(turn[1], beyond[0]))
+    return tuple(runs)
+
+
 def _planned_member_gap_channels(
     plans: tuple[ConvergencePlan, ...],
     member_geometry: MemberGeometryExecution,
@@ -5622,6 +5796,7 @@ def _planned_member_gap_channels(
             plan.system_id,
             frozenset({plan.edge.target}),
             True,
+            _member_channel_lane_runs(plan, channel),
         )
         for plan in member_geometry.plans
         for channel in plan.gap_channels
@@ -6607,6 +6782,7 @@ def _settle_convergence_geometry(
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     fixed_channels: tuple[_PlanGapChannel, ...] = (),
     member_runs: tuple[_CotravellingRun, ...] = (),
+    lane_obstacles: tuple[_PlanGapChannel, ...] = (),
 ) -> tuple[ConvergencePlan, ...]:
     """Apply the shared convergence channel-settlement sequence."""
 
@@ -6654,7 +6830,7 @@ def _settle_convergence_geometry(
     )
     settled = _clear_fixed_gap_flanks(settled, graph, fixed_channels, ctx.curve_radius)
     settled = _repack_crowded_gap_channels(
-        settled, graph, ctx.curve_radius, fixed_channels
+        settled, graph, ctx.curve_radius, fixed_channels, lane_obstacles
     )
     settled = _settle_reserved_trunk_axes(settled, graph, ctx, member_runs)
     settled = _clear_fixed_gap_flanks(
@@ -6678,7 +6854,7 @@ def _settle_convergence_geometry(
         settle_stacked=True,
     )
     settled = _repack_crowded_gap_channels(
-        settled, graph, ctx.curve_radius, fixed_channels
+        settled, graph, ctx.curve_radius, fixed_channels, lane_obstacles
     )
     settled = _fuse_shared_terminal_gap_channels(settled, ctx)
     settled = _separate_distinct_terminal_gap_channels(settled, graph, ctx.curve_radius)
@@ -6717,6 +6893,7 @@ def _settle_convergence_execution(
     member_geometry: MemberGeometryExecution | None = None,
     include_resources: bool = False,
     allow_clearance_requirements: bool = False,
+    lane_obstacles: tuple[_PlanGapChannel, ...] = (),
 ) -> ConvergencePlanExecution:
     """Settle the eligible owners of *planned_system_ids* back into *execution*.
 
@@ -6750,6 +6927,7 @@ def _settle_convergence_execution(
             if member_geometry is not None
             else ()
         ),
+        lane_obstacles,
     )
     if (
         member_geometry is not None
@@ -6833,14 +7011,87 @@ def settle_preliminary_convergence_execution(
     *,
     exit_turn_plans: tuple[ExitTurnPlan, ...],
     planned_system_ids: frozenset[RouteSystemId],
+    lane_obstacles: tuple[HandlerGapChannel, ...] = (),
 ) -> ConvergencePlanExecution:
-    """Settle provisional convergence decisions before member allocation."""
+    """Settle provisional convergence decisions before member allocation.
+
+    ``lane_obstacles`` are the handler-owned legs a member allocation already
+    froze (:func:`handler_gap_channels`).  A landing column is spent here and
+    frozen into its members straight after, so a lane a handler holds has to be
+    read at this point or not at all.
+    """
     return _settle_convergence_execution(
         execution,
         graph,
         ctx,
         exit_turn_plans=exit_turn_plans,
         planned_system_ids=planned_system_ids,
+        lane_obstacles=lane_obstacles,
+    )
+
+
+HandlerGapChannel: TypeAlias = _PlanGapChannel
+
+
+def handler_gap_channels(
+    member_geometry: MemberGeometryExecution, graph: MetroGraph
+) -> tuple[HandlerGapChannel, ...]:
+    """The gap legs handler-owned members hold, with the lanes they turn onto.
+
+    A ``normalize_exempt`` member draws its own geometry and no settling pass
+    moves it, so its columns and the lanes they open are the fixed part of a
+    gap: everything else in that gap is seated around them.
+    """
+    del graph
+    return tuple(
+        _PlanGapChannel(
+            None,
+            channel.start[0],
+            min(channel.start[1], channel.end[1]),
+            max(channel.start[1], channel.end[1]),
+            channel.direction is Direction.D,
+            (channel.gap_lo_col, channel.row),
+            frozenset({plan.edge.line_id}),
+            frozenset({plan.member_id}),
+            frozenset({plan.edge.source}),
+            frozenset(plan.connector_ids),
+            plan.system_id,
+            frozenset({plan.edge.target}),
+            True,
+            _member_channel_lane_runs(plan, channel),
+        )
+        for plan in member_geometry.plans
+        if plan.normalize_exempt
+        for channel in plan.gap_channels
+    )
+
+
+def overlaying_lane_obstacles(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    lane_obstacles: tuple[HandlerGapChannel, ...],
+) -> tuple[HandlerGapChannel, ...]:
+    """The handler legs whose lanes a settled landing actually draws over.
+
+    Only these order the packed columns: an obstacle nowhere near a plan
+    channel must not perturb packs that never contend with it.
+    """
+    if not lane_obstacles:
+        return ()
+    lookup = gap_lookup_geometry(graph)
+    channels = tuple(
+        channel
+        for plan in plans
+        if plan.owns_geometry
+        for channel in _plan_gap_channels(plan, graph, lookup)
+    )
+    return tuple(
+        obstacle
+        for obstacle in lane_obstacles
+        if any(
+            channel.gap[0] == obstacle.gap[0] and _lane_runs_overlay(channel, obstacle)
+            for channel in channels
+        )
     )
 
 

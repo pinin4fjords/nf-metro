@@ -169,7 +169,7 @@ def _disable_separation_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         convergences,
         "_repack_crowded_gap_channels",
-        lambda plans, graph, curve_radius, fixed_channels: plans,
+        lambda plans, graph, curve_radius, fixed_channels, lane_obstacles=(): plans,
     )
     monkeypatch.setattr(
         convergences,

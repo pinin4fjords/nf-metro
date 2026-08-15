@@ -18,8 +18,11 @@ from nf_metro.layout.routing import exit_turns as exit_turn_routing
 from nf_metro.layout.routing.context import _RoutingCtx
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
+    HandlerGapChannel,
     build_convergence_plan_execution,
     empty_convergence_plan_execution,
+    handler_gap_channels,
+    overlaying_lane_obstacles,
     preliminary_member_gap_claims,
     restrict_convergence_execution,
     settle_global_convergence_execution,
@@ -382,6 +385,18 @@ def _with_settled_exit_turns(
     )
 
 
+def _restore_initial_station_offsets(
+    ctx: _RoutingCtx,
+    station_offsets: dict[tuple[str, str], float] | None,
+    initial: dict[tuple[str, str], float],
+) -> None:
+    """Return the shared offset map to the state a planning pass starts from."""
+    if station_offsets is not None:
+        station_offsets.clear()
+        station_offsets.update(initial)
+    ctx.station_offsets = station_offsets
+
+
 def prepare_route_system_planning(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -425,6 +440,7 @@ def prepare_route_system_planning(
         exit_turns: ExitTurnExecution,
         pending_plan_ids: frozenset[ExitTurnPlanId],
         settled_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+        lane_obstacles: tuple[HandlerGapChannel, ...] = (),
     ) -> tuple[
         Mapping[ResolvedEdge, RouteFamilyId],
         ConvergencePlanExecution,
@@ -477,6 +493,7 @@ def prepare_route_system_planning(
             ctx,
             exit_turn_plans=exit_turns.plans,
             planned_system_ids=planned_ids,
+            lane_obstacles=lane_obstacles,
         )
         ctx.convergences = convergences.query
         member_geometry = build_member_geometry_execution(
@@ -500,48 +517,78 @@ def prepare_route_system_planning(
     allocation_exit_turns, pending_plan_ids = (
         exit_turn_routing.promote_pending_gap_allocation(provisional_exit_turns)
     )
-    if pending_plan_ids:
-        _, _, _, allocation_geometry = prepare_member_geometry(
-            allocation_exit_turns, pending_plan_ids
-        )
-        ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
-        if station_offsets is not None:
-            station_offsets.clear()
-            station_offsets.update(initial_station_offsets)
-        ctx.station_offsets = station_offsets
-        exit_turns = exit_turn_routing.build_exit_turn_execution(
-            graph,
-            ctx,
-        )
-        unresolved = tuple(
-            plan
-            for plan in exit_turns.plans
-            if plan.legacy_reason == exit_turn_routing.GAP_ALLOCATION_PENDING
-        )
-        if unresolved:
-            exit_turns = exit_turn_routing.decline_unsettled_gap_allocation(exit_turns)
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(
-                exit_turns,
-                frozenset(),
-                pending_plan_ids,
+
+    def seat_members(
+        lane_obstacles: tuple[HandlerGapChannel, ...] = (),
+    ) -> tuple[
+        ExitTurnExecution,
+        Mapping[ResolvedEdge, RouteFamilyId],
+        ConvergencePlanExecution,
+        frozenset[RouteSystemId],
+        MemberGeometryExecution,
+    ]:
+        if pending_plan_ids:
+            _, _, _, allocation_geometry = prepare_member_geometry(
+                allocation_exit_turns, pending_plan_ids, frozenset(), lane_obstacles
             )
+            ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
+            _restore_initial_station_offsets(
+                ctx, station_offsets, initial_station_offsets
+            )
+            exit_turns = exit_turn_routing.build_exit_turn_execution(
+                graph,
+                ctx,
+            )
+            unresolved = tuple(
+                plan
+                for plan in exit_turns.plans
+                if plan.legacy_reason == exit_turn_routing.GAP_ALLOCATION_PENDING
+            )
+            if unresolved:
+                exit_turns = exit_turn_routing.decline_unsettled_gap_allocation(
+                    exit_turns
+                )
+            family_by_edge, convergences, planned_ids, members = (
+                prepare_member_geometry(
+                    exit_turns,
+                    frozenset(),
+                    pending_plan_ids,
+                    lane_obstacles,
+                )
+            )
+            members = _with_settled_exit_turns(members, allocation_geometry, ctx)
+            return exit_turns, family_by_edge, convergences, planned_ids, members
+        if ctx.prior_exit_turn_dispositions is not None:
+            exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
+        else:
+            exit_turns = provisional_exit_turns
+        family_by_edge, convergences, planned_ids, members = prepare_member_geometry(
+            exit_turns, pending_plan_ids, frozenset(), lane_obstacles
         )
-        member_geometry = _with_settled_exit_turns(
+        return exit_turns, family_by_edge, convergences, planned_ids, members
+
+    (
+        exit_turns,
+        family_by_edge,
+        convergences,
+        preliminary_planned_ids,
+        member_geometry,
+    ) = seat_members()
+    # A landing column is spent before any handler member is frozen, so the
+    # lanes handler-owned members hold are readable only from a seating that
+    # has already produced them.
+    lane_obstacles = overlaying_lane_obstacles(
+        convergences.plans, graph, handler_gap_channels(member_geometry, graph)
+    )
+    if lane_obstacles:
+        _restore_initial_station_offsets(ctx, station_offsets, initial_station_offsets)
+        (
+            exit_turns,
+            family_by_edge,
+            convergences,
+            preliminary_planned_ids,
             member_geometry,
-            allocation_geometry,
-            ctx,
-        )
-    elif ctx.prior_exit_turn_dispositions is not None:
-        exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(exit_turns, pending_plan_ids)
-        )
-    else:
-        exit_turns = provisional_exit_turns
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(exit_turns, pending_plan_ids)
-        )
+        ) = seat_members(lane_obstacles)
     allocation_planned_ids = _allocation_eligible_system_ids(
         preliminary_planned_ids,
         frozenset(member_geometry.failure_reasons),
