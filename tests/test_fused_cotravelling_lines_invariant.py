@@ -39,6 +39,7 @@ import nf_metro.layout.routing.invariants as invariants
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.phases._common import routes_through_unrelated_sections
 from nf_metro.layout.routing import (
     compute_station_offsets,
     observe_route_edges,
@@ -372,6 +373,26 @@ def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
     )
 
     assert trunk.points[2] == pytest.approx((2718.0, 348.0))
+
+
+def test_seed_41_separated_trunk_lane_stays_out_of_the_section_boxes() -> None:
+    """Distinct-line separation reseats a trunk in a corridor, not in a box.
+
+    ``__junction_32``'s l3 trunk reaches five columns west along its own row,
+    and the lane it is separated onto has to be one a run may occupy: the gap
+    above the row carries it clear of every box between the two ends.
+    """
+    path = FROZEN_FUZZ / "seed_41.mmd"
+    graph, routes, offsets = _route(path)
+    trunk = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_32", "__merge_17", "l3")
+    )
+
+    assert trunk.points[2] == pytest.approx((712.0, 546.0))
+    assert not routes_through_unrelated_sections(graph, routes=[trunk], offsets=offsets)
 
 
 def test_seed_77_settled_entry_bundle_keeps_allocation_lanes() -> None:
