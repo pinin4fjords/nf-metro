@@ -1628,6 +1628,14 @@ def _allocate_bundle_around_claims(
     clearance a bundle owes its neighbours is only knowable here: the whole
     bundle translates as one body, which keeps its members' lane order and
     keeps any carrier it already shares with a claim intact.
+
+    Moving as one body is also why the candidate translations are drawn from
+    every member/claim pair that owes a clearance rather than from the crowded
+    pairs alone: the placement that frees the crowded member seats its siblings
+    on lanes it never met, so the positions that clear *those* claims are the
+    ones the body has to choose between.  Offered only the crowded pairs' own
+    positions, the nearest survivor can be a runway coordinate a whole corridor
+    away.
     """
     relevant_by_key = {
         item.key: tuple(
@@ -1642,21 +1650,23 @@ def _allocate_bundle_around_claims(
         )
         for item in items
     }
-    crowded = tuple(
+    owed = tuple(
         (item, claim, required)
         for item in items
         for claim in relevant_by_key[item.key]
         if (required := _claim_clearance(item, claim, ctx)) > 0.0
-        and abs(item.channel.x - claim.coordinate) < required - COORD_TOLERANCE_FINE
     )
-    if not crowded:
+    if not any(
+        abs(item.channel.x - claim.coordinate) < required - COORD_TOLERANCE_FINE
+        for item, claim, required in owed
+    ):
         return
 
     bounds_by_key = {item.key: _channel_bounds(item, ctx) for item in items}
     deltas = {0.0}
     deltas.update(
         claim.coordinate + sign * required - item.channel.x
-        for item, claim, required in crowded
+        for item, claim, required in owed
         for sign in (-1.0, 1.0)
     )
     for item in items:
