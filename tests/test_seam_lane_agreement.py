@@ -43,7 +43,6 @@ CORPUS = sorted(
 
 _STUB_SLOPE_XFAILS: dict[str, str] = {}
 _APPROACH_LANE_XFAILS = {
-    "seed_15": "s8__exit_left_8 and __junction_26 land off s10__entry_right_19",
     "seed_77": "the two U-detour feeders land on s9__entry_right_25 transposed",
 }
 

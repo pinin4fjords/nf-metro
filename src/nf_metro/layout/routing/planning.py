@@ -110,6 +110,30 @@ def _allocation_eligible_system_ids(
     return preliminary_planned_ids - member_failure_ids
 
 
+def _lands_on_entry_port_lane(
+    points: tuple[tuple[float, float], ...],
+    edge: ResolvedEdge,
+    ctx: _RoutingCtx,
+) -> bool | None:
+    """Whether *points* end on the lane the entry port holds for the line.
+
+    ``None`` where the seam states no lane to land on: a target that is not a
+    flow-side entry port, or one with no settled offset for this line.
+    """
+    from nf_metro.parser.model import PortSide
+
+    offsets = ctx.station_offsets or {}
+    lane = offsets.get((edge.target, edge.line_id))
+    port = ctx.graph.ports.get(edge.target)
+    if lane is None or port is None or not port.is_entry:
+        return None
+    if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return None
+    return abs(points[-1][1] - (ctx.graph.stations[edge.target].y + lane)) <= (
+        COORD_TOLERANCE
+    )
+
+
 def _allocated_points_in_source_frame(
     plan: RouteMemberGeometryPlan,
     allocated: RouteMemberGeometryPlan,
@@ -274,6 +298,15 @@ def _with_settled_exit_turns(
             in reconciled_targets
         ) and allocated is not None:
             allocated_points = _allocated_points_in_source_frame(plan, allocated, ctx)
+            # The allocation pass settles gap columns before the continuation
+            # flanks are seated, so its path can reach the seam transposed.
+            # A path that lands off the lane the entry port holds cannot be
+            # imported over one that lands on it.
+            if _lands_on_entry_port_lane(
+                plan.points, plan.edge, ctx
+            ) and not _lands_on_entry_port_lane(allocated_points, plan.edge, ctx):
+                plans.append(plan)
+                continue
             gap_channels = tuple(
                 replace(
                     channel,
