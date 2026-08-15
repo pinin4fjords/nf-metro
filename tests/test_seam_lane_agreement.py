@@ -173,6 +173,26 @@ def test_single_line_port_level_seams_draw_level(name: str) -> None:
     assert not sloped, "level seams drawn sloped:\n" + "\n".join(sloped)
 
 
+def test_a_line_leaving_a_station_frees_the_lane_an_arriving_line_needs() -> None:
+    """Lines meeting end to end at a station share one lane.
+
+    ``s14`` is a chain of single strokes: l3 arrives at ``n14_0`` from the
+    entry port and l2 leaves it for ``n14_1``.  The two draw on opposite sides
+    of the marker, so l2 does not hold l3 off the lane ``__junction_42``
+    delivers it on, and the seam runs level instead of ramping into the port.
+    """
+    graph, offsets, observation = _observe(FROZEN / "seed_77.mmd")
+    assert offsets[("n14_0", "l3")] == offsets[("n14_0", "l2")]
+    seam = next(
+        route
+        for route in observation.routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_42", "s14__entry_left_32", "l3")
+    )
+    drawn = apply_route_offsets(seam, offsets)
+    assert abs(drawn[0][1] - drawn[-1][1]) <= COORD_TOLERANCE
+
+
 def _station_row_disagreements(ctx: Any) -> list[str]:
     """Single-line ports whose lane differs from a flat in-section run-mate."""
     graph = ctx.graph
