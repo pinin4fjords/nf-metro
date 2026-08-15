@@ -840,11 +840,11 @@ def _box_extents(section: Section) -> tuple[tuple[float, float], tuple[float, fl
     )
 
 
-def _grid_precedes(
-    axis: SettlementAxisGeometry, first: Section, second: Section
+def _drawn_against_the_grid(
+    axis: SettlementAxisGeometry, ahead: Section, behind: Section
 ) -> bool:
-    """*first* occupies grid indices ending at or before *second*'s begin."""
-    return axis.start_index(first) + axis.span(first) <= axis.start_index(second)
+    """*ahead* is drawn before *behind* while indexed strictly after it."""
+    return axis.start_index(behind) + axis.span(behind) <= axis.start_index(ahead)
 
 
 def _axis_gaps(
@@ -857,12 +857,12 @@ def _axis_gaps(
     other, so the distance between them is not a separation this stage owes
     anything to.
 
-    Neither does a pair drawn in the opposite order to the grid indices it is
-    filed under.  Settlement translates whole bands in grid order, so the
-    separation it holds open between two boxes is the one that runs the way
-    their indices do; a box drawn ahead of a band it is indexed behind is
-    carried toward its neighbour by every widening of the boundary between
-    them, and no amount of translation is the arrangement it wanted.
+    Neither does a pair drawn in the reverse of the grid order it is filed
+    under.  A widening carries the bands from its boundary onward and leaves
+    the rest, so it opens the distance between two boxes where that distance
+    runs the way their indices do, and closes it where it runs against them.
+    Boxes sharing an index move together under every translation, so their
+    separation is held and stays comparable.
     """
     along_index = 1 if axis.axis is SettlementAxis.ROW else 0
     across_index = 1 - along_index
@@ -880,9 +880,13 @@ def _axis_gaps(
                 continue
             first_start, first_end = first_extents[along_index]
             second_start, second_end = second_extents[along_index]
-            if first_end <= second_start and _grid_precedes(axis, first, second):
+            if first_end <= second_start and not _drawn_against_the_grid(
+                axis, first, second
+            ):
                 gaps[first_key, second_key] = second_start - first_end
-            elif second_end <= first_start and _grid_precedes(axis, second, first):
+            elif second_end <= first_start and not _drawn_against_the_grid(
+                axis, second, first
+            ):
                 gaps[second_key, first_key] = first_start - second_end
     return gaps
 
