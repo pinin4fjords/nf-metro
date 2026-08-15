@@ -50,3 +50,23 @@ def test_trunk_relocation_keeps_formed_curves(seed_15_failure: str) -> None:
         and "'__junction_24'->'__merge_12'" in line
     ]
     assert starved == []
+
+
+def test_seed_15_render_emits_no_geometry_warnings() -> None:
+    """The corridor stack sits inside every reserved band it claims.
+
+    A typed geometry warning here means a drawn corridor took clearance a
+    reservation spent -- the planned exit-turn frame overhanging its band's
+    content side is the class this locks closed.
+    """
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        render_string(SEED_15.read_text())
+    geometry = [
+        str(item.message)
+        for item in caught
+        if type(item.message).__name__ == "PermissiveGuardWarning"
+    ]
+    assert geometry == []
