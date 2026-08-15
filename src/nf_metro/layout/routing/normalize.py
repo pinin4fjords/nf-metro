@@ -3729,7 +3729,35 @@ def _plan_trunk_band(
             *(h_rank[id(sg)] for sg in perm),
         )
 
-    best_ttb = min((list(p) for p in itertools.permutations(h_ttb)), key=_key)
+    # Two slots whose trunks share one planned exit turn are lanes of one
+    # frame the plan already nested, so the stack may pack them but not swap
+    # them: their incoming lane order is the plan's own.
+    slot_plans = {
+        id(sg): {
+            t.route.exit_turn_plan_id
+            for t in sg
+            if t.route.exit_turn_plan_id is not None
+        }
+        for sg in slot_groups
+    }
+    slot_min_y = {id(sg): min(t.y for t in sg) for sg in slot_groups}
+
+    def keeps_planned_order(perm: tuple[list[_HTrunk], ...]) -> bool:
+        for first_rank, first_slot in enumerate(perm):
+            for second_slot in perm[first_rank + 1 :]:
+                if not slot_plans[id(first_slot)] & slot_plans[id(second_slot)]:
+                    continue
+                if (
+                    slot_min_y[id(first_slot)]
+                    > slot_min_y[id(second_slot)] + COORD_TOLERANCE
+                ):
+                    return False
+        return True
+
+    permutations = [
+        list(p) for p in itertools.permutations(h_ttb) if keeps_planned_order(p)
+    ] or [list(p) for p in itertools.permutations(h_ttb)]
+    best_ttb = min(permutations, key=_key)
     order = list(reversed(best_ttb)) if dips else best_ttb
     return order, *_packed_track_map(order, span_of)
 
