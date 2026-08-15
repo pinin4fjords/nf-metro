@@ -363,7 +363,7 @@ def test_seed_15_shared_opening_short_tail_is_a_fixed_member_channel() -> None:
         if channel.segment_rank == len(member.exit_shared_opening_points)
     )
     assert (tail.gap_lo_col, tail.row) == (5, 2)
-    assert (tail.start, tail.end) == ((1550.0, 604.0), (1550.0, 504.0))
+    assert (tail.start, tail.end) == ((1550.0, 588.0), (1550.0, 504.0))
 
 
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:

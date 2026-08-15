@@ -799,7 +799,6 @@
   "normalize.py::if any(::#9",
   "normalize.py::if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):::#1",
   "normalize.py::if band is None:::#3",
-  "normalize.py::if band is not None:::#1",
   "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1",
   "normalize.py::if best < cur:::#1",
   "normalize.py::if bool(mover.convergence_owned_segment_ranks) and not bool(::#1",

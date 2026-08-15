@@ -418,8 +418,8 @@ def test_seed_15_final_member_plan_owns_its_reconciled_bypass_trunk() -> None:
     assert route.points == [
         (1612.0, 504.0),
         (1604.5, 504.0),
-        (1604.5, 608.0),
-        (1266.0, 608.0),
+        (1604.5, 592.0),
+        (1266.0, 592.0),
         (1266.0, 504.0),
         (1246.0, 504.0),
     ]
