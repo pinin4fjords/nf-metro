@@ -903,6 +903,55 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         _apply_section_line_order(ctx, sec_id, new_order)
 
 
+def _restore_fanout_peel_order(
+    ctx: _OffsetCtx,
+    same_y_adj: dict[str, dict[str, list[tuple[str, str]]]],
+) -> None:
+    """Re-seat a fan-out source bundle on its peel order.
+
+    :func:`_reorder_fanout_divergence` seats the source section on the order
+    its lines peel off the shared exit fan and
+    :func:`_reconcile_fanout_junction_offsets` holds the junction to that same
+    order, so any pass that permutes the section in between leaves the exit
+    port and its junction on different lanes across a 10-px stub.  Re-seating
+    only permutes the slots those passes settled, so it costs no space.
+    """
+    if ctx.compact:
+        return
+    graph = ctx.graph
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        section = graph.section_for_port(graph.ports[exit_port_id])
+        if not lanes_run_along_y(section.direction):
+            continue
+        peel_order = fanout_divergence_peel_order(
+            graph, junction_id, ctx.line_priority, ctx.topology
+        )
+        if peel_order is None:
+            continue
+        settled = sorted(
+            ctx.offsets.get((exit_port_id, lid), 0.0) for lid in peel_order
+        )
+        for lid, want in zip(peel_order, settled):
+            cur = ctx.offsets.get((exit_port_id, lid), 0.0)
+            if abs(cur - want) <= _OFFSET_EQ_TOLERANCE:
+                continue
+            swap_lid = next(
+                (
+                    other
+                    for other in peel_order
+                    if other != lid
+                    and abs(ctx.offsets.get((exit_port_id, other), 0.0) - want)
+                    <= _OFFSET_EQ_TOLERANCE
+                ),
+                None,
+            )
+            if swap_lid is None:
+                continue
+            _propagate_offset_swap(
+                ctx, same_y_adj, section.id, exit_port_id, lid, swap_lid, want, cur
+            )
+
+
 def _reconcile_fanout_junction_offsets(ctx: _OffsetCtx) -> None:
     """Assign each clean divergence's settled slots in semantic peel order."""
     incoming_count = Counter(edge.target for edge in ctx.graph.edges)
@@ -4175,6 +4224,7 @@ def compute_station_offsets(
     _recenter_partial_fan_branches(ctx)
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
+    _restore_fanout_peel_order(ctx, same_y_adj)
     _reconcile_horizontal_offsets(ctx)
     _center_rail_boundary_port_bundles(ctx)
     _recenter_single_line_corridor_entry(ctx)
