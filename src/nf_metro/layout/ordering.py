@@ -359,24 +359,23 @@ def _place_single_node(
     # merely begin or end at either station add no incoming geometry, so a
     # changed line set alone is no reason to hop tracks.  Falls through when
     # the predecessor's track is already taken at this layer.
-    sole_preds = list(G.predecessors(node))
+    preds = list(G.predecessors(node))
+    node_layer = layers.get(node, 0) if layers else 0
     if (
-        len(sole_preds) == 1
-        and sole_preds[0] in tracks
-        and list(G.successors(sole_preds[0])) == [node]
+        len(preds) == 1
+        and preds[0] in tracks
+        and list(G.successors(preds[0])) == [node]
         and not _is_track_occupied_at_layer(
-            tracks[sole_preds[0]],
-            layers.get(node, 0) if layers else 0,
+            tracks[preds[0]],
+            node_layer,
             layer_occupancy if layer_occupancy is not None else {},
             node,
         )
     ):
-        return tracks[sole_preds[0]]
+        return tracks[preds[0]]
 
     # Detect divergence: predecessor has more lines than this node
     if graph is not None:
-        preds = list(G.predecessors(node))
-        node_layer = layers.get(node, 0) if layers else 0
         node_lines = set(graph.station_lines(node))
         pred_lines: set[str] = set()
         for p in preds:

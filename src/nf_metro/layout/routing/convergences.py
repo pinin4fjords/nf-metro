@@ -2468,6 +2468,21 @@ def _plan_segments(
     )
 
 
+def _plan_carrier_ids(plan: ConvergencePlan) -> frozenset[str]:
+    """The endpoints whose stroke *plan*'s trunk carries.
+
+    A run is named by the carriers that travel it rather than by the system it
+    belongs to: one route system can hold several convergences, and their runs
+    are neighbours of each other.
+    """
+    return frozenset(
+        (
+            *(landing.source_junction_id for landing in plan.landings),
+            *plan.target_entry_port_ids,
+        )
+    )
+
+
 def _trunk_corridor_run(
     plan: ConvergencePlan, graph: MetroGraph
 ) -> _CotravellingRun | None:
@@ -2484,12 +2499,7 @@ def _trunk_corridor_run(
         max(start_x, end_x),
         axis.direction,
         frozenset(plan.line_ids),
-        frozenset(
-            (
-                *(landing.source_junction_id for landing in plan.landings),
-                *plan.target_entry_port_ids,
-            )
-        ),
+        _plan_carrier_ids(plan),
         inter_row_gap_upper_row(graph, coordinate),
         segments,
     )
@@ -2511,6 +2521,8 @@ def _plan_flank_corridor_runs(
     if axis is None or axis.axis is not DemandAxis.X:
         return ()
     segments = _trunk_segments(axis)
+    line_ids = frozenset(plan.line_ids)
+    carrier_ids = _plan_carrier_ids(plan)
     runs: list[_CotravellingRun] = []
     for source_side, (riser, flank) in (
         (True, (segments[1], segments[2])),
@@ -2532,13 +2544,8 @@ def _plan_flank_corridor_runs(
                 min(start_x, end_x),
                 max(start_x, end_x),
                 _direction(*travel),
-                frozenset(plan.line_ids),
-                frozenset(
-                    (
-                        *(landing.source_junction_id for landing in plan.landings),
-                        *plan.target_entry_port_ids,
-                    )
-                ),
+                line_ids,
+                carrier_ids,
                 inter_row_gap_upper_row(graph, start_y),
                 (riser, flank, flank),
             )

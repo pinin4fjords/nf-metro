@@ -49,8 +49,6 @@ def _sole_links(graph: MetroGraph, members: set[str]) -> list[tuple[str, str]]:
     Both endpoints' full in/out degree is counted over the whole graph, so a
     station that also feeds a section exit is not treated as unbranched.
     """
-    successors: dict[str, set[str]] = {member: set() for member in members}
-    predecessors: dict[str, set[str]] = {member: set() for member in members}
     out_degree: dict[str, set[str]] = {member: set() for member in members}
     in_degree: dict[str, set[str]] = {member: set() for member in members}
     for edge in graph.edges:
@@ -58,16 +56,13 @@ def _sole_links(graph: MetroGraph, members: set[str]) -> list[tuple[str, str]]:
             out_degree[edge.source].add(edge.target)
         if edge.target in members:
             in_degree[edge.target].add(edge.source)
-        if edge.source in members and edge.target in members:
-            successors[edge.source].add(edge.target)
-            predecessors[edge.target].add(edge.source)
     return [
-        (source, target)
-        for source, targets in successors.items()
-        for target in targets
-        if out_degree[source] == {target}
-        and in_degree[target] == {source}
-        and len(predecessors[target]) == 1
+        (edge.source, edge.target)
+        for edge in graph.edges
+        if edge.source in members
+        and edge.target in members
+        and out_degree[edge.source] == {edge.target}
+        and in_degree[edge.target] == {edge.source}
     ]
 
 

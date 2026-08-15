@@ -2936,6 +2936,24 @@ def _allocate_merge_ports_by_approach(ctx: _OffsetCtx) -> None:
             _apply_offsets_along_bundle(ctx, port_id, sec_id, new_offs)
 
 
+def _nearest_free_slot(
+    ctx: _OffsetCtx, station_id: str, line_id: str, value: float, slots: int
+) -> float | None:
+    """The slot nearest *value* on the station's pitch that no other line holds.
+
+    Steps outward a slot at a time, taking the far side of *value* first so a
+    line displaced from a shared slot keeps its reading order with the bundle.
+    *slots* bounds the walk: the station's own lines are the only occupants, so
+    one of the first ``slots`` candidates either side is always free.
+    """
+    step = ctx.offset_step
+    for distance in range(1, slots + 1):
+        for candidate in (value + distance * step, value - distance * step):
+            if not _would_collide(ctx, station_id, line_id, candidate):
+                return candidate
+    return None
+
+
 def _clear_carried_slot_collisions(
     ctx: _OffsetCtx, station_id: str, carried: dict[str, float]
 ) -> None:
@@ -2946,37 +2964,31 @@ def _clear_carried_slot_collisions(
     carry lands on it the two lines draw as one stroke, so the line that is not
     part of the carried order moves to the nearest slot on the station's own
     pitch that nothing holds, on the side it already sits.
+
+    Lines are taken in slot order and each move is published before the next is
+    chosen, so a line displaced here cannot be sent onto a slot a later one is
+    about to vacate.
     """
-    step = ctx.offset_step
-    taken = {
-        lid: ctx.offsets.get((station_id, lid), 0.0)
-        for lid in ctx.graph.station_lines(station_id)
-    }
-    for lid, value in sorted(taken.items(), key=lambda item: item[1]):
+    lines = ctx.graph.station_lines(station_id)
+    if carried.keys().isdisjoint(lines):
+        return
+    seated = sorted(
+        ((lid, ctx.offsets.get((station_id, lid), 0.0)) for lid in lines),
+        key=lambda item: item[1],
+    )
+    for lid, value in seated:
         if lid in carried:
             continue
         if not any(
-            other != lid and abs(taken[other] - value) <= _OFFSET_EQ_TOLERANCE
-            for other in taken
-            if other in carried
+            abs(ctx.offsets.get((station_id, other), 0.0) - value)
+            <= _OFFSET_EQ_TOLERANCE
+            for other in carried
+            if other != lid and other in lines
         ):
             continue
-        occupied = [other_value for other, other_value in taken.items() if other != lid]
-        free = next(
-            (
-                candidate
-                for distance in range(1, len(taken) + 2)
-                for candidate in (value + distance * step, value - distance * step)
-                if not any(
-                    abs(candidate - held) <= _OFFSET_EQ_TOLERANCE for held in occupied
-                )
-            ),
-            None,
-        )
-        if free is None:
-            continue
-        taken[lid] = free
-        ctx.offsets[(station_id, lid)] = free
+        free = _nearest_free_slot(ctx, station_id, lid, value, len(seated))
+        if free is not None:
+            ctx.offsets[(station_id, lid)] = free
 
 
 def _apply_offsets_along_bundle(

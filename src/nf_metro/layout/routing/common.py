@@ -1368,6 +1368,8 @@ def iter_eligible_destination_tail_bundles(
         # track can name a lane another line already holds there.  Seating on it
         # would draw the two lines as one stroke, which the corridor fan the
         # members arrive on has already spent tracks avoiding; leave them on it.
+        # Any shared stretch counts, not only one long enough to make the two
+        # corridor neighbours: the stroke overlays for as far as they share.
         if any(
             id(sibling.route) not in group_routes
             and sibling.route.line_id != trunk.route.line_id

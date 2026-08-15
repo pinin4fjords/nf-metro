@@ -2589,7 +2589,9 @@ def canvas_content_band(
     the canvas edge is sized from the content it ends up holding, so it is not.
     The half-band this returns is therefore open toward the canvas: it says how
     far the corridor must stay off the boxes it runs beside, and leaves growing
-    the canvas to the sizing that follows.  ``None`` for a non-canvas region.
+    the canvas to the sizing that follows.  The canvas extent goes in unbounded
+    for the same reason -- only the content edge of the measurement is spent.
+    ``None`` for a non-canvas region.
     """
     region = reservation.region
     if not isinstance(region, CanvasRegion):

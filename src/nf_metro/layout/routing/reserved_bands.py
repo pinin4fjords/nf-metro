@@ -576,11 +576,6 @@ def _claim_views(
         is_row = isinstance(reservation.region, RowGapRegion)
         is_column = isinstance(reservation.region, ColumnGapRegion)
         allocation_axis = DemandAxis.Y if is_row else DemandAxis.X
-        band_key = (
-            (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
-            if is_row or is_column
-            else (0, 0)
-        )
         for claim in reservation.claims:
             claim_lo, claim_hi = terminal_landing_band(reservation, claim, lo, hi)
             edge = edge_by_member[claim.member_id]
@@ -588,6 +583,7 @@ def _claim_views(
             # The per-edge views answer "which grid boundary does this edge's
             # corridor cross", which a canvas margin crosses none of.
             if is_row or is_column:
+                band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
                 bands_by_edge = row_by_edge if is_row else column_by_edge
                 bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
             allocation = (
