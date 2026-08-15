@@ -32,8 +32,9 @@ from nf_metro.layout.route_plan import (
     build_route_plan_query,
 )
 from nf_metro.layout.route_reservations import (
+    CanvasRegion,
+    CanvasSide,
     CorridorOrientation,
-    RowGapRegion,
     expected_convergence_foreign_references,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
@@ -400,7 +401,7 @@ def test_seed_15_owned_lane_envelope_requests_boundary_three_runway() -> None:
     assert runway_boundaries == {3}
 
 
-def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
+def test_seed_15_final_member_plan_owns_its_reconciled_bypass_trunk() -> None:
     graph, offsets, observed = _observe(
         FROZEN / "seed_15.mmd", allow_clearance_requirements=True
     )
@@ -416,9 +417,9 @@ def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
 
     assert route.points == [
         (1612.0, 504.0),
-        (1562.0, 504.0),
-        (1562.0, 398.0),
-        (1266.0, 398.0),
+        (1604.5, 504.0),
+        (1604.5, 608.0),
+        (1266.0, 608.0),
         (1266.0, 504.0),
         (1246.0, 504.0),
     ]
@@ -426,7 +427,7 @@ def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
     assert member.owned_segment_ranks == (1, 3)
     assert tuple(channel.segment_rank for channel in member.gap_channels) == (1, 3)
     assert member.trunk_slot is not None
-    assert member.trunk_slot.gap_upper_row == 1
+    assert member.trunk_slot.gap_upper_row is None
     assert not check_no_dogleg_crosses_exempt_trunk(graph, observed.routes, offsets)
 
     trunk_reservations = [
@@ -440,7 +441,8 @@ def test_seed_15_final_member_plan_owns_the_reconciled_row_gap_route() -> None:
         )
     ]
     assert len(trunk_reservations) == 1
-    assert trunk_reservations[0].region == RowGapRegion(0, 1)
+    assert trunk_reservations[0].region.side is CanvasSide.BOTTOM
+    assert isinstance(trunk_reservations[0].region, CanvasRegion)
 
     _graph, _offsets, repeated = _observe(
         FROZEN / "seed_15.mmd", allow_clearance_requirements=True

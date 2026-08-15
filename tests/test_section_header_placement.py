@@ -148,9 +148,9 @@ def test_seed_15_header_stays_inside_its_right_canvas_routes() -> None:
         for item in route_plan.reservations
         if isinstance(item.region, CanvasRegion)
         and item.region.side is CanvasSide.RIGHT
-        and len(item.claims) == 7
+        and len(item.claims) == 5
     )
-    assert len(reservation.claimant_member_ids) == 9
+    assert len(reservation.claimant_member_ids) == 7
     barriers = section_header._right_canvas_barriers(
         route_plan, [list(polyline) for polyline in render_plan.route_polylines]
     )

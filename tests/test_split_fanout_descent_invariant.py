@@ -118,7 +118,7 @@ def test_opposite_opening_directions_share_one_exit_opening() -> None:
     source = graph.stations[plan.source_id]
     assert opening.points[0] == pytest.approx((source.x, source.y))
     assert segment_direction(*opening.points[:2]) is Direction.L
-    assert segment_direction(*opening.points[1:3]) is Direction.U
+    assert segment_direction(*opening.points[1:3]) is Direction.D
     assert source.x - opening.points[1][0] >= plan.minimum_runway
     assert all(
         tuple(route.points[: len(opening.points)]) == opening.points

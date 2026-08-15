@@ -240,9 +240,7 @@ def test_seed_15_freezes_single_line_left_exit_opening_atomically() -> None:
     opening = (
         (1610.5, 338.0),
         (1600.5, 338.0),
-        (1600.5, 186.0),
-        (1748.0, 186.0),
-        (1748.0, 604.0),
+        (1600.5, 604.0),
     )
     assert {plan.exit_shared_opening_points for plan in plans} == {opening}
     assert {plan.points[: len(opening)] for plan in plans} == {opening}
@@ -281,7 +279,7 @@ def test_seed_15_settles_member_clear_of_shared_opening_and_convergence() -> Non
         if landing.edge == ResolvedEdge("__junction_25", "__merge_9", "l0")
     )
 
-    assert movable.gap_channels[0].start[0] == 1562.0
+    assert movable.gap_channels[0].start[0] == 1604.5
     assert fixed.gap_channels[-1].start[0] == 1550.0
     assert landing.minimum_runway == 52.0
     assert landing.opening_turn_coordinate is None
@@ -342,28 +340,47 @@ def test_shared_opening_settlement_supports_both_target_flanks(mirror) -> None:
     )
     movable = next(plan for plan in settled.plans if plan.edge.line_id == "l1")
 
-    assert movable.gap_channels[0].start[0] == mirror * 1542.0
+    assert movable.gap_channels[0].start[0] == mirror * 1538.0
 
 
-def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
+def test_seed_15_shared_opening_gathers_both_siblings_on_one_descent(
     monkeypatch,
 ) -> None:
+    """One corridor carries both siblings down, crossing the trunk once.
+
+    The corridor's job is to hold the pair together, not to dodge the merge
+    trunk lying across their way: each sibling left to itself picks its own
+    descent column, and a bridged crossing costs less than a detour around
+    the far side of the section they leave.
+    """
     path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
 
-    def crossings(observation) -> set[tuple[float, float]]:
+    def siblings(observation):
+        return [
+            route
+            for route in observation.routes
+            if route.edge.source == "__junction_23" and route.line_id == "l2"
+        ]
+
+    def descent_columns(observation) -> set[float]:
+        return {
+            next(
+                start[0]
+                for start, end in zip(route.points, route.points[1:])
+                if start[0] == end[0] and end[1] > start[1]
+            )
+            for route in siblings(observation)
+        }
+
+    def trunk_crossings(observation) -> set[tuple[float, float]]:
         trunk = next(
             route
             for route in observation.routes
             if route.edge == Edge("__junction_20", "__merge_8", "l0")
         )
-        siblings = [
-            route
-            for route in observation.routes
-            if route.edge.source == "__junction_23" and route.line_id == "l2"
-        ]
         return {
             crossing
-            for sibling in siblings
+            for sibling in siblings(observation)
             for start_a, end_a in zip(sibling.points, sibling.points[1:])
             for start_b, end_b in zip(trunk.points, trunk.points[1:])
             if (crossing := _segments_properly_cross(start_a, end_a, start_b, end_b))
@@ -376,7 +393,9 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    assert crossings(enabled) == set()
+    shared_column = descent_columns(enabled)
+    assert len(shared_column) == 1
+    assert {x for x, _y in trunk_crossings(enabled)} == shared_column
 
     monkeypatch.setattr(exit_turns, "_shared_left_exit_opening", lambda *_: None)
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
@@ -385,7 +404,7 @@ def test_seed_15_shared_opening_prevents_both_historical_trunk_crossings(
         station_offsets=compute_station_offsets(graph),
         allow_convergence_clearance_requirements=True,
     )
-    assert crossings(disabled) == {(1280.0, 338.0), (1600.5, 398.0)}
+    assert len(descent_columns(disabled)) == 2
 
 
 def test_seed_15_shared_opening_is_line_name_independent() -> None:

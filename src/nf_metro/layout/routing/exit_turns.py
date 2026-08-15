@@ -63,7 +63,6 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     _vert_horiz_cross,
     apply_route_offsets,
-    header_corridor_y,
     horizontal_direction,
     iter_horizontal_trunks,
     segment_direction,
@@ -2331,7 +2330,14 @@ def _shared_left_exit_opening(
     scaffold: RouteSemanticScaffold,
     member_edges: tuple[ResolvedEdge, ...],
 ) -> ExitSharedOpening | None:
-    """Plan the outer corridor for one left-exit line splitting below a trunk."""
+    """Plan the common corridor for one left-exit line splitting below a trunk.
+
+    Both members leave the port together, descend the column their exit side
+    faces, and part in the corridor clear of every trunk they must pass.  The
+    crossing trunk sets how far down that corridor sits; it does not push the
+    descent off to the section's far side, because reaching around the box the
+    line just left reads worse than a bridged crossing.
+    """
     if len(member_edges) != 2 or len({edge.line_id for edge in member_edges}) != 1:
         return None
     edges = tuple(_graph_edge(ctx.edge_by_key, edge) for edge in member_edges)
@@ -2400,7 +2406,7 @@ def _shared_left_exit_opening(
     resolved_siblings = tuple(route for route in sibling_routes if route is not None)
     target_row = facts[0].tgt_row
     assert target_row is not None and facts[0].src_col is not None
-    barriers: list[tuple[RoutedPath, HTrunkSeg, float]] = []
+    barriers: list[tuple[HTrunkSeg, float]] = []
     for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
         entry_port_id = ctx.merge.entry_port_for.get(merge_id)
         entry_port = (
@@ -2449,15 +2455,13 @@ def _shared_left_exit_opening(
             and horizontal.after_y > entry_section.bbox_y + COORD_TOLERANCE
             and all(crosses(route, trunk) for route in resolved_siblings)
         ):
-            barriers.append(
-                (trunk, horizontal, entry_section.bbox_y + entry_section.bbox_h)
-            )
+            barriers.append((horizontal, entry_section.bbox_y + entry_section.bbox_h))
             if len(barriers) == 2:
                 return None
     if len(barriers) != 1:
         return None
-    trunk, barrier, barrier_section_bottom = barriers[0]
-    outer_x = max(x for x, _y in trunk.points) + ctx.curve_radius
+    barrier, barrier_section_bottom = barriers[0]
+    exit_x = source.x - ctx.curve_radius
     target_x = min(fact.tgt.x for fact in facts)
     crossing_trunk_bottom = barrier_section_bottom
     for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
@@ -2476,7 +2480,7 @@ def _shared_left_exit_opening(
         )
         for _rank, horizontal in iter_horizontal_trunks(candidate):
             if (
-                min(horizontal.xa, horizontal.xb) < outer_x - COORD_TOLERANCE
+                min(horizontal.xa, horizontal.xb) < exit_x - COORD_TOLERANCE
                 and target_x < max(horizontal.xa, horizontal.xb) - COORD_TOLERANCE
                 and horizontal.y > source.y + COORD_TOLERANCE
             ):
@@ -2486,13 +2490,6 @@ def _shared_left_exit_opening(
                     horizontal.before_y,
                     horizontal.after_y,
                 )
-    top_y = header_corridor_y(
-        graph,
-        source_section.grid_row,
-        below=False,
-        base_radius=ctx.curve_radius,
-        default=source.y,
-    )
     branch_y = (
         max(
             barrier.y,
@@ -2502,17 +2499,21 @@ def _shared_left_exit_opening(
         )
         + 2 * ctx.curve_radius
     )
-    if outer_x <= source.x + ctx.curve_radius or branch_y <= source.y:
+    if branch_y <= source.y:
         return None
-    exit_x = source.x - ctx.curve_radius
+    if any(
+        fact.v_segment_crosses_other_section(
+            exit_x, source.y, branch_y, fact.endpoint_section_ids
+        )
+        for fact in facts
+    ):
+        return None
     return ExitSharedOpening(
         tuple(scaffold.member_id_by_edge[edge] for edge in member_edges),
         (
             (source.x, source.y),
             (exit_x, source.y),
-            (exit_x, top_y),
-            (outer_x, top_y),
-            (outer_x, branch_y),
+            (exit_x, branch_y),
         ),
     )
 
