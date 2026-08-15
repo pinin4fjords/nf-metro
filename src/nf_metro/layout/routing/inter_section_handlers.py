@@ -4331,6 +4331,12 @@ def _l_shape_fan_source_turn(
         endpoint_port_xs(ctx.graph, edge),
         target_x=tx,
     )
+    # Clearing a blocked column can seat the turn on the far side of the source
+    # from the target, which reverses the direction the run leaves the source
+    # in.  A lead-in measured from the target's side would then double back
+    # over the turn and hand the emitter a reversed segment to offset against.
+    if abs(axis_x - sx) > COORD_TOLERANCE:
+        run_direction = horizontal_direction(axis_x - sx)
     lead_length = ctx.curve_radius + 2 * half_width
     launch_x = axis_x - run_direction.sign * lead_length
     launch_x = min(launch_x, sx) if run_direction is Direction.R else max(launch_x, sx)
