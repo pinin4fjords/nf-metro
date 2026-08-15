@@ -635,10 +635,6 @@
   "note": "Final member-plan validation aborts when a plan-owned channel corner disagrees with its recorded concentric inputs. Valid production geometry derives that radius from the same inputs; both failure flanks are exercised by test_member_geometry_validator_rejects_changed_flanking_radius.",
   "status": "defensive"
  },
- "member_geometry.py::if abs(channel.x - target) <= COORD_TOLERANCE:::#1": {
-  "note": "_align_same_line_channels' re-seat arm. Its one fixture (genomeassembly_organellar) still reaches the gate but now finds the channel already on its carrier's claim coordinate, so the reseat is skipped. Bisecting the range shows 0f58d60c -- ranking member channels over a gap's whole population -- is what makes the claim and the channel coincide on arrival, not the bundle-pitch packing. Reachable; the frozen render corpus means no fixture was authored.",
-  "status": "needs-review"
- },
  "member_geometry.py::if bounds.band is not None and not bounds.band.lo <= candidate <= bounds.band.hi:::#1": {
   "note": "_candidate_clears_runway's band rejection, unreachable while `if band is not None:::#1` never populates a band on this path. Reachable.",
   "status": "needs-review"
