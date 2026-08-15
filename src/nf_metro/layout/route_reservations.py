@@ -2769,37 +2769,40 @@ def _realise_one(
     occupied_start = projected.occupied_start
     occupied_end = projected.occupied_end
     landing_section_ids = frozenset(reservation.landing_section_ids)
-    if isinstance(reservation.region, RowGapRegion):
-        measurement = _row_region_measurement(
-            graph,
-            reservation.region,
-            reservation.measurement_scope,
-            reservation.span,
-            longitudinal_start,
-            longitudinal_end,
-            landing_section_ids,
-        )
-    elif isinstance(reservation.region, ColumnGapRegion):
-        measurement = _column_region_measurement(
-            graph,
-            reservation.region,
-            reservation.measurement_scope,
-            reservation.span,
-            longitudinal_start,
-            longitudinal_end,
-            landing_section_ids,
-        )
-    else:
-        assert canvas_width is not None and canvas_height is not None
-        measurement = _canvas_region_measurement(
-            graph,
-            reservation.region,
-            longitudinal_start,
-            longitudinal_end,
-            canvas_width,
-            canvas_height,
-            header_keepouts,
-        )
+    try:
+        if isinstance(reservation.region, RowGapRegion):
+            measurement = _row_region_measurement(
+                graph,
+                reservation.region,
+                reservation.measurement_scope,
+                reservation.span,
+                longitudinal_start,
+                longitudinal_end,
+                landing_section_ids,
+            )
+        elif isinstance(reservation.region, ColumnGapRegion):
+            measurement = _column_region_measurement(
+                graph,
+                reservation.region,
+                reservation.measurement_scope,
+                reservation.span,
+                longitudinal_start,
+                longitudinal_end,
+                landing_section_ids,
+            )
+        else:
+            assert canvas_width is not None and canvas_height is not None
+            measurement = _canvas_region_measurement(
+                graph,
+                reservation.region,
+                longitudinal_start,
+                longitudinal_end,
+                canvas_width,
+                canvas_height,
+                header_keepouts,
+            )
+    except ValueError:
+        return None
     measurement = _launch_anchored_measurement(
         graph, reservation, measurement, occupied_start, occupied_end
     )
@@ -2860,7 +2863,10 @@ def realise_reservation(
     has to read live section envelopes rather than a frozen realisation.
     A claim observed before a settlement translation is projected through
     *coordinate_translations* so it measures the geometry it now describes.
-    Returns ``None`` for a canvas-side corridor when no canvas bounds are known.
+    Returns ``None`` for a canvas-side corridor when no canvas bounds are known,
+    and for a corridor whose region has no box beside the run on one of its
+    sides: a realisation states the room between two named blockers, so where
+    one side names none there is no realisation to state.
     """
     return _realise_one(
         graph,

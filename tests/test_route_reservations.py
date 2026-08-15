@@ -19,7 +19,7 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     OFFSET_STEP,
 )
-from nf_metro.layout.geometry import cotravelling_lane_clearance
+from nf_metro.layout.geometry import cotravelling_lane_clearance, shift_section
 from nf_metro.layout.route_plan import (
     BindingKind,
     DemandAxis,
@@ -530,6 +530,45 @@ def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
         assert realised is not None
         assert realised.available_width > 0
         assert realised.capacity_slack >= -0.01
+
+
+@pytest.mark.parametrize(
+    ("region_kind", "path"),
+    (
+        (RowGapRegion, TOPOLOGIES / "opposing_bypass_corridor.mmd"),
+        (
+            ColumnGapRegion,
+            ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",
+        ),
+    ),
+    ids=("row-gap", "column-gap"),
+)
+def test_a_corridor_beside_no_box_realises_as_nothing(region_kind, path: Path) -> None:
+    """A gap corridor whose run passes no box has no realisation to state.
+
+    A realisation is the room between two named blockers, so a boundary side
+    with nothing beside the run cannot furnish one.  Re-measuring after the
+    geometry has moved out from under a claim is the case that reaches this:
+    the region search reads the same absence as "not this region", and the
+    re-measure has no region to choose.
+    """
+    graph, _routes, plan = _observe(path)
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, region_kind)
+        and item.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
+    )
+    assert realise_reservation(graph, reservation) is not None
+    # The run travels across the boundary, so moving every box along that
+    # travel leaves the claim describing a stretch of bare canvas.
+    away = 10_000.0
+    for section in graph.sections.values():
+        if isinstance(reservation.region, RowGapRegion):
+            shift_section(graph, section, dx=away)
+        else:
+            shift_section(graph, section, dy=away)
+    assert realise_reservation(graph, reservation) is None
 
 
 def test_asymmetric_grid_spans_select_provenance_on_the_canonical_axes() -> None:
