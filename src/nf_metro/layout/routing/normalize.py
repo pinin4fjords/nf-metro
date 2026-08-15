@@ -4186,6 +4186,38 @@ def _unweave_against_crossing_obstacles(
     return set()
 
 
+def _convergence_plan_names_column(
+    route: RoutedPath,
+    before: tuple[float, float],
+    corner: tuple[float, float],
+    gap: tuple[int, int | None],
+    ctx: _RoutingCtx,
+) -> bool:
+    """Whether the route's convergence plan states this channel's column.
+
+    The closing feasibility validator holds a plan gap channel and the member
+    stroke drawing it to one column, so moving a riser off the column its own
+    plan names contradicts the plan even when the move is collision-free.
+    """
+    if ctx.convergences is None:
+        return False
+    from nf_metro.layout.routing.convergences import (
+        _plan_gap_channels,
+        gap_lookup_geometry,
+    )
+
+    lookup = gap_lookup_geometry(ctx.graph)
+    y_lo, y_hi = sorted((before[1], corner[1]))
+    return any(
+        channel.gap == gap
+        and route.line_id in channel.line_ids
+        and abs(channel.coordinate - before[0]) <= COORD_TOLERANCE
+        and spans_share_corridor(channel.y_lo, channel.y_hi, y_lo, y_hi)
+        for plan in ctx.convergences.plans
+        for channel in _plan_gap_channels(plan, ctx.graph, lookup)
+    )
+
+
 def _unweave_exempt_trunk_riser(
     trunk: _HTrunk,
     obstacle: _HTrunk,
@@ -4275,6 +4307,8 @@ def _unweave_exempt_trunk_riser(
             ctx.graph, corner[0], min(before[1], corner[1]), max(before[1], corner[1])
         )
         if gap is None:
+            continue
+        if _convergence_plan_names_column(route, before, corner, gap, ctx):
             continue
         for obstacle_x in (obstacle_segment.xa, obstacle_segment.xb):
             for candidate in (obstacle_x + clearance, obstacle_x - clearance):
