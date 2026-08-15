@@ -2483,6 +2483,40 @@ def _plan_carrier_ids(plan: ConvergencePlan) -> frozenset[str]:
     )
 
 
+def _plan_section_ids(plan: ConvergencePlan, graph: MetroGraph) -> frozenset[str]:
+    """The sections *plan*'s members start in, end in, or pass a port of."""
+    return frozenset(
+        section_id
+        for edge in plan.resolved_member_edges
+        for endpoint in (edge.source, edge.target)
+        if (section_id := graph.section_for_station(endpoint)) is not None
+    )
+
+
+def _lane_clears_section_interiors(
+    plan: ConvergencePlan, graph: MetroGraph, coordinate: float
+) -> bool:
+    """Whether *plan*'s trunk run at *coordinate* stays out of foreign boxes.
+
+    Lane separation ranks candidates by crossings against neighbouring runs, a
+    measure blind to where the section boxes sit: a lane clear of every
+    neighbour may lie inside a section interior the trunk never touches.  A
+    trunk run belongs in a corridor between the boxes, so this bounds the
+    candidates the crossing rank chooses among.
+    """
+    from nf_metro.layout.routing.normalize import _h_segment_crosses_other_section
+
+    axis = plan.trunk_axis
+    assert axis is not None
+    return not _h_segment_crosses_other_section(
+        graph,
+        axis.extent_start,
+        axis.extent_end,
+        coordinate,
+        _plan_section_ids(plan, graph),
+    )
+
+
 def _trunk_corridor_run(
     plan: ConvergencePlan, graph: MetroGraph
 ) -> _CotravellingRun | None:
@@ -2726,8 +2760,18 @@ def _separate_distinct_cotravelling_trunks(
             if abs(item.coordinate - run.coordinate) < step - COORD_TOLERANCE
         )
         if obstacles:
-            coordinate = _crossing_minimal_lane(plan, run, neighbours, step)
-            assert coordinate is not None
+            coordinate = _crossing_minimal_lane(
+                plan,
+                run,
+                neighbours,
+                step,
+                lambda candidate: _lane_clears_section_interiors(
+                    plan, graph, candidate
+                ),
+            )
+            if coordinate is None:
+                seated.append(run)
+                continue
             settled[plan_rank] = _move_trunk_axis(plan, coordinate)
             moved = _trunk_corridor_run(settled[plan_rank], graph)
             assert moved is not None
