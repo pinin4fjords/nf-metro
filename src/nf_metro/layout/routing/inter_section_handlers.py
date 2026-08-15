@@ -4317,11 +4317,11 @@ def _l_shape_fan_source_turn(
     """Resolve the fixed launch and turn column of a junction-fan L-shape."""
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
-    run_direction = horizontal_direction(tx - sx)
     turn_direction = vertical_direction(ty - sy)
     _rank, size = fan
     half_width = (size - 1) * ctx.offset_step / 2
-    axis_x = sx + run_direction.sign * (ctx.curve_radius + half_width)
+    toward_target = 1.0 if tx > sx else -1.0
+    axis_x = sx + toward_target * (ctx.curve_radius + half_width)
     axis_x = clear_channel_of_section_edge(
         ctx.graph,
         axis_x,
@@ -4332,11 +4332,12 @@ def _l_shape_fan_source_turn(
         target_x=tx,
     )
     # Clearing a blocked column can seat the turn on the far side of the source
-    # from the target, which reverses the direction the run leaves the source
-    # in.  A lead-in measured from the target's side would then double back
-    # over the turn and hand the emitter a reversed segment to offset against.
-    if abs(axis_x - sx) > COORD_TOLERANCE:
-        run_direction = horizontal_direction(axis_x - sx)
+    # from the target, so the run direction reads from the cleared axis: a
+    # lead-in measured from the target's side would double back over the turn
+    # and hand the emitter a reversed segment to offset against.
+    run_direction = horizontal_direction(
+        axis_x - sx if abs(axis_x - sx) > COORD_TOLERANCE else tx - sx
+    )
     lead_length = ctx.curve_radius + 2 * half_width
     launch_x = axis_x - run_direction.sign * lead_length
     launch_x = min(launch_x, sx) if run_direction is Direction.R else max(launch_x, sx)
