@@ -843,6 +843,7 @@
   "normalize.py::if reconcile_owned_corridor:::#2",
   "normalize.py::if reconcile_owned_corridor:::#4",
   "normalize.py::if ref is not None:::#1",
+  "normalize.py::if rep_x[a] != rep_x[b]:::#1",
   "normalize.py::if route.curve_radii is None or membership is None:::#1",
   "normalize.py::if route.curve_radii is None:::#1",
   "normalize.py::if route_system_owns_segment_boundary(route, opening.idx):::#1",
