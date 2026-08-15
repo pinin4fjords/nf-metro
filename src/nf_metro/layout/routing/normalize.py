@@ -4237,6 +4237,40 @@ def _unweave_exempt_trunk_riser(
             or abs(corner[1] - after[1]) > COORD_TOLERANCE
         ):
             continue
+        if planner_owns_segment(route, rank - 1):
+            continue
+
+        def _lane_run_overlays_obstacle(candidate: float, rank: int = rank) -> bool:
+            """Whether the run beyond the moved riser lands on the obstacle's lane.
+
+            Two distinct lines may share a gap, but the run each turns onto has
+            to meet the other's end to end; a riser column that stretches its
+            far run across the obstacle's run overlays the two on one lane.
+            """
+            if obstacle.route.line_id == route.line_id:
+                return False
+            if rank == trunk.idx:
+                if rank < 2:
+                    return False
+                far, near = points[rank - 2], points[rank - 1]
+            else:
+                if rank + 1 >= len(points):
+                    return False
+                near, far = points[rank], points[rank + 1]
+            if abs(far[1] - near[1]) > COORD_TOLERANCE:
+                return False
+            lane = near[1]
+            lo, hi = min(far[0], candidate), max(far[0], candidate)
+            return any(
+                abs(ay - by) <= COORD_TOLERANCE
+                and abs(ay - lane) < ctx.offset_step - COORD_TOLERANCE
+                and min(ax, bx) < hi - COORD_TOLERANCE
+                and lo < max(ax, bx) - COORD_TOLERANCE
+                for (ax, ay), (bx, by) in zip(
+                    obstacle.route.points, obstacle.route.points[1:]
+                )
+            )
+
         gap = gap_lo_for_x(
             ctx.graph, corner[0], min(before[1], corner[1]), max(before[1], corner[1])
         )
@@ -4254,6 +4288,7 @@ def _unweave_exempt_trunk_riser(
                         max(before[1], corner[1]),
                     )
                     != gap
+                    or _lane_run_overlays_obstacle(candidate)
                 ):
                     continue
                 candidate_trunk = _htrunk_seg(trunk, trunk.y)
