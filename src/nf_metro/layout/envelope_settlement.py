@@ -840,6 +840,13 @@ def _box_extents(section: Section) -> tuple[tuple[float, float], tuple[float, fl
     )
 
 
+def _grid_precedes(
+    axis: SettlementAxisGeometry, first: Section, second: Section
+) -> bool:
+    """*first* occupies grid indices ending at or before *second*'s begin."""
+    return axis.start_index(first) + axis.span(first) <= axis.start_index(second)
+
+
 def _axis_gaps(
     graph: MetroGraph, axis: SettlementAxisGeometry
 ) -> dict[tuple[str, str], float]:
@@ -849,6 +856,13 @@ def _axis_gaps(
     translation.  Boxes that do not overlap across the axis never face each
     other, so the distance between them is not a separation this stage owes
     anything to.
+
+    Neither does a pair drawn in the opposite order to the grid indices it is
+    filed under.  Settlement translates whole bands in grid order, so the
+    separation it holds open between two boxes is the one that runs the way
+    their indices do; a box drawn ahead of a band it is indexed behind is
+    carried toward its neighbour by every widening of the boundary between
+    them, and no amount of translation is the arrangement it wanted.
     """
     along_index = 1 if axis.axis is SettlementAxis.ROW else 0
     across_index = 1 - along_index
@@ -866,9 +880,9 @@ def _axis_gaps(
                 continue
             first_start, first_end = first_extents[along_index]
             second_start, second_end = second_extents[along_index]
-            if first_end <= second_start:
+            if first_end <= second_start and _grid_precedes(axis, first, second):
                 gaps[first_key, second_key] = second_start - first_end
-            elif second_end <= first_start:
+            elif second_end <= first_start and _grid_precedes(axis, second, first):
                 gaps[second_key, first_key] = first_start - second_end
     return gaps
 

@@ -1154,6 +1154,30 @@ def test_settlement_rejects_a_translation_that_narrows_a_separation() -> None:
     assert _geometry(graph) == before
 
 
+def test_a_pair_drawn_against_its_grid_order_holds_no_separation() -> None:
+    """The monotone claim covers the separations settlement can hold open.
+
+    A widening carries whole bands in grid order, so it opens the distance
+    between two boxes only where that distance runs the way their indices do.
+    Where a box is drawn ahead of a band it is indexed behind, every widening
+    of the boundary between them closes the distance instead, and the pair has
+    no separation for the monotone check to compare.
+    """
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_41.mmd"
+    graph, _plan = _observe(path)
+    upper, lower = graph.sections["s1"], graph.sections["s2"]
+    assert upper.grid_row + upper.grid_row_span <= lower.grid_row
+    assert ("s1", "s2") in envelope_settlement._axis_gaps(
+        graph, envelope_settlement.ROW_AXIS
+    )
+
+    shift_section(graph, lower, dy=-(lower.bbox_y + lower.bbox_h - upper.bbox_y) - 60.0)
+    assert lower.bbox_y + lower.bbox_h < upper.bbox_y
+    gaps = envelope_settlement._axis_gaps(graph, envelope_settlement.ROW_AXIS)
+    assert ("s2", "s1") not in gaps
+    assert ("s1", "s2") not in gaps
+
+
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)
 def test_the_column_phase_never_narrows_a_row_corridor(path: Path) -> None:
     """Why the row phase needs no recheck after the columns settle.
