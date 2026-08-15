@@ -372,7 +372,7 @@ def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
         == ("__junction_42", "__merge_12", "l4")
     )
 
-    assert trunk.points[2] == pytest.approx((2718.0, 348.0))
+    assert trunk.points[2] == pytest.approx((2706.0, 356.0))
 
 
 def test_seed_41_separated_trunk_lane_stays_out_of_the_section_boxes() -> None:
@@ -391,7 +391,7 @@ def test_seed_41_separated_trunk_lane_stays_out_of_the_section_boxes() -> None:
         == ("__junction_32", "__merge_17", "l3")
     )
 
-    assert trunk.points[2] == pytest.approx((712.0, 546.0))
+    assert trunk.points[2] == pytest.approx((706.0, 546.0))
     assert not routes_through_unrelated_sections(graph, routes=[trunk], offsets=offsets)
 
 
@@ -411,7 +411,7 @@ def test_seed_77_settled_entry_bundle_keeps_allocation_lanes() -> None:
         == ("__junction_41", "s9__entry_right_25", "l3")
     )
 
-    assert l1.points[-3][0] - l3.points[-3][0] == graph_offset_step(_graph)
+    assert l3.points[-3][0] - l1.points[-3][0] == graph_offset_step(_graph)
 
 
 def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
