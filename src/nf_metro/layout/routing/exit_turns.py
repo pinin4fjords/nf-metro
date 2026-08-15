@@ -11,6 +11,7 @@ from typing import TypeVar
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
+    OFFSET_STEP,
 )
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
@@ -2337,6 +2338,13 @@ def _shared_left_exit_opening(
     crossing trunk sets how far down that corridor sits; it does not push the
     descent off to the section's far side, because reaching around the box the
     line just left reads worse than a bridged crossing.
+
+    The pair joins the lane stack the trunks it passes already form, one
+    ``OFFSET_STEP`` under the deepest of them, rather than reserving a fresh
+    turn-radius band beneath the whole stack: a band of its own deepens the
+    corridor for everyone and re-packs the columns feeding it, which transposes
+    risers against the trunks they have to clear.  Only a section box it must
+    clear buys the full radius.
     """
     if len(member_edges) != 2 or len({edge.line_id for edge in member_edges}) != 1:
         return None
@@ -2463,7 +2471,7 @@ def _shared_left_exit_opening(
     barrier, barrier_section_bottom = barriers[0]
     exit_x = source.x - ctx.curve_radius
     target_x = min(fact.tgt.x for fact in facts)
-    crossing_trunk_bottom = barrier_section_bottom
+    crossing_trunk_bottom = max(barrier.y, barrier.before_y, barrier.after_y)
     for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
         trunk_edge = next(
             (
@@ -2490,14 +2498,9 @@ def _shared_left_exit_opening(
                     horizontal.before_y,
                     horizontal.after_y,
                 )
-    branch_y = (
-        max(
-            barrier.y,
-            barrier.before_y,
-            barrier.after_y,
-            crossing_trunk_bottom,
-        )
-        + 2 * ctx.curve_radius
+    branch_y = max(
+        crossing_trunk_bottom + OFFSET_STEP,
+        barrier_section_bottom + 2 * ctx.curve_radius,
     )
     if branch_y <= source.y:
         return None
