@@ -4175,6 +4175,10 @@ def compute_station_offsets(
        against that same port; a final pass rechecks just the stations the
        fan-port guard itself flags and recompacts those, plus any port whose
        own bundle is left non-contiguous the same way (non-compact only).
+    12b. **Fan-out peel-order re-seating** - the compaction phases can permute
+       a fan-out source section away from the peel order phase 2 seated it on
+       and the junction phase below holds it to; a permutation of the slots
+       they settled puts the exit port back on that order (non-compact LR/RL).
     13. **Final horizontal re-reconciliation** - phase 12 can change a port's
        offset after phase 8 already snapped a same-section, same-Y real
        station to that port's old value; re-running phase 8 catches any such
