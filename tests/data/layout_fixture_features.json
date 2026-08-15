@@ -26,6 +26,7 @@
     "topologies/fanout_hub_two_line_trunk.mmd",
     "topologies/fold_bypass_creep.mmd",
     "topologies/fold_bypass_creep_tight.mmd",
+    "topologies/funcprofiler_upstream.mmd",
     "topologies/inrow_skip_breeze.mmd",
     "topologies/multirow_source_stacked_fan.mmd",
     "topologies/paired_input_fan_branch_tree.mmd",

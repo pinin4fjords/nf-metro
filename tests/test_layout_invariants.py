@@ -7002,11 +7002,12 @@ def test_all_stations_snap_to_grid(fixture):
     )
     from nf_metro.layout.phases.fan_bundles import (
         _section_has_symmetric_entry_fork,
+        _section_row_pitch,
     )
 
-    y_spacing = 55.0
+    base_spacing = 55.0
     tol = 1.0
-    graph = _layout(fixture, y_spacing=y_spacing)
+    graph = _layout(fixture, y_spacing=base_spacing)
 
     half_grid_ids = graph.half_grid_station_ids
     port_ids: set[str] = set()
@@ -7022,15 +7023,21 @@ def test_all_stations_snap_to_grid(fixture):
     # centreline as a spine the join and any pass-through legitimately sit on.
     section_trunk_y: dict[str, float] = {}
     section_spine_y: dict[str, float] = {}
+    # A row whose widest bundle inflates its slot pitch past the base spacing
+    # holds every section in it on that wider pitch, so the grid a station is
+    # measured against is its own row's.
+    section_pitch: dict[str, float] = {}
     for sec in graph.sections.values():
         if sec.direction not in ("LR", "RL") or sec.bbox_h <= 0:
             continue
         anchor = _first_lr_port(graph, sec)
         if anchor is None:
             continue
+        pitch = _section_row_pitch(graph, sec.id, base_spacing)
+        section_pitch[sec.id] = pitch
         anchor_id, anchor_y = anchor
         if anchor_id in half_grid_ids:
-            section_trunk_y[sec.id] = anchor_y + 0.5 * y_spacing
+            section_trunk_y[sec.id] = anchor_y + 0.5 * pitch
             section_spine_y[sec.id] = anchor_y
         else:
             section_trunk_y[sec.id] = anchor_y
@@ -7087,6 +7094,7 @@ def test_all_stations_snap_to_grid(fixture):
         trunk_y = section_trunk_y.get(st.section_id)
         if trunk_y is None:
             continue
+        y_spacing = section_pitch.get(st.section_id, base_spacing)
         offset = (st.y - trunk_y) / y_spacing
         nearest_int = round(offset)
         on_grid = abs(offset - nearest_int) * y_spacing <= tol
