@@ -2745,15 +2745,14 @@ def _separate_distinct_cotravelling_trunks(
         run = _trunk_corridor_run(plan, graph)
         if run is None:
             continue
-        # Carrier identity, not system identity: one route system can hold
-        # several convergences, and two distinct-line trunks fuse just as
-        # readily inside one system.  A plan's own runs share its carriers and
-        # are never their own neighbours.
+        # A plan's own runs (central and flanks) all carry the plan's line
+        # set, so the distinct-line condition already excludes them; any
+        # narrower identity filter hides genuinely distinct plans that share
+        # junctions or ports and lets their trunks fuse.
         neighbours = tuple(
             item
             for item in seated
-            if item.carrier_ids != run.carrier_ids
-            and item.direction is run.direction
+            if item.direction is run.direction
             and item.line_ids != run.line_ids
             and spans_share_corridor(run.lo, run.hi, item.lo, item.hi)
         )
