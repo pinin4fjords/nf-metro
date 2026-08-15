@@ -2837,6 +2837,61 @@ def _would_collide(
     )
 
 
+def _line_flow_sides(ctx: _OffsetCtx, station_id: str, line_id: str) -> set[int]:
+    """The sides of *station_id*, along its flow axis, that *line_id* reaches.
+
+    ``-1`` and ``1`` are the upstream and downstream sides of the station on the
+    axis its runs travel along; ``0`` marks a neighbour on the station itself,
+    whose side cannot be read from the geometry.
+    """
+    graph = ctx.graph
+    station = graph.stations[station_id]
+    section = graph.sections.get(station.section_id or "")
+    along_x = section is None or lanes_run_along_y(section.direction)
+    here = station.x if along_x else station.y
+    sides = set()
+    for edge in (*graph.edges_to(station_id), *graph.edges_from(station_id)):
+        if edge.line_id != line_id:
+            continue
+        other_id = edge.source if edge.target == station_id else edge.target
+        other = graph.stations[other_id]
+        delta = (other.x if along_x else other.y) - here
+        if abs(delta) <= COORD_TOLERANCE_FINE:
+            sides.add(0)
+        else:
+            sides.add(1 if delta > 0 else -1)
+    return sides
+
+
+def _shares_a_lane_side(
+    ctx: _OffsetCtx, station_id: str, lid_a: str, lid_b: str
+) -> bool:
+    """Whether two lines at *station_id* both occupy one side of it.
+
+    A line that only arrives at a station and one that only leaves it draw on
+    opposite sides of the marker, so one lane carries both without either
+    stroke covering the other.  Lines that reach the same side need lanes of
+    their own, as do lines whose side the geometry cannot resolve.
+    """
+    sides_a = _line_flow_sides(ctx, station_id, lid_a)
+    sides_b = _line_flow_sides(ctx, station_id, lid_b)
+    if not sides_a or not sides_b or 0 in sides_a or 0 in sides_b:
+        return True
+    return not sides_a.isdisjoint(sides_b)
+
+
+def _would_overlap(
+    ctx: _OffsetCtx, station_id: str, line_id: str, value: float
+) -> bool:
+    """Whether *value* draws *line_id* over a line sharing a side of the station."""
+    return any(
+        ctx.offsets.get((station_id, lid), 0.0) == value
+        and _shares_a_lane_side(ctx, station_id, line_id, lid)
+        for lid in ctx.graph.station_lines(station_id)
+        if lid != line_id
+    )
+
+
 def _leaves_lane_hole(
     ctx: _OffsetCtx, station_id: str, line_id: str, value: float
 ) -> bool:
@@ -3587,7 +3642,8 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     # the whole story -- a single-line port -- may move to meet
                     # its partner, and only when its flat in-section run is
                     # free to come along: a run held on another lane, whether
-                    # by a collision or by a seam of its own at the far end,
+                    # by an overlapping neighbour or by a seam of its own at
+                    # the far end,
                     # would keep the mismatch and merely relocate it onto the
                     # much shorter station row, where it reads as a steep
                     # diagonal rather than a seam the routed vertical legs or
@@ -3601,7 +3657,7 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                         for member in _flat_run(sid, lid):
                             if ctx.offsets.get(
                                 (member, lid), 0.0
-                            ) != candidate and _would_collide(
+                            ) != candidate and _would_overlap(
                                 ctx, member, lid, candidate
                             ):
                                 return False
