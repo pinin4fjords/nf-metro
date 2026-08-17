@@ -1,6 +1,6 @@
 {
   "raised": [
-    "CurveInvariantError",
+    "SettledRouteValidationError",
     "render aborted: a routing handler produced defective bundle curves. The handler for the named edge built the bundle with an inconsistent fan (flip), a hand-picked corner radius (non-concentric), or a collapsed channel. Size wholesale corners via concentric_corner_radius_at and fan every leg consistently.\n  [bottommost-row climb dives below clear corridor] bottommost-row climb '__junction_3'->'new_tgt__entry_left_2' dives to y=346.0 below source box bottom 320.0 though its row-level corridor to the target was clear"
   ],
   "trace": [
