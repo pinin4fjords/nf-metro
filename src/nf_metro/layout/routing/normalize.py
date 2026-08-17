@@ -255,6 +255,59 @@ def _segment_claim_band(
     )
 
 
+def _segment_planned_order_coordinate(
+    ctx: _RoutingCtx, route: RoutedPath, idx: int
+) -> float | None:
+    """The frozen claim coordinate used to compare lanes, never to place one."""
+    return ctx.reserved_bands.planned_order_coordinate_for_segment(
+        route.edge.source, route.edge.target, route.line_id, idx
+    )
+
+
+def _frozen_order_coordinates(
+    ctx: _RoutingCtx,
+    groups: Sequence[Sequence[tuple[RoutedPath, int]]],
+    *,
+    require_single_common_source: bool,
+) -> tuple[float, ...] | None:
+    """Return one complete, unambiguous frozen coordinate per compared group.
+
+    Every member must publish a coordinate, every group must agree on one
+    coordinate, and the group coordinates must be distinct. Callers comparing
+    one emitted source cohort additionally require exactly one source shared by
+    every group.
+    """
+    if len(groups) < 2 or any(not group for group in groups):
+        return None
+    if require_single_common_source:
+        source_sets = [{route.edge.source for route, _idx in group} for group in groups]
+        if len(set.intersection(*source_sets)) != 1:
+            return None
+
+    frozen: list[float] = []
+    for group in groups:
+        coordinates: list[float] = []
+        for route, idx in group:
+            coordinate = _segment_planned_order_coordinate(ctx, route, idx)
+            if coordinate is None:
+                return None
+            coordinates.append(coordinate)
+        if any(
+            abs(coordinate - coordinates[0]) > COORD_TOLERANCE
+            for coordinate in coordinates[1:]
+        ):
+            return None
+        frozen.append(coordinates[0])
+
+    if any(
+        abs(first - second) <= COORD_TOLERANCE
+        for rank, first in enumerate(frozen)
+        for second in frozen[rank + 1 :]
+    ):
+        return None
+    return tuple(frozen)
+
+
 def _bundle_claim_band(
     ctx: _RoutingCtx, segments: Iterable[tuple[RoutedPath, int]]
 ) -> ReservedBand | None:
@@ -3393,7 +3446,7 @@ def _stack_trunk_bands(
     can stack together; a single-direction caller passes bands that all share
     one dip.
     """
-    planned = [_plan_trunk_band(b) for b in bands]
+    planned = [_plan_trunk_band(b, ctx) for b in bands]
     gap = BUNDLE_TO_BUNDLE_CLEARANCE
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
     top = min(t.y for b in bands for t in b)
@@ -3647,6 +3700,7 @@ def _band_looseness(
 
 def _plan_trunk_band(
     band: list[_HTrunk],
+    ctx: _RoutingCtx,
 ) -> tuple[list[list[_HTrunk]], dict[int, int], int]:
     """Order one same-direction band into concentric slots and pack its tracks.
 
@@ -3666,7 +3720,8 @@ def _plan_trunk_band(
     only appears elsewhere in X); among those the widest-reaching slot sorts
     OUTERMOST.  A fully-overlapping bundle packs to one concentric stack whose
     looseness is zero for every order, so the width-only tie-break alone
-    decides it.
+    decides it. A fully claimed cohort from one source consumes the frozen
+    allocation order directly, before live crossing geometry can rank it.
     """
     slot_groups = _coincident_trunk_slots(band)
     span_of: _SpanOf = {id(sg): _slot_span(sg) for sg in slot_groups}
@@ -3678,7 +3733,7 @@ def _plan_trunk_band(
             min(t.y for t in sg),
         ),
     )
-    if len(slot_groups) < 2 or len(slot_groups) > _MAX_BAND_PERMUTE:
+    if len(slot_groups) < 2:
         return heuristic, *_packed_track_map(heuristic, span_of)
 
     # `_restack_trunk_band` lays slot 0 at the channel-interior extreme: the
@@ -3741,6 +3796,28 @@ def _plan_trunk_band(
         for sg in slot_groups
     }
     slot_min_y = {id(sg): min(t.y for t in sg) for sg in slot_groups}
+    # One source shared by every slot defines the emission cohort whose lane
+    # order survives the corridor. No shared source or several shared sources
+    # leave the band with the global allocator.
+    frozen_coordinates = _frozen_order_coordinates(
+        ctx,
+        tuple(
+            tuple((trunk.route, trunk.idx) for trunk in slot) for slot in slot_groups
+        ),
+        require_single_common_source=True,
+    )
+    if frozen_coordinates is not None:
+        coordinate_by_slot = dict(zip(map(id, slot_groups), frozen_coordinates))
+
+        def frozen_coordinate(slot: list[_HTrunk]) -> float:
+            return coordinate_by_slot[id(slot)]
+
+        planned_ttb = sorted(slot_groups, key=frozen_coordinate)
+        order = list(reversed(planned_ttb)) if dips else planned_ttb
+        return order, *_packed_track_map(order, span_of)
+
+    if len(slot_groups) > _MAX_BAND_PERMUTE:
+        return heuristic, *_packed_track_map(heuristic, span_of)
 
     def keeps_planned_order(perm: tuple[list[_HTrunk], ...]) -> bool:
         for first_rank, first_slot in enumerate(perm):
@@ -4586,6 +4663,7 @@ def _separate_fused_cotravelling_runs(
     }
     pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)
     relocated: set[int] = set()
+
     while pending:
         i = pending.popleft()
         if i in relocated:
@@ -4642,6 +4720,44 @@ def _separate_fused_cotravelling_runs(
             ):
                 return False
             moved = replace(lane, coord=target)
+            # A mutable lane may not cross an immutable planned lane. The
+            # global allocator owns ordering between mutable peers.
+            for other in lanes:
+                if (
+                    other is lane
+                    or other.axis != lane.axis
+                    or other.sign != lane.sign
+                    or other.line_id == lane.line_id
+                    or not other.pinned
+                    or not any(
+                        spans_share_corridor(*run.span, *obstacle.span)
+                        for run in lane.runs
+                        for obstacle in other.runs
+                    )
+                ):
+                    continue
+                frozen_order = _frozen_order_coordinates(
+                    ctx,
+                    (
+                        tuple((run.route, run.idx) for run in lane.runs),
+                        tuple((run.route, run.idx) for run in other.runs),
+                    ),
+                    # A lane can carry a claim through a semantic source
+                    # transition. Completeness and internal agreement are the
+                    # ownership contract at this mutable/pinned boundary.
+                    require_single_common_source=False,
+                )
+                if frozen_order is None:
+                    continue
+                frozen_coordinate, other_frozen = frozen_order
+                if (
+                    frozen_coordinate < other_frozen - COORD_TOLERANCE
+                    and target >= other.coord - COORD_TOLERANCE
+                ) or (
+                    frozen_coordinate > other_frozen + COORD_TOLERANCE
+                    and target <= other.coord + COORD_TOLERANCE
+                ):
+                    return False
             return not any(
                 moved.fuses_with(other, step)
                 or (

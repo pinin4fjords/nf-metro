@@ -730,6 +730,89 @@ def test_disjoint_bypass_descents_read_their_observed_gap_allocation() -> None:
     }
 
 
+def test_non_gap_claims_publish_order_without_claiming_exact_placement() -> None:
+    graph, routes, plan = _observe(ROOT / "examples" / "longread_variant_calling.mmd")
+    corridors = build_reserved_corridors(graph, plan)
+    target_routes = tuple(
+        route
+        for route in routes
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    )
+    assert {route.line_id for route in target_routes} == {"bam", "other"}
+
+    order_coordinates = {
+        route.line_id: corridors.planned_order_coordinate_for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        )
+        for route in target_routes
+    }
+    assert order_coordinates == {"bam": 266.0, "other": 270.0}
+    assert all(
+        corridors.for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        ).allocation
+        is None
+        for route in target_routes
+    )
+
+    claimant_ids = tuple(
+        member.id
+        for member in plan.members
+        if member.edge.source == "__junction_16"
+        and member.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    )
+    translated = build_reserved_corridors(
+        graph,
+        plan,
+        (
+            ReservationCoordinateTranslation(
+                DemandAxis.Y,
+                0.0,
+                12.0,
+                fully_owned_member_ids=claimant_ids,
+            ),
+        ),
+    )
+    assert {
+        route.line_id: translated.planned_order_coordinate_for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        )
+        for route in target_routes
+    } == {"bam": 278.0, "other": 282.0}
+
+
+def test_conflicting_planned_order_claims_fail_before_emission() -> None:
+    graph, _routes, plan = _observe(ROOT / "examples" / "longread_variant_calling.mmd")
+    reservation = next(
+        item
+        for item in plan.reservations
+        if any(
+            member.edge.source == "__junction_16"
+            and member.edge.target == "tr_calling__entry_right_9"
+            and claim.member_id == member.id
+            and claim.segment_rank <= 2 <= claim.segment_end_rank
+            for claim in item.claims
+            for member in plan.members
+        )
+    )
+    duplicate = replace(
+        reservation,
+        claims=tuple(
+            replace(claim, allocation_coordinate=claim.allocation_coordinate + 8.0)
+            if claim.segment_rank <= 2 <= claim.segment_end_rank
+            else claim
+            for claim in reservation.claims
+        ),
+    )
+    corrupted = replace(plan, reservations=(*plan.reservations, duplicate))
+
+    with pytest.raises(ValueError, match="conflicting planned lane order"):
+        build_reserved_corridors(graph, corrupted)
+
+
 def test_shared_plan_coordinate_follows_its_translated_claimant_atomically() -> None:
     translated = EmissionMemberId("translated")
     crossing = EmissionMemberId("crossing")

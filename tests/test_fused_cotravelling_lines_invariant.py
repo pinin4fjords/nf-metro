@@ -37,6 +37,7 @@ import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.invariants as invariants
 import nf_metro.layout.routing.member_geometry as member_geometry
+import nf_metro.layout.routing.normalize as normalize
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases._common import routes_through_unrelated_sections
@@ -243,6 +244,18 @@ def _longest_horizontal_run(
     ]
     assert horizontal, "route has no horizontal run"
     return max(horizontal, key=lambda item: item[0])
+
+
+def _production_routes(path: Path):
+    """Routes and drawn polylines from the final production render pass."""
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    return graph, tuple(zip(observed.plan.routes, observed.plan.route_polylines))
 
 
 def _pair_identity(
@@ -552,6 +565,227 @@ def test_plan_owned_distinct_lanes_minimize_crossings_independent_of_edge_order(
             secondary_trunk_y = _longest_horizontal_run(secondary_points)[1]
             assert secondary_trunk_y < primary_trunk_y
             assert not tuple(_routes_crossings(primary_points, secondary_points))
+
+
+@pytest.mark.parametrize(
+    ("path", "primary_source", "secondary_sources"),
+    (
+        (
+            EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd",
+            "__junction_8",
+            ("secondary_near__exit_left_1", "secondary_far__exit_left_2"),
+        ),
+        (
+            REGRESSIONS / "plan_owned_distinct_lane_separation_reordered.mmd",
+            "__junction_9",
+            ("secondary_near__exit_left_0", "secondary_far__exit_left_1"),
+        ),
+    ),
+    ids=("authored-order", "reordered-edges"),
+)
+def test_production_plan_owned_distinct_lanes_preserve_planned_order(
+    path: Path,
+    primary_source: str,
+    secondary_sources: tuple[str, str],
+) -> None:
+    graph, routed = _production_routes(path)
+    primary = tuple(
+        points
+        for route, points in routed
+        if route.line_id == "primary"
+        and route.edge.source == primary_source
+        and route.edge.target in {"__merge_2", "__merge_3"}
+    )
+    secondary = tuple(
+        points
+        for route, points in routed
+        if route.line_id == "secondary" and route.edge.source in secondary_sources
+    )
+    assert len(primary) == len(secondary) == 2
+
+    step = graph_offset_step(graph)
+    for primary_points in primary:
+        primary_y = _longest_horizontal_run(primary_points)[1]
+        for secondary_points in secondary:
+            secondary_y = _longest_horizontal_run(secondary_points)[1]
+            assert primary_y - secondary_y == pytest.approx(step)
+            assert not tuple(_routes_crossings(primary_points, secondary_points))
+
+
+def test_production_longread_divergence_preserves_source_lane_order() -> None:
+    graph, routed = _production_routes(EXAMPLES / "longread_variant_calling.mmd")
+    trunks = {
+        route.line_id: points
+        for route, points in routed
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    }
+    assert set(trunks) == {"bam", "other"}
+
+    bam_y = _longest_horizontal_run(trunks["bam"])[1]
+    other_y = _longest_horizontal_run(trunks["other"])[1]
+    assert other_y - bam_y == pytest.approx(graph_offset_step(graph))
+    assert not tuple(_routes_crossings(trunks["bam"], trunks["other"]))
+
+
+def test_reserved_trunk_order_bypasses_live_crossing_rank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nf_metro.api import prepare_graph
+
+    path = EXAMPLES / "longread_variant_calling.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    first = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        allow_convergence_clearance_requirements=True,
+    )
+    live_rank = normalize._band_order_crossings
+
+    def reject_target_live_rank(order, features=None):
+        members = {
+            (trunk.route.edge.source, trunk.route.edge.target, trunk.route.line_id)
+            for slot in order
+            for trunk in slot
+        }
+        target_members = {
+            ("__junction_16", "tr_calling__entry_right_9", "bam"),
+            ("__junction_16", "cnv_calling__entry_right_10", "other"),
+        }
+        if target_members <= members:
+            raise AssertionError("frozen trunk cohort consulted live crossing rank")
+        return live_rank(order, features)
+
+    monkeypatch.setattr(normalize, "_band_order_crossings", reject_target_live_rank)
+    replay = routing_core.observe_route_edges_centred(
+        graph,
+        station_offsets=offsets,
+        reservations=first.plan,
+    )
+    trunks = {
+        route.line_id: route
+        for route in replay.routes
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    }
+    assert (
+        _longest_horizontal_run(trunks["bam"].points)[1]
+        < (_longest_horizontal_run(trunks["other"].points)[1])
+    )
+
+
+def test_frozen_order_rejects_partial_claim_coverage() -> None:
+    from types import SimpleNamespace
+
+    from nf_metro.layout.routing.reserved_bands import ReservedCorridors
+
+    def route(source: str, target: str, line_id: str) -> RoutedPath:
+        return RoutedPath(
+            edge=Edge(source=source, target=target, line_id=line_id),
+            line_id=line_id,
+            points=[(0.0, 0.0), (10.0, 0.0)],
+        )
+
+    first = route("hub", "first", "red")
+    unclaimed_fan_member = route("hub", "first-fan", "red")
+    second = route("hub", "second", "blue")
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(
+            planned_order_coordinates={
+                ("hub", "first", "red", 1): 10.0,
+                ("hub", "second", "blue", 1): 14.0,
+            }
+        )
+    )
+    groups = (
+        ((first, 1), (unclaimed_fan_member, 1)),
+        ((second, 1),),
+    )
+
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=True
+        )
+        is None
+    )
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=False
+        )
+        is None
+    )
+
+
+def test_frozen_source_cohort_rejects_identical_multi_source_sets() -> None:
+    from types import SimpleNamespace
+
+    from nf_metro.layout.routing.reserved_bands import ReservedCorridors
+
+    def route(source: str, target: str, line_id: str) -> RoutedPath:
+        return RoutedPath(
+            edge=Edge(source=source, target=target, line_id=line_id),
+            line_id=line_id,
+            points=[(0.0, 0.0), (10.0, 0.0)],
+        )
+
+    first = (route("source-a", "red-a", "red"), route("source-b", "red-b", "red"))
+    second = (
+        route("source-a", "blue-a", "blue"),
+        route("source-b", "blue-b", "blue"),
+    )
+    claims = {
+        (member.edge.source, member.edge.target, member.line_id, 1): coordinate
+        for group, coordinate in ((first, 10.0), (second, 14.0))
+        for member in group
+    }
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(planned_order_coordinates=claims)
+    )
+    groups = tuple(tuple((member, 1) for member in group) for group in (first, second))
+
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=True
+        )
+        is None
+    )
+    assert normalize._frozen_order_coordinates(
+        ctx, groups, require_single_common_source=False
+    ) == (10.0, 14.0)
+
+
+def test_reserved_plan_owned_lane_never_takes_reversed_live_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reseat = normalize._reseat_lane
+
+    def reject_reversed_candidate(lane, coordinate, *, projected=False):
+        if lane.line_id == "secondary" and coordinate > lane.coord:
+            raise AssertionError("frozen lane took the reversed live candidate")
+        return reseat(lane, coordinate, projected=projected)
+
+    monkeypatch.setattr(normalize, "_reseat_lane", reject_reversed_candidate)
+    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
+    graph, routed = _production_routes(path)
+    trunks = {
+        route.line_id: _longest_horizontal_run(points)[1]
+        for route, points in routed
+        if (
+            route.line_id == "primary"
+            and route.edge.source == "__junction_8"
+            and route.edge.target == "__merge_2"
+        )
+        or (
+            route.line_id == "secondary"
+            and route.edge.source == "secondary_near__exit_left_1"
+        )
+    }
+    assert trunks["primary"] - trunks["secondary"] == pytest.approx(
+        graph_offset_step(graph)
+    )
 
 
 def test_analytic_candidate_segments_match_the_plan_mover() -> None:
