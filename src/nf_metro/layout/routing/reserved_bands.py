@@ -32,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeAlias
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.parser.model import PortSide
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
@@ -520,6 +521,7 @@ def _claim_views(
         CorridorOrientation,
         RouteReservationLane,
         RowGapRegion,
+        claim_is_destination_boundary_carrier,
         project_reservation_coordinate,
         realise_reservation,
     )
@@ -534,23 +536,23 @@ def _claim_views(
         hi: float,
     ) -> tuple[float, float]:
         record = geometry_by_member.get(claim.member_id)
-        if (
-            not isinstance(reservation.region, ColumnGapRegion)
-            or record is None
-            or claim.segment_end_rank != len(record.points) - 3
+        if record is None or not claim_is_destination_boundary_carrier(
+            graph,
+            record.edge.target,
+            reservation.region,
         ):
             return lo, hi
-        target = graph.stations.get(record.edge.target)
-        if target is None or not target.is_port or target.section_id is None:
-            return lo, hi
-        start, end = record.points[claim.segment_end_rank : claim.segment_end_rank + 2]
-        final_start, final_end = record.points[-2:]
-        if start[0] != end[0] or final_start[1] != final_end[1]:
+        port = graph.ports[record.edge.target]
+        allocation_axis = int(reservation.orientation is CorridorOrientation.HORIZONTAL)
+        start = record.points[claim.segment_rank]
+        end = record.points[claim.segment_end_rank + 1]
+        coordinate = start[allocation_axis]
+        if abs(coordinate - end[allocation_axis]) > COORD_TOLERANCE:
             return lo, hi
         if (
-            lo <= start[0] <= hi
-            or start[0] < lo - COORD_TOLERANCE
-            or start[0] > hi + COORD_TOLERANCE
+            lo <= coordinate <= hi
+            or coordinate < lo - COORD_TOLERANCE
+            or coordinate > hi + COORD_TOLERANCE
         ):
             return lo, hi
         try:
@@ -558,7 +560,7 @@ def _claim_views(
                 reservation,
                 claimant_member_ids=(claim.member_id,),
                 claims=(claim,),
-                landing_section_ids=(target.section_id,),
+                landing_section_ids=(port.section_id,),
                 lanes=(RouteReservationLane((0,)),),
                 lane_count=1,
                 bundle_width=0.0,
@@ -575,9 +577,14 @@ def _claim_views(
             return lo, hi
         if realised is None:
             return lo, hi
+        if port.side in (PortSide.RIGHT, PortSide.BOTTOM):
+            return (
+                min(lo, realised.region_start + realised.negative_side_clearance),
+                max(hi, coordinate),
+            )
         return (
-            min(lo, realised.region_start + realised.negative_side_clearance),
-            max(hi, start[0]),
+            min(lo, coordinate),
+            max(hi, realised.region_end - realised.positive_side_clearance),
         )
 
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}

@@ -7,6 +7,10 @@ be resolved against an independently chosen mode, and so the renderer can emit
 both palettes from a single render.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from nf_metro.render.style import Theme
 from nf_metro.themes.light import LIGHT_THEME
 from nf_metro.themes.nfcore import (
@@ -19,6 +23,12 @@ from nf_metro.themes.seqera import (
     SEQERA_LIGHT_THEME,
     SEQERA_THEME,
 )
+
+if TYPE_CHECKING:
+    from nf_metro.parser.model import MetroGraph
+
+# ``style: dark`` predates theme names; alias it onto the nfcore brand.
+_STYLE_THEME_ALIASES = {"dark": "nfcore"}
 
 # Mode used when a single concrete palette must be baked and none was chosen
 # (e.g. PNG raster). Applies equally to every brand - no brand is intrinsically
@@ -47,6 +57,31 @@ THEMES = {
 }
 
 
+def resolve_theme(
+    theme: str | None, graph: MetroGraph, mode: str | None = None
+) -> Theme:
+    """Resolve a concrete theme from independent brand and mode axes.
+
+    Brand comes from the explicit ``theme`` name (``--theme``) or the
+    ``%%metro style:`` directive (``dark`` aliases to ``nfcore``). Mode comes
+    from the explicit ``mode`` argument (``--mode``), then the ``%%metro mode:``
+    directive, then ``DEFAULT_MODE``. No brand carries its own mode: a known
+    brand always resolves through its light/dark family for the chosen mode.
+    """
+    if theme is not None:
+        brand = theme
+    else:
+        name = graph.style.strip().lower()
+        brand = _STYLE_THEME_ALIASES.get(name, name)
+
+    resolved_mode = (mode or graph.mode).strip().lower() or DEFAULT_MODE
+    family = THEME_MODES.get(brand)
+    if family and resolved_mode in family:
+        return family[resolved_mode]
+
+    return THEMES.get(brand, THEMES["nfcore"])
+
+
 def mode_pair(theme: Theme) -> tuple[Theme, Theme] | None:
     """Return ``(light_theme, dark_theme)`` for *theme*'s brand family.
 
@@ -63,6 +98,7 @@ __all__ = [
     "THEMES",
     "THEME_MODES",
     "DEFAULT_MODE",
+    "resolve_theme",
     "mode_pair",
     "LIGHT_THEME",
     "NFCORE_THEME",

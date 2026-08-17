@@ -11,6 +11,7 @@ from nf_metro.layout.route_plan import (
     EmissionMemberId,
     ExitTurnPlanId,
     RouteMemberGeometryPlan,
+    RoutePlan,
     RouteSystemDisposition,
     RouteSystemId,
 )
@@ -19,7 +20,9 @@ from nf_metro.layout.routing.context import _RoutingCtx
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
     HandlerGapChannel,
+    apply_convergence_corridor_grants,
     build_convergence_plan_execution,
+    convergence_corridor_requests,
     empty_convergence_plan_execution,
     handler_gap_channels,
     overlaying_lane_obstacles,
@@ -28,6 +31,11 @@ from nf_metro.layout.routing.convergences import (
     settle_global_convergence_execution,
     settle_preliminary_convergence_execution,
 )
+from nf_metro.layout.routing.corridor_cohort_integration import (
+    CorridorCohortLedger,
+    CorridorCohortPlan,
+    build_corridor_cohort_ledger,
+)
 from nf_metro.layout.routing.exit_turns import ExitTurnExecution
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
@@ -35,9 +43,9 @@ from nf_metro.layout.routing.inter_section_handlers import (
 )
 from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
+    _finalize_corridor_cohorts,
     build_member_geometry_execution,
     empty_member_geometry_execution,
-    settle_shared_opening_trunk_conflicts,
 )
 from nf_metro.layout.routing.system_emission import (
     RouteSystemEmissionExecution,
@@ -45,6 +53,7 @@ from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
     classify_route_system_dispositions,
 )
+from nf_metro.layout.settlement_demand import BoundaryClearanceRequirementKind
 from nf_metro.parser.model import MetroGraph
 from nf_metro.parser.route_topology import ResolvedEdge
 
@@ -65,6 +74,8 @@ class RoutePlanningExecution:
     reach a different verdict on a plan sitting near a tolerance boundary.
     Replay reads the verdict from here, which is why it is captured before the
     published record is narrowed to planned systems."""
+    corridor_cohorts: CorridorCohortPlan | None = None
+    corridor_cohort_ledger: CorridorCohortLedger | None = None
 
 
 def _publish_member_exit_axes(
@@ -270,6 +281,7 @@ def _with_settled_exit_turns(
     from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 
     allocated_by_edge = {plan.edge: plan for plan in allocation.plans}
+
     reconciled_targets = {
         ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
         for plan in execution.plans
@@ -415,6 +427,8 @@ def _with_settled_exit_turns(
         MappingProxyType({plan.edge: plan for plan in frozen_plans}),
         allocation.settled_exit_turns,
         execution.reconciled_member_ids | allocation.reconciled_member_ids,
+        execution.corridor_cohorts,
+        execution.clearance_requirements,
     )
 
 
@@ -437,6 +451,7 @@ def prepare_route_system_planning(
     include_convergence_resources: bool,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     allow_convergence_clearance_requirements: bool = False,
+    prior_plan: RoutePlan | None = None,
 ) -> RoutePlanningExecution:
     """Run the canonical planning phases without emitting production paths.
 
@@ -467,6 +482,28 @@ def prepare_route_system_planning(
             tuple(
                 (plan.id, plan.legacy_reason) for plan in provisional_exit_turns.plans
             ),
+        )
+
+    pending_general_clearance = prior_plan is not None and any(
+        requirement.kind is BoundaryClearanceRequirementKind.GENERAL
+        for requirement in prior_plan.boundary_clearance_requirements
+    )
+    corridor_cohort_ledger = (
+        None
+        if prior_plan is None or pending_general_clearance
+        else prior_plan.corridor_cohort_ledger
+    )
+    if (
+        prior_plan is not None
+        and not pending_general_clearance
+        and corridor_cohort_ledger is None
+    ):
+        corridor_cohort_ledger = build_corridor_cohort_ledger(
+            graph,
+            scaffold,
+            prior_plan,
+            station_offsets=station_offsets or {},
+            curve_radius=ctx.curve_radius,
         )
 
     def prepare_member_geometry(
@@ -562,7 +599,10 @@ def prepare_route_system_planning(
     ]:
         if pending_plan_ids:
             _, _, _, allocation_geometry = prepare_member_geometry(
-                allocation_exit_turns, pending_plan_ids, frozenset(), lane_obstacles
+                allocation_exit_turns,
+                pending_plan_ids,
+                frozenset(),
+                lane_obstacles,
             )
             ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
             _restore_initial_station_offsets(
@@ -596,7 +636,10 @@ def prepare_route_system_planning(
         else:
             exit_turns = provisional_exit_turns
         family_by_edge, convergences, planned_ids, members = prepare_member_geometry(
-            exit_turns, pending_plan_ids, frozenset(), lane_obstacles
+            exit_turns,
+            pending_plan_ids,
+            frozenset(),
+            lane_obstacles,
         )
         return exit_turns, family_by_edge, convergences, planned_ids, members
 
@@ -613,7 +656,7 @@ def prepare_route_system_planning(
     lane_obstacles = overlaying_lane_obstacles(
         convergences.plans, graph, handler_gap_channels(member_geometry, graph)
     )
-    if lane_obstacles:
+    if lane_obstacles or corridor_cohort_ledger is not None:
         _restore_initial_station_offsets(ctx, station_offsets, initial_station_offsets)
         (
             exit_turns,
@@ -636,12 +679,63 @@ def prepare_route_system_planning(
         include_resources=False,
         allow_clearance_requirements=allow_convergence_clearance_requirements,
     )
-    member_geometry = settle_shared_opening_trunk_conflicts(
-        member_geometry,
-        convergences.plans,
-        graph,
-        curve_radius=ctx.curve_radius,
+    ctx.convergences = convergences.query
+    corridor_targets, scalar_requests = (
+        convergence_corridor_requests(convergences.plans, graph, ctx)
+        if corridor_cohort_ledger is not None
+        else ((), ())
     )
+    member_geometry = _finalize_corridor_cohorts(
+        member_geometry,
+        corridor_cohort_ledger,
+        ctx,
+        scaffold,
+        family_by_edge,
+        convergences.plans,
+        allow_clearance_requirements=allow_convergence_clearance_requirements,
+        corridor_targets=corridor_targets,
+        scalar_requests=scalar_requests,
+    )
+    if scalar_requests and not member_geometry.clearance_requirements:
+        corridor_plan = member_geometry.corridor_cohorts
+        if corridor_plan is None:
+            raise RuntimeError(
+                "corridor cohort compiler omitted eligible convergence requests"
+            )
+        convergences = apply_convergence_corridor_grants(
+            convergences,
+            scalar_requests,
+            corridor_plan.scalar_grants,
+        )
+        ctx.convergences = convergences.query
+    if (
+        corridor_cohort_ledger is not None
+        and corridor_cohort_ledger.finalized_owned_segments is None
+        and not member_geometry.clearance_requirements
+    ):
+        allocations = (
+            ()
+            if member_geometry.corridor_cohorts is None
+            else member_geometry.corridor_cohorts.allocations
+        )
+        landings = (
+            ()
+            if member_geometry.corridor_cohorts is None
+            else member_geometry.corridor_cohorts.landings
+        )
+        corridor_cohort_ledger = replace(
+            corridor_cohort_ledger,
+            finalized_owned_segments=(
+                frozenset(
+                    (item.member_id, item.edge_key, item.segment_rank)
+                    for item in allocations
+                )
+                | frozenset(
+                    (item.member_id, item.edge_key, item.segment_rank)
+                    for item in landings
+                )
+            ),
+        )
     exit_turns = _publish_member_exit_axes(exit_turns, member_geometry)
     ctx.exit_turns = exit_turns.query
     ctx.convergences = convergences.query
@@ -685,4 +779,6 @@ def prepare_route_system_planning(
         route_systems,
         planned_system_ids,
         exit_turn_dispositions,
+        member_geometry.corridor_cohorts,
+        corridor_cohort_ledger,
     )

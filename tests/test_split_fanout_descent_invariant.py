@@ -86,7 +86,7 @@ def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> Non
     assert violations, "expected a split fan-out descent with the fuse pass off"
 
 
-def test_opposite_opening_directions_share_one_exit_opening() -> None:
+def test_opposite_opening_directions_are_not_bundled() -> None:
     graph = parse_metro_mermaid((FROZEN / "seed_15.mmd").read_text())
 
     compute_layout(graph)
@@ -96,34 +96,30 @@ def test_opposite_opening_directions_share_one_exit_opening() -> None:
         allow_convergence_clearance_requirements=True,
     )
 
-    plans = tuple(
-        plan for plan in observation.plan.exit_turn_plans if plan.shared_openings
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
     )
-    assert len(plans) == 1
-    plan = plans[0]
     assert plan.disposition is ExitTurnDisposition.LEGACY
-    assert len(plan.shared_openings) == 1
-
-    opening = plan.shared_openings[0]
+    assert plan.shared_openings == ()
     outbound = tuple(
         route
         for route in observation.routes
-        if route.exit_turn_plan_id == plan.id and route.edge.source == plan.source_id
+        if route.edge.source == plan.source_id and route.line_id == "l2"
     )
     assert len(outbound) == 2
     assert {route.line_id for route in outbound} == {"l2"}
-    assert {route.emission_member_id for route in outbound} == set(opening.member_ids)
-    assert len(opening.member_ids) == 2
-
-    source = graph.stations[plan.source_id]
-    assert opening.points[0] == pytest.approx((source.x, source.y))
-    assert segment_direction(*opening.points[:2]) is Direction.L
-    assert segment_direction(*opening.points[1:3]) is Direction.D
-    assert source.x - opening.points[1][0] >= plan.minimum_runway
-    assert all(
-        tuple(route.points[: len(opening.points)]) == opening.points
+    assert len({route.emission_member_id for route in outbound}) == 2
+    descent_columns = {
+        next(
+            start[0]
+            for start, end in zip(route.points, route.points[1:])
+            if segment_direction(start, end) is Direction.D
+        )
         for route in outbound
-    )
+    }
+    assert len(descent_columns) == 2
 
 
 def _opening_descents(routes) -> list[tuple[str, str, float]]:

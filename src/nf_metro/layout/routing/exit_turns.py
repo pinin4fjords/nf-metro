@@ -11,7 +11,6 @@ from typing import TypeVar
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     MIN_STRAIGHT_EDGE,
-    OFFSET_STEP,
 )
 from nf_metro.layout.route_plan import (
     CoordinateRegime,
@@ -59,13 +58,10 @@ from nf_metro.layout.routing.centrelines import (
 )
 from nf_metro.layout.routing.common import (
     Direction,
-    HTrunkSeg,
     OffsetRegime,
     RoutedPath,
-    _vert_horiz_cross,
     apply_route_offsets,
     horizontal_direction,
-    iter_horizontal_trunks,
     segment_direction,
     vertical_direction,
 )
@@ -104,9 +100,6 @@ from nf_metro.layout.routing.inter_section_handlers import (
     _PerpExitGeometry,
     _right_entry_over_top_geometry,
     _right_entry_wrap_geometry,
-    _route_merge_trunk,
-    _route_right_entry_cross_row,
-    _route_u_bypass_family,
     _SourceSeam,
     _tb_bottom_exit_geometry,
     _wrap_fan_geometry,
@@ -2325,202 +2318,6 @@ def _fan_stated_offsets(
     }
 
 
-def _shared_left_exit_opening(
-    graph: MetroGraph,
-    ctx: _RoutingCtx,
-    scaffold: RouteSemanticScaffold,
-    member_edges: tuple[ResolvedEdge, ...],
-) -> ExitSharedOpening | None:
-    """Plan the common corridor for one left-exit line splitting below a trunk.
-
-    Both members leave the port together, descend the column their exit side
-    faces, and part in the corridor clear of every trunk they must pass.  The
-    crossing trunk sets how far down that corridor sits; it does not push the
-    descent off to the section's far side, because reaching around the box the
-    line just left reads worse than a bridged crossing.
-
-    The pair joins the lane stack the trunks it passes already form, one
-    ``OFFSET_STEP`` under the deepest of them, rather than reserving a fresh
-    turn-radius band beneath the whole stack: a band of its own deepens the
-    corridor for everyone and re-packs the columns feeding it, which transposes
-    risers against the trunks they have to clear.  Only a section box it must
-    clear buys the full radius.
-    """
-    if len(member_edges) != 2 or len({edge.line_id for edge in member_edges}) != 1:
-        return None
-    edges = tuple(_graph_edge(ctx.edge_by_key, edge) for edge in member_edges)
-    facts = tuple(
-        _build_inter_facts(edge, *graph.edge_endpoints(edge), ctx) for edge in edges
-    )
-    if not all(
-        fact.is_left_exit
-        and fact.entry_side is PortSide.RIGHT
-        and fact.src_row is not None
-        and fact.tgt_row is not None
-        and fact.tgt_row > fact.src_row
-        for fact in facts
-    ):
-        return None
-    families = tuple(
-        classify_inter_section_family(edge, *graph.edge_endpoints(edge), ctx)
-        for edge in edges
-    )
-    if set(families) != {
-        RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP,
-        RouteFamilyId.BYPASS_FAMILY,
-    }:
-        return None
-    source = facts[0].src
-    source_exit_edge = next(
-        (
-            edge
-            for edge in graph.edges_to(source.id)
-            if edge.source in graph.ports and not graph.ports[edge.source].is_entry
-        ),
-        None,
-    )
-    if source_exit_edge is None:
-        return None
-    source_exit = graph.ports[source_exit_edge.source]
-    source_section = graph.section_for_port(source_exit)
-    if source_section is None:
-        return None
-
-    def crosses(first: RoutedPath, second: RoutedPath) -> bool:
-        for (ax0, ay0), (ax1, ay1) in zip(first.points, first.points[1:]):
-            for (bx0, by0), (bx1, by1) in zip(second.points, second.points[1:]):
-                if (
-                    ax0 == ax1
-                    and by0 == by1
-                    and _vert_horiz_cross(ax0, ay0, ay1, by0, bx0, bx1)
-                ):
-                    return True
-                if (
-                    bx0 == bx1
-                    and ay0 == ay1
-                    and _vert_horiz_cross(bx0, by0, by1, ay0, ax0, ax1)
-                ):
-                    return True
-        return False
-
-    sibling_routes = tuple(
-        _route_right_entry_cross_row(fact)
-        if family is RouteFamilyId.RIGHT_ENTRY_CROSS_ROW_WRAP
-        else _route_u_bypass_family(fact)
-        for fact, family in zip(facts, families, strict=True)
-    )
-    if any(route is None for route in sibling_routes):
-        return None
-    resolved_siblings = tuple(route for route in sibling_routes if route is not None)
-    target_row = facts[0].tgt_row
-    assert target_row is not None and facts[0].src_col is not None
-    barriers: list[tuple[HTrunkSeg, float]] = []
-    for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
-        entry_port_id = ctx.merge.entry_port_for.get(merge_id)
-        entry_port = (
-            graph.ports.get(entry_port_id) if entry_port_id is not None else None
-        )
-        entry_section = (
-            graph.section_for_port(entry_port) if entry_port is not None else None
-        )
-        if (
-            entry_port is None
-            or entry_section is None
-            or entry_port.side is not PortSide.RIGHT
-            or entry_section.grid_col != facts[0].src_col
-            or entry_section.grid_row != target_row
-        ):
-            continue
-        trunk_edge = next(
-            (
-                edge
-                for edge in graph.edges_from(trunk_source_id)
-                if edge.target == merge_id and edge.line_id != member_edges[0].line_id
-            ),
-            None,
-        )
-        if trunk_edge is None:
-            continue
-        trunk_source, trunk_target = graph.edge_endpoints(trunk_edge)
-        trunk = _route_merge_trunk(
-            _build_inter_facts(trunk_edge, trunk_source, trunk_target, ctx)
-        )
-        horizontal = next(
-            (
-                segment
-                for _rank, segment in iter_horizontal_trunks(trunk)
-                if segment.xa + COORD_TOLERANCE
-                < source.x
-                < segment.xb - COORD_TOLERANCE
-                and segment.after_y > segment.y
-            ),
-            None,
-        )
-        if horizontal is None:
-            continue
-        if (
-            horizontal.xb > source.x + ctx.curve_radius
-            and horizontal.after_y > entry_section.bbox_y + COORD_TOLERANCE
-            and all(crosses(route, trunk) for route in resolved_siblings)
-        ):
-            barriers.append((horizontal, entry_section.bbox_y + entry_section.bbox_h))
-            if len(barriers) == 2:
-                return None
-    if len(barriers) != 1:
-        return None
-    barrier, barrier_section_bottom = barriers[0]
-    exit_x = source.x - ctx.curve_radius
-    target_x = min(fact.tgt.x for fact in facts)
-    crossing_trunk_bottom = max(barrier.y, barrier.before_y, barrier.after_y)
-    for merge_id, trunk_source_id in ctx.merge.trunk_source.items():
-        trunk_edge = next(
-            (
-                edge
-                for edge in graph.edges_from(trunk_source_id)
-                if edge.target == merge_id and edge.line_id != member_edges[0].line_id
-            ),
-            None,
-        )
-        if trunk_edge is None:
-            continue
-        candidate = _route_merge_trunk(
-            _build_inter_facts(trunk_edge, *graph.edge_endpoints(trunk_edge), ctx)
-        )
-        for _rank, horizontal in iter_horizontal_trunks(candidate):
-            if (
-                min(horizontal.xa, horizontal.xb) < exit_x - COORD_TOLERANCE
-                and target_x < max(horizontal.xa, horizontal.xb) - COORD_TOLERANCE
-                and horizontal.y > source.y + COORD_TOLERANCE
-            ):
-                crossing_trunk_bottom = max(
-                    crossing_trunk_bottom,
-                    horizontal.y,
-                    horizontal.before_y,
-                    horizontal.after_y,
-                )
-    branch_y = max(
-        crossing_trunk_bottom + OFFSET_STEP,
-        barrier_section_bottom + 2 * ctx.curve_radius,
-    )
-    if branch_y <= source.y:
-        return None
-    if any(
-        fact.v_segment_crosses_other_section(
-            exit_x, source.y, branch_y, fact.endpoint_section_ids
-        )
-        for fact in facts
-    ):
-        return None
-    return ExitSharedOpening(
-        tuple(scaffold.member_id_by_edge[edge] for edge in member_edges),
-        (
-            (source.x, source.y),
-            (exit_x, source.y),
-            (exit_x, branch_y),
-        ),
-    )
-
-
 def _build_group_plan(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -2679,12 +2476,7 @@ def _build_group_plan(
             reason = "family-changed-after-lane-compaction"
         else:
             seeds = final_classification.seeds
-    shared_opening_reason = "unsupported-subshape:left-exit-right-entry-step"
-    shared_opening = (
-        _shared_left_exit_opening(graph, ctx, scaffold, outbound_edges)
-        if reason in {None, shared_opening_reason}
-        else None
-    )
+    shared_opening = None
     axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
     if reason is None and shared_opening is None:
         assert run_direction is not None

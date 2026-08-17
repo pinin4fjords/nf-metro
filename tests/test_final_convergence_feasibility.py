@@ -344,28 +344,6 @@ def test_seed_15_plan_channels_include_emitted_bypass_tail_lane() -> None:
     )
 
 
-def test_seed_15_shared_opening_short_tail_is_a_fixed_member_channel() -> None:
-    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
-    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    observation = observe_route_edges(
-        graph,
-        station_offsets=compute_station_offsets(graph),
-        allow_convergence_clearance_requirements=True,
-    )
-    member = next(
-        plan
-        for plan in observation.plan.member_geometry_plans
-        if plan.edge == ResolvedEdge("__junction_23", "s5__entry_right_16", "l2")
-    )
-    tail = next(
-        channel
-        for channel in member.gap_channels
-        if channel.segment_rank == len(member.exit_shared_opening_points)
-    )
-    assert (tail.gap_lo_col, tail.row) == (5, 2)
-    assert (tail.start, tail.end) == ((1550.0, 588.0), (1550.0, 504.0))
-
-
 def test_shared_source_convergences_fuse_one_opening_carrier() -> None:
     path = ROOT / "examples" / "topologies" / "merge_around_below_leftmost.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))

@@ -39,6 +39,7 @@ from nf_metro.layout.route_reservations import (
     CorridorOrientation,
     ReservationCoordinateTranslation,
     RowGapRegion,
+    claim_is_destination_boundary_carrier,
     realise_reservation,
 )
 from nf_metro.layout.routing import (
@@ -52,6 +53,7 @@ from nf_metro.layout.routing.reserved_bands import (
     build_reserved_corridors,
     seat_bundle_in_claimed_bands,
 )
+from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import (
@@ -78,6 +80,64 @@ RESERVATION_CORPUS = tuple(
         "disjoint_sameline_trunks.mmd",
     )
 ) + (ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",)
+
+
+@pytest.mark.parametrize(
+    ("side", "adjacent", "reflected"),
+    (
+        (PortSide.LEFT, ColumnGapRegion(3, 4), ColumnGapRegion(5, 6)),
+        (PortSide.RIGHT, ColumnGapRegion(5, 6), ColumnGapRegion(3, 4)),
+        (PortSide.TOP, RowGapRegion(4, 5), RowGapRegion(7, 8)),
+        (PortSide.BOTTOM, RowGapRegion(7, 8), RowGapRegion(4, 5)),
+    ),
+)
+def test_destination_boundary_carrier_follows_port_side_and_section_span(
+    side: PortSide,
+    adjacent: ColumnGapRegion | RowGapRegion,
+    reflected: ColumnGapRegion | RowGapRegion,
+) -> None:
+    section = Section(
+        "target",
+        "Target",
+        grid_col=4,
+        grid_row=5,
+        grid_col_span=2,
+        grid_row_span=3,
+    )
+    port = Port("entry", section.id, side, is_entry=True)
+    graph = MetroGraph(
+        sections={section.id: section},
+        ports={port.id: port},
+    )
+
+    assert claim_is_destination_boundary_carrier(graph, port.id, adjacent)
+    assert not claim_is_destination_boundary_carrier(graph, port.id, reflected)
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        port.id,
+        CanvasRegion(CanvasSide.LEFT),
+    )
+
+
+def test_destination_boundary_carrier_requires_a_resolved_entry_port() -> None:
+    section = Section("target", "Target", grid_col=4, grid_row=5)
+    exit_port = Port("exit", section.id, PortSide.RIGHT, is_entry=False)
+    graph = MetroGraph(
+        sections={section.id: section},
+        ports={exit_port.id: exit_port},
+    )
+
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        exit_port.id,
+        ColumnGapRegion(4, 5),
+    )
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        "missing",
+        ColumnGapRegion(4, 5),
+    )
+
 
 EXPECTED_RESERVATION_CLAIMS = {
     "inter_row_wrap_clearance.mmd": (

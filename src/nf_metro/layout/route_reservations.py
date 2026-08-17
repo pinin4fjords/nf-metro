@@ -65,7 +65,7 @@ from nf_metro.layout.route_plan import (
 )
 from nf_metro.layout.routing.common import Direction, RoutedPath, apply_route_offsets
 from nf_metro.layout.routing.families import RouteFamilyId
-from nf_metro.parser.model import MetroGraph, Section
+from nf_metro.parser.model import MetroGraph, PortSide, Section
 from nf_metro.parser.provenance import (
     ConnectorEndpointRole,
     GridCell,
@@ -164,6 +164,38 @@ class CanvasRegion:
 
 
 CorridorRegion: TypeAlias = RowGapRegion | ColumnGapRegion | CanvasRegion
+
+
+def claim_is_destination_boundary_carrier(
+    graph: MetroGraph,
+    target_station_id: str,
+    region: CorridorRegion,
+) -> bool:
+    """Whether *region* is the grid boundary feeding a target entry port."""
+    port = graph.ports.get(target_station_id)
+    if port is None or not port.is_entry:
+        return False
+    section = graph.sections.get(port.section_id)
+    if section is None or section.grid_col < 0 or section.grid_row < 0:
+        return False
+    if isinstance(region, CanvasRegion):
+        return False
+    if port.side is PortSide.LEFT:
+        return (
+            isinstance(region, ColumnGapRegion)
+            and region.right_column == section.grid_col
+        )
+    if port.side is PortSide.RIGHT:
+        return (
+            isinstance(region, ColumnGapRegion)
+            and region.left_column == section.grid_col + section.grid_col_span - 1
+        )
+    if port.side is PortSide.TOP:
+        return isinstance(region, RowGapRegion) and region.lower_row == section.grid_row
+    return (
+        isinstance(region, RowGapRegion)
+        and region.upper_row == section.grid_row + section.grid_row_span - 1
+    )
 
 
 class CanvasRect(NamedTuple):

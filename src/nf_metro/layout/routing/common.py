@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import AbstractSet, NamedTuple
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -2468,12 +2468,19 @@ def route_system_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     ) or member_plan_owns_segment_boundary(route, rank)
 
 
-def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+def planner_owns_segment(
+    route: RoutedPath,
+    rank: int,
+    *,
+    relinquished_exit_turn_plan_ids: AbstractSet[str] = frozenset(),
+) -> bool:
     """Whether a pre-routing plan fixes the coordinate of one route segment.
 
-    A convergence-owned segment boundary, a fan emission and a planned exit turn
-    are all resolved against a plan the closing validators check the geometry
-    against, so their coordinate is not a normalisation pass's to choose.
+    A convergence- or member-owned boundary, shared opening, compact lane
+    transition, fan, and planned exit turn are all resolved against a plan the
+    closing validators check the geometry against, so their coordinate is not
+    another allocation or normalisation pass's to choose.  Exit-turn ownership
+    includes both segments adjoining its corner.
 
     Stated once because the passes that move a coordinate and the guards that
     refuse the result both have to agree on which coordinates are theirs: a pass
@@ -2481,12 +2488,16 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuses, and a narrower one would leave a defect neither reports.
     """
     return (
-        convergence_owns_segment_boundary(route, rank)
+        member_plan_owns_segment_boundary(route, rank)
+        or route.exit_lane_transition_plan_id is not None
+        or route.fan_plan_id is not None
         or route.fan_route_emitter is not None
-        or member_plan_owns_segment_boundary(route, rank)
+        or convergence_owns_segment_boundary(route, rank)
         or rank < len(route.exit_shared_opening_points)
         or (
-            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
+            route.exit_turn_segment_rank is not None
+            and route.exit_turn_plan_id not in relinquished_exit_turn_plan_ids
+            and abs(route.exit_turn_segment_rank - rank) <= 1
         )
     )
 

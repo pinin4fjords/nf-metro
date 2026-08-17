@@ -47,8 +47,8 @@ CONTRACT = LAYOUT_DIR / "CONTRACT.md"
 #   - _phase_snapshots_enabled: a per-run coordinate-snapshot flag stashed to
 #     avoid signature churn (#363), pure observation.
 #   - _final_route_guards_deferred: records that the final validate checkpoint
-#     deferred its route guards to settlement, read by callers that validate
-#     without rendering; no positioning pass consumes it.
+#     deferred its route guards to settlement at the end of compute_layout; no
+#     positioning pass consumes it.
 _BOOKKEEPING_ALLOWLIST = {
     "_stages_completed",
     "_validate_active",

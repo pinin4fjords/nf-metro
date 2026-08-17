@@ -4659,6 +4659,7 @@ def _separate_fused_cotravelling_runs(
             eligible_route_ids is None
             or all(id(run.route) in eligible_route_ids for run in lane.runs)
         )
+        and not lane.pinned
         and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)
     }
     pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)

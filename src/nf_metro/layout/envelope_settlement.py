@@ -116,6 +116,7 @@ from nf_metro.layout.route_reservations import (
 from nf_metro.layout.settlement_demand import (
     BoundaryClearanceDemand,
     BoundaryClearanceRequirement,
+    BoundaryClearanceRequirementKind,
     ClearanceMeasurement,
     SettlementAxis,
 )
@@ -126,6 +127,7 @@ __all__ = [
     "ROW_AXIS",
     "BoundaryClearanceDemand",
     "BoundaryClearanceRequirement",
+    "BoundaryClearanceRequirementKind",
     "ClearanceMeasurement",
     "DrawnCorridorClearanceRequirement",
     "EnvelopeSettlement",

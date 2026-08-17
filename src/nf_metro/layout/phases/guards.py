@@ -6158,10 +6158,11 @@ def _ensure_pass_c_inputs(
     failure leaves ``routes`` as ``None`` (it surfaces elsewhere); guards that
     need routes are then skipped.
 
-    A final layout checkpoint can precede render-time envelope settlement.  If
-    its observation requests boundary clearance, the route-dependent guards
-    defer to the render chokepoint, which receives the settled routes.  Guards
-    without a route dependency continue to inspect the final layout state.
+    A final layout checkpoint precedes completion of the route-plan DAG.
+    Symbolic reservations and boundary-clearance requests are consumed by the
+    following settled-plan stage, so route-dependent guards defer to its
+    chokepoint at the end of ``compute_layout``. Guards without a route
+    dependency continue to inspect the final layout state.
     """
     from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.layout.routing.core import route_edges_for_placement_guards
@@ -6176,7 +6177,10 @@ def _ensure_pass_c_inputs(
                     station_offsets=offsets,
                     allow_convergence_clearance_requirements=True,
                 )
-                deferred = bool(observation.plan.boundary_clearance_requirements)
+                deferred = bool(
+                    observation.plan.boundary_clearance_requirements
+                    or observation.plan.reservations
+                )
                 graph._final_route_guards_deferred = deferred
                 routes = None if deferred else observation.routes
             else:
@@ -6184,10 +6188,9 @@ def _ensure_pass_c_inputs(
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
             if validate_final_geometry:
-                # A caller that validates without rendering follows the
-                # deferral flag to a render-plan build, where the routing
-                # failure resurfaces instead of being swallowed as a run
-                # with every route guard skipped.
+                # The layout engine follows this deferral with a settled-plan
+                # build, where the routing failure resurfaces instead of being
+                # swallowed as a run with every route guard skipped.
                 graph._final_route_guards_deferred = True
     return offsets, routes
 

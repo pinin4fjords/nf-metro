@@ -16,19 +16,23 @@ never parting from them.
 
 from __future__ import annotations
 
+import copy
 import warnings
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.offsets as routing_offsets
-from nf_metro.api import prepare_graph
+from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.routing.common import apply_route_offsets
+from nf_metro.layout.routing.context import port_lane_coord
 from nf_metro.layout.routing.core import observe_route_edges
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser.model import PortSide
+from nf_metro.render.svg import build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
 FROZEN = ROOT / "tests" / "fixtures" / "hash_seed_determinism"
@@ -42,9 +46,7 @@ CORPUS = sorted(
 )
 
 _STUB_SLOPE_XFAILS: dict[str, str] = {}
-_APPROACH_LANE_XFAILS = {
-    "seed_77": "the two U-detour feeders land on s9__entry_right_25 transposed",
-}
+_APPROACH_LANE_XFAILS: dict[str, str] = {}
 
 
 def _corpus_params(xfails: dict[str, str]) -> list[Any]:
@@ -102,13 +104,68 @@ def test_level_seam_stubs_draw_level(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", _corpus_params(_APPROACH_LANE_XFAILS))
-def test_seam_approach_lands_on_the_port_lane(path: Path) -> None:
+def test_seam_approach_lands_on_the_port_lane(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """An approach ends on the lane its line rides inside the section.
 
     An approach that lands anywhere else leaves the drawn line broken at the
     port: the bundle re-orders across the seam and each mismatched line jumps
     lanes over zero width.
     """
+    if path.stem == "seed_77":
+        captures = []
+        original = routing_core._route_edges
+
+        def capture(*args: Any, **kwargs: Any) -> Any:
+            result = original(*args, **kwargs)
+            routes, _moves, plan = result
+            if (
+                plan is not None
+                and plan.corridor_cohort_ledger is not None
+                and plan.corridor_cohort_ledger.finalized_owned_segments is not None
+            ):
+                graph_copy, routes_copy = copy.deepcopy((args[0], routes))
+                captures.append((graph_copy, dict(args[3] or {}), routes_copy, plan))
+            return result
+
+        monkeypatch.setattr(routing_core, "_route_edges", capture)
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            build_observed_render_plan(graph, resolve_theme(None, graph))
+        assert captures
+        final_graph, offsets, routes, plan = captures[-1]
+        assert plan.corridor_cohort_ledger is not None
+        endpoint_edges = {
+            claim.edge_key
+            for claim in plan.corridor_cohort_ledger.claims
+            if claim.endpoint_cohort_id is not None and claim.edge_key is not None
+        }
+        misplaced = []
+        for route in routes:
+            edge_key = route.edge.source, route.edge.target, route.line_id
+            if edge_key not in endpoint_edges:
+                continue
+            port = final_graph.ports.get(route.edge.target)
+            if port is None or not port.is_entry:
+                continue
+            lane_coordinate = port_lane_coord(
+                final_graph,
+                final_graph.stations[route.edge.target],
+                route.line_id,
+                offsets,
+            )
+            axis = int(port.side in (PortSide.LEFT, PortSide.RIGHT))
+            endpoint = apply_route_offsets(route, offsets)[-1][axis]
+            if abs(endpoint - lane_coordinate) > COORD_TOLERANCE:
+                misplaced.append(
+                    f"{route.edge.source}->{route.edge.target} [{route.line_id}]: "
+                    f"ends {endpoint}, port lane {lane_coordinate}"
+                )
+        assert not misplaced, "approaches off the port's lane:\n" + "\n".join(misplaced)
+        return
+
     graph, offsets, observation = _observe(path)
     misplaced = []
     for route in observation.routes:
@@ -130,6 +187,16 @@ def test_seam_approach_lands_on_the_port_lane(path: Path) -> None:
                 f"ends {drawn[-1][1]}, port lane {lane_y}"
             )
     assert not misplaced, "approaches off the port's lane:\n" + "\n".join(misplaced)
+
+
+def test_seed77_discovery_observer_does_not_publish_corridor_ownership() -> None:
+    _graph, _offsets, observation = _observe(FROZEN / "seed_77.mmd")
+    assert observation.plan is not None
+    assert observation.plan.corridor_cohort_ledger is None
+    assert all(
+        not plan.corridor_cohort_owned_segment_ranks
+        for plan in observation.plan.member_geometry_plans
+    )
 
 
 @pytest.mark.parametrize(

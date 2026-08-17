@@ -66,6 +66,7 @@ from nf_metro.layout.route_plan import (
     reservation_decision_refs,
     turn_handedness,
 )
+from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 from nf_metro.layout.routing.centrelines import gather_member_edges
 from nf_metro.layout.routing.common import (
     Direction,
@@ -89,6 +90,15 @@ from nf_metro.layout.routing.context import (
     _resolve_section_colrow,
     _RoutingCtx,
 )
+from nf_metro.layout.routing.corridor_cohort_integration import (
+    CorridorCohortTarget,
+    CorridorScalarGrant,
+    CorridorScalarOwnerKind,
+    CorridorScalarRequest,
+    CorridorScalarVariable,
+)
+from nf_metro.layout.routing.corridor_cohorts import CorridorCoordinateDomain
+from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
     PreliminaryGapChannelClaim,
@@ -6864,6 +6874,222 @@ def _settle_convergence_geometry(
     )
     settled = _fuse_owned_legacy_terminal_flanks(settled, ctx)
     return _reconcile_landing_handedness(settled, ctx)
+
+
+def _convergence_corridor_target(
+    plan: ConvergencePlan,
+    ctx: _RoutingCtx,
+) -> tuple[CorridorCohortTarget, CorridorScalarVariable] | None:
+    """Expose one plan-owned central trunk as one scalar corridor variable."""
+    axis = plan.trunk_axis
+    if axis is None or plan.primary_trunk_member_id is None:
+        return None
+    ownership = next(
+        (
+            item
+            for item in plan.endpoint_ownership
+            if item.member_id == plan.primary_trunk_member_id
+        ),
+        None,
+    )
+    if ownership is None:
+        return None
+    edge_key = (
+        ownership.edge.source,
+        ownership.edge.target,
+        ownership.edge.line_id,
+    )
+    edge = ctx.edge_by_key.get(edge_key)
+    if edge is None:
+        return None
+    central = _trunk_segments(axis)[0]
+    route = RoutedPath(
+        edge,
+        edge.line_id,
+        [central[0], central[1]],
+        is_inter_section=True,
+    )
+    owner_id = str(plan.id)
+    variable_id = f"convergence-trunk|{owner_id}"
+    member_id = f"{variable_id}|footprint"
+    target_edge_key = (
+        f"{variable_id}|source",
+        f"{variable_id}|target",
+        f"{variable_id}|line",
+    )
+    target = CorridorCohortTarget(
+        member_id,
+        owner_id,
+        target_edge_key,
+        RouteFamilyId.MERGE_TRUNK,
+        ownership.connector_ids,
+        route,
+        True,
+    )
+    variable = CorridorScalarVariable(
+        variable_id=variable_id,
+        owner_kind=CorridorScalarOwnerKind.CONVERGENCE_TRUNK,
+        owner_id=owner_id,
+        member_id=member_id,
+        edge_key=target_edge_key,
+        connector_ids=ownership.connector_ids,
+        segment_rank=0,
+        axis=1 if axis.axis is DemandAxis.X else 0,
+        coordinate=axis.coordinate,
+    )
+    return target, variable
+
+
+def _convergence_corridor_preference(
+    plan: ConvergencePlan,
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+) -> tuple[float, CorridorCoordinateDomain]:
+    """Read one trunk's preferred coordinate and complete feasible domain."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    coordinate_axis = 1 if axis.axis is DemandAxis.X else 0
+    band = corridor_clearance_band(
+        graph,
+        axis=coordinate_axis,
+        section_ids=tuple(_plan_section_ids(plan, graph)),
+        coordinate=axis.coordinate,
+        run_start=axis.extent_start,
+        run_end=axis.extent_end,
+    )
+    variable_id = f"convergence-trunk|{plan.id}"
+    if band is None:
+        return axis.coordinate, CorridorCoordinateDomain(variable_id)
+    minimum_coordinate = band.lo if math.isfinite(band.lo) else None
+    maximum_coordinate = band.hi if math.isfinite(band.hi) else None
+    preferred_coordinate = axis.coordinate
+    if minimum_coordinate is not None:
+        preferred_coordinate = max(preferred_coordinate, minimum_coordinate)
+    if maximum_coordinate is not None:
+        preferred_coordinate = min(preferred_coordinate, maximum_coordinate)
+    return (
+        preferred_coordinate,
+        CorridorCoordinateDomain(
+            variable_id,
+            minimum_coordinate=minimum_coordinate,
+            maximum_coordinate=maximum_coordinate,
+        ),
+    )
+
+
+def _convergence_corridor_region(
+    plan: ConvergencePlan,
+    graph: MetroGraph,
+) -> RowGapRegion | ColumnGapRegion | None:
+    """Name the adjacent layout boundary containing a planned trunk."""
+    axis = plan.trunk_axis
+    assert axis is not None
+    if axis.axis is DemandAxis.X:
+        upper_row = inter_row_gap_upper_row(graph, axis.coordinate)
+        return None if upper_row is None else RowGapRegion(upper_row, upper_row + 1)
+    gap = gap_lo_for_x(
+        graph,
+        axis.coordinate,
+        axis.extent_start,
+        axis.extent_end,
+    )
+    return None if gap is None else ColumnGapRegion(gap[0], gap[0] + 1)
+
+
+def convergence_corridor_requests(
+    plans: tuple[ConvergencePlan, ...],
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+) -> tuple[tuple[CorridorCohortTarget, ...], tuple[CorridorScalarRequest, ...]]:
+    """Publish typed trunk inputs for the canonical corridor cohort compiler."""
+    targets: list[CorridorCohortTarget] = []
+    requests: list[CorridorScalarRequest] = []
+    for plan in plans:
+        exposed = _convergence_corridor_target(plan, ctx)
+        if exposed is None:
+            continue
+        target, variable = exposed
+        preferred_coordinate, domain = _convergence_corridor_preference(
+            plan,
+            graph,
+            ctx,
+        )
+        targets.append(target)
+        requests.append(
+            CorridorScalarRequest(
+                variable,
+                preferred_coordinate,
+                domain,
+                region=_convergence_corridor_region(plan, graph),
+            )
+        )
+    return tuple(targets), tuple(requests)
+
+
+def apply_convergence_corridor_grants(
+    execution: ConvergencePlanExecution,
+    requests: tuple[CorridorScalarRequest, ...],
+    grants: tuple[CorridorScalarGrant, ...],
+) -> ConvergencePlanExecution:
+    """Consume complete typed scalar grants without making geometry decisions."""
+    requests_by_id = {item.variable.variable_id: item for item in requests}
+    grants_by_id = {item.variable_id: item for item in grants}
+    if len(requests_by_id) != len(requests) or len(grants_by_id) != len(grants):
+        raise ConvergenceInvariantError(
+            "convergence corridor request or grant identity is ambiguous"
+        )
+    if requests_by_id.keys() != grants_by_id.keys():
+        raise ConvergenceInvariantError(
+            "convergence corridor grant set does not complete its request set"
+        )
+    plans_by_id = {str(plan.id): plan for plan in execution.plans}
+    replacements: dict[ConvergencePlanId, ConvergencePlan] = {}
+    for variable_id in sorted(requests_by_id):
+        request = requests_by_id[variable_id]
+        variable = request.variable
+        grant = grants_by_id[variable_id]
+        if (
+            variable.owner_kind is not CorridorScalarOwnerKind.CONVERGENCE_TRUNK
+            or grant.owner_kind is not CorridorScalarOwnerKind.CONVERGENCE_TRUNK
+            or grant.owner_id != variable.owner_id
+        ):
+            raise ConvergenceInvariantError(
+                f"corridor grant {variable_id} has the wrong semantic owner"
+            )
+        plan = plans_by_id.get(variable.owner_id)
+        if (
+            plan is None
+            or plan.trunk_axis is None
+            or abs(plan.trunk_axis.coordinate - variable.coordinate) > COORD_TOLERANCE
+        ):
+            raise ConvergenceInvariantError(
+                f"corridor grant {variable_id} does not match its source plan"
+            )
+        moved = _move_trunk_axis(
+            plan,
+            grant.coordinate,
+            preserve_lane_offsets=True,
+        )
+        if (
+            moved.trunk_axis is None
+            or abs(moved.trunk_axis.coordinate - grant.coordinate) > COORD_TOLERANCE
+        ):
+            raise ConvergenceInvariantError(
+                f"corridor grant {variable_id} was not consumed atomically"
+            )
+        replacements[plan.id] = moved
+    if not replacements:
+        return execution
+    plans = tuple(replacements.get(plan.id, plan) for plan in execution.plans)
+    return replace(
+        execution,
+        plans=plans,
+        query=_query(
+            plans,
+            execution.query._edge_order,
+            execution.clearance_requirements,
+        ),
+    )
 
 
 def _settle_eligible(

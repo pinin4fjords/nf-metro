@@ -41,9 +41,11 @@ from nf_metro.layout.routing.context import (
     _max_offset_at,
     _perpendicular_port_lane_offset,
     _RoutingCtx,
+    port_lane_coord,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.parser.model import (
+    Port,
     PortSide,
 )
 
@@ -150,6 +152,41 @@ def _perp_entry_crossing_x(
         # feeder's section lane.
         return port_x + _get_offset(ctx, entry_port_id, line_id)
     return port_x - max_index * ctx.offset_step
+
+
+def entry_port_crossing_coord(
+    ctx: _RoutingCtx,
+    port: Port,
+    line_id: str,
+) -> float:
+    """Absolute coordinate where *line_id* crosses an entry-port boundary.
+
+    LEFT/RIGHT ports expose their Y lane through the section lane frame.
+    TOP/BOTTOM ports use the same perpendicular crossing calculation as the
+    route builders, including approach fans and feeder bundle-index channels.
+    The result is in drawable coordinates; callers patching a deferred route
+    must convert its Y coordinate back to stored-route space.
+    """
+    if not port.is_entry:
+        raise ValueError(f"port {port.id!r} is not a section entry port")
+    station = ctx.graph.stations[port.id]
+    if port.side in (PortSide.LEFT, PortSide.RIGHT):
+        return port_lane_coord(
+            ctx.graph,
+            station,
+            line_id,
+            ctx.station_offsets or {},
+            ctx.positive_fan,
+        )
+    crossing = _perp_entry_crossing_x(ctx, port.id, line_id, station.x)
+    if crossing is not None:
+        return crossing
+    return station.x + _perpendicular_port_lane_offset(
+        ctx,
+        port.id,
+        line_id,
+        port.section_id,
+    )
 
 
 def _aligned_horizontal_drop_entry(ctx: _RoutingCtx, exit_port_id: str) -> str | None:

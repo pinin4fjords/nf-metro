@@ -1,5 +1,6 @@
 """Tests for the CLI entry points."""
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,26 @@ def test_validate_with_layout_passes_clean_file():
     result = runner.invoke(cli, ["validate", "--with-layout", str(RNASEQ_MMD)])
     assert result.exit_code == 0, result.output
     assert "Valid:" in result.output
+
+
+def test_validate_with_layout_delegates_complete_validation_to_engine(
+    monkeypatch,
+) -> None:
+    cli_module = importlib.import_module("nf_metro.cli")
+
+    def validated_layout(graph, *, validate) -> None:
+        assert validate is True
+        graph._final_route_guards_deferred = True
+
+    def reject_render(*_args, **_kwargs) -> None:
+        raise AssertionError("the CLI repeated the engine's route validation")
+
+    monkeypatch.setattr(cli_module, "compute_layout", validated_layout)
+    monkeypatch.setattr("nf_metro.render.svg.build_render_plan", reject_render)
+
+    result = CliRunner().invoke(cli, ["validate", "--with-layout", str(RNASEQ_MMD)])
+
+    assert result.exit_code == 0, result.output
 
 
 def _td_graph(tmp_path: Path) -> Path:

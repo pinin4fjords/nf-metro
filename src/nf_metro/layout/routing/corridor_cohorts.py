@@ -2,10 +2,30 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
 from math import isfinite
+
+_ObstacleInterval = tuple[
+    Fraction,
+    Fraction,
+    set[str],
+    tuple[tuple[int, ...], ...],
+]
+
+
+class _NoCoordinateInsideBounds(Exception):
+    def __init__(
+        self,
+        root: int,
+        obstacle_ids: set[str] | None = None,
+        deficit: Fraction | None = None,
+    ) -> None:
+        self.root = root
+        self.obstacle_ids = obstacle_ids or set()
+        self.deficit = deficit
 
 
 class CorridorAllocationStatus(Enum):
@@ -51,15 +71,74 @@ class CorridorEquality:
 
 
 @dataclass(frozen=True)
+class CorridorFixedEquality:
+    owner_id: str
+    member_id: str
+    obstacle_id: str
+    delta: float = 0.0
+
+
+@dataclass(frozen=True)
+class CorridorSeparation:
+    left_member_id: str
+    right_member_id: str
+    distance: float
+
+
+@dataclass(frozen=True)
+class CorridorDirectedSeparation:
+    """Require one raw coordinate to remain above another by a fixed distance."""
+
+    owner_id: str
+    lower_member_id: str
+    upper_member_id: str
+    distance: float
+
+
+@dataclass(frozen=True)
+class CorridorCoordinateDomain:
+    member_id: str
+    minimum_coordinate: float | None = None
+    maximum_coordinate: float | None = None
+    obstacle_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CorridorForbiddenInterval:
+    """A named open interval unavailable to one member coordinate."""
+
+    member_id: str
+    obstacle_id: str
+    minimum_coordinate: float
+    maximum_coordinate: float
+    semantic_rank: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class CorridorClearanceShortfall:
+    claim_ids: tuple[str, ...]
+    blocking_obstacle_ids: tuple[str, ...]
+    deficit: float
+    axis: int
+    required_shift_sign: int
+
+
+@dataclass(frozen=True)
 class CorridorAllocationProblem:
     """A complete preclosed endpoint, equality, and clearance component."""
 
     lanes: tuple[CorridorLane, ...]
     obstacles: tuple[CorridorObstacle, ...] = ()
     equalities: tuple[CorridorEquality, ...] = ()
+    separations: tuple[CorridorSeparation, ...] = ()
+    domains: tuple[CorridorCoordinateDomain, ...] = ()
+    fixed_equalities: tuple[CorridorFixedEquality, ...] = ()
+    directed_separations: tuple[CorridorDirectedSeparation, ...] = ()
+    forbidden_intervals: tuple[CorridorForbiddenInterval, ...] = ()
     clearance: float = 4.0
     witnesses_complete: bool = True
     axis_sign: int = 1
+    coordinate_axis: int = 0
 
 
 @dataclass(frozen=True)
@@ -70,7 +149,9 @@ class CorridorAllocationResult:
     blocking_member_ids: tuple[str, ...] = ()
     blocking_obstacle_ids: tuple[str, ...] = ()
     blocking_equality_owner_ids: tuple[str, ...] = ()
+    blocking_order_owner_ids: tuple[str, ...] = ()
     blocking_endpoint_owner_ids: tuple[str, ...] = ()
+    clearance_shortfall: CorridorClearanceShortfall | None = None
 
 
 def _q(value: float) -> Fraction:
@@ -92,7 +173,9 @@ def _failure(
     members: tuple[str, ...] | list[str] | set[str] = (),
     obstacles: tuple[str, ...] | list[str] | set[str] = (),
     equality_owners: tuple[str, ...] | list[str] | set[str] = (),
+    order_owners: tuple[str, ...] | list[str] | set[str] = (),
     endpoint_owners: tuple[str, ...] | list[str] | set[str] = (),
+    clearance_shortfall: CorridorClearanceShortfall | None = None,
 ) -> CorridorAllocationResult:
     return CorridorAllocationResult(
         CorridorAllocationStatus.FAILURE,
@@ -100,7 +183,9 @@ def _failure(
         blocking_member_ids=tuple(sorted(set(members))),
         blocking_obstacle_ids=tuple(sorted(set(obstacles))),
         blocking_equality_owner_ids=tuple(sorted(set(equality_owners))),
+        blocking_order_owner_ids=tuple(sorted(set(order_owners))),
         blocking_endpoint_owner_ids=tuple(sorted(set(endpoint_owners))),
+        clearance_shortfall=clearance_shortfall,
     )
 
 
@@ -161,6 +246,20 @@ def _invalid_problem(
             )
         )
     numeric.extend(equality.delta for equality in problem.equalities)
+    numeric.extend(equality.delta for equality in problem.fixed_equalities)
+    numeric.extend(separation.distance for separation in problem.separations)
+    numeric.extend(separation.distance for separation in problem.directed_separations)
+    numeric.extend(
+        coordinate
+        for domain in problem.domains
+        for coordinate in (domain.minimum_coordinate, domain.maximum_coordinate)
+        if coordinate is not None
+    )
+    numeric.extend(
+        coordinate
+        for interval in problem.forbidden_intervals
+        for coordinate in (interval.minimum_coordinate, interval.maximum_coordinate)
+    )
     invalid_members = {
         lane.member_id
         for lane in lanes
@@ -193,7 +292,14 @@ def _invalid_problem(
     split_endpoint_owners = {
         lane.endpoint_owner_id for lane in lanes if lane.cohort_id in split_cohorts
     }
+    obstacle_ids = [obstacle.obstacle_id for obstacle in problem.obstacles]
+    duplicate_obstacles = {
+        obstacle_id
+        for obstacle_id in obstacle_ids
+        if obstacle_ids.count(obstacle_id) > 1
+    }
     by_id = set(member_ids)
+    all_ids = by_id | set(obstacle_ids)
     invalid_equalities = {
         equality.owner_id
         for equality in problem.equalities
@@ -201,9 +307,79 @@ def _invalid_problem(
         or equality.left_member_id not in by_id
         or equality.right_member_id not in by_id
     }
+    fixed_equality_pairs = [
+        (equality.member_id, equality.obstacle_id)
+        for equality in problem.fixed_equalities
+    ]
+    invalid_fixed_equalities = {
+        equality.owner_id
+        for equality in problem.fixed_equalities
+        if not equality.owner_id
+        or equality.member_id not in by_id
+        or equality.obstacle_id not in set(obstacle_ids)
+        or fixed_equality_pairs.count((equality.member_id, equality.obstacle_id)) > 1
+    }
+    separation_pairs = [
+        frozenset((separation.left_member_id, separation.right_member_id))
+        for separation in problem.separations
+    ]
+    invalid_separations = {
+        member_id
+        for separation, pair in zip(problem.separations, separation_pairs, strict=True)
+        if (
+            len(pair) != 2
+            or not pair.issubset(all_ids)
+            or not pair.intersection(by_id)
+            or separation.distance < 0
+            or separation_pairs.count(pair) > 1
+        )
+        for member_id in pair
+    }
+    invalid_directed_separations = {
+        separation.owner_id
+        for separation in problem.directed_separations
+        if not separation.owner_id
+        or separation.lower_member_id not in by_id
+        or separation.upper_member_id not in by_id
+        or separation.lower_member_id == separation.upper_member_id
+        or separation.distance < 0
+    }
+    invalid_directed_members = {
+        member_id
+        for separation in problem.directed_separations
+        if separation.owner_id in invalid_directed_separations
+        for member_id in (separation.lower_member_id, separation.upper_member_id)
+        if member_id in by_id
+    }
+    invalid_domains = {
+        domain.member_id
+        for domain in problem.domains
+        if domain.member_id not in by_id
+        or (
+            domain.minimum_coordinate is not None
+            and domain.maximum_coordinate is not None
+            and domain.minimum_coordinate > domain.maximum_coordinate
+        )
+    }
+    invalid_forbidden_intervals = {
+        interval.obstacle_id
+        for interval in problem.forbidden_intervals
+        if not interval.obstacle_id
+        or interval.member_id not in by_id
+        or interval.obstacle_id in by_id
+        or interval.minimum_coordinate >= interval.maximum_coordinate
+        or not interval.semantic_rank
+    }
+    invalid_forbidden_members = {
+        interval.member_id
+        for interval in problem.forbidden_intervals
+        if interval.member_id not in by_id
+        or interval.obstacle_id in invalid_forbidden_intervals
+    }
     invalid_shape = (
         problem.clearance < 0
         or problem.axis_sign not in (-1, 1)
+        or problem.coordinate_axis not in (0, 1)
         or not all(isfinite(value) for value in numeric)
         or any(lane.span_start > lane.span_end for lane in lanes)
         or any(
@@ -214,15 +390,38 @@ def _invalid_problem(
         invalid_members
         or duplicate_members
         or invalid_obstacles
+        or duplicate_obstacles
         or invalid_equalities
+        or invalid_fixed_equalities
+        or invalid_separations
+        or invalid_directed_separations
+        or invalid_domains
+        or invalid_forbidden_intervals
+        or by_id.intersection(obstacle_ids)
         or split_cohorts
         or invalid_shape
     ):
         return _failure(
             CorridorAllocationFailureReason.INVALID,
-            members=invalid_members | duplicate_members | split_members,
-            obstacles=invalid_obstacles,
-            equality_owners=invalid_equalities,
+            members=(
+                invalid_members
+                | duplicate_members
+                | split_members
+                | invalid_separations.intersection(by_id)
+                | invalid_directed_members
+                | invalid_domains.intersection(by_id)
+                | invalid_forbidden_members.intersection(by_id)
+                | by_id.intersection(obstacle_ids)
+            ),
+            obstacles=(
+                invalid_obstacles
+                | duplicate_obstacles
+                | invalid_separations.intersection(obstacle_ids)
+                | invalid_forbidden_intervals
+                | by_id.intersection(obstacle_ids)
+            ),
+            equality_owners=invalid_equalities | invalid_fixed_equalities,
+            order_owners=invalid_directed_separations,
             endpoint_owners={
                 lane.endpoint_owner_id
                 for lane in lanes
@@ -294,6 +493,51 @@ def _contradiction_attribution(
     )
 
 
+def _ordered_roots_or_cycle(
+    roots: set[int],
+    edges: dict[tuple[int, int], Fraction],
+    root_key: dict[int, tuple[tuple[int, ...], tuple[tuple[int, ...], ...], Fraction]],
+) -> tuple[tuple[int, ...], frozenset[int]]:
+    successors: dict[int, set[int]] = {root: set() for root in roots}
+    indegree = {root: 0 for root in roots}
+    for before, after in edges:
+        if after not in successors[before]:
+            successors[before].add(after)
+            indegree[after] += 1
+    ready = sorted(
+        (root for root, count in indegree.items() if count == 0),
+        key=root_key.__getitem__,
+    )
+    ordered: list[int] = []
+    while ready:
+        root = ready.pop(0)
+        ordered.append(root)
+        for after in sorted(successors[root], key=root_key.__getitem__):
+            indegree[after] -= 1
+            if indegree[after] == 0:
+                ready.append(after)
+                ready.sort(key=root_key.__getitem__)
+    if len(ordered) == len(roots):
+        return tuple(ordered), frozenset()
+
+    unresolved = set(roots) - set(ordered)
+
+    def reaches_self(start: int) -> bool:
+        pending = list(successors[start])
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if current == start:
+                return True
+            if current in visited or current not in unresolved:
+                continue
+            visited.add(current)
+            pending.extend(successors[current])
+        return False
+
+    return (), frozenset(root for root in unresolved if reaches_self(root))
+
+
 def solve_corridor_cohorts(  # noqa: C901, PLR0915
     problem: CorridorAllocationProblem,
 ) -> CorridorAllocationResult:
@@ -318,6 +562,17 @@ def solve_corridor_cohorts(  # noqa: C901, PLR0915
         for lane in lanes
     ]
     union_find = _WeightedUnionFind(canonical_member_keys)
+    clearance_by_pair = {
+        frozenset((separation.left_member_id, separation.right_member_id)): _q(
+            separation.distance
+        )
+        for separation in problem.separations
+    }
+
+    def required_clearance(left_id: str, right_id: str) -> Fraction:
+        return clearance_by_pair.get(
+            frozenset((left_id, right_id)), _q(problem.clearance)
+        )
 
     cohorts: dict[str, list[int]] = {}
     for index, lane in enumerate(lanes):
@@ -386,79 +641,274 @@ def solve_corridor_cohorts(  # noqa: C901, PLR0915
     }
     root_key = {
         root: (
-            preferred[root],
             lanes[component_reference[root]].semantic_rank,
             tuple(sorted(lanes[index].semantic_rank for index in members)),
+            preferred[root],
         )
         for root, members in roots.items()
     }
     peer_owners = _equality_peer_owners(problem.equalities, by_id)
 
-    lower: dict[int, Fraction | None] = {root: None for root in roots}
-    upper: dict[int, Fraction | None] = {root: None for root in roots}
-    bound_members: dict[int, set[str]] = {root: set() for root in roots}
-    bound_obstacles: dict[int, set[str]] = {root: set() for root in roots}
-    edges: dict[tuple[int, int], Fraction] = {}
-    edge_members: dict[tuple[int, int], set[str]] = {}
+    domain_floor: dict[int, Fraction] = {}
+    domain_floor_obstacles: dict[int, set[str]] = {}
+    domain_ceiling: dict[int, Fraction] = {}
+    domain_ceiling_obstacles: dict[int, set[str]] = {}
+    domain_obstacles: dict[int, set[str]] = {}
+    obstacle_shift_signs: defaultdict[str, set[int]] = defaultdict(set)
 
-    for root, members in roots.items():
-        for obstacle in problem.obstacles:
-            overlapping = [
-                index
-                for index in members
-                if _overlaps(
-                    lanes[index].span_start,
-                    lanes[index].span_end,
-                    obstacle.span_start,
-                    obstacle.span_end,
+    def tighten_floor(root: int, value: Fraction, obstacle_ids: set[str]) -> None:
+        current = domain_floor.get(root)
+        if current is None or value > current:
+            domain_floor[root] = value
+            domain_floor_obstacles[root] = set(obstacle_ids)
+        elif value == current:
+            domain_floor_obstacles.setdefault(root, set()).update(obstacle_ids)
+
+    def tighten_ceiling(root: int, value: Fraction, obstacle_ids: set[str]) -> None:
+        current = domain_ceiling.get(root)
+        if current is None or value < current:
+            domain_ceiling[root] = value
+            domain_ceiling_obstacles[root] = set(obstacle_ids)
+        elif value == current:
+            domain_ceiling_obstacles.setdefault(root, set()).update(obstacle_ids)
+
+    for domain in problem.domains:
+        index = by_id[domain.member_id]
+        root, _ = union_find.find(index)
+        obstacle_ids = set(domain.obstacle_ids)
+        minimum = (
+            None
+            if domain.minimum_coordinate is None
+            else sign * _q(domain.minimum_coordinate) - potentials[index]
+        )
+        maximum = (
+            None
+            if domain.maximum_coordinate is None
+            else sign * _q(domain.maximum_coordinate) - potentials[index]
+        )
+        if sign < 0:
+            minimum, maximum = maximum, minimum
+        if minimum is not None:
+            tighten_floor(root, minimum, obstacle_ids)
+        if maximum is not None:
+            tighten_ceiling(root, maximum, obstacle_ids)
+        domain_obstacles.setdefault(root, set()).update(obstacle_ids)
+        if obstacle_ids:
+            if domain.minimum_coordinate is not None:
+                for obstacle_id in obstacle_ids:
+                    obstacle_shift_signs[obstacle_id].add(-1)
+            if domain.maximum_coordinate is not None:
+                for obstacle_id in obstacle_ids:
+                    obstacle_shift_signs[obstacle_id].add(1)
+
+    obstacles_by_id = {obstacle.obstacle_id: obstacle for obstacle in problem.obstacles}
+    fixed_peer_members: defaultdict[str, set[int]] = defaultdict(set)
+    fixed_root_values: defaultdict[int, list[tuple[Fraction, str, str]]] = defaultdict(
+        list
+    )
+    fixed_root_owners: defaultdict[int, set[str]] = defaultdict(set)
+    for fixed_equality in problem.fixed_equalities:
+        index = by_id[fixed_equality.member_id]
+        root, _ = union_find.find(index)
+        obstacle = obstacles_by_id[fixed_equality.obstacle_id]
+        value = (
+            sign * (_q(obstacle.realised_coordinate) + _q(fixed_equality.delta))
+            - potentials[index]
+        )
+        fixed_root_values[root].append(
+            (value, fixed_equality.owner_id, fixed_equality.obstacle_id)
+        )
+        fixed_root_owners[root].add(fixed_equality.owner_id)
+        fixed_peer_members[fixed_equality.obstacle_id].add(index)
+
+    for root, values in fixed_root_values.items():
+        fixed_coordinates = {value for value, _owner, _obstacle in values}
+        if len(fixed_coordinates) != 1:
+            return _failure(
+                CorridorAllocationFailureReason.INFEASIBLE,
+                members={lanes[index].member_id for index in roots[root]},
+                obstacles={obstacle for _value, _owner, obstacle in values},
+                equality_owners={owner for _value, owner, _obstacle in values},
+                endpoint_owners={
+                    lanes[index].endpoint_owner_id for index in roots[root]
+                },
+            )
+        coordinate = next(iter(fixed_coordinates))
+        tighten_floor(root, coordinate, set())
+        tighten_ceiling(root, coordinate, set())
+
+    def clearance_shortfall(
+        root: int,
+        deficit: Fraction | None,
+        obstacle_ids: set[str],
+    ) -> CorridorClearanceShortfall | None:
+        boundary_obstacle_ids = {
+            obstacle_id
+            for obstacle_id in obstacle_ids
+            if obstacle_id in obstacle_shift_signs
+        }
+        signs = {
+            shift_sign
+            for obstacle_id in boundary_obstacle_ids
+            for shift_sign in obstacle_shift_signs[obstacle_id]
+        }
+        if (
+            deficit is None
+            or deficit <= 0
+            or not boundary_obstacle_ids
+            or len(signs) != 1
+        ):
+            return None
+        return CorridorClearanceShortfall(
+            tuple(sorted(lanes[index].member_id for index in roots[root])),
+            tuple(sorted(boundary_obstacle_ids)),
+            float(deficit),
+            problem.coordinate_axis,
+            next(iter(signs)),
+        )
+
+    conflicting_domain_roots = {
+        root
+        for root in roots
+        if root in domain_floor
+        and root in domain_ceiling
+        and domain_floor[root] > domain_ceiling[root]
+    }
+    if conflicting_domain_roots:
+        shortfall_root = min(conflicting_domain_roots)
+        return _failure(
+            CorridorAllocationFailureReason.INFEASIBLE,
+            members={
+                lanes[index].member_id
+                for root in conflicting_domain_roots
+                for index in roots[root]
+            },
+            obstacles={
+                obstacle_id
+                for root in conflicting_domain_roots
+                for obstacle_id in domain_obstacles.get(root, ())
+            },
+            equality_owners={
+                owner
+                for root in conflicting_domain_roots
+                for owner in fixed_root_owners.get(root, ())
+            },
+            clearance_shortfall=(
+                clearance_shortfall(
+                    shortfall_root,
+                    domain_floor[shortfall_root] - domain_ceiling[shortfall_root],
+                    domain_floor_obstacles.get(shortfall_root, set())
+                    | domain_ceiling_obstacles.get(shortfall_root, set()),
                 )
-            ]
-            if not overlapping:
-                continue
-            obstacle_order_coordinate = sign * _q(obstacle.order_coordinate)
-            component_order_key = (
-                preferred[root],
-                lanes[component_reference[root]].semantic_rank,
-            )
-            obstacle_order_key = (
-                obstacle_order_coordinate,
-                obstacle.semantic_rank,
-            )
-            if component_order_key == obstacle_order_key:
+                if len(conflicting_domain_roots) == 1
+                else None
+            ),
+        )
+
+    exclusion_intervals_by_root: dict[int, tuple[_ObstacleInterval, ...]] = {}
+    edges: dict[tuple[int, int], Fraction] = {}
+    edge_order_owners: defaultdict[tuple[int, int], set[str]] = defaultdict(set)
+
+    for directed_separation in sorted(
+        problem.directed_separations,
+        key=lambda item: (
+            item.owner_id,
+            item.lower_member_id,
+            item.upper_member_id,
+            item.distance,
+        ),
+    ):
+        lower_index = by_id[directed_separation.lower_member_id]
+        upper_index = by_id[directed_separation.upper_member_id]
+        lower_root, _ = union_find.find(lower_index)
+        upper_root, _ = union_find.find(upper_index)
+        required = _q(directed_separation.distance)
+        if lower_root == upper_root:
+            raw_delta = sign * (potentials[upper_index] - potentials[lower_index])
+            if raw_delta < required:
                 return _failure(
-                    CorridorAllocationFailureReason.INVALID,
-                    members={lanes[index].member_id for index in overlapping},
-                    obstacles=(obstacle.obstacle_id,),
+                    CorridorAllocationFailureReason.INFEASIBLE,
+                    members={lanes[index].member_id for index in roots[lower_root]},
+                    equality_owners=fixed_root_owners.get(lower_root, set()),
+                    order_owners=(directed_separation.owner_id,),
                     endpoint_owners={
-                        lanes[index].endpoint_owner_id for index in overlapping
+                        lanes[index].endpoint_owner_id for index in roots[lower_root]
                     },
                 )
-            component_before = component_order_key < obstacle_order_key
+            continue
+        if sign > 0:
+            before, after = lower_root, upper_root
+            root_distance = required + potentials[lower_index] - potentials[upper_index]
+        else:
+            before, after = upper_root, lower_root
+            root_distance = required + potentials[upper_index] - potentials[lower_index]
+        edge = before, after
+        edges[edge] = max(edges.get(edge, root_distance), root_distance)
+        edge_order_owners[edge].add(directed_separation.owner_id)
+
+    forbidden_by_root: defaultdict[int, list[_ObstacleInterval]] = defaultdict(list)
+    for interval in problem.forbidden_intervals:
+        index = by_id[interval.member_id]
+        root, _ = union_find.find(index)
+        if sign > 0:
+            before_bound = _q(interval.minimum_coordinate) - potentials[index]
+            after_bound = _q(interval.maximum_coordinate) - potentials[index]
+        else:
+            before_bound = -_q(interval.maximum_coordinate) - potentials[index]
+            after_bound = -_q(interval.minimum_coordinate) - potentials[index]
+        forbidden_by_root[root].append(
+            (
+                before_bound,
+                after_bound,
+                {interval.obstacle_id},
+                (interval.semantic_rank,),
+            )
+        )
+
+    for root, members in roots.items():
+        exclusion_intervals = list(forbidden_by_root.get(root, ()))
+        for obstacle in problem.obstacles:
             obstacle_coordinate = sign * _q(obstacle.realised_coordinate)
-            if component_before:
-                candidate = min(
-                    obstacle_coordinate - _q(problem.clearance) - potentials[index]
-                    for index in overlapping
+            for index in members:
+                lane = lanes[index]
+                if index in fixed_peer_members[obstacle.obstacle_id] or not _overlaps(
+                    lane.span_start,
+                    lane.span_end,
+                    obstacle.span_start,
+                    obstacle.span_end,
+                ):
+                    continue
+                clearance = required_clearance(lane.member_id, obstacle.obstacle_id)
+                exclusion_intervals.append(
+                    (
+                        obstacle_coordinate - clearance - potentials[index],
+                        obstacle_coordinate + clearance - potentials[index],
+                        {obstacle.obstacle_id},
+                        (obstacle.semantic_rank,),
+                    )
                 )
-                current_upper = upper[root]
-                upper[root] = (
-                    candidate
-                    if current_upper is None
-                    else min(current_upper, candidate)
-                )
-            else:
-                candidate = max(
-                    obstacle_coordinate + _q(problem.clearance) - potentials[index]
-                    for index in overlapping
-                )
-                current_lower = lower[root]
-                lower[root] = (
-                    candidate
-                    if current_lower is None
-                    else max(current_lower, candidate)
-                )
-            bound_members[root].update(lanes[index].member_id for index in overlapping)
-            bound_obstacles[root].add(obstacle.obstacle_id)
+
+        merged_intervals: list[_ObstacleInterval] = []
+        for obstacle_interval in sorted(
+            exclusion_intervals, key=lambda item: (item[0], item[1])
+        ):
+            if not merged_intervals or obstacle_interval[0] >= merged_intervals[-1][1]:
+                merged_intervals.append(obstacle_interval)
+                continue
+            (
+                before_bound,
+                after_bound,
+                obstacle_ids,
+                obstacle_ranks,
+            ) = merged_intervals[-1]
+            merged_intervals[-1] = (
+                before_bound,
+                max(after_bound, obstacle_interval[1]),
+                obstacle_ids | obstacle_interval[2],
+                tuple(sorted((*obstacle_ranks, *obstacle_interval[3]))),
+            )
+
+        exclusion_intervals_by_root[root] = tuple(merged_intervals)
 
     for left_index, left_lane in enumerate(lanes):
         left_root, _ = union_find.find(left_index)
@@ -476,12 +926,16 @@ def solve_corridor_cohorts(  # noqa: C901, PLR0915
                 continue
             right_root, _ = union_find.find(right_index)
             if left_root == right_root:
-                if abs(potentials[right_index] - potentials[left_index]) < _q(
-                    problem.clearance
-                ):
+                if abs(
+                    potentials[right_index] - potentials[left_index]
+                ) < required_clearance(left_lane.member_id, right_lane.member_id):
                     return _failure(
                         CorridorAllocationFailureReason.INFEASIBLE,
                         members=(left_lane.member_id, right_lane.member_id),
+                        equality_owners=(
+                            fixed_root_owners.get(left_root, set())
+                            | fixed_root_owners.get(right_root, set())
+                        ),
                         endpoint_owners=(
                             left_lane.endpoint_owner_id,
                             right_lane.endpoint_owner_id,
@@ -497,83 +951,271 @@ def solve_corridor_cohorts(  # noqa: C901, PLR0915
                         right_lane.endpoint_owner_id,
                     ),
                 )
-            if root_key[left_root] <= root_key[right_root]:
+            directed_edge = (
+                (left_root, right_root)
+                if (left_root, right_root) in edge_order_owners
+                else (right_root, left_root)
+                if (right_root, left_root) in edge_order_owners
+                else None
+            )
+            if directed_edge == (left_root, right_root) or (
+                directed_edge is None and root_key[left_root] <= root_key[right_root]
+            ):
                 before, after = left_root, right_root
-                separation = (
-                    _q(problem.clearance)
+                lane_separation = (
+                    required_clearance(left_lane.member_id, right_lane.member_id)
                     + potentials[left_index]
                     - potentials[right_index]
                 )
             else:
                 before, after = right_root, left_root
-                separation = (
-                    _q(problem.clearance)
+                lane_separation = (
+                    required_clearance(left_lane.member_id, right_lane.member_id)
                     + potentials[right_index]
                     - potentials[left_index]
                 )
             edge = (before, after)
-            edges[edge] = max(edges.get(edge, separation), separation)
-            edge_members.setdefault(edge, set()).update(
-                (left_lane.member_id, right_lane.member_id)
-            )
+            edges[edge] = max(edges.get(edge, lane_separation), lane_separation)
+
+    order, cyclic_roots = _ordered_roots_or_cycle(set(roots), edges, root_key)
+    if cyclic_roots:
+        return _failure(
+            CorridorAllocationFailureReason.INFEASIBLE,
+            members={
+                lanes[index].member_id for root in cyclic_roots for index in roots[root]
+            },
+            equality_owners={
+                owner
+                for root in cyclic_roots
+                for owner in fixed_root_owners.get(root, set())
+            },
+            order_owners={
+                owner
+                for (before, after), owners in edge_order_owners.items()
+                if before in cyclic_roots and after in cyclic_roots
+                for owner in owners
+            },
+            endpoint_owners={
+                lanes[index].endpoint_owner_id
+                for root in cyclic_roots
+                for index in roots[root]
+            },
+        )
 
     successors: dict[int, list[tuple[int, Fraction]]] = {root: [] for root in roots}
     predecessors: dict[int, list[tuple[int, Fraction]]] = {root: [] for root in roots}
-    for (before, after), separation in edges.items():
-        successors[before].append((after, separation))
-        predecessors[after].append((before, separation))
-    order = sorted(roots, key=lambda root: root_key[root])
+    for (before, after), edge_distance in edges.items():
+        successors[before].append((after, edge_distance))
+        predecessors[after].append((before, edge_distance))
 
-    for root in reversed(order):
-        for after, separation in successors[root]:
-            after_upper = upper[after]
-            if after_upper is None:
+    def closest_allowed(
+        root: int,
+        floor: Fraction | None = None,
+        ceiling: Fraction | None = None,
+        floor_obstacle_ids: set[str] | None = None,
+        ceiling_obstacle_ids: set[str] | None = None,
+    ) -> Fraction:
+        if floor is not None and ceiling is not None and floor > ceiling:
+            raise _NoCoordinateInsideBounds(
+                root,
+                (floor_obstacle_ids or set()) | (ceiling_obstacle_ids or set()),
+                floor - ceiling,
+            )
+        coordinate = preferred[root]
+        if floor is not None:
+            coordinate = max(coordinate, floor)
+        if ceiling is not None:
+            coordinate = min(coordinate, ceiling)
+        component_semantic_key = (
+            lanes[component_reference[root]].semantic_rank,
+            tuple(sorted(lanes[index].member_id for index in roots[root])),
+        )
+        for (
+            before_bound,
+            after_bound,
+            obstacle_ids,
+            obstacle_ranks,
+        ) in exclusion_intervals_by_root[root]:
+            if not before_bound < coordinate < after_bound:
                 continue
-            candidate = after_upper - separation
-            root_upper = upper[root]
-            if root_upper is None or candidate < root_upper:
-                upper[root] = candidate
-                bound_members[root].update(bound_members[after])
-                bound_members[root].update(edge_members[(root, after)])
-                bound_obstacles[root].update(bound_obstacles[after])
+            before_feasible = floor is None or floor <= before_bound
+            after_feasible = ceiling is None or after_bound <= ceiling
+            if before_feasible and after_feasible:
+                before_distance = abs(preferred[root] - before_bound)
+                after_distance = abs(after_bound - preferred[root])
+                choose_before = before_distance < after_distance or (
+                    before_distance == after_distance
+                    and component_semantic_key
+                    < (min(obstacle_ranks), tuple(sorted(obstacle_ids)))
+                )
+                if choose_before:
+                    coordinate = before_bound
+                    break
+            elif before_feasible:
+                coordinate = before_bound
+                break
+            if after_feasible:
+                coordinate = after_bound
+                continue
+            deficit_candidates = (
+                (
+                    None if floor is None else floor - before_bound,
+                    floor_obstacle_ids or set(),
+                ),
+                (
+                    None if ceiling is None else after_bound - ceiling,
+                    ceiling_obstacle_ids or set(),
+                ),
+            )
+            deficits = tuple(
+                (deficit, bound_obstacle_ids)
+                for deficit, bound_obstacle_ids in deficit_candidates
+                if deficit is not None and deficit > 0
+            )
+            deficit = min((item for item, _ids in deficits), default=None)
+            boundary_obstacles = {
+                obstacle_id
+                for item, bound_obstacle_ids in deficits
+                if item == deficit
+                for obstacle_id in bound_obstacle_ids
+            }
+            raise _NoCoordinateInsideBounds(
+                root,
+                obstacle_ids | boundary_obstacles,
+                deficit,
+            )
+        return coordinate
+
+    try:
+        latest: dict[int, Fraction] = {}
+        latest_ceiling_obstacles: dict[int, set[str]] = {}
+        for root in roots:
+            coordinate = closest_allowed(
+                root,
+                floor=domain_floor.get(root),
+                ceiling=domain_ceiling.get(root),
+                floor_obstacle_ids=domain_floor_obstacles.get(root),
+                ceiling_obstacle_ids=domain_ceiling_obstacles.get(root),
+            )
+            latest[root] = coordinate
+            latest_ceiling_obstacles[root] = (
+                set(domain_ceiling_obstacles.get(root, set()))
+                if coordinate == domain_ceiling.get(root)
+                else set()
+            )
+        for root in reversed(order):
+            ceiling_candidates = [
+                (
+                    latest[after] - separation,
+                    latest_ceiling_obstacles[after],
+                )
+                for after, separation in successors[root]
+            ]
+            if root in domain_ceiling:
+                ceiling_candidates.append(
+                    (domain_ceiling[root], domain_ceiling_obstacles.get(root, set()))
+                )
+            ceiling_candidates.append((latest[root], latest_ceiling_obstacles[root]))
+            ceiling = min(value for value, _obstacles in ceiling_candidates)
+            ceiling_obstacles = {
+                obstacle_id
+                for value, obstacle_ids in ceiling_candidates
+                if value == ceiling
+                for obstacle_id in obstacle_ids
+            }
+            coordinate = closest_allowed(
+                root,
+                floor=domain_floor.get(root),
+                ceiling=ceiling,
+                floor_obstacle_ids=domain_floor_obstacles.get(root),
+                ceiling_obstacle_ids=ceiling_obstacles,
+            )
+            latest[root] = coordinate
+            latest_ceiling_obstacles[root] = (
+                ceiling_obstacles if coordinate == ceiling else set()
+            )
+    except _NoCoordinateInsideBounds as error:
+        blockers = error.obstacle_ids
+        return _failure(
+            CorridorAllocationFailureReason.INFEASIBLE,
+            members={lanes[index].member_id for index in roots[error.root]},
+            obstacles=blockers,
+            equality_owners=fixed_root_owners.get(error.root, set()),
+            endpoint_owners={
+                lanes[index].endpoint_owner_id for index in roots[error.root]
+            },
+            clearance_shortfall=clearance_shortfall(
+                error.root,
+                error.deficit,
+                blockers,
+            ),
+        )
 
     coordinates: dict[int, Fraction] = {}
-    coordinate_members: dict[int, set[str]] = {root: set() for root in roots}
+    coordinate_floor_obstacles: dict[int, set[str]] = {}
     for root in order:
-        coordinate = preferred[root]
-        root_upper = upper[root]
-        if root_upper is not None:
-            coordinate = min(coordinate, root_upper)
-        root_lower = lower[root]
-        if root_lower is not None:
-            coordinate = max(coordinate, root_lower)
-            coordinate_members[root].update(bound_members[root])
-        for before, separation in predecessors[root]:
-            candidate = coordinates[before] + separation
-            if candidate > coordinate:
-                coordinate = candidate
-                coordinate_members[root].update(coordinate_members[before])
-                coordinate_members[root].update(edge_members[(before, root)])
-        if root_upper is not None and coordinate > root_upper:
-            component_members = {lanes[index].member_id for index in roots[root]}
-            equality_owners = {
-                owner
-                for pair, owners in peer_owners.items()
-                if pair <= set(roots[root])
-                for owner in owners
-            }
+        floor_candidates = [
+            (
+                coordinates[before] + separation,
+                coordinate_floor_obstacles[before],
+            )
+            for before, separation in predecessors[root]
+        ]
+        if root in domain_floor:
+            floor_candidates.append(
+                (domain_floor[root], domain_floor_obstacles.get(root, set()))
+            )
+        floor = max((value for value, _obstacles in floor_candidates), default=None)
+        floor_obstacles = {
+            obstacle_id
+            for value, obstacle_ids in floor_candidates
+            if value == floor
+            for obstacle_id in obstacle_ids
+        }
+        if floor is not None and floor > latest[root]:
+            blockers = floor_obstacles | latest_ceiling_obstacles[root]
             return _failure(
                 CorridorAllocationFailureReason.INFEASIBLE,
-                members=component_members
-                | bound_members[root]
-                | coordinate_members[root],
-                obstacles=bound_obstacles[root],
-                equality_owners=equality_owners,
+                members={lanes[index].member_id for index in roots[root]},
+                obstacles=blockers,
+                equality_owners=fixed_root_owners.get(root, set()),
                 endpoint_owners={
                     lanes[index].endpoint_owner_id for index in roots[root]
                 },
+                clearance_shortfall=clearance_shortfall(
+                    root,
+                    floor - latest[root],
+                    blockers,
+                ),
+            )
+        try:
+            coordinate = closest_allowed(
+                root,
+                floor=floor,
+                ceiling=latest[root],
+                floor_obstacle_ids=floor_obstacles,
+                ceiling_obstacle_ids=latest_ceiling_obstacles[root],
+            )
+        except _NoCoordinateInsideBounds as error:
+            blockers = error.obstacle_ids
+            return _failure(
+                CorridorAllocationFailureReason.INFEASIBLE,
+                members={lanes[index].member_id for index in roots[error.root]},
+                obstacles=blockers,
+                equality_owners=fixed_root_owners.get(error.root, set()),
+                endpoint_owners={
+                    lanes[index].endpoint_owner_id for index in roots[error.root]
+                },
+                clearance_shortfall=clearance_shortfall(
+                    error.root,
+                    error.deficit,
+                    blockers,
+                ),
             )
         coordinates[root] = coordinate
+        coordinate_floor_obstacles[root] = (
+            floor_obstacles if coordinate == floor else set()
+        )
 
     allocations: list[tuple[str, float]] = []
     for index, lane in enumerate(lanes):
@@ -597,8 +1239,14 @@ __all__ = [
     "CorridorAllocationProblem",
     "CorridorAllocationResult",
     "CorridorAllocationStatus",
+    "CorridorClearanceShortfall",
+    "CorridorCoordinateDomain",
+    "CorridorDirectedSeparation",
     "CorridorEquality",
+    "CorridorFixedEquality",
+    "CorridorForbiddenInterval",
     "CorridorLane",
     "CorridorObstacle",
+    "CorridorSeparation",
     "solve_corridor_cohorts",
 ]
