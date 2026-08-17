@@ -1,6 +1,6 @@
 ---
 name: fix-issue
-description: End-to-end workflow for fixing GitHub issues on the nf-metro repo with diagnostic rigor. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Handles worktree setup, a reused persistent env (no per-issue env creation), diagnostic-first investigation, authoring-mistake-vs-engine-bug triage (never dodge an engine bug by doctoring the reproducer), invariant-test-first implementation, runtime validators, evidence-cited fix verification, /simplify pass, full-repo lint, visual review via render preview, narrow-the-fix iteration on regressions, cost discipline (targeted tests, CI render-diff over local gallery rebuilds, skip-ci on WIP), scope discipline that fixes adjacent fallout in-session via delegated subagents instead of deferring it to a child issue, standalone issue-body hygiene, additive-only PR hygiene (no force-push, no narrative comments), clean execution of an authorised admin-merge (preserve history, no CI re-run), origin verification after every push, and PR creation. Supports an optional autonomous / net-negative mode (activated by "no deferrals", "work overnight", "net-negative issues", "drive it to conclusion", or "push a complete fix and address all the fallout") that suspends the multi-session-deferral carve-out and drives every surfaced fallout issue to a landed, reviewable PR the same session, while still merging only what the user authorises per-PR. Trigger on phrases like "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. For shepherding a chain of already-existing PRs back to main, see `pr-chain-vet` instead.
+description: Coordinator-led end-to-end workflow for fixing GitHub issues on nf-metro with diagnostic rigor and context-light delegation. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Routes diagnosis, implementation, testing, visual judgment, review, and adjacent fallout to scoped workers while the coordinator retains authority, integration gates, Git/PR mutations, and reporting. Preserves invariant-test-first implementation, runtime validators, evidence-cited verification, /simplify, full-repo lint, CI render review, additive-only history, origin verification, and explicit merge authorisation. Supports autonomous / net-negative requests without inventing merge or issue-closure authority. Trigger on phrases like "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. For shepherding a chain of already-existing PRs back to main, see `pr-chain-vet` instead.
 ---
 
 # Fix Issue
@@ -22,61 +22,101 @@ simply" or for "less words", cut - don't re-expand.
 - micromamba: `/opt/homebrew/bin/micromamba` (macOS Apple Silicon codesign
   workaround). On other platforms, just `micromamba` if it's on PATH.
 
+## Primary invariant: coordinate, delegate, verify independently
+
+Keep the coordinator clean and context-light. It owns user communication and
+authority, a compact task/evidence ledger, worker routing, integration gates,
+deterministic Git integration and remote mutations, and final reporting. It
+does **not** do substantive diagnosis, implementation, domain assessment,
+visual judgment, `/simplify`, gate interpretation, or code review. Assign those tasks to workers
+with proportionate capability. Choose a model or reasoning level only when the
+available worker-launch mechanism exposes that choice and the task benefits from it;
+do not hardcode provider-specific names or assume unavailable options.
+
+Maintain a compact ledger containing: issue and authority state; worktree,
+branch, base, and writer; current hypothesis and evidence links; worker
+assignments and verdicts; changed files and commits; commands and outcomes;
+I/N/D visual classifications; fallout; blockers; CI/PR state; next gate. Keep
+deep context, long test output, render analysis, and review detail in worker
+handoffs or artifacts rather than replaying it into the coordinator.
+
+### Worker brief and handoff contract
+
+Before every assignment, state:
+
+- role and objective; capability/model/reasoning choice only when useful and
+  explicitly available;
+- read/write authority and exact worktree plus file scope;
+- inputs and artifact locations;
+- required output/evidence schema and acceptance bar;
+- dependencies and stop/escalation conditions.
+
+Allow exactly one writer in each worktree. Give concurrent writers separate
+worktrees and non-overlapping write scopes; otherwise serialize them. Keep
+diagnostic, verifier, visual-review, and code-review roles read-only and
+independent of the writer. Read-only workers never persist tracked, untracked,
+or ignored worktree changes; place their logs, caches, and generated evidence
+outside the worktree. Readers run concurrently only against a frozen commit SHA or
+snapshot, never a live worktree during an active writer assignment. The
+coordinator categorically owns pushes, issue and PR edits, merges, retargeting,
+and cleanup. User authority determines whether the coordinator acts; it never
+transfers that ownership to a worker.
+
+Use one candidate sequence throughout: the sole writer makes local candidate
+commit(s), runs mutation-capable hooks or generators, and hands off the exact
+SHA. Independent read-only workers verify and review that SHA without changing
+it. If fixes are required, serialize them back to the writer and verify the new
+SHA. Only the coordinator pushes the accepted SHA and performs remote changes.
+
+Require every worker to return:
+
+1. scope completed;
+2. files changed and candidate commit SHA, or an explicit no-change result;
+3. exact commands and outcomes;
+4. before/after evidence;
+5. risks and blockers;
+6. acceptance verdict: pass, fail, or blocked with the precise escalation.
+
+A blocked handoff is valid when it satisfies this schema. Re-brief from its
+evidence, route a different capability, or escalate to the user when authority
+or a material product decision is missing. Never demand an unbounded worker
+loop or treat diagnosis as implementation.
+
+### Aggregate-progress review
+
+For long-running work, send the compact ledger plus raw evidence to a fresh,
+read-only, high-judgment reviewer after diagnosis, after the first complete
+implementation/verification loop, and before the final PR-ready gate. Also do
+this after two repeated blocks, material scope growth, conflicting verdicts,
+acceptance-bar changes, or multiple active worktrees. For steady work, repeat
+after a small cluster of worker handoffs rather than relying on a brittle
+time-only timer. Record the review verdict and revise later worker briefs,
+scope, or gates from its findings. The coordinator must not substitute its own
+substantive review.
+
 ## Scope discipline: fix the fallout, don't defer it
 
-This skill has historically erred toward "that's a separate issue" the moment
-a fix surfaces a second problem - a related engine bug, a coverage gap, a
-stale test, a lint violation in a file already open, even one in a
-completely different subsystem. That default is flipped: **resolving
-fallout within this same session is the default; filing an issue and leaving
-it for a future session is the exception.** A queue of maybe-someday child
-issues is administrative burden on the user, not a scope win - re-triaging
-each one later costs more than fixing it now while the context is already
-loaded.
+Resolve bounded fallout surfaced by diagnosis, implementation, `/simplify`,
+lint, review, or CI in the current run. Filing and deferring is the exception.
 
-- When diagnosis, implementation, `/simplify`, lint, or CI turns up an
-  adjacent, fixable problem anywhere in the repo - including in a different
-  subsystem than the one you're already editing - fix it in this session
-  rather than filing it and moving on. Being in a different subsystem,
-  needing its own worktree, or requiring you to load unfamiliar code is
-  **not, by itself**, a reason to defer.
-- Use the `Agent` tool to protect your own context budget while doing this,
-  not as a reason to skip it. **Always pass an explicit `model` param on the
-  `Agent` call - never omit it and let the child silently inherit the
-  session's model.** Omitting `model` is not "no decision was made", it's
-  "opus got picked by default without anyone deciding that." Default to
-  `model: "sonnet"`; set `model: "opus"` only when you decide *before
-  spawning* that the triage or fix genuinely needs harder judgment, and say
-  so in one line when you do. If you notice after the fact that a child ran
-  on opus with no `model` param set, that's a mistake to correct (restart it
-  on sonnet), not a choice to defend - don't rationalize keeping it because
-  the task turned out to suit opus in hindsight; that judgment call has to
-  happen at spawn time, explicitly, or not at all. Run agents in the
-  background (or a separate worktree, per the global worktree rule, if the
-  fallout touches files you're not actively editing) and fold results back
-  in before the session ends. Independent pieces of fallout can run as
-  concurrent subagents instead of serially eating your own context - that's
-  what makes taking on a different subsystem's fix tractable in the same
-  session.
-- "Resolved in this session" does not mean "crammed into one PR." If folding
-  the fallout into the primary PR would make it harder to review, ship it as
-  its own sibling PR instead. The bar is that the fallout's PR gets built,
-  pushed, and left in a reviewable state before the session ends - not that a
-  future session has to rediscover it from a filed issue.
-- Reserve an actual filed issue + deferral for cases that are genuinely
-  disproportionate: a fix that would take multiple sessions to complete in
-  its own right, or something that needs a decision only the user can make.
-  **Size and duration are the test, not which subsystem the fallout lives
-  in.** When you do defer, say so explicitly and why - deferral should be a
-  stated judgment call, never the silent default.
+- A different subsystem, separate worktree, or unfamiliar code is not by itself
+  a reason to defer.
+- Route each fallout item through the same worker protocol as the primary fix.
+  Run independent read-only tasks concurrently. Give any fallout writer its
+  own worktree unless the primary writer has finished and the assignment is
+  explicitly serialized in the primary worktree.
+- Keep a coherent fallout fix in the primary PR; use a sibling PR when that is
+  more reviewable. Only the coordinator creates or edits the sibling PR.
+- Reroute bounded blocks. Return a structured blocker when completion requires
+  missing authority, unavailable capability, external-state change, a material
+  user decision, or a genuinely multi-session program. Do not disguise the
+  blocker with an xfail or child issue.
 - This is not licence for scope creep into features the user didn't ask
   about - it's about not walking away from problems the *current* work
   surfaced.
 
-This governs every step below: the "second finding" in Step 3, coverage gaps
-in the Step 7 gate-coverage ratchet, and anything `/simplify` or review turns
-up in Step 6 all default to fix-now-via-subagent (in this PR or a sibling
-one) over file-and-defer.
+This applies equally to second findings, gate-coverage gaps, `/simplify`, and
+review findings.
 
 ## Optional mode: autonomous / net-negative
 
@@ -86,58 +126,42 @@ you to it", or an explicit "push a complete fix and address all the fallout".
 It does not relax the diagnostic or verification rigour of the steps below; it
 changes two defaults.
 
-**1. The deferral exception is suspended.** The "genuinely disproportionate /
-multi-session" carve-out above does not apply in this mode. A coupled or hard
-defect, and any incident issue the work surfaces (a second engine bug, a
-seam/reversal soundness gap, a hygiene refactor `/simplify` flags), is driven
-to a landed, reviewable PR *this session* - not filed and left. Delegate the
-heavy work to agents (one own worktree each, explicit `model`, run in the
-background so independent fallout runs concurrently), and give each a hard
-acceptance bar rather than an open question: "clean render AND byte-identical
-corpus verified via real `render_svg()` md5 hashes; iterate until both hold;
-do not report not-bounded." The CI render-diff is the vetting gate that makes a
-corpus-risky change to shared code safe to ship autonomously - a byte-identical
-corpus plus a green render-diff is the proof, so you are free to touch a shared
-handler as long as that holds. When a first agent reports "blocked / not
-bounded", re-brief it with the diagnosis it produced and push through; a
-thorough diagnosis is the *start* of the fix, never a substitute for it.
+**1. Tighten the deferral bar.** Drive coupled defects and incident fallout to
+a complete, reviewable PR in the current run whenever they remain bounded.
+Brief each worker with the real acceptance bar: the target render is clean,
+tests and validators pass, and every corpus delta receives independent I/N/D
+classification. Require byte identity only where no visual delta is intended;
+independently accepted I/N deltas are valid evidence. Accept structured blocked
+handoffs, then re-route or escalate rather than forcing an unbounded loop.
 
-**2. Net-negative open-issue count.** The session must END with fewer open
-issues than it started. Never open an issue and stop: opening one only to close
-it via a same-session PR is fine (net zero on that issue); leaving it OPEN at
-session end is the failure mode this mode exists to prevent. If you file a
-child issue at all, you owe its resolution - an agent, a sibling PR - the same
-session. Track the arithmetic explicitly at the end: issues closed vs. issues
-opened-and-still-open; the second number must be 0, or the total must go down.
+**2. Track net-negative progress without inventing authority.** Do not open a
+child issue merely to defer bounded fallout. Track issues resolved by merged
+PRs, reviewable PRs awaiting user authority, and any newly opened issues. Fewer
+open issues is the goal, but lack of merge authority or a required user
+decision is a legitimate stop. Never claim issue closure before the relevant
+PR merges, and never merge only to satisfy the arithmetic.
 
-**Bounded to the fix's fallout, not a frontier.** This mode resolves what the
-*current* work surfaces - a coupled defect, an incident bug, a `/simplify`
-refactor of code you just touched - with a proportionate handful of agents. It
-is not licence to keep pulling threads into a full-engine overhaul or a cascade
-of dozens of child sessions. If a surfaced item is itself a large program - a
-subsystem rewrite, a sweeping cross-cutting refactor, anything that would
-genuinely need many agents or several sessions *in its own right* - that is the
-one case that still stops: flag it, size it, and get a user decision rather
-than silently recursing into it. The bar is "finish the thing I was asked to
-fix, plus the debris it kicked up", not "fix everything adjacent". Deferral
-returns here, and only here - narrowed to genuinely large programs, never to
-"this is hard" or "it is a different subsystem".
+**Bounded to fallout, not a frontier.** Resolve defects the current work
+surfaces. Stop and return a structured blocker for a subsystem rewrite,
+sweeping cross-cutting refactor, unavailable capability, external-state block,
+or required user decision. Do not recurse into an open-ended program.
 
 **Still in force in this mode - do not over-read "autonomous":**
 - Never merge without explicit per-PR authorisation from the user. Autonomy is
   about resolving and pushing *complete* work, not self-authorising merges.
-  "Drive to conclusion" means "get every PR green and reviewable"; merge only
-  what the user okays, per-PR (Step 8 / Step 12). Pre-authorisation to *work*
-  overnight is not pre-authorisation to *merge*.
+  "Drive to conclusion" means "get each bounded PR green and reviewable, or
+  return its structured blocker"; merge only what the user okays, per-PR.
+  Pre-authorisation to *work* is not pre-authorisation to *merge*.
 - Every step's rigour below still applies to every PR, including the fallout
   ones: diagnostic-first, invariant-test-first, `/simplify`, evidence-cited
   verification, additive-only pushes, origin check, standalone issue bodies.
-- Verify each delegated agent's result yourself - re-run the byte-identical
-  corpus diff with real renders, confirm the test fails without the fix - and
-  eyeball the actual render; do not merge a claim.
-- The one acceptable open-at-end issue is one that genuinely needs a decision
-  only the user can make - and then you say so explicitly and get agreement,
-  you do not default to it.
+- Assign an independent verifier to reproduce before/after evidence, test the
+  fix, and inspect the actual render. Assign a separate visual reviewer for
+  judgment calls. The coordinator may check paths, exit codes, hashes, OIDs,
+  and handoff completeness, but must not duplicate substantive verification.
+- Report every open-at-end item with its blocker: awaiting merge authority,
+  awaiting a user decision, or a genuinely large program. Do not conceal it or
+  call a reviewable but unmerged PR "closed".
 
 ## Step 1: Understand the Issue
 
@@ -145,25 +169,23 @@ returns here, and only here - narrowed to genuinely large programs, never to
 gh issue view <N> --repo seqeralabs/nf-metro
 ```
 
-Summarize the problem and proposed approach. Wait for user confirmation before
-proceeding - unless the user has pre-authorised autonomous work (the optional
-mode above; e.g. "I'll leave you to work overnight, drive it to conclusion"),
-in which case proceed without blocking and report as you go.
+Have a read-only investigator assess the issue against current repository and
+remote evidence, then return the problem statement, initial scope, unknowns,
+and proposed diagnostic brief. The coordinator records the compact result and
+summarizes it to the user. Wait for confirmation before proceeding unless the
+user has pre-authorised autonomous work; never infer merge or issue-edit
+authority from that permission.
 
 ### Issue hygiene
 
 Every issue is run through *this skill* fresh in a later session, so the
-**issue body must be standalone and self-contained**. When you learn
-something during the fix that a future session would need (the real cause, a
-repro, a constraint), fold it into the **issue body** - do not scatter it
-across comments, and do not leave superseded-approach detail that would
-mislead a fresh reader. Keep the body concise. If the fix uncovers a
-genuinely separable defect, default to fixing it in this session (see
-"Scope discipline" above - delegate to a subagent if it would crowd your
-diagnostic context, even for a different subsystem) rather than filing a
-child issue and walking away. File a standalone child issue only when the
-defect is a multi-session undertaking in its own right, and say so
-explicitly.
+**issue body must be standalone and self-contained**. Have the relevant worker
+return concise body-ready facts when it learns a cause, repro, or constraint.
+Only the coordinator edits the issue body, and only with authority. Do not
+scatter facts across comments or retain superseded approaches. Route a
+separable defect through "Scope discipline" rather than filing a child issue
+and walking away. File only when it is a multi-session undertaking in its own
+right, the user has authorised the write, and the new body stands alone.
 
 ## Step 2: Worktree + Environment Setup
 
@@ -174,7 +196,12 @@ git fetch origin main
 git worktree add /tmp/nf-metro-fix-<N> -b fix/<N>-<slug> origin/main
 ```
 
-All subsequent work happens inside `/tmp/nf-metro-fix-<N>`.
+All repository-changing work for the primary fix happens inside
+`/tmp/nf-metro-fix-<N>`. The coordinator performs this deterministic setup,
+records the exact base SHA, and assigns one writer. Read-only workers may
+inspect only a frozen SHA or snapshot, not the live worktree while the writer
+is active. Do not allow a second writer until the first hands off and the
+coordinator serializes the next assignment.
 
 ### Environment: reuse one persistent env, don't create one per issue
 
@@ -221,32 +248,37 @@ PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit ...`.
 
 ## Step 3: Diagnostic Before Fix
 
-**Do not propose fixes from hypotheses.** Reproduce the symptom in numbers
-before writing any code:
+Assign a read-only diagnostic worker before the writer changes code. **Do not
+propose fixes from hypotheses.** Require the worker to reproduce the symptom in
+numbers:
 
 1. Render the affected example(s) on the current `main` (the before-state).
-2. Inspect the rendered SVG: read the actual coordinates / element
-   attributes that are wrong. Print them, log them, eyeball them.
+2. Inspect the rendered SVG and actual coordinates or element attributes.
 3. Restate the bug as "element X has property P=<observed>, expected
-   P=<target>" - a concrete numeric or structural claim. If you can't state
-   the bug this way, you don't understand it yet; keep digging.
+   P=<target>" - a concrete numeric or structural claim. Return blocked if the
+   worker cannot state it yet; diagnosis must continue before implementation.
 
-Only after the symptom is pinned down to specific numbers should you reason
-about which layout pass / function produced them.
+Only after the symptom is pinned down to specific numbers may the diagnostic
+worker reason about which layout pass or function produced them. Require an
+independent diagnostic or aggregate reviewer to challenge any high-impact
+domain classification before implementation.
 
 ### Check your premise against current `origin/main` first
 
-Diagnose against latest remote, not a stale tree. `git fetch origin main` and
-confirm the bug **still reproduces on latest** before reasoning about a cause -
+Diagnose against latest remote, not a stale tree. The coordinator fetches
+`origin/main`; the diagnostic worker confirms the bug **still reproduces on
+that exact SHA** before reasoning about a cause -
 a sibling PR may already have fixed it or changed the very code you're reading.
 If the user says something is already addressed, re-fetch and look again before
 disagreeing; "I'm looking at outdated code" is a recurring wrong turn. If a
-related PR merges mid-session, `git merge origin/main` into the worktree and
-re-diagnose before continuing.
+related PR merges mid-session, first require the writer to hand off a clean,
+committed candidate. The coordinator may then serialize a base-merge assignment
+to that sole writer. Keep conflicts and required edits with the writer. Assign
+re-diagnosis on the resulting candidate SHA.
 
 ### Classify: authoring mistake or engine bug?
 
-Before touching anything, decide which of two things you're looking at:
+Require the diagnostic worker to decide which of two things it is looking at:
 
 - **(a) An mmd authoring mistake** - the `.mmd` misdescribes the pipeline
   (wrong line on a station, a missing edge, a bad directive). The fix *is* to
@@ -257,47 +289,18 @@ Before touching anything, decide which of two things you're looking at:
   pipeline and the *engine* lays it out badly. The fix goes in `src/`
   (layout / routing / parser). The reproducing `.mmd` stays untouched.
 
-State which one it is, in numbers, before writing code.
+Record which one it is, in numbers, before briefing the writer.
 
 ### Once it's an engine bug, the reproducer is frozen evidence
 
 **Never "fix" an engine bug by editing the input to dodge the bad layout.**
-Do not simplify the reproducing `.mmd`'s labels, drop stations, reorder
-lines, or add directives to make the ugly render go away. That changes the
-question instead of answering it, and ships a false fix. The map is correct;
-the engine must handle it.
-
-This applies to fixtures you *author*, too: when building a new regression
-fixture, don't file it down to sidestep a second bad render you notice while
-constructing it (e.g. shortening a multi-line label so a label-interaction
-bug won't show). A second bad render is a **second finding** - per "Scope
-discipline" above, default to fixing it in this session (spin up a subagent
-to diagnose/fix it in parallel rather than letting it derail your primary
-diagnosis, even if it lands in an unrelated part of the engine) rather than
-just noting it and moving on. Only file it standalone and defer if it is
-genuinely a multi-session undertaking on its own. A fixture that has
-been quietly simplified to look clean no longer locks the bug it was meant to
-lock. (Real example: a `"ORF quant"` -> `"ORFquant"` relabel that hid a
-multi-line-label interaction rather than reporting it.)
-
-The only legitimate input edits during an engine fix are: authoring a
-faithful *new* reproducer, or correcting a genuine (a)-class authoring
-mistake you've identified as the actual cause.
-
-### This rule holds for the whole fix, not just the freeze moment
-
-The pull toward touching the `.mmd` instead of `src/` doesn't only show up
-when you first classify the bug - it resurfaces later, when the code fix
-turns out to be harder than expected: trimming a label, dropping a station,
-reordering lines, splitting a section, or adding a directive so the
-reproducer renders cleanly while the engine still mishandles the general
-case. That is the same workaround wearing the disguise of "polish" or
-"narrowing." Step 9's narrowing means gating the *code path* on a real
-structural precondition (a topology predicate, a config flag) - never
-gating it by rewording the input so the bad path isn't exercised anymore.
-If you catch yourself thinking "what if I just changed the mmd instead"
-partway through implementation, treat that as the signal to stop and go
-fix the engine, not as a shortcut worth taking.
+Do not trim labels, remove or reorder stations or lines, split sections, or add
+directives to avoid the bad path. This applies to existing and newly authored
+fixtures. Legitimate input edits are a faithful new reproducer or correction of
+the diagnosed authoring mistake. Treat any additional bad render as fallout.
+Step 9 narrowing must gate code on a structural precondition, never reword the
+input. If the writer proposes an input workaround during an engine fix, stop
+and route the evidence back through diagnosis.
 
 ### Diagnostic tooling
 
@@ -320,14 +323,14 @@ conveniences, not requirements - any way you pin the bug to numbers is fine.
 If the issue happens to have been filed by the `nf-metro-stress-render` skill,
 it carries a correct-by-construction repro `.mmd` in a `<details>` fold in the
 issue body - start from that rather than re-deriving one. Most issues won't have
-this; in that case build the reproducer yourself as usual.
+this; otherwise assign the diagnostic worker to build a faithful reproducer.
 
 ## Step 4: Write the Invariant Test FIRST
 
 ### First, check for an existing regression lock
 
-Most issues arrive bare and you write the failing test yourself (skip to the
-numbered steps below). But some - notably those filed by the
+Most issues arrive bare, so brief the writer to add the failing test (skip to
+the numbered steps below). But some - notably those filed by the
 `nf-metro-stress-render` skill - arrive with their regression infra **already
 in place**: a fixture in `examples/topologies/`, a `GALLERY_ENTRIES` row in
 `scripts/build_gallery.py`, and a `strict=True` xfail test referencing the issue
@@ -348,26 +351,13 @@ grep -rn "#<N>" tests/ scripts/build_gallery.py examples/topologies/
 
 ### xfail is a lock on a known bug, not an escape hatch
 
-The `strict=True` xfail pattern above exists for issues that arrive with
-regression infra already wired in - it locks a bug that's already filed and
-tracked. It is not a tool for *this* session to reach for when the real fix
-turns out to be harder than expected. Do not mark a new test `xfail`
-(strict or otherwise) so you can move on and leave the actual bug for a
-future session to untangle - that's the same deferral "Scope discipline"
-above already rejects, just spelled with a pytest decorator instead of a
-filed child issue. If a test you write in the steps below won't pass, that
-means the fix isn't done yet; keep going. It does not mean the test should
-be muted.
+Do not add an xfail to hide an incomplete fix. Reroute bounded work; if
+authority, capability, external state, or a material decision blocks it,
+return the structured blocker without muting the test or filing a child issue
+as camouflage. Add a new xfail only when the user explicitly accepts a genuine
+multi-session deferral and the marker references its standalone issue.
 
-The only acceptable use of a *new* xfail is the genuine multi-session case
-"Scope discipline" already covers: the underlying fix is disproportionate to
-this issue, you've said so explicitly, and you're filing a follow-up issue
-for it - the xfail marker is a byproduct of that stated deferral, not a
-substitute for making it. Treat "I'll xfail this for now" as the same red
-flag as "I'll simplify the mmd for now": both quietly convert a bug the
-engine has into a fixture that dodges it instead of one that gets fixed.
-
-Before any production code change:
+Brief the single writer to do the following before any production code change:
 
 1. Write a test that encodes the invariant the bug violates (e.g. "no two
    stations share a grid cell", "trunk centre is symmetric about the fan
@@ -377,10 +367,10 @@ Before any production code change:
    The existing `test_layout_invariants.py` historically over-relies on
    `da_pipeline.mmd`; new invariants should be exercised against several
    gallery fixtures so they generalise.
-3. Run the test and **verify it fails on `main`**. If it passes, the test
-   doesn't actually encode the bug - rewrite it.
+3. Run the test and capture that it **fails on `main`**. If it passes, rewrite
+   it because it does not encode the bug.
 4. Now write the fix.
-5. Re-run the test and verify it passes.
+5. Re-run the test and capture that it passes.
 
 This guarantees the test is meaningful (it caught the bug) and the fix is
 meaningful (the test now passes because of the fix, not coincidence).
@@ -388,8 +378,8 @@ meaningful (the test now passes because of the fix, not coincidence).
 ## Step 5: Add a Runtime Validator
 
 Where the invariant is about layout properties that could regress silently
-(overlap, off-grid placement, asymmetry, etc.), also add a `_guard_*`
-function and wire it into `compute_layout`'s validate block.
+(overlap, off-grid placement, asymmetry, etc.), require the writer to add a
+`_guard_*` function and wire it into `compute_layout`'s validate block.
 
 Validators must **fail loudly** - raise with a clear, contextual error
 message. Silent warnings or `print()`s are not acceptable; they get
@@ -398,8 +388,11 @@ current behaviour.
 
 ## Step 6: /simplify Pass
 
-After the fix and tests are passing, invoke the `simplify` Skill on the
-changed code. Apply its suggestions and commit as a **separate** commit:
+After the fix and tests are passing, assign a fresh read-only worker to invoke
+the `simplify` skill on the changed code. It returns findings, proposed edits,
+and a pass/fail verdict without writing. Re-brief the worktree's sole writer to
+apply accepted suggestions and record them in a **separate** local candidate
+commit:
 
 ```
 refactor: tighten <area> after fix for #<N>
@@ -407,8 +400,10 @@ refactor: tighten <area> after fix for #<N>
 
 Keeping `fix:` and `refactor:` commits separate makes the fix itself easy
 to review and easy to revert in isolation if regressions surface.
+The writer then hands off the exact candidate SHA, and an independent verifier
+checks that SHA before it can be accepted.
 
-**Re-running it later:** `/simplify` is expensive, so don't re-run it after
+**Re-running it later:** `/simplify` is expensive, so don't assign it after
 every follow-up commit. Only re-run it on the final aggregate diff if later
 steps (narrowing a regression, lint/mypy fixes) added a **substantial** chunk
 of new production code the first pass never saw. A couple of small,
@@ -416,48 +411,47 @@ already-clean follow-up edits don't warrant a second pass.
 
 ## Step 7: Lint and Tests
 
-The repo's `prek` hooks (config `prek.toml`) run on every `git commit`: ruff
-check/format on `src/` and `tests/`, mypy, trailing whitespace, yaml. If a
-commit fails on a hook, fix the issue and re-commit. Never skip hooks with
-`--no-verify`.
-
-To run the checks without committing (needs `prek`, which lives on the
-`nf-core` env, plus a stub-complete `mypy`):
+The sole writer runs all mutation-capable formatting, fixing, regeneration,
+and hook commands, resolves their changes, then creates the candidate commit.
+Never skip hooks with `--no-verify`. `prek` needs the `nf-core` environment and
+stub-complete `mypy`:
 
 ```bash
 micromamba run -n nf-core prek run --all-files
 ```
 
-Then run the **targeted** tests for the area you changed - not the full
-suite by default:
+Assign an independent read-only verifier the exact candidate SHA. Require a
+clean tree before and after and run only against a frozen checkout or snapshot.
+Put every cache, temporary file, and log in an external artifact directory;
+disable bytecode and in-worktree caches. Return the command, exit status,
+concise failure excerpt, and verdict. Use this environment for every verifier
+command below:
 
 ```bash
-cd /tmp/nf-metro-fix-<N> && PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" -q --no-header
+export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>
+mkdir -p "$VERIFY_ARTIFACT_DIR/tmp"
+export PYTHONDONTWRITEBYTECODE=1
+export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
+export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
+test "$(git rev-parse HEAD)" = <CANDIDATE_SHA>
+test -z "$(git status --porcelain)"
+ruff check --no-cache src/ tests/
+ruff format --check --no-cache src/ tests/
+mypy --cache-dir="$VERIFY_ARTIFACT_DIR/mypy"
+PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" -q --no-header -p no:cacheprovider --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp"
+git diff --exit-code <CANDIDATE_SHA>
+test -z "$(git status --porcelain)"
 ```
 
-CI already runs the complete suite across three Python versions x three
-shards on every push (the `test` matrix in `.github/workflows/ci.yml`), so a
-routine full local run mostly duplicates work CI is about to do anyway - if
-something's broken, the push reds just as loudly, without paying for a local
-pass first. Reserve a full local run for when it earns its cost:
+Route failures back to the writer, then verify the new SHA. Run the full local
+suite only when it earns its cost:
 
-- **The change is risky** - it touches shared/widely-used code (`engine.py`
-  orchestration, a helper called from many phases, the parser's core model,
-  a shared dispatch table) where a narrow selector genuinely can't see the
-  blast radius. Here a full local run is *worth it precisely because it's
-  faster than CI*: half a minute locally beats waiting on the full
-  three-version x three-shard matrix to come back red on something a local
-  run would have caught immediately.
-- You're about to ask for an admin-merge and want that confidence *before*
-  bypassing the review gate, not after.
-- A targeted run passed but you have a concrete reason to suspect a wider
-  regression it wouldn't reproduce (e.g. you touched a shared constant or a
-  cross-cutting guard used well outside the issue's area).
+- shared orchestration, parser model, dispatch table, or widely used helper
+  changed;
+- a targeted pass cannot cover a concrete wider-regression risk;
+- explicit admin-merge preparation needs local full-suite confidence.
 
-For an ordinary fix scoped to one function, one routing handler, or one
-layout phase, targeted tests (plus the gate-coverage ratchet below, if the
-change is in `layout/routing/`) is enough - let CI's matrix be the
-full-suite gate rather than re-running it locally "just to be safe."
+Otherwise use targeted tests and let CI run the complete matrix.
 
 ### Cost discipline (applies throughout)
 
@@ -465,19 +459,9 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
 
 - **Reuse the persistent env** (Step 2). Do not `micromamba create` per
   issue - it re-solves the whole dependency set every session for nothing.
-- **Full suite vs targeted.** Default to the narrowest selection
-  (`python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>"`,
-  then `--lf` to re-run only what just failed), with `-q --no-header -x` to
-  keep the output tiny. Don't run the full suite locally as a routine
-  pre-push step - see the reserved-cases list above; when none of them
-  apply, skip straight to pushing and let CI's matrix be the full-suite
-  check. `addopts` bakes in `-n auto` so a full run *is* cheap in
-  wall-time (~half a minute), but the cost that matters here is
-  *repetition* - each run's summary re-entering context - so don't pay it
-  when CI is about to run the same suite for free. The routing/TB ratchets
-  are 3.11-only, so if you do run locally, keep the env on 3.11 or they
-  skip and only red in CI.
-- **Read coordinates, don't rasterize, for non-visual questions.**
+- **Default to targeted checks.** Use `--lf`, `-q --no-header -x`, and Python
+  3.11 for routing/TB ratchets. Keep full logs outside coordinator context.
+- **Have diagnostic workers read coordinates, not rasterize, for non-visual questions.**
   `inspect_layout.py` / `probe_layout.py` print the geometry as cheap text;
   a render -> cairosvg PNG -> open -> image-into-context cycle is far heavier
   and only earns its cost for a genuine *visual* check. "Is station X on the
@@ -491,7 +475,7 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   whole-corpus diff. A local `build_gallery` / render-diff sweep repeated
   many times just duplicates it. Local rendering is for a *single* file's
   quick sanity check.
-- **Read the big layout files in wide slices and stay oriented.**
+- **Brief workers to read the big layout files in wide slices and stay oriented.**
   Re-fetching `engine.py` / `fan_bundles.py` / `ordering.py` /
   `routing/*` twenty times over a session is the single largest cache-read
   cost. Read the region once, generously, and keep it in working context.
@@ -501,6 +485,10 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   fixes a known CI failure must re-run CI: no `[skip ci]` on those.)
 
 ### If your change touched `layout/routing/`: the gate-coverage ratchet
+
+Assign gate interpretation to a read-only routing specialist. It classifies
+each failure and returns the required reconciliation. Only the sole writer may
+change fixtures, baselines, sidecars, generated docs, or routing code.
 
 Adding, removing, or rewriting an `if`/`while` in a `layout/routing/`
 module - or adding a topology fixture that closes a gap - can red one of
@@ -521,8 +509,9 @@ test pass.
   `tests/data/routing_gate_triage.json` now names a non-gap. Prune (or
   re-key) that entry.
 
-Regenerate with the coverage script (needs the `[dev]` extra and the
-pinned interpreter):
+After the specialist classifies the failure, serialize any fixture, sidecar,
+baseline, or doc change to the sole writer. Only that writer runs the mutating
+regeneration under the pinned interpreter and commits the result:
 
 ```bash
 python scripts/routing_gate_coverage.py --write   # rewrites the matrix doc + baseline
@@ -536,6 +525,10 @@ four verdicts, why these tests exist, the phantom-arc trap) is in
 [`docs/dev/routing_gate_triage.md`](../../../docs/dev/routing_gate_triage.md);
 for a dedicated triage campaign use the `nf-metro-gate-triage` skill.
 
+The verifier reruns
+`python -m pytest tests/test_routing_gate_coverage.py -p no:cacheprovider` on the
+candidate SHA and confirms the worktree remains unchanged.
+
 ### If you added a topology fixture: regenerate the guard-trace golden
 
 Every fixture under `examples/topologies/` carries a committed guard-trace
@@ -543,23 +536,19 @@ golden at `tests/data/guard_golden/examples/topologies/<stem>.json` (the
 ordered list of which guard fired at which stage). A **new** fixture has no
 golden yet, so `tests/test_guard_registry_golden.py` reds with
 "`<stem>.mmd` absent from the golden baseline". This is a **full-corpus**
-gate: the targeted tests you run for the fix's own area never touch it, so
-it only surfaces when you run that test (or the full suite) or on the push.
-Run one of those before pushing rather than eating a red CI cycle.
-
-Regenerate:
+gate: targeted fix tests do not cover it. The sole writer regenerates and
+commits the golden:
 
 ```bash
 NF_METRO_REGEN_GUARD_GOLDEN=1 python tests/test_guard_registry_golden.py
 ```
 
-Then **check the blast radius with `git status`**: only your new fixture's
-`.json` should appear. A handful of guards sit on a float threshold and fire
-differently across architectures, so if the regen also rewrites *other*
-fixtures' goldens you are on arm64 committing an x86_64-divergent trace -
-revert those and keep only the new file. CI checks the golden on x86_64, so
-when a fixture's trace is genuinely arch-sensitive, regenerate on a Linux
-x86_64 box (per the cross-architecture rule).
+Before committing, the writer checks that only the new fixture's `.json`
+changed and reverts unrelated generated changes. Some threshold-sensitive
+goldens differ by architecture; regenerate genuine architecture-sensitive
+traces on Linux x86_64. The verifier runs the same test without the regeneration
+environment variable against the candidate SHA, inspects the committed diff,
+and confirms no worktree change.
 
 A new topology fixture therefore owes **three** committed artifacts, not
 one: the `.mmd`, its `GALLERY_ENTRIES`/`gallery.yaml` row (Step 8, so the
@@ -569,7 +558,8 @@ render-diff sees it), and this guard-trace golden.
 
 ### Primary method: CI render preview (authoritative)
 
-Push the branch and create a PR. The CI workflow
+The coordinator pushes the branch and creates a draft PR. No worker performs
+these remote mutations. The CI workflow
 (`.github/workflows/pr-renders.yml`) automatically renders all gallery
 examples on both the PR branch and base, generates a before/after visual
 diff page, and posts a sticky comment on the PR with the preview link:
@@ -580,59 +570,44 @@ https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 
 ### Render-preview verdict gating
 
+Assign a fresh read-only visual reviewer the preview, target before/after
+evidence, and acceptance criteria. Require it to inspect every changed example,
+classify deltas I/N/D, identify uncertainty, and return an acceptance verdict.
+Do not seed it with the writer's preferred interpretation.
+
 The sticky comment ends in a verdict line. Gate the next step on it:
 
 - **"No visual changes detected"** -> a clean result, but **not** a
   licence to merge. Report the verdict and wait for the user to say
   merge. There is no standing auto-merge authorisation.
 - **"Ready for review"** (or any wording indicating visual deltas exist)
-  -> **STOP**. Surface the deltas to the user with one short line per
-  affected gallery example describing what changed (e.g.
-  `da_pipeline.mmd: trunk shifted 12px right`).
+  -> gate on the independent visual verdict. Re-brief the writer for every D;
+  surface accepted I/N deltas and unresolved uncertainty to the user with one
+  short evidence-based line per affected gallery example.
 
-In **all** cases, merging is the user's call, made per-PR:
-
-- Never merge until the user explicitly asks for this PR to be merged.
-- **Never** use `gh pr merge --admin` (or any other bypass of the
-  repo's branch-protection / review-required policy) on your own
-  initiative. If a normal merge is blocked because the repo requires
-  review, that block is the policy working - stop and tell the user it
-  needs their review or an explicit instruction to admin-merge. Do not
-  cite "prior PRs were admin-merged" as authorisation; past instances
-  are history, not standing consent.
+Never merge without explicit per-PR user authority. Prior admin merges are not
+standing consent. Leave branch deletion to Step 12 so dependent PRs can be
+retargeted safely.
 
 ### When the user *does* authorise a merge
 
-Once the user says "merge" / "admin merge" for this PR, that word **is** the
-authorisation - execute it, don't re-litigate. The recurring mistakes (this
-is the single most-corrected behaviour across sessions) are all forms of
-doing *too much*:
-
-- **Merge with a merge commit, never squash:** `gh pr merge <N> --admin
-  --merge --delete-branch`. Preserve the branch's commit history;
-  `--squash` collapses it and is the wrong default here. (`--admin` bypasses
-  only the review gate, not CI - it's fine once CI is green or the unverified
-  delta is CI-irrelevant.) Omit `--delete-branch` if a child PR is based on
-  this branch - deleting it auto-closes the child; retarget children first
-  per Step 12.
-- **Don't update the branch first.** If GitHub says "head branch is not up
-  to date", do not `git merge origin/main` into it, do not push a commit, do
-  not "refresh" it - all of these fire a full CI re-run the user is
-  explicitly trying to avoid. The diff was already CI-validated; a trivial
-  base-behind is CI-irrelevant, which is exactly what `--admin` is for.
-- **Don't re-run or wait on fresh CI**, and cancel in-flight runs first if
-  any (`gh run cancel`). "Merge" means merge now, then capture and clean up (Steps 12-13) -
-  not "start another test cycle".
-
-This is the `pinin4fjords:eco-merge` philosophy; that skill encapsulates the
-"bypass the up-to-date requirement when the unverified delta is
-CI-irrelevant" check if you want it. The self-initiation guardrail above
-still holds: you never reach for admin-merge on your own; you execute it
-cleanly *when told*.
+- **"Merge"** authorises one normal merge-commit attempt:
+  `gh pr merge <N> --merge`. Never squash. If review, branch
+  protection, or up-to-date policy blocks it, stop and return that blocker.
+  Do not escalate to `--admin`.
+- **"Admin merge"** explicitly authorises
+  `gh pr merge <N> --admin --merge`. If CI is not green, first assign a fresh,
+  independent read-only worker to use `pinin4fjords:eco-merge` and determine
+  whether the sole unverified delta is CI-irrelevant. The coordinator may run
+  the admin merge only with both explicit user admin-merge authority and that
+  worker's pass verdict. Otherwise return the blocker. Do not update the branch
+  or start fresh CI merely to satisfy up-to-date policy; cancel irrelevant
+  in-flight runs only as part of the authorised, accepted eco-merge sequence.
 
 ### State the evidence for every "it's fixed" claim
 
-Never assert a fix works without naming what proved it. Every "resolved" /
+Never assert a fix works without an independent verifier naming what proved it.
+Every "resolved" /
 "this is fixed" / "renders correctly" claim must cite the **specific render
 and the concrete numbers** it was checked against - the file, and the
 coordinate or element that moved from the observed value to the target value
@@ -643,10 +618,10 @@ Two traps this closes:
 
 - **"Didn't abort" / "the one invariant passes" is not "renders
   correctly".** Removing an abort can merely expose a poor layout the abort
-  was masking. After any layout/routing fix, look at the full render (crop
-  the region and read it) and run `probe_layout` + `inspect_layout` for the
-  whole-layout picture (crossings, port alignment, column gaps), not only the
-  invariant you targeted.
+  was masking. After any layout/routing fix, require the verifier to inspect
+  the full render (cropping the region as needed) and run `probe_layout` plus
+  `inspect_layout` for the whole-layout picture (crossings, port alignment,
+  column gaps), not only the targeted invariant.
 - **A clean render-diff verdict only covers the gallery corpus.** It says
   nothing about a NEW fixture that isn't in the gallery yet. Put new
   regression fixtures in `scripts/build_gallery.py` (`GALLERY_ENTRIES`), not
@@ -654,13 +629,14 @@ Two traps this closes:
   human. A topologies-only or tests-only fixture is invisible in the PR
   preview.
 
-Do not present a prototype as an improvement before the user has agreed it
-is one. If you rendered it and it still has problems, say so and keep
-working; don't defend a weak fix.
+Do not present a prototype as an improvement before independent review and the
+user's judgment where needed. If the render has problems, revise the writer's
+brief; do not defend a weak fix.
 
 ### Optional: quick local render of a single file
 
-For a fast sanity check of one specific `.mmd` file before pushing:
+For a fast sanity check of one specific `.mmd` file before pushing, assign a
+read-only verifier to run:
 
 ```bash
 source ~/.local/bin/mm-activate nf-metro-dev
@@ -675,14 +651,14 @@ review.
 
 ### Optional: local before/after comparison
 
-For a before/after sweep before pushing, use the `/render-topologies`
-skill.
+For a before/after sweep before pushing, assign a verifier to use the tracked
+`.claude/skills/render-topologies` skill.
 
 ## Step 9: Narrow Over-Applying Fixes
 
 If the render preview shows the fix changed **more than the targeted
-example** unexpectedly, do not ship it as-is. For each affected example,
-classify the visual delta as one of:
+example** unexpectedly, do not ship it as-is. Have the independent visual
+reviewer classify each affected example as:
 
 - **I** (improvement) - keep
 - **N** (neutral) - keep
@@ -693,21 +669,25 @@ subtle spacing or coordinate shift that comes with a cleaner, more elegant
 implementation is fine (classify it N or I); do not contort the code to
 preserve a byte-identical render. Only a genuine degradation is a D.
 
-For each detrimental delta, find the **precondition** that distinguishes
-the target case (where the fix helps) from the regressing case (where it
-hurts). Gate the fix on that precondition (e.g. a topology predicate, a
-config flag, a layout property test) so it only fires when applicable.
-Re-render and re-verify the verdict before merging.
+For each detrimental delta, assign a diagnostic worker to find the
+**precondition** that distinguishes the target case (where the fix helps) from
+the regressing case (where it hurts). Re-brief the sole writer to gate the fix
+on that precondition (e.g. a topology predicate, a config flag, a layout
+property test). Assign fresh re-rendering and re-verification before merging.
 
-A fix that ships with even one unaddressed D-delta is not finished.
+A fix with an unaddressed D-delta is not PR-ready. Reroute it or return the
+structured blocker that prevents correction or classification.
 
-## Step 10: Commit, Push, Verify Origin
+## Step 10: Accept Candidate, Push, Verify Origin
 
-Open the PR:
+After the writer hands off candidate commit SHA(s) and independent gates pass,
+the coordinator confirms `HEAD` equals the accepted SHA and the tree is clean.
+Only the coordinator pushes, creates or edits the PR, and performs later remote
+mutations. Open the draft PR:
 
 ```bash
 cd /tmp/nf-metro-fix-<N>
-gh pr create --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
+gh pr create --draft --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
 ## Summary
 <bullets describing the aggregate diff against main, no narrative>
 
@@ -720,7 +700,7 @@ Fixes #<N>
 - [ ] Visual review of [render preview](https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/)
 - [ ] Render-preview verdict: <No visual changes | deltas classified I/N>
 
-Generated with Claude Code
+Generated with Codex
 EOF
 )"
 ```
@@ -732,7 +712,7 @@ gh pr view <PR_NUMBER> --json headRefOid -q .headRefOid
 git rev-parse HEAD
 ```
 
-The two must match. Past agents have lost commits to silent push
+The two must match. Prior sessions have lost commits to silent push
 failures; do not skip this check.
 
 ### Additive only - no force-push, ever
@@ -741,12 +721,12 @@ The local pre-push hook blocks force-pushes for a reason. To undo
 anything, use `git revert <hash>` and push the revert as a new commit.
 Never rewrite shared history (no `--force`, no `--force-with-lease`, no
 interactive rebase on a pushed branch). This applies even when "it would
-be cleaner" - cleanliness is not worth the risk of an agent silently
+be cleaner" - cleanliness is not worth the risk of silently
 dropping work.
 
 An ordinary additive (fast-forward) push is **not** blocked by that hook -
 only rewrites are. Don't mistake an unrelated push failure for a force-push
-block, and don't ask the user to run a plain push you can run yourself.
+block. The coordinator runs an authorised plain push.
 
 ### Narrative belongs in the PR description, not in comments
 
@@ -760,41 +740,59 @@ gh pr edit <PR_NUMBER> --body-file /tmp/pr-body.md
 The description should be a standalone summary of the current state of
 the diff against main - not a chronology of how the PR got there.
 
-If narrative comments already exist (yours or a prior agent's), sweep
-them via the GraphQL `deleteIssueComment` mutation. **Keep** the CI
-sticky render-preview comment.
+If narrative comments already exist, the coordinator may sweep them via the
+GraphQL `deleteIssueComment` mutation only with issue/PR edit authority.
+**Keep** the CI sticky render-preview comment.
 
 ## Step 11: Drive End-to-End
 
-A fix-issue session is not done when `/simplify` returns control to the
-parent, or when the local tests pass. It is done when:
+Before declaring readiness, assign a fresh read-only code reviewer the accepted
+candidate SHA, aggregate diff, issue, diagnostic evidence, test artifacts, and
+visual verdict.
+Require an acceptance verdict covering correctness, scope, invariants, safety,
+and unresolved fallout. For a long run, combine this gate with the final
+aggregate-progress review and revise any later brief from its findings.
+Create the PR as a draft for CI and render evidence. Only after the final code
+review and aggregate-progress gate pass may the coordinator run
+`gh pr ready <N>`.
+
+A successful fix-issue run is not done when `/simplify` or a test worker
+returns. It reaches PR-ready completion when:
 
 1. The fix lands in `src/`, not in a doctored reproducer (Step 3), and the
    "it's fixed" claim cites the render + numbers that prove it (Step 8).
 2. Commits are pushed.
 3. Origin HEAD verified against local.
-4. CI is green on the final commit.
+4. CI is green on the final commit; any failure interpretation came from an
+   assigned verifier or domain specialist.
 5. Render-preview verdict is captured and gated on per Step 8.
 6. PR description is standalone (per Step 10).
+7. Independent verification, visual review when applicable, code review, and
+   the final acceptance verdict pass.
+8. The coordinator marks the draft PR ready only after those gates pass.
 
-Do not hand back to the user partway through this list saying "the
-simplify pass is done" or "tests pass locally". Carry the work all the
-way to a reviewable PR.
+Reroute bounded failures until these gates pass. If missing authority,
+unavailable capability, external state, or a material user decision prevents
+completion, return the structured blocker with the accepted candidate SHA and
+remaining gate. Do not claim PR-ready completion.
 
 ## Step 12: Post-Merge Cleanup
 
-Once the PR merges, do cleanup operations **in this order** to avoid
-GitHub auto-closing dependent PRs:
+Once the PR merges, only the coordinator performs cleanup, and only with user
+authority. Before deleting anything, require a clean tree, reconcile local
+`HEAD`, pushed remote head, and merged PR head, and confirm no unpushed commits.
+Stop on any mismatch. Then use this order:
 
 1. **Retarget any child PRs** based on this branch over to `main` (or
    the next-up base) **first**, via `gh pr edit <child> --base main`.
-   GitHub auto-closes PRs whose base branch is deleted; closed PRs whose
-   base ref no longer exists cannot be reopened without restoring the
-   deleted branch.
+   Confirm every retarget and stop if any fails; branch deletion can auto-close
+   a dependent PR.
 2. Delete the **remote** branch: `git push origin --delete fix/<N>-<slug>`
    (or via the GitHub UI's auto-delete on merge).
 3. Remove the local worktree: `git worktree remove /tmp/nf-metro-fix-<N>`.
-4. Delete the local branch: `git branch -D fix/<N>-<slug>`.
+4. Delete the reconciled local branch with `git branch -d fix/<N>-<slug>`.
+   Use `-D` only after explicit user authority and proof that `-d` rejects a
+   fully reconciled branch for a harmless bookkeeping reason.
 
 Leave the shared `nf-metro-dev` env in place - it is reused across issues
 (Step 2), so there is nothing per-issue to remove.
