@@ -66,6 +66,9 @@ if TYPE_CHECKING:
     )
     from nf_metro.layout.routing.common import RoutedPath
     from nf_metro.layout.routing.context import _EdgeKey, _RoutingCtx
+    from nf_metro.layout.routing.corridor_cohort_integration import (
+        CorridorCohortLedger,
+    )
     from nf_metro.layout.routing.system_emission import RouteSystemEmissionExecution
     from nf_metro.layout.settlement_demand import BoundaryClearanceRequirement
 
@@ -200,7 +203,9 @@ class RouteMemberGeometryPlan:
     exit_lane_transition_plan_id: ExitTurnPlanId | None = None
     fan_plan_id: FanPlanId | None = None
     fan_route_emitter: str | None = None
+    exit_shared_opening_points: tuple[tuple[float, float], ...] = ()
     consumed_reservation_ids: tuple[str, ...] = ()
+    corridor_cohort_owned_segment_ranks: tuple[int, ...] = ()
     coordinate_regime: CoordinateRegime = CoordinateRegime.LAYOUT_CANVAS
     owns_complete_path: bool = False
 
@@ -213,6 +218,12 @@ class RouteMemberGeometryPlan:
             math.isfinite(value) for point in self.points for value in point
         ):
             raise ValueError("member geometry plan requires finite path geometry")
+        if (
+            self.exit_shared_opening_points
+            and tuple(self.points[: len(self.exit_shared_opening_points)])
+            != self.exit_shared_opening_points
+        ):
+            raise ValueError("member geometry plan lost its shared exit opening")
         claims = tuple(
             (
                 channel.segment_rank,
@@ -229,6 +240,13 @@ class RouteMemberGeometryPlan:
             for channel in self.gap_channels
         ):
             raise ValueError("member geometry plan channel exceeds its path segments")
+        if len(set(self.corridor_cohort_owned_segment_ranks)) != len(
+            self.corridor_cohort_owned_segment_ranks
+        ) or any(
+            rank < 0 or rank >= len(self.points) - 1
+            for rank in self.corridor_cohort_owned_segment_ranks
+        ):
+            raise ValueError("member geometry plan has invalid corridor cohort ranks")
         if any(
             any(
                 abs(actual - expected) > COORD_TOLERANCE
@@ -250,7 +268,16 @@ class RouteMemberGeometryPlan:
         """Physical segments whose coordinates remain immutable after emission."""
         if self.owns_complete_path:
             return tuple(range(len(self.points) - 1))
-        return tuple(dict.fromkeys(item.segment_rank for item in self.gap_channels))
+        opening_ranks = range(max(0, len(self.exit_shared_opening_points) - 1))
+        return tuple(
+            sorted(
+                {
+                    *opening_ranks,
+                    *(item.segment_rank for item in self.gap_channels),
+                    *self.corridor_cohort_owned_segment_ranks,
+                }
+            )
+        )
 
 
 class EmissionRole(str, Enum):
@@ -1192,6 +1219,24 @@ class ExitTurnAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class ExitSharedOpening:
+    """An immutable common outer corridor for sibling exit-turn members."""
+
+    member_ids: tuple[EmissionMemberId, ...]
+    points: tuple[tuple[float, float], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.member_ids) < 2 or len(set(self.member_ids)) != len(
+            self.member_ids
+        ):
+            raise ValueError("shared exit opening requires distinct sibling members")
+        if len(self.points) < 2 or not all(
+            math.isfinite(value) for point in self.points for value in point
+        ):
+            raise ValueError("shared exit opening requires finite geometry")
+
+
+@dataclass(frozen=True, slots=True)
 class ExitTurnPlan:
     """Complete immutable source-bundle decision made before route emission."""
 
@@ -1220,6 +1265,7 @@ class ExitTurnPlan:
     disposition: ExitTurnDisposition
     legacy_reason: str | None
     provenance: tuple[ReservationDecisionRef, ...]
+    shared_openings: tuple[ExitSharedOpening, ...] = ()
 
     def __post_init__(self) -> None:
         planned = self.disposition is ExitTurnDisposition.PLANNED
@@ -1236,6 +1282,11 @@ class ExitTurnPlan:
             )
         if planned != (self.legacy_reason is None):
             raise ValueError("exit-turn disposition and legacy reason disagree")
+        if any(
+            not set(opening.member_ids).issubset(self.member_ids)
+            for opening in self.shared_openings
+        ):
+            raise ValueError("shared exit opening exceeds plan membership")
         if (self.reference_id is not None) != (planned and bool(self.axes)):
             raise ValueError("only planned turn axes own a shared reference")
         expected_axis = (
@@ -1942,6 +1993,7 @@ class ConvergenceLanding:
     bypass: bool
     long_haul: bool
     multiple_row: bool
+    bypass_tail_runway: float | None = None
 
     def __post_init__(self) -> None:
         if self.approach_axis is DemandAxis.BOTH:
@@ -1953,6 +2005,21 @@ class ConvergenceLanding:
             raise ValueError("convergence feeder ranks must be non-negative")
         if self.minimum_runway <= 0 or not math.isfinite(self.minimum_runway):
             raise ValueError("convergence feeder runway must be positive and finite")
+        if self.bypass_tail_runway is not None and (
+            self.bypass_tail_runway <= 0 or not math.isfinite(self.bypass_tail_runway)
+        ):
+            raise ValueError(
+                "convergence bypass tail runway must be positive and finite"
+            )
+        if self.bypass_tail_runway is not None and not math.isclose(
+            self.bypass_tail_runway,
+            self.minimum_runway,
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        ):
+            raise ValueError(
+                "convergence bypass tail runway must equal its minimum runway"
+            )
         if self.opening_turn_coordinate is not None and not math.isfinite(
             self.opening_turn_coordinate
         ):
@@ -2331,6 +2398,7 @@ class RoutePlan:
     settlement re-route replays the frozen decision instead of re-deriving one
     from moved geometry."""
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
+    corridor_cohort_ledger: CorridorCohortLedger | None = None
 
 
 @dataclass(slots=True)
@@ -2582,6 +2650,7 @@ class RoutePlanObserver:
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
+    corridor_cohort_ledger: CorridorCohortLedger | None = None
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
     _merge_skips: dict[_EdgeKey, _EdgeKey | None] = field(default_factory=dict)
 
@@ -2632,6 +2701,7 @@ def build_route_plan_observer(
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = (),
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = (),
+    corridor_cohort_ledger: CorridorCohortLedger | None = None,
 ) -> RoutePlanObserver:
     """Create one transient observer after settled routing context construction."""
     return RoutePlanObserver(
@@ -2650,6 +2720,7 @@ def build_route_plan_observer(
         boundary_clearance_requirements=boundary_clearance_requirements,
         member_geometry_plans=member_geometry_plans,
         exit_turn_dispositions=exit_turn_dispositions,
+        corridor_cohort_ledger=corridor_cohort_ledger,
     )
 
 
@@ -3422,6 +3493,7 @@ def _build_route_plan(
             + observer.convergence_diagnostics
         ),
         boundary_clearance_requirements=observer.boundary_clearance_requirements,
+        corridor_cohort_ledger=observer.corridor_cohort_ledger,
     )
     from nf_metro.layout.route_reservations import attach_route_reservations
 
@@ -4697,6 +4769,14 @@ def _validate_member_geometry_records(
     bindings: Mapping[EmissionMemberId, list[EmissionBinding]],
 ) -> None:
     """Cross-check immutable member templates against canonical membership."""
+    finalized_cohorts = (
+        plan.corridor_cohort_ledger is not None
+        and plan.corridor_cohort_ledger.finalized_owned_segments is not None
+    )
+    if not finalized_cohorts and any(
+        item.corridor_cohort_owned_segment_ranks for item in plan.member_geometry_plans
+    ):
+        raise ValueError("unfinalized corridor cohorts publish owned segments")
     records = {item.id: item for item in plan.member_geometry_plans}
     if len(records) != len(plan.member_geometry_plans):
         raise ValueError("route plan contains duplicate member geometry plan ids")
@@ -5054,6 +5134,8 @@ def _json_value(value: object) -> object:
         return value.value
     if isinstance(value, tuple):
         return [_json_value(item) for item in value]
+    if isinstance(value, frozenset):
+        return [_json_value(item) for item in sorted(value, key=repr)]
     if isinstance(value, (str, int, float, bool, type(None))):
         return value
     raise TypeError(f"route plan contains unsupported {type(value).__name__}")

@@ -468,10 +468,29 @@ def route_straight(
     dx = tgt_pt[0] - src_pt[0]
     dy = tgt_pt[1] - src_pt[1]
     if abs(dx) > COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
+        # The renderer splits a same-row run's offsets at the nearer endpoint,
+        # so bracketing the midpoint draws the mismatch as a short mid-seam
+        # ramp - the lane-transition idiom - keeping both endpoint vicinities
+        # on their own lanes, clear of junction crossings.
+        points = [p_src, p_tgt]
+        span = abs(p_tgt[0] - p_src[0])
+        ramp = min(ctx.diagonal_run, span - 2 * base_radius)
+        # A multi-line bundle with mismatched endpoint lane orders crosses
+        # inside the seam; a ramp would fold that crossing into corners the
+        # bundle-order guard rejects, so only a lone line takes the ramp.
+        if len(members) == 1 and ramp > COORD_TOLERANCE:
+            mid = (p_src[0] + p_tgt[0]) / 2
+            step = ramp / 2 if p_tgt[0] > p_src[0] else -ramp / 2
+            points = [
+                p_src,
+                (mid - step, p_src[1]),
+                (mid + step, p_src[1]),
+                p_tgt,
+            ]
         return RoutedPath(
             edge=edge,
             line_id=edge.line_id,
-            points=[p_src, p_tgt],
+            points=points,
             is_inter_section=True,
             normalize_exempt=normalize_exempt,
         )

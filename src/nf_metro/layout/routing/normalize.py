@@ -19,13 +19,12 @@ from nf_metro.layout.constants import (
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
-    NEXT_ROW_HEADER_BADGE_CLEARANCE,
-    SECTION_HEADER_PROTRUSION,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     cotravelling_lane_clearance,
     cotravelling_lanes_fuse,
+    section_bbox_edges,
     spans_share_corridor,
 )
 from nf_metro.layout.route_plan import ExitTurnPlanId
@@ -45,6 +44,7 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    fan_corridor_band,
     gap_lo_for_x,
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
@@ -60,6 +60,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    resolve_section,
     route_system_owns_segment_boundary,
     seat_peeloff_port_y,
     section_ids_of_stations,
@@ -83,11 +84,18 @@ from nf_metro.layout.routing.corners import (
     wholesale_corner_translation,
     widest_coincident_radius,
 )
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.families import (
+    BYPASS_ROUTE_FAMILY_VALUES,
+    RouteFamilyId,
+)
 from nf_metro.layout.routing.offsets import (
     cross_row_convergence_channel_order,
 )
-from nf_metro.layout.routing.orientation import direction_vector
+from nf_metro.layout.routing.orientation import (
+    direction_axis,
+    direction_vector,
+    get_point_coordinate,
+)
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     corridor_clearance_band,
@@ -247,6 +255,59 @@ def _segment_claim_band(
     )
 
 
+def _segment_planned_order_coordinate(
+    ctx: _RoutingCtx, route: RoutedPath, idx: int
+) -> float | None:
+    """The frozen claim coordinate used to compare lanes, never to place one."""
+    return ctx.reserved_bands.planned_order_coordinate_for_segment(
+        route.edge.source, route.edge.target, route.line_id, idx
+    )
+
+
+def _frozen_order_coordinates(
+    ctx: _RoutingCtx,
+    groups: Sequence[Sequence[tuple[RoutedPath, int]]],
+    *,
+    require_single_common_source: bool,
+) -> tuple[float, ...] | None:
+    """Return one complete, unambiguous frozen coordinate per compared group.
+
+    Every member must publish a coordinate, every group must agree on one
+    coordinate, and the group coordinates must be distinct. Callers comparing
+    one emitted source cohort additionally require exactly one source shared by
+    every group.
+    """
+    if len(groups) < 2 or any(not group for group in groups):
+        return None
+    if require_single_common_source:
+        source_sets = [{route.edge.source for route, _idx in group} for group in groups]
+        if len(set.intersection(*source_sets)) != 1:
+            return None
+
+    frozen: list[float] = []
+    for group in groups:
+        coordinates: list[float] = []
+        for route, idx in group:
+            coordinate = _segment_planned_order_coordinate(ctx, route, idx)
+            if coordinate is None:
+                return None
+            coordinates.append(coordinate)
+        if any(
+            abs(coordinate - coordinates[0]) > COORD_TOLERANCE
+            for coordinate in coordinates[1:]
+        ):
+            return None
+        frozen.append(coordinates[0])
+
+    if any(
+        abs(first - second) <= COORD_TOLERANCE
+        for rank, first in enumerate(frozen)
+        for second in frozen[rank + 1 :]
+    ):
+        return None
+    return tuple(frozen)
+
+
 def _bundle_claim_band(
     ctx: _RoutingCtx, segments: Iterable[tuple[RoutedPath, int]]
 ) -> ReservedBand | None:
@@ -368,10 +429,10 @@ def _required_channel_clearance(
     Same-direction channels are nested by the bundle passes rather than spaced
     here, so this asks nothing of them.
     """
-    if a.down is b.down:
-        return 0.0
     overlap = min(a.y_hi, b.y_hi) - max(a.y_lo, b.y_lo)
-    if overlap <= MIN_CORRIDOR_Y_OVERLAP:
+    if COORD_TOLERANCE < overlap < MIN_CORRIDOR_Y_OVERLAP:
+        return BUNDLE_TO_BUNDLE_CLEARANCE
+    if a.down is b.down or overlap <= MIN_CORRIDOR_Y_OVERLAP:
         return 0.0
     return cotravelling_lane_clearance(
         same_line=a.route.line_id == b.route.line_id,
@@ -644,6 +705,45 @@ def _channel_coordinate_is_frozen(channel: _VChannel) -> bool:
     )
 
 
+def _pending_exit_turn_owns_channel(channel: _VChannel, ctx: _RoutingCtx) -> bool:
+    """Whether deferred exit-turn allocation may place this gap channel."""
+    route = channel.route
+    if route.exit_turn_family_id in BYPASS_ROUTE_FAMILY_VALUES:
+        return True
+    if ctx.exit_turns is None:
+        return False
+    membership = ctx.exit_turns.membership_for_edge(route.edge)
+    assignment = membership.assignment if membership is not None else None
+    if (
+        assignment is None
+        or assignment.run_direction is None
+        or assignment.turn_direction is None
+        or len(route.points) < 3
+    ):
+        return False
+    before, corner, after = route.points[:3]
+    return (
+        channel.idx == 1
+        and segment_direction(before, corner) is assignment.run_direction
+        and segment_direction(corner, after) is assignment.turn_direction
+    )
+
+
+def _shares_terminal_carrier(
+    route: RoutedPath,
+    channel: _VChannel,
+    routes: Iterable[RoutedPath],
+) -> bool:
+    return any(
+        other is not route
+        and other.edge.target == route.edge.target
+        and other.line_id == route.line_id
+        and spans_share_corridor(channel.y_lo, channel.y_hi, y_lo, y_hi)
+        for other in routes
+        for _rank, _x, y_lo, y_hi, _down in iter_vertical_segments(other)
+    )
+
+
 def _fused_sibling_spans(
     routes: list[RoutedPath], chans: list[_VChannel]
 ) -> list[tuple[float, float]]:
@@ -676,6 +776,7 @@ def _materialize_gap_slots(
     ctx: _RoutingCtx,
     *,
     movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+    deferred_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> None:
     """Resolve every declared :class:`GapSlot` to a concentric channel X.
 
@@ -720,14 +821,23 @@ def _materialize_gap_slots(
             exit_plan_is_movable = (
                 rp.exit_turn_plan_id is not None
                 and rp.exit_turn_plan_id in movable_exit_plan_ids
+                and _pending_exit_turn_owns_channel(ch, ctx)
             )
             exit_plan_is_movable = exit_plan_is_movable and not (
                 convergence_owns_segment_boundary(rp, ch.idx)
+                or rp.fan_plan_id is not None
                 or rp.fan_route_emitter is not None
                 or ch.idx in rp.route_system_owned_segment_ranks
             )
             if rp.normalize_exempt or (
-                _planner_owns_channel(ch) and not exit_plan_is_movable
+                (
+                    (
+                        rp.exit_turn_plan_id in deferred_exit_plan_ids
+                        and not _shares_terminal_carrier(rp, ch, routes)
+                    )
+                    or _planner_owns_channel(ch)
+                )
+                and not exit_plan_is_movable
             ):
                 owned[(slot.gap_lo_col, slot.row)][(ch.down, rp.line_id)] = ch.x
             else:
@@ -851,7 +961,9 @@ def _validate_planned_exit_turn_radii(
 
 
 def _separate_declared_opposing_gap_bundles(
-    routes: list[RoutedPath], ctx: _RoutingCtx
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Separate settled counter-running gap bundles around exempt obstacles."""
     graph = ctx.graph
@@ -865,17 +977,37 @@ def _separate_declared_opposing_gap_bundles(
             if ch is None or (key, id(rp), ch.idx) in seen:
                 continue
             seen.add((key, id(rp), ch.idx))
-            (fixed if rp.normalize_exempt or _planner_owns_channel(ch) else movable)[
-                key
-            ].append(ch)
+            owner = (
+                fixed
+                if rp.normalize_exempt
+                or (
+                    id(rp) not in movable_route_ids
+                    if movable_route_ids is not None
+                    else _planner_owns_channel(ch)
+                )
+                else movable
+            )
+            owner[key].append(ch)
 
     bands = _grid_row_bands(graph)
     for (lo, row), chans in movable.items():
         gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
         if gap_right <= gap_left:
             continue
+        obstacles = [
+            channel
+            for (fixed_lo, _fixed_row), channels in fixed.items()
+            if fixed_lo == lo
+            for channel in channels
+            if any(
+                min(channel.y_hi, movable_channel.y_hi)
+                - max(channel.y_lo, movable_channel.y_lo)
+                > COORD_TOLERANCE
+                for movable_channel in chans
+            )
+        ]
         crossed_spans = [(c.y_lo, c.y_hi) for c in chans]
-        crossed_spans += [(c.y_lo, c.y_hi) for c in fixed.get((lo, row), [])]
+        crossed_spans += [(c.y_lo, c.y_hi) for c in obstacles]
         for r, band in bands.items():
             if not any(
                 y_lo < band[1] and band[0] < y_hi for y_lo, y_hi in crossed_spans
@@ -890,14 +1022,109 @@ def _separate_declared_opposing_gap_bundles(
             for down in (True, False)
             for corridor in _split_corridors([c for c in chans if c.down is down])
         ]
-        _anchor_same_direction_fixed_channels(bundles, fixed.get((lo, row), []), ctx)
+        _anchor_same_direction_fixed_channels(bundles, obstacles, ctx)
         _separate_opposing_gap_bundles(
             bundles,
-            fixed.get((lo, row), []),
+            obstacles,
             gap_left,
             gap_right,
             ctx,
         )
+
+    all_fixed = [channel for channels in fixed.values() for channel in channels]
+    for (lo, row), channels in movable.items():
+        gap_left, gap_right = column_gap_edges(graph, lo, lo + 1, row=row)
+        usable_left = gap_left + EDGE_TO_BUNDLE_CLEARANCE
+        usable_right = gap_right - EDGE_TO_BUNDLE_CLEARANCE
+        for channel in channels:
+            short_overlap_obstacles = [
+                obstacle
+                for obstacle in all_fixed
+                if obstacle.route.line_id != channel.route.line_id
+                and COORD_TOLERANCE
+                < min(channel.y_hi, obstacle.y_hi) - max(channel.y_lo, obstacle.y_lo)
+                < MIN_CORRIDOR_Y_OVERLAP
+                and abs(channel.x - obstacle.x)
+                < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+            ]
+            if not short_overlap_obstacles:
+                continue
+            candidates = {
+                obstacle.x - BUNDLE_TO_BUNDLE_CLEARANCE
+                for obstacle in short_overlap_obstacles
+            } | {
+                obstacle.x + BUNDLE_TO_BUNDLE_CLEARANCE
+                for obstacle in short_overlap_obstacles
+            }
+            target = next(
+                (
+                    candidate
+                    for candidate in sorted(
+                        candidates, key=lambda value: (abs(value - channel.x), value)
+                    )
+                    if usable_left - COORD_TOLERANCE
+                    <= candidate
+                    <= usable_right + COORD_TOLERANCE
+                    and not _section_intrudes(
+                        graph, candidate, channel.y_lo, channel.y_hi
+                    )
+                    and not _vchannel_move_crosses_foreign_section(
+                        channel, candidate, graph
+                    )
+                    and all(
+                        abs(candidate - obstacle.x)
+                        >= BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+                        for obstacle in short_overlap_obstacles
+                    )
+                    and all(
+                        not _overlays_distinct_line(
+                            channel, candidate, obstacle, ctx.offset_step
+                        )
+                        and abs(candidate - obstacle.x)
+                        >= _required_channel_clearance(
+                            channel, obstacle, ctx.curve_radius
+                        )
+                        - COORD_TOLERANCE_FINE
+                        for obstacle in all_fixed
+                        if obstacle.route.line_id != channel.route.line_id
+                    )
+                ),
+                None,
+            )
+            if target is not None:
+                _set_vchannel_x(channel, target)
+                channel.x = target
+
+
+def _vchannel_move_crosses_foreign_section(
+    channel: _VChannel,
+    candidate: float,
+    graph: MetroGraph,
+) -> bool:
+    """Whether moving a riser would drag either flanking run through a box."""
+    route, rank = channel.route, channel.idx
+    endpoint_sections = set(_route_endpoint_section_ids(graph, route))
+    runs: list[tuple[float, float, float]] = []
+    if rank > 0:
+        prior = route.points[rank - 1]
+        corner = route.points[rank]
+        if abs(prior[1] - corner[1]) <= COORD_TOLERANCE:
+            runs.append((corner[1], prior[0], candidate))
+    if rank + 2 < len(route.points):
+        corner = route.points[rank + 1]
+        after = route.points[rank + 2]
+        if abs(corner[1] - after[1]) <= COORD_TOLERANCE:
+            runs.append((corner[1], candidate, after[0]))
+    return any(
+        section.id not in endpoint_sections
+        and section.bbox_y + COORD_TOLERANCE
+        < y
+        < section.bbox_y + section.bbox_h - COORD_TOLERANCE
+        and min(xa, xb) < section.bbox_x + section.bbox_w - COORD_TOLERANCE
+        and section.bbox_x + COORD_TOLERANCE < max(xa, xb)
+        for y, xa, xb in runs
+        for section in graph.sections.values()
+    )
 
 
 @dataclass
@@ -965,6 +1192,11 @@ def _bundle_same_destination_tails(
     for _bundle, trunks, targets in iter_eligible_destination_tail_bundles(
         routes, ctx.graph, ctx.offset_step, ctx.curve_radius
     ):
+        settled_segments.update(
+            (id(trunk.route), trunk.idx)
+            for line_id, trunk in trunks.items()
+            if abs(trunk.y - targets[line_id]) <= COORD_TOLERANCE
+        )
         if movable_route_ids is not None and not any(
             id(trunk.route) in movable_route_ids for trunk in trunks.values()
         ):
@@ -996,18 +1228,27 @@ class _SemanticEndCorner(NamedTuple):
     outgoing: tuple[int, int]
 
 
-def _rederive_semantic_end_corners(
+def _semantic_end_corner_cohorts(
     routes: list[RoutedPath],
-    curve_radius: float,
     station_offsets: Mapping[tuple[str, str], float],
-) -> None:
-    """Size wholesale-translated source and landing corner cohorts."""
+) -> dict[tuple[str, str, Direction, Direction], list[_SemanticEndCorner]]:
+    """Group every route's turns by the relation that can make them one family.
+
+    A turn joins its source's and its target's cohort at the ends of a route
+    and an ordinal-keyed cohort in between.  It also joins a cohort keyed by
+    the *place* its final leg reaches: lanes of one bundle can land on routes
+    named by different targets - a merge junction alongside the entry port it
+    sits at - and the target owner alone would split a family that turns
+    together.
+    """
     cohorts: defaultdict[
         tuple[str, str, Direction, Direction],
         list[_SemanticEndCorner],
     ] = defaultdict(list)
     for route in routes:
-        if route.curve_radii is None or len(route.points) < 3:
+        # A route states one radius per turn; an unsettled mid-pipeline route
+        # can carry fewer, and its corners then have no radius to size.
+        if route.curve_radii is None or len(route.curve_radii) != len(route.points) - 2:
             continue
         points = apply_route_offsets(route, station_offsets)
         corners: list[tuple[int, Direction, Direction]] = []
@@ -1023,14 +1264,15 @@ def _rederive_semantic_end_corners(
                 corners.append((rank, incoming, outgoing))
         if not corners:
             continue
-        for kind, owner, (rank, incoming, outgoing) in (
-            ("source", route.edge.source, corners[0]),
-            ("target", route.edge.target, corners[-1]),
-        ):
-            if (
-                kind == "source" and route.exit_lane_transition_plan_id is not None
-            ) or (kind == "target" and route.exit_turn_segment_rank == rank):
-                continue
+
+        def record(
+            kind: str,
+            owner: str,
+            corner: tuple[int, Direction, Direction],
+            points: list[tuple[float, float]] = points,
+            route: RoutedPath = route,
+        ) -> None:
+            rank, incoming, outgoing = corner
             cohorts[kind, owner, incoming, outgoing].append(
                 _SemanticEndCorner(
                     route,
@@ -1041,15 +1283,57 @@ def _rederive_semantic_end_corners(
                 )
             )
 
-    def wholesale_pair(a: _SemanticEndCorner, b: _SemanticEndCorner) -> bool:
-        return wholesale_corner_translation(
+        arrival = get_point_coordinate(points[-1], direction_axis(corners[-1][2]))
+        for kind, owner, corner in (
+            ("source", route.edge.source, corners[0]),
+            ("target", route.edge.target, corners[-1]),
+            ("landing", f"{arrival:.3f}", corners[-1]),
+        ):
+            if (
+                kind == "source" and route.exit_lane_transition_plan_id is not None
+            ) or (kind != "source" and route.exit_turn_segment_rank == corner[0]):
+                continue
+            record(kind, owner, corner)
+        edge_key = f"{route.edge.source}\0{route.edge.target}\0{len(corners)}"
+        for ordinal, corner in enumerate(corners[1:-1], start=1):
+            record("edge", f"{edge_key}\0{ordinal}", corner)
+    return cohorts
+
+
+def _rederive_semantic_end_corners(
+    routes: list[RoutedPath],
+    curve_radius: float,
+    station_offsets: Mapping[tuple[str, str], float],
+) -> None:
+    """Size wholesale-translated source and landing corner cohorts."""
+    cohorts = _semantic_end_corner_cohorts(routes, station_offsets)
+
+    def wholesale_pair(
+        a: _SemanticEndCorner,
+        b: _SemanticEndCorner,
+        max_span: float | None = None,
+    ) -> bool:
+        if not wholesale_corner_translation(
             a.points[a.rank],
             b.points[b.rank],
             a.incoming,
             a.outgoing,
-        )
+        ):
+            return False
+        if max_span is None:
+            return True
+        ax, ay = a.points[a.rank]
+        bx, by = b.points[b.rank]
+        return max(abs(bx - ax), abs(by - ay)) < max_span
 
-    for cohort in cohorts.values():
+    for cohort_key, cohort in cohorts.items():
+        # A cohort keyed by place rather than by node holds every turn that
+        # arrives there, so its members nest only while they read as one
+        # bundle.  A full :data:`BUNDLE_TO_BUNDLE_CLEARANCE` apart is the
+        # breathing space that separates two streams, and giving two streams
+        # one arc centre draws the outer one as a lazy sweep across whatever
+        # runs between them.
+        max_span = BUNDLE_TO_BUNDLE_CLEARANCE if cohort_key[0] == "landing" else None
         pending = set(range(len(cohort)))
         while pending:
             first = pending.pop()
@@ -1058,7 +1342,9 @@ def _rederive_semantic_end_corners(
             while frontier:
                 member_index = frontier.pop()
                 for candidate in list(pending):
-                    if wholesale_pair(cohort[candidate], cohort[member_index]):
+                    if wholesale_pair(
+                        cohort[candidate], cohort[member_index], max_span
+                    ):
                         pending.remove(candidate)
                         component.add(candidate)
                         frontier.append(candidate)
@@ -1077,17 +1363,31 @@ def _rederive_semantic_end_corners(
                 offset = member.points[member.rank][0] - reference_x
                 radii = member.route.curve_radii
                 assert radii is not None
-                reference_radius = max(
-                    reference_radius,
-                    concentric_reference_radius_at(
-                        member.points[member.rank - 1],
-                        member.points[member.rank],
-                        member.points[member.rank + 1],
-                        offset,
-                        radii[radius_index],
-                    ),
-                )
+                if cohort_key[0] != "edge":
+                    reference_radius = max(
+                        reference_radius,
+                        concentric_reference_radius_at(
+                            member.points[member.rank - 1],
+                            member.points[member.rank],
+                            member.points[member.rank + 1],
+                            offset,
+                            radii[radius_index],
+                        ),
+                    )
                 prepared.append((member, radius_index, offset, list(radii)))
+
+            if cohort_key[0] == "edge":
+                # An interior cohort names one edge's corners, which can be a
+                # fragment of a wider cross-edge family: members whose stored
+                # radii already agree on one concentric base are that family's
+                # correct nesting, and re-deriving the fragment from the flat
+                # base would collapse it onto a second arc center.
+                implied = [
+                    radii_list[radius_index] - offset
+                    for _member, radius_index, offset, radii_list in prepared
+                ]
+                if max(implied) - min(implied) <= COORD_TOLERANCE_FINE:
+                    continue
 
             def reference_fits(candidate: float) -> bool:
                 for member, radius_index, offset, desired in prepared:
@@ -1157,8 +1457,7 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     return [
         t
         for t in _collect_htrunks(routes, include_exempt=True)
-        if t.route.trunk_slot is not None
-        and not route_system_owns_segment_boundary(t.route, t.idx)
+        if t.route.trunk_slot is not None and not planner_owns_segment(t.route, t.idx)
     ]
 
 
@@ -1327,18 +1626,47 @@ def _reconcile_moved_trunk_slot(
         rp.declare_trunk_slot(gap_upper_row=row)
 
 
-def _snap_group(group: _Coincidence, ctx: _RoutingCtx) -> None:
+def _snap_group(
+    group: _Coincidence,
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Snap every channel in a coincidence group onto its shared reference X."""
-    planned = [channel for channel in group.channels if _planner_owns_channel(channel)]
+    planned = [
+        channel
+        for channel in group.channels
+        if _planner_owns_channel(channel)
+        and channel.route.exit_turn_plan_id not in movable_exit_plan_ids
+    ]
     ref_x = planned[0].x if planned else group.ref_x
     if any(abs(channel.x - ref_x) > COORD_TOLERANCE for channel in planned[1:]):
-        if ctx.validate_final_route_frames:
-            raise ValueError("one coincidence group contains conflicting planned axes")
-        return
+        convergence_plan_ids = {
+            channel.route.convergence_plan_id for channel in planned
+        }
+        # One convergence plan separating its own members onto distinct lanes
+        # is the sanctioned distinct-lane fan: the shared-X premise does not
+        # hold within the plan, and foreign channels coincide with the plan's
+        # first lane.
+        if None in convergence_plan_ids or len(convergence_plan_ids) != 1:
+            if ctx.validate_final_route_frames:
+                detail = ", ".join(
+                    f"{channel.route.edge.source}->{channel.route.edge.target}:"
+                    f"{channel.route.line_id}@{channel.x:.1f}"
+                    f"[rank={channel.idx},owned={channel.route.convergence_owned_segment_ranks}]"
+                    for channel in planned
+                )
+                raise ValueError(
+                    f"one coincidence group contains conflicting planned axes: {detail}"
+                )
+            return
     for ch in group.channels:
-        if _planner_owns_channel(ch):
+        if _planner_owns_channel(ch) and (
+            ch.route.exit_turn_plan_id not in movable_exit_plan_ids
+        ):
             continue
         if abs(ch.x - ref_x) > COORD_TOLERANCE:
+            if _snap_reverses_adjacent_run(ch, ref_x):
+                continue
             _reconcile_moved_gap_slot(ch, ref_x, ctx.graph)
             _set_vchannel_x(ch, ref_x)
 
@@ -1367,6 +1695,7 @@ def _seat_merge_feeder_opening(
     *,
     planned: bool = False,
     carry_tail: bool = True,
+    opening_end_y: float | None = None,
 ) -> None:
     """Seat a merge feeder's opening turn on its planned shared axis.
 
@@ -1374,6 +1703,13 @@ def _seat_merge_feeder_opening(
     keeps a route whose whole run hangs off that turn intact.  A caller whose
     plan states the rest of the run independently passes ``False``: carrying the
     tail there would slide geometry the plan has already positioned.
+
+    ``opening_end_y`` replays the plan's opening drop length: the emitted drop
+    ends on the plan's stated Y.  A handler derives its trunk from live
+    geometry, which other routes' seating can move between the plan's trial
+    and this emission, and the plan's segment is the frozen truth.  With
+    ``carry_tail`` the run past the drop translates along; without it only the
+    drop endpoint moves, since the plan states and seats the rest itself.
     """
     channel = (
         _opening_fanout_descent(route) if planned else _initial_fanout_descent(route)
@@ -1381,17 +1717,31 @@ def _seat_merge_feeder_opening(
     if channel is None:
         return
     delta = coordinate - channel.x
-    if abs(delta) <= COORD_TOLERANCE:
+    if abs(delta) > COORD_TOLERANCE:
+        tail_start = channel.idx + 2
+        _reconcile_moved_gap_slot(channel, coordinate, graph)
+        _set_vchannel_x(channel, coordinate)
+        if carry_tail:
+            route.points = [
+                (x + delta, y) if rank >= tail_start else (x, y)
+                for rank, (x, y) in enumerate(route.points)
+            ]
+    if opening_end_y is None:
         return
-    tail_start = channel.idx + 2
-    _reconcile_moved_gap_slot(channel, coordinate, graph)
-    _set_vchannel_x(channel, coordinate)
-    if not carry_tail:
+    end_idx = channel.idx + 1
+    if end_idx >= len(route.points):
         return
-    route.points = [
-        (x + delta, y) if rank >= tail_start else (x, y)
-        for rank, (x, y) in enumerate(route.points)
-    ]
+    y_delta = opening_end_y - route.points[end_idx][1]
+    if abs(y_delta) <= COORD_TOLERANCE:
+        return
+    if carry_tail:
+        route.points = [
+            (x, y + y_delta) if rank >= end_idx else (x, y)
+            for rank, (x, y) in enumerate(route.points)
+        ]
+    else:
+        x_end, y_end = route.points[end_idx]
+        route.points[end_idx] = (x_end, y_end + y_delta)
 
 
 def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:
@@ -1413,7 +1763,7 @@ def _route_first_vertical(rp: RoutedPath) -> _VChannel | None:
 
 def _merge_fanout_pivot_spans(
     rp: RoutedPath, fanouts: set[str], merges: set[str]
-) -> Iterable[tuple[tuple[str, bool], _VChannel]]:
+) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
     """A merge-fanout branch's opening pivot, keyed by source and turn direction.
 
     Yields nothing for a route that is not a merge-fanout branch into a merge
@@ -1423,7 +1773,7 @@ def _merge_fanout_pivot_spans(
         return
     ch = _route_first_vertical(rp)
     if ch is not None:
-        yield (rp.edge.source, ch.down), ch
+        yield (rp.edge.source, rp.line_id, ch.down), ch
 
 
 def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
@@ -1449,7 +1799,7 @@ def _coincide_merge_fanout_pivots(routes: list[RoutedPath], ctx: _RoutingCtx) ->
     groups = _group_channels_by(
         routes, lambda rp: _merge_fanout_pivot_spans(rp, fanouts, merges)
     )
-    for (src, _down), chans in groups.items():
+    for (src, _line_id, _down), chans in groups.items():
         planned = [channel.x for channel in chans if _planner_owns_channel(channel)]
         if planned and max(planned) - min(planned) > COORD_TOLERANCE:
             continue
@@ -1493,7 +1843,11 @@ def _coincide_fanout_opening_descents(
     )
 
 
-def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _coincide_same_line_tracks(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Fuse same-line vertical legs that should read as a single stroke.
 
     Handlers route each edge independently, so one metro line carried by
@@ -1523,7 +1877,7 @@ def _coincide_same_line_tracks(routes: list[RoutedPath], ctx: _RoutingCtx) -> No
     the handler could have anticipated.
     """
     for group in _convergent_port_groups(routes, ctx):
-        _snap_group(group, ctx)
+        _snap_group(group, ctx, movable_exit_plan_ids)
     for group in _merge_feeder_groups(routes, ctx):
         movable_channels = [
             channel for channel in group.channels if not _planner_owns_channel(channel)
@@ -1943,7 +2297,11 @@ def _unify_coincident_corner_radii(routes: list[RoutedPath]) -> None:
             break
 
 
-def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
+def _reconcile_port_peeloff_risers(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+) -> None:
     """Re-stack port approaches onto the slots their settled trunk depth earns.
 
     The riser order is assigned during gap materialisation from the trunk
@@ -1964,8 +2322,6 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
         n = len(bundle.per_line)
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            if tail_on_slot(tail, slot):
-                continue
             ch = _VChannel(
                 route=rp,
                 idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
@@ -1974,7 +2330,20 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 y_hi=max(tail.trunk_y, tail.port_y),
                 down=tail.port_y > tail.trunk_y,
             )
-            if _planner_owns_channel(ch):
+            if tail_on_slot(tail, slot):
+                if ch.route.convergence_plan_id is not None:
+                    _restack_channel(
+                        ch,
+                        slot.peel_x,
+                        slot.rank,
+                        n,
+                        step,
+                        ctx.curve_radius,
+                    )
+                continue
+            if _planner_owns_channel(ch) and (
+                ch.route.exit_turn_plan_id not in movable_exit_plan_ids
+            ):
                 continue
             _restack_channel(
                 ch,
@@ -1992,7 +2361,7 @@ def _stagger_convergent_distinct_lines(
     ctx: _RoutingCtx,
     *,
     movable_route_ids: frozenset[int] | None = None,
-) -> None:
+) -> set[tuple[str, str, str]]:
     """Seat distinct-line final port descents in destination lane order.
 
     The distinct-line counterpart to :func:`_coincide_same_line_tracks`: two
@@ -2017,9 +2386,7 @@ def _stagger_convergent_distinct_lines(
         list
     )
     for rp in routes:
-        if not rp.is_inter_section or (
-            movable_route_ids is not None and id(rp) not in movable_route_ids
-        ):
+        if not rp.is_inter_section:
             continue
         ch = _final_port_approach(rp)
         if ch is None:
@@ -2036,8 +2403,13 @@ def _stagger_convergent_distinct_lines(
         )
     }
 
+    reconciled_edges: set[tuple[str, str, str]] = set()
     for (port_id, down), entries in by_port.items():
-        if any(_planner_owns_channel(channel) for _route, channel in entries):
+        if any(
+            _planner_owns_channel(channel)
+            and (movable_route_ids is None or id(route) not in movable_route_ids)
+            for route, channel in entries
+        ):
             continue
         port = ctx.graph.ports.get(port_id)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
@@ -2048,6 +2420,7 @@ def _stagger_convergent_distinct_lines(
         } != {id(route) for route, _channel in entries}:
             opposing_bundle = None
         if opposing_bundle is not None:
+            before = {id(route): tuple(route.points) for route, _channel in entries}
             slots = opposing_entry_confluence_slots(
                 opposing_bundle,
                 ctx.graph,
@@ -2055,6 +2428,7 @@ def _stagger_convergent_distinct_lines(
             )
             if any(
                 _planner_owns_channel(channel)
+                and (movable_route_ids is None or id(route) not in movable_route_ids)
                 or _descent_crosses_section(
                     ctx.graph,
                     channel,
@@ -2077,19 +2451,53 @@ def _stagger_convergent_distinct_lines(
                     offset_in=0.0,
                     offset_out=slot.peel_x - inner_x,
                 )
+            reconciled_edges.update(
+                (route.edge.source, route.edge.target, route.edge.line_id)
+                for route, _channel in entries
+                if tuple(route.points) != before[id(route)]
+            )
             continue
         forced_order = _cross_row_convergence_channel_order(port_id, entries, ctx)
         if forced_order is not None:
-            _stack_distinct_port_descents(entries, port, ctx, line_order=forced_order)
+            before = {id(route): tuple(route.points) for route, _channel in entries}
+            _stack_distinct_port_descents(
+                entries,
+                port,
+                ctx,
+                line_order=forced_order,
+                movable_route_ids=movable_route_ids,
+            )
+            reconciled_edges.update(
+                (route.edge.source, route.edge.target, route.edge.line_id)
+                for route, _channel in entries
+                if tuple(route.points) != before[id(route)]
+            )
             continue
         entries.sort(key=lambda e: e[1].x)
         cluster: list[tuple[RoutedPath, _VChannel]] = []
         for rp, ch in entries:
             if cluster and abs(ch.x - cluster[-1][1].x) > COORD_TOLERANCE + 1.0:
-                _stack_distinct_port_descents(cluster, port, ctx)
+                before = {id(route): tuple(route.points) for route, _channel in cluster}
+                _stack_distinct_port_descents(
+                    cluster, port, ctx, movable_route_ids=movable_route_ids
+                )
+                reconciled_edges.update(
+                    (route.edge.source, route.edge.target, route.edge.line_id)
+                    for route, _channel in cluster
+                    if tuple(route.points) != before[id(route)]
+                )
                 cluster = []
             cluster.append((rp, ch))
-        _stack_distinct_port_descents(cluster, port, ctx)
+        before = {id(route): tuple(route.points) for route, _channel in cluster}
+        _stack_distinct_port_descents(
+            cluster, port, ctx, movable_route_ids=movable_route_ids
+        )
+        reconciled_edges.update(
+            (route.edge.source, route.edge.target, route.edge.line_id)
+            for route, _channel in cluster
+            if tuple(route.points) != before[id(route)]
+        )
+    return reconciled_edges
 
 
 def _cross_row_convergence_channel_order(
@@ -2121,6 +2529,7 @@ def _stack_distinct_port_descents(
     ctx: _RoutingCtx,
     *,
     line_order: list[str] | None = None,
+    movable_route_ids: frozenset[int] | None = None,
 ) -> None:
     """Re-seat one cluster of distinct-line port descents.
 
@@ -2137,12 +2546,14 @@ def _stack_distinct_port_descents(
     if any(
         _planner_owns_channel(channel)
         and not convergence_owns_segment_boundary(channel.route, channel.idx)
-        for _route, channel in cluster
+        and (movable_route_ids is None or id(route) not in movable_route_ids)
+        for route, channel in cluster
     ):
         return
-    has_planned_channel = any(
+    has_immovable_planned_channel = any(
         convergence_owns_segment_boundary(channel.route, channel.idx)
-        for _route, channel in cluster
+        and (movable_route_ids is None or id(route) not in movable_route_ids)
+        for route, channel in cluster
     )
     by_line: dict[str, list[_VChannel]] = defaultdict(list)
     for rp, ch in cluster:
@@ -2175,7 +2586,7 @@ def _stack_distinct_port_descents(
         lid: base + rank * step if left else base - rank * step
         for rank, lid in enumerate(ordered)
     }
-    if has_planned_channel and any(
+    if has_immovable_planned_channel and any(
         abs(channel.x - target_x_by_line[line_id]) > COORD_TOLERANCE
         for line_id, channels in by_line.items()
         for channel in channels
@@ -2190,7 +2601,7 @@ def _stack_distinct_port_descents(
 
 def _bypass_nesting_leg_is_movable(route: RoutedPath, rank: int) -> bool:
     """Whether bypass nesting owns the horizontal leg and its flanking corners."""
-    return not convergence_owns_segment_boundary(route, rank)
+    return not route_system_owns_segment_boundary(route, rank)
 
 
 def _nest_bypass_above_over_top_wrap(
@@ -2322,6 +2733,33 @@ def _convergent_port_groups(
     """
     entry_port_for = ctx.merge.entry_port_for
 
+    def boundary_dogleg_stitch(rp: RoutedPath, ch: _VChannel, target: str) -> bool:
+        if ctx.convergences is None:
+            return False
+        membership = ctx.convergences.membership_for_edge(rp.edge)
+        landing = membership.landing if membership is not None else None
+        entry = ctx.graph.stations.get(target)
+        port = ctx.graph.ports.get(target)
+        if (
+            landing is None
+            or entry is None
+            or port is None
+            or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+            or ch.idx != len(rp.points) - 3
+            or ch.y_hi - ch.y_lo > 2 * ctx.offset_step + COORD_TOLERANCE
+        ):
+            return False
+        endpoint = rp.points[-1]
+        outward = 1.0 if port.side is PortSide.RIGHT else -1.0
+        return (
+            all(
+                abs(actual - expected) <= COORD_TOLERANCE
+                for actual, expected in zip(endpoint, landing.join_point, strict=True)
+            )
+            and abs(endpoint[0] - entry.x) <= COORD_TOLERANCE
+            and outward * (ch.x - entry.x) >= COORD_TOLERANCE
+        )
+
     def spans(
         rp: RoutedPath,
     ) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
@@ -2333,6 +2771,8 @@ def _convergent_port_groups(
         # before render offsets are applied, and keying on the raw endpoint
         # would split that single convergence into two.
         target = entry_port_for.get(rp.edge.target, rp.edge.target)
+        if boundary_dogleg_stitch(rp, ch, target):
+            return
         yield (target, rp.line_id, ch.down), ch
 
     by_port = _group_channels_by(routes, spans)
@@ -2384,12 +2824,36 @@ def _reseat_concentric_flanking(
         (k - 1, offset_in, base_radius),
         (k, offset_out, radius_out),
     ):
-        if 0 <= radius_idx < len(rp.curve_radii):
+        if 0 <= radius_idx < len(rp.curve_radii) and radius_idx + 2 < len(pts):
             rp.record_concentric_corner(radius_idx, offset, reference)
             prev_pt, corner_pt, next_pt = pts[radius_idx : radius_idx + 3]
             rp.curve_radii[radius_idx] = concentric_corner_radius_at(
                 prev_pt, corner_pt, next_pt, offset, reference
             )
+
+
+def _snap_reverses_adjacent_run(ch: _VChannel, new_x: float) -> bool:
+    """Whether moving the channel to *new_x* reverses a flanking horizontal run.
+
+    A run that shrinks keeps its reading; a run whose direction flips draws the
+    line doubling back over the very track it just travelled (the #885
+    fold-back), so a snap that would flip either flanking run is not a legal
+    fuse.  A landing tail joining a merge trunk pins its far endpoint, which is
+    where a cross-join snap would otherwise reverse it.
+    """
+    points = ch.route.points
+    for a_idx, b_idx, moved in (
+        (ch.idx - 1, ch.idx, "b"),
+        (ch.idx + 1, ch.idx + 2, "a"),
+    ):
+        if not 0 <= a_idx < len(points) or not 0 <= b_idx < len(points):
+            continue
+        ax, bx = points[a_idx][0], points[b_idx][0]
+        old_run = bx - ax
+        new_run = (new_x - ax) if moved == "b" else (bx - new_x)
+        if abs(old_run) > COORD_TOLERANCE and old_run * new_run < 0:
+            return True
+    return False
 
 
 def _set_vchannel_x(
@@ -2487,21 +2951,23 @@ def _initial_fanout_descent(rp: RoutedPath) -> _VChannel | None:
 
 def _divergent_source_spans(
     rp: RoutedPath,
-) -> Iterable[tuple[tuple[str, str, bool], _VChannel]]:
-    """A route's opening fan-out descent, keyed by source, line and direction."""
+) -> Iterable[tuple[tuple[str, str, bool, bool], _VChannel]]:
+    """A route's opening descent, keyed by source, line, fall, and lead."""
     ch = _opening_fanout_descent(rp)
     if ch is not None:
-        yield (rp.edge.source, rp.line_id, ch.down), ch
+        opens_right = rp.points[1][0] > rp.points[0][0]
+        yield (rp.edge.source, rp.line_id, ch.down, opens_right), ch
 
 
 def _distinct_descent_spans(
     rp: RoutedPath,
-) -> Iterable[tuple[tuple[str, bool], _VChannel]]:
-    """A route's opening fan-out descent, keyed by source and direction."""
+) -> Iterable[tuple[tuple[str, bool, bool], _VChannel]]:
+    """An opening descent, keyed by source, fall, and horizontal lead."""
     channel = _opening_fanout_descent(rp)
     if channel is None:
         return
-    yield (rp.edge.source, channel.down), channel
+    opens_right = rp.points[1][0] > rp.points[0][0]
+    yield (rp.edge.source, channel.down, opens_right), channel
 
 
 def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
@@ -2517,9 +2983,10 @@ def _divergent_source_groups(routes: list[RoutedPath]) -> list[_Coincidence]:
     and an inverted split (the farther-reaching branch opening inside the
     nearer one) crosses its sibling's descent.
 
-    Descents are grouped by source endpoint + line + descent direction; every
-    group of two or more fuses onto the channel nearest the source, hugging the
-    side the branches leave from, and splits off downstream at each own turn Y.
+    Descents are grouped by source endpoint, line, descent direction, and
+    horizontal opening direction. Every group of two or more fuses onto the
+    channel nearest the source, hugging the side the branches leave from, and
+    splits off downstream at each own turn Y.
     Unlike the convergent case there is no proximity band: any same-source pair
     overlapping in Y must collapse, however far apart their Xs.
 
@@ -2592,8 +3059,8 @@ def _fan_opening_reference_radii(
             x, y = points[index]
             points[index] = (target_x, y)
         radius_indices = range(
-            channel.idx - 1,
-            min(channel.idx + 1, len(route.curve_radii)),
+            max(0, channel.idx - 1),
+            min(channel.idx + 1, len(route.curve_radii), len(points) - 2),
         )
         for side, radius_index in enumerate(radius_indices):
             required_reference = concentric_reference_radius_at(
@@ -2649,10 +3116,19 @@ def _bundle_divergent_distinct_descents(
         # offsets step across the section seam: a line reused on non-adjacent
         # fan legs can leave an empty interior lane there, which widens the
         # peel-x span past a tight bundle, so this pass would otherwise claim them.
+        junction_owned = all(
+            channel.route.edge.source in ctx.graph.junctions for channel in chans
+        )
         targets = {c.route.edge.target for c in chans}
         if len(targets) == 1:
             port = ctx.graph.ports.get(next(iter(targets)))
-            if port is not None and port.is_entry:
+            xs = [c.x for c in chans]
+            tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+            if (
+                port is not None
+                and port.is_entry
+                and not (settle_frozen_arcs and tight and junction_owned)
+            ):
                 continue
         target_sets = {
             frozenset(ch.route.edge.target for ch in line_channels)
@@ -2666,15 +3142,43 @@ def _bundle_divergent_distinct_descents(
             lid: min(_fanout_descent_order_key(c) for c in cs)
             for lid, cs in by_line.items()
         }
+        source_y = {
+            lid: min(channel.route.points[0][1] for channel in line_channels)
+            for lid, line_channels in by_line.items()
+        }
+        if max(source_y.values()) - min(source_y.values()) > COORD_TOLERANCE and all(
+            channel.route.edge.target not in ctx.merge.junctions for channel in chans
+        ):
+            # A direct destination branch keeps the source bundle's lane order
+            # through this turn. A merge arm has another topology-owned turn
+            # ahead, so its intermediate descent is ordered by peel depth.
+            opens_right = chans[0].route.points[1][0] > chans[0].route.points[0][0]
+            source_order_sign = -1 if opens_right == chans[0].down else 1
+            line_key = {
+                lid: (0, source_order_sign * coordinate)
+                for lid, coordinate in source_y.items()
+            }
         ordered = sorted(by_line, key=line_key.__getitem__)
-        tight = max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+        current_order = sorted(
+            by_line,
+            key=lambda lid: min(channel.x for channel in by_line[lid]),
+        )
+        # A line that serves several targets has no single peel rank against
+        # which its shared descent can be reordered.
+        current_order_matches = current_order == ordered or any(
+            len(targets) > 1 for targets in target_sets
+        )
+        tight = (
+            max(xs) - min(xs) <= step * (len(by_line) - 1) + COORD_TOLERANCE
+            and current_order_matches
+        )
         # A frozen coordinate is one this pass may not choose, which stands in
         # its way only where the group has to move onto tighter tracks: a group
         # already on them keeps every coordinate and takes only the arc sizes its
         # ranks imply.  Those belong to the freeze: a plan holds its opening arc
         # from the freeze onward, so a group carrying one can be given a shared
         # arc centre there and nowhere later.
-        if frozen and not (settle_frozen_arcs and tight):
+        if frozen and not (settle_frozen_arcs and tight and junction_owned):
             continue
         if (
             any(
@@ -2792,6 +3296,28 @@ def _merge_feeder_groups(
             ch = _initial_fanout_descent(rp)
             if ch is None:
                 continue
+            source_section = resolve_section(graph, src_st, prefer_upstream=True)
+            if source_section is not None and source_section.bbox_w > 0:
+                source_left, _source_top, source_right, _source_bottom = (
+                    section_bbox_edges(source_section)
+                )
+                within_source_band = (
+                    _source_top + COORD_TOLERANCE
+                    < src_st.y
+                    < _source_bottom - COORD_TOLERANCE
+                )
+
+                def crosses_source_interior(x: float) -> bool:
+                    return (
+                        within_source_band
+                        and min(src_st.x, x) < source_right - COORD_TOLERANCE
+                        and max(src_st.x, x) > source_left + COORD_TOLERANCE
+                    )
+
+                if crosses_source_interior(trunk_ch.x) and not crosses_source_interior(
+                    ch.x
+                ):
+                    continue
             members.append(ch)
         if members:
             groups.append(_Coincidence(members, trunk_ch.x))
@@ -2920,7 +3446,7 @@ def _stack_trunk_bands(
     can stack together; a single-direction caller passes bands that all share
     one dip.
     """
-    planned = [_plan_trunk_band(b) for b in bands]
+    planned = [_plan_trunk_band(b, ctx) for b in bands]
     gap = BUNDLE_TO_BUNDLE_CLEARANCE
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
     top = min(t.y for b in bands for t in b)
@@ -3174,6 +3700,7 @@ def _band_looseness(
 
 def _plan_trunk_band(
     band: list[_HTrunk],
+    ctx: _RoutingCtx,
 ) -> tuple[list[list[_HTrunk]], dict[int, int], int]:
     """Order one same-direction band into concentric slots and pack its tracks.
 
@@ -3193,7 +3720,8 @@ def _plan_trunk_band(
     only appears elsewhere in X); among those the widest-reaching slot sorts
     OUTERMOST.  A fully-overlapping bundle packs to one concentric stack whose
     looseness is zero for every order, so the width-only tie-break alone
-    decides it.
+    decides it. A fully claimed cohort from one source consumes the frozen
+    allocation order directly, before live crossing geometry can rank it.
     """
     slot_groups = _coincident_trunk_slots(band)
     span_of: _SpanOf = {id(sg): _slot_span(sg) for sg in slot_groups}
@@ -3205,7 +3733,7 @@ def _plan_trunk_band(
             min(t.y for t in sg),
         ),
     )
-    if len(slot_groups) < 2 or len(slot_groups) > _MAX_BAND_PERMUTE:
+    if len(slot_groups) < 2:
         return heuristic, *_packed_track_map(heuristic, span_of)
 
     # `_restack_trunk_band` lays slot 0 at the channel-interior extreme: the
@@ -3216,6 +3744,32 @@ def _plan_trunk_band(
     h_rank = {id(sg): r for r, sg in enumerate(h_ttb)}
     feats = {id(sg): _trunk_slot_features(sg) for sg in slot_groups}
 
+    def source_corner_crossings(perm: list[list[_HTrunk]]) -> int:
+        rank = {id(slot): value for value, slot in enumerate(perm)}
+        crossings = 0
+        for first_rank, first_slot in enumerate(slot_groups):
+            for second_slot in slot_groups[first_rank + 1 :]:
+                for first in first_slot:
+                    for second in second_slot:
+                        if (
+                            first.route.member_geometry_plan_id is not None
+                            or second.route.member_geometry_plan_id is not None
+                        ):
+                            continue
+                        if (
+                            first.route.edge.source != second.route.edge.source
+                            or first.route.edge.target != second.route.edge.target
+                        ):
+                            continue
+                        first_x = first.route.points[first.idx - 1][0]
+                        second_x = second.route.points[second.idx - 1][0]
+                        if abs(first_x - second_x) <= COORD_TOLERANCE:
+                            continue
+                        expected = first_x > second_x
+                        observed = rank[id(first_slot)] < rank[id(second_slot)]
+                        crossings += expected != observed
+        return crossings
+
     def _key(perm: list[list[_HTrunk]]) -> tuple[float, ...]:
         # Crossings first; then packed looseness so tight bundles beat split
         # ones; then heuristic position.  The heuristic scores (.., 0, 1, ..),
@@ -3224,12 +3778,63 @@ def _plan_trunk_band(
         s2d = perm if dips else list(reversed(perm))
         looseness = _band_looseness(s2d, _pack_band_tracks(s2d, span_of), span_of)
         return (
+            source_corner_crossings(perm),
             _band_order_crossings(perm, feats),
             looseness,
             *(h_rank[id(sg)] for sg in perm),
         )
 
-    best_ttb = min((list(p) for p in itertools.permutations(h_ttb)), key=_key)
+    # Two slots whose trunks share one planned exit turn are lanes of one
+    # frame the plan already nested, so the stack may pack them but not swap
+    # them: their incoming lane order is the plan's own.
+    slot_plans = {
+        id(sg): {
+            t.route.exit_turn_plan_id
+            for t in sg
+            if t.route.exit_turn_plan_id is not None
+        }
+        for sg in slot_groups
+    }
+    slot_min_y = {id(sg): min(t.y for t in sg) for sg in slot_groups}
+    # One source shared by every slot defines the emission cohort whose lane
+    # order survives the corridor. No shared source or several shared sources
+    # leave the band with the global allocator.
+    frozen_coordinates = _frozen_order_coordinates(
+        ctx,
+        tuple(
+            tuple((trunk.route, trunk.idx) for trunk in slot) for slot in slot_groups
+        ),
+        require_single_common_source=True,
+    )
+    if frozen_coordinates is not None:
+        coordinate_by_slot = dict(zip(map(id, slot_groups), frozen_coordinates))
+
+        def frozen_coordinate(slot: list[_HTrunk]) -> float:
+            return coordinate_by_slot[id(slot)]
+
+        planned_ttb = sorted(slot_groups, key=frozen_coordinate)
+        order = list(reversed(planned_ttb)) if dips else planned_ttb
+        return order, *_packed_track_map(order, span_of)
+
+    if len(slot_groups) > _MAX_BAND_PERMUTE:
+        return heuristic, *_packed_track_map(heuristic, span_of)
+
+    def keeps_planned_order(perm: tuple[list[_HTrunk], ...]) -> bool:
+        for first_rank, first_slot in enumerate(perm):
+            for second_slot in perm[first_rank + 1 :]:
+                if not slot_plans[id(first_slot)] & slot_plans[id(second_slot)]:
+                    continue
+                if (
+                    slot_min_y[id(first_slot)]
+                    > slot_min_y[id(second_slot)] + COORD_TOLERANCE
+                ):
+                    return False
+        return True
+
+    permutations = [
+        list(p) for p in itertools.permutations(h_ttb) if keeps_planned_order(p)
+    ] or [list(p) for p in itertools.permutations(h_ttb)]
+    best_ttb = min(permutations, key=_key)
     order = list(reversed(best_ttb)) if dips else best_ttb
     return order, *_packed_track_map(order, span_of)
 
@@ -3347,6 +3952,12 @@ def _restack_trunk_band(
             bundled.add(id(t.route))
             if abs(new_y - t.y) <= COORD_TOLERANCE:
                 continue
+            if (
+                t.route.normalize_exempt
+                and _run_enters_section(ctx.graph, 1, new_y, (t.x_lo, t.x_hi))
+                and not _run_enters_section(ctx.graph, 1, t.y, (t.x_lo, t.x_hi))
+            ):
+                continue
             _restack_htrunk(t, new_y, inner, n, step, ctx.curve_radius)
 
 
@@ -3390,9 +4001,56 @@ def _exempt_trunk_separation(
     )
 
 
-def _dogleg_off_exempt_trunks(
-    routes: list[RoutedPath], ctx: _RoutingCtx, skip: set[int] | None = None
+def _seat_exempt_trunk_dogleg(
+    trunk: _HTrunk, target_y: float, ctx: _RoutingCtx
 ) -> None:
+    """Move a dogleg trunk and bind its corridor declaration to the new run."""
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=1,
+        section_ids=_route_endpoint_section_ids(ctx.graph, trunk.route),
+        coordinate=target_y,
+        run_start=trunk.x_lo,
+        run_end=trunk.x_hi,
+    )
+    if (
+        band is not None
+        and band.boundary is None
+        and band.hi >= band.lo - COORD_TOLERANCE
+    ):
+        target_y = min(max(target_y, band.lo), band.hi)
+    _restack_htrunk(trunk, target_y, 0, 1, ctx.offset_step, ctx.curve_radius)
+    _reconcile_moved_trunk_slot(trunk.route, trunk.idx, target_y, ctx.graph)
+
+
+def _target_leaves_grid_corridor(
+    trunk: _HTrunk, target_y: float, ctx: _RoutingCtx
+) -> bool:
+    """Whether seating a trunk at *target_y* leaves its bounded row gap."""
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=1,
+        section_ids=_route_endpoint_section_ids(ctx.graph, trunk.route),
+        coordinate=target_y,
+        run_start=trunk.x_lo,
+        run_end=trunk.x_hi,
+    )
+    return band is not None and (
+        band.boundary is None
+        or target_y < band.lo - COORD_TOLERANCE
+        or target_y > band.hi + COORD_TOLERANCE
+    )
+
+
+def _dogleg_off_exempt_trunks(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    skip: set[int] | None = None,
+    *,
+    movable_owned_route_ids: frozenset[int] = frozenset(),
+    reconcile_owned_corridor: bool = False,
+    nested_only: bool = False,
+) -> set[tuple[str, str, str]]:
     """Offset a non-exempt trunk drawn collinear with an exempt run.
 
     ``normalize_exempt`` horizontal runs are placed by their own handler and
@@ -3422,10 +4080,15 @@ def _dogleg_off_exempt_trunks(
         if t.route.normalize_exempt and id(t.route) not in skip
     ]
     if not obstacles:
-        return
+        return set()
     clearance = EDGE_TO_BUNDLE_CLEARANCE
-    for t in _collect_htrunks(routes):
-        if id(t.route) in skip or route_system_owns_segment_boundary(t.route, t.idx):
+    changed: set[tuple[str, str, str]] = set()
+    same_line_trunks = _collect_htrunks(routes)
+    for t in same_line_trunks:
+        owned = route_system_owns_segment_boundary(t.route, t.idx)
+        if id(t.route) in skip or (
+            owned and id(t.route) not in movable_owned_route_ids
+        ):
             continue
         hit = next(
             (
@@ -3435,19 +4098,23 @@ def _dogleg_off_exempt_trunks(
                 and abs(o.y - t.y) <= clearance
                 and t.x_lo < o.x_hi - COORD_TOLERANCE
                 and o.x_lo < t.x_hi - COORD_TOLERANCE
+                and (
+                    not owned
+                    or trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y))
+                    is not None
+                )
             ),
             None,
         )
         if hit is None:
             continue
-        # Lower edge reserves the next row's header badge plus the clearance
-        # margin the header-clearance invariant requires; up_room only reserves
+        # Lower edge reserves the same inter-row header clearance the
+        # reservation ledger enforces on drawn claims; up_room only reserves
         # the upper box edge.
         band = _inter_row_gap_band(ctx, t.y)
         if band is not None:
             top, bottom = band
-            header_top = bottom - SECTION_HEADER_PROTRUSION
-            down_room = (header_top - NEXT_ROW_HEADER_BADGE_CLEARANCE) - hit.y
+            down_room = (bottom - INTER_ROW_HEADER_CLEARANCE) - hit.y
             up_room = hit.y - top
         else:
             down_room = up_room = clearance
@@ -3474,24 +4141,17 @@ def _dogleg_off_exempt_trunks(
         else:
             continue
         new_y = down_y if use_down else up_y
-        _restack_htrunk(t, new_y, 0, 1, ctx.offset_step, ctx.curve_radius)
-
-    step = ctx.offset_step
-    for t in _collect_htrunks(routes):
-        if id(t.route) in skip or route_system_owns_segment_boundary(t.route, t.idx):
+        if nested_only and not _target_leaves_grid_corridor(t, new_y, ctx):
             continue
-        hit = next(
-            (
-                o
-                for o in obstacles
-                if o.route.line_id != t.route.line_id
-                and abs(o.y - t.y)
-                < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
-                and t.x_lo < o.x_hi - COORD_TOLERANCE
-                and o.x_lo < t.x_hi - COORD_TOLERANCE
-            ),
-            None,
-        )
+        _seat_exempt_trunk_dogleg(t, new_y, ctx)
+
+    for t in _collect_htrunks(routes):
+        owned = route_system_owns_segment_boundary(t.route, t.idx)
+        if id(t.route) in skip or (
+            owned and id(t.route) not in movable_owned_route_ids
+        ):
+            continue
+        hit = _dogleg_counterpart(t, obstacles, ctx, owned=owned)
         if hit is None:
             continue
         separation = _exempt_trunk_separation(t, hit, ctx.curve_radius)
@@ -3499,10 +4159,16 @@ def _dogleg_off_exempt_trunks(
         below, above = hit.y + separation, hit.y - separation
         if band is not None:
             top, bottom = band
-            below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
+            below_ok = below <= bottom - INTER_ROW_HEADER_CLEARANCE
             above_ok = above >= top
         else:
             below_ok = above_ok = True
+        claim_band = _segment_claim_band(ctx, t.route, t.idx)
+        if claim_band is not None:
+            below_in_band = below_ok and claim_band.lo <= below <= claim_band.hi
+            above_in_band = above_ok and claim_band.lo <= above <= claim_band.hi
+            if below_in_band or above_in_band:
+                below_ok, above_ok = below_in_band, above_in_band
         # Pick the side that keeps the trunk a crossing-free parallel bundle:
         # nudging it onto the side whose riser would pierce the exempt run (or
         # whose run the exempt riser would pierce) trades one fused stroke for
@@ -3511,6 +4177,35 @@ def _dogleg_off_exempt_trunks(
         obstacle = _htrunk_seg(hit, hit.y)
         cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
         cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
+        if nested_only:
+            leaves_grid = (
+                below_ok and _target_leaves_grid_corridor(t, below, ctx)
+            ) or (above_ok and _target_leaves_grid_corridor(t, above, ctx))
+            if not leaves_grid:
+                if (cross_below is not None and cross_above is not None) or not (
+                    below_ok or above_ok
+                ):
+                    if reconcile_owned_corridor:
+                        changed.update(
+                            _unweave_against_crossing_obstacles(
+                                t, hit, obstacles, routes, ctx
+                            )
+                        )
+                continue
+            if cross_below is not None and cross_above is not None:
+                if reconcile_owned_corridor:
+                    changed.update(
+                        _unweave_against_crossing_obstacles(
+                            t, hit, obstacles, routes, ctx
+                        )
+                    )
+                continue
+        if cross_below is not None and cross_above is not None:
+            if reconcile_owned_corridor:
+                changed.update(
+                    _unweave_against_crossing_obstacles(t, hit, obstacles, routes, ctx)
+                )
+            continue
         prefer_below = t.y >= hit.y
         if below_ok and above_ok and (cross_below is None) != (cross_above is None):
             use_below = cross_below is None
@@ -3519,8 +4214,332 @@ def _dogleg_off_exempt_trunks(
         elif above_ok:
             use_below = False
         else:
+            if reconcile_owned_corridor:
+                changed.update(
+                    _unweave_against_crossing_obstacles(t, hit, obstacles, routes, ctx)
+                )
             continue
-        _restack_htrunk(t, below if use_below else above, 0, 1, step, ctx.curve_radius)
+        target = below if use_below else above
+        _seat_exempt_trunk_dogleg(t, target, ctx)
+    return changed
+
+
+def _dogleg_counterpart(
+    t: _HTrunk,
+    obstacles: list[_HTrunk],
+    ctx: _RoutingCtx,
+    *,
+    owned: bool,
+) -> _HTrunk | None:
+    """The exempt counterpart a dogleg trunk settles against, if any.
+
+    A crossing counterpart outranks a merely-close one: the crossing is the
+    geometric defect the dogleg pass exists to clear, while proximity is
+    stroke fusion, and settling against the near obstacle first would leave
+    the crossing pair unprocessed.  An owned trunk reacts only to crossings.
+    """
+    proximity_hit: _HTrunk | None = None
+    for o in obstacles:
+        if (
+            o.route.line_id == t.route.line_id
+            or t.x_lo >= o.x_hi - COORD_TOLERANCE
+            or o.x_lo >= t.x_hi - COORD_TOLERANCE
+        ):
+            continue
+        if trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(o, o.y)) is not None:
+            return o
+        if (
+            proximity_hit is None
+            and not owned
+            and abs(o.y - t.y)
+            < _exempt_trunk_separation(t, o, ctx.curve_radius) - COORD_TOLERANCE
+        ):
+            proximity_hit = o
+    return proximity_hit
+
+
+def _unweave_against_crossing_obstacles(
+    t: _HTrunk,
+    hit: _HTrunk,
+    obstacles: list[_HTrunk],
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Unweave *t* against *hit*, then against any other crossing counterpart.
+
+    A riser can pierce several exempt trunks stacked in one band, and the
+    retarget arm only engages the counterpart that shares the route's target,
+    so declining the chosen hit must not strand the crossing that a different
+    counterpart could clear.
+    """
+    changed = _unweave_exempt_trunk_riser(t, hit, routes, ctx)
+    if changed:
+        return changed
+    tried = {id(hit.route)}
+    for other in obstacles:
+        if id(other.route) in tried or other.route.line_id == t.route.line_id:
+            continue
+        if (
+            trunk_segments_cross(_htrunk_seg(t, t.y), _htrunk_seg(other, other.y))
+            is None
+        ):
+            continue
+        changed = _unweave_exempt_trunk_riser(t, other, routes, ctx)
+        if changed:
+            return changed
+        tried.add(id(other.route))
+    return set()
+
+
+def _convergence_plan_names_column(
+    route: RoutedPath,
+    before: tuple[float, float],
+    corner: tuple[float, float],
+    gap: tuple[int, int | None],
+    ctx: _RoutingCtx,
+) -> bool:
+    """Whether the route's convergence plan states this channel's column.
+
+    The closing feasibility validator holds a plan gap channel and the member
+    stroke drawing it to one column, so moving a riser off the column its own
+    plan names contradicts the plan even when the move is collision-free.
+    """
+    if ctx.convergences is None:
+        return False
+    from nf_metro.layout.routing.convergences import (
+        _plan_gap_channels,
+        gap_lookup_geometry,
+    )
+
+    lookup = gap_lookup_geometry(ctx.graph)
+    y_lo, y_hi = sorted((before[1], corner[1]))
+    return any(
+        channel.gap == gap
+        and route.line_id in channel.line_ids
+        and abs(channel.coordinate - before[0]) <= COORD_TOLERANCE
+        and spans_share_corridor(channel.y_lo, channel.y_hi, y_lo, y_hi)
+        for plan in ctx.convergences.plans
+        for channel in _plan_gap_channels(plan, ctx.graph, lookup)
+    )
+
+
+def _unweave_exempt_trunk_riser(
+    trunk: _HTrunk,
+    obstacle: _HTrunk,
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Move a nested dogleg riser past its exempt counterpart."""
+    route = trunk.route
+    points = route.points
+    clearance = _exempt_trunk_separation(trunk, obstacle, ctx.curve_radius)
+    obstacle_segment = _htrunk_seg(obstacle, obstacle.y)
+    moving_segment = _htrunk_seg(trunk, trunk.y)
+    crossing = trunk_segments_cross(moving_segment, obstacle_segment)
+    if (
+        crossing is not None
+        and trunk.sign_x == obstacle.sign_x
+        and route.edge.target == obstacle.route.edge.target
+        and abs(crossing[0] - obstacle_segment.xb) > COORD_TOLERANCE
+        and route.exit_turn_axis_id is None
+        and route.fan_plan_id is None
+        and not route.exit_shared_opening_points
+    ):
+        endpoint_y = min(moving_segment.before_y, moving_segment.after_y)
+        exempt_sections = set(_route_endpoint_section_ids(ctx.graph, route))
+        for _upper, top, bottom in reversed(tuple(iter_inter_row_gaps(ctx.graph))):
+            target_y = fan_corridor_band(top, bottom, 0.0)
+            if target_y is None:
+                continue
+            candidate_trunk = _htrunk_seg(trunk, target_y)
+            if (
+                bottom >= endpoint_y - ctx.curve_radius
+                or _h_segment_crosses_other_section(
+                    ctx.graph,
+                    candidate_trunk.xa,
+                    candidate_trunk.xb,
+                    candidate_trunk.y,
+                    exempt_sections,
+                )
+                or trunk_segments_cross(candidate_trunk, obstacle_segment) is not None
+            ):
+                continue
+            _restack_htrunk(trunk, target_y, 0, 1, ctx.offset_step, ctx.curve_radius)
+            _reconcile_moved_trunk_slot(route, trunk.idx, target_y, ctx.graph)
+            return {(route.edge.source, route.edge.target, route.line_id)}
+    for rank in (trunk.idx, trunk.idx + 1):
+        before, corner, after = points[rank - 1 : rank + 2]
+        if (
+            abs(before[0] - corner[0]) > COORD_TOLERANCE
+            or abs(corner[1] - after[1]) > COORD_TOLERANCE
+        ):
+            continue
+        if planner_owns_segment(route, rank - 1):
+            continue
+
+        def _lane_run_overlays_obstacle(candidate: float, rank: int = rank) -> bool:
+            """Whether the run beyond the moved riser lands on the obstacle's lane.
+
+            Two distinct lines may share a gap, but the run each turns onto has
+            to meet the other's end to end; a riser column that stretches its
+            far run across the obstacle's run overlays the two on one lane.
+            """
+            if obstacle.route.line_id == route.line_id:
+                return False
+            if rank == trunk.idx:
+                if rank < 2:
+                    return False
+                far, near = points[rank - 2], points[rank - 1]
+            else:
+                if rank + 1 >= len(points):
+                    return False
+                near, far = points[rank], points[rank + 1]
+            if abs(far[1] - near[1]) > COORD_TOLERANCE:
+                return False
+            lane = near[1]
+            lo, hi = min(far[0], candidate), max(far[0], candidate)
+            return any(
+                abs(ay - by) <= COORD_TOLERANCE
+                and abs(ay - lane) < ctx.offset_step - COORD_TOLERANCE
+                and min(ax, bx) < hi - COORD_TOLERANCE
+                and lo < max(ax, bx) - COORD_TOLERANCE
+                for (ax, ay), (bx, by) in zip(
+                    obstacle.route.points, obstacle.route.points[1:]
+                )
+            )
+
+        gap = gap_lo_for_x(
+            ctx.graph, corner[0], min(before[1], corner[1]), max(before[1], corner[1])
+        )
+        if gap is None:
+            continue
+        if _convergence_plan_names_column(route, before, corner, gap, ctx):
+            continue
+        for obstacle_x in (obstacle_segment.xa, obstacle_segment.xb):
+            for candidate in (obstacle_x + clearance, obstacle_x - clearance):
+                if (
+                    abs(candidate - before[0]) < ctx.curve_radius - COORD_TOLERANCE
+                    or abs(candidate - after[0]) < ctx.curve_radius - COORD_TOLERANCE
+                    or gap_lo_for_x(
+                        ctx.graph,
+                        candidate,
+                        min(before[1], corner[1]),
+                        max(before[1], corner[1]),
+                    )
+                    != gap
+                    or _lane_run_overlays_obstacle(candidate)
+                ):
+                    continue
+                candidate_trunk = _htrunk_seg(trunk, trunk.y)
+                candidate_trunk = (
+                    HTrunkSeg(
+                        candidate_trunk.y,
+                        candidate,
+                        candidate_trunk.xb,
+                        candidate_trunk.before_y,
+                        candidate_trunk.after_y,
+                    )
+                    if rank == trunk.idx
+                    else HTrunkSeg(
+                        candidate_trunk.y,
+                        candidate_trunk.xa,
+                        candidate,
+                        candidate_trunk.before_y,
+                        candidate_trunk.after_y,
+                    )
+                )
+                channel = _VChannel(
+                    route,
+                    rank - 1,
+                    corner[0],
+                    min(before[1], corner[1]),
+                    max(before[1], corner[1]),
+                    corner[1] > before[1],
+                )
+                if trunk_segments_cross(
+                    candidate_trunk, obstacle_segment
+                ) is not None or _vchannel_move_crosses_foreign_section(
+                    channel, candidate, ctx.graph
+                ):
+                    continue
+                _set_vchannel_x(channel, candidate)
+                return _seat_unwoven_endpoint_fan(
+                    channel,
+                    routes,
+                    gap,
+                    route.edge.source if rank == trunk.idx else route.edge.target,
+                    ctx,
+                )
+    return set()
+
+
+def _seat_unwoven_endpoint_fan(
+    channel: _VChannel,
+    routes: list[RoutedPath],
+    gap: tuple[int, int | None],
+    endpoint_id: str,
+    ctx: _RoutingCtx,
+) -> set[tuple[str, str, str]]:
+    """Reseat an endpoint's co-travelling risers inside their shared band."""
+    channels = [
+        _VChannel(route, idx, x, y_lo, y_hi, down)
+        for route in routes
+        if endpoint_id in (route.edge.source, route.edge.target)
+        for idx, x, y_lo, y_hi, down in iter_vertical_segments(route)
+        if gap_lo_for_x(ctx.graph, x, y_lo, y_hi) == gap
+    ]
+    anchor = next(
+        item
+        for item in channels
+        if item.route is channel.route and item.idx == channel.idx
+    )
+    group = [anchor]
+    remaining = [item for item in channels if item is not anchor]
+    while joined := [
+        item
+        for item in remaining
+        if any(
+            abs(item.x - peer.x) <= _co_travel_reach(ctx.offset_step)
+            and spans_share_corridor(item.y_lo, item.y_hi, peer.y_lo, peer.y_hi)
+            for peer in group
+        )
+    ]:
+        group.extend(joined)
+        remaining = [item for item in remaining if item not in joined]
+    section_ids = tuple(
+        sorted(
+            {
+                section_id
+                for item in group
+                for section_id in _route_endpoint_section_ids(ctx.graph, item.route)
+            }
+        )
+    )
+    band = corridor_clearance_band(
+        ctx.graph,
+        axis=0,
+        section_ids=section_ids,
+        coordinate=anchor.x,
+        run_start=min(item.y_lo for item in group),
+        run_end=max(item.y_hi for item in group),
+    )
+    if band is None:
+        return set()
+    shift = min(
+        max(0.0, band.lo - min(item.x for item in group)),
+        band.hi - max(item.x for item in group),
+    )
+    if abs(shift) <= COORD_TOLERANCE or any(
+        _vchannel_move_crosses_foreign_section(item, item.x + shift, ctx.graph)
+        for item in group
+    ):
+        return set()
+    for item in group:
+        _set_vchannel_x(item, item.x + shift)
+    return {
+        (item.route.edge.source, item.route.edge.target, item.route.line_id)
+        for item in group
+    }
 
 
 def _run_enters_section(
@@ -3580,6 +4599,7 @@ def _separate_fused_cotravelling_runs(
     secondary_movable_route_ids: frozenset[int] = frozenset(),
     station_offsets: Mapping[tuple[str, str], float] | None = None,
     fixed_segment_keys: frozenset[tuple[int, int]] = frozenset(),
+    secondary_may_yield_at_shared_source: bool = False,
 ) -> None:
     """Restore the nesting step between co-travelling tracks of distinct lines.
 
@@ -3639,10 +4659,12 @@ def _separate_fused_cotravelling_runs(
             eligible_route_ids is None
             or all(id(run.route) in eligible_route_ids for run in lane.runs)
         )
+        and not lane.pinned
         and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)
     }
     pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)
     relocated: set[int] = set()
+
     while pending:
         i = pending.popleft()
         if i in relocated:
@@ -3651,21 +4673,38 @@ def _separate_fused_cotravelling_runs(
         obstacles = [other for other in lanes if lane.fuses_with(other, step)]
         if not obstacles:
             continue
-        if any(other.pinned for other in obstacles):
-            continue
         primary = movable_route_ids is None or all(
             id(run.route) in movable_route_ids for run in lane.runs
         )
-        if not primary and any(
-            any((id(run.route), run.idx) in fixed_segment_keys for run in other.runs)
+        fixed_obstacles = tuple(
+            other
             for other in obstacles
-        ):
-            continue
+            if any((id(run.route), run.idx) in fixed_segment_keys for run in other.runs)
+        )
+        if not primary and fixed_obstacles:
+            lane_sources = {run.route.edge.source for run in lane.runs}
+            fixed_sources = {
+                run.route.edge.source for other in fixed_obstacles for run in other.runs
+            }
+            if (
+                not secondary_may_yield_at_shared_source
+                or not lane_sources & fixed_sources
+                or any(run.route.exit_turn_plan_id is not None for run in lane.runs)
+            ):
+                continue
         candidates = {
             obstacle.coord + direction * step
             for obstacle in obstacles
             for direction in (-1, 1)
         }
+        candidates.update(
+            blocker.coord + direction * step
+            for candidate in tuple(candidates)
+            for blocker in lanes
+            if blocker is not lane
+            and replace(lane, coord=candidate).fuses_with(blocker, step)
+            for direction in (-1, 1)
+        )
 
         def feasible(target: float) -> bool:
             delta = target - lane.coord
@@ -3682,8 +4721,61 @@ def _separate_fused_cotravelling_runs(
             ):
                 return False
             moved = replace(lane, coord=target)
+            # A mutable lane may not cross an immutable planned lane. The
+            # global allocator owns ordering between mutable peers.
+            for other in lanes:
+                if (
+                    other is lane
+                    or other.axis != lane.axis
+                    or other.sign != lane.sign
+                    or other.line_id == lane.line_id
+                    or not other.pinned
+                    or not any(
+                        spans_share_corridor(*run.span, *obstacle.span)
+                        for run in lane.runs
+                        for obstacle in other.runs
+                    )
+                ):
+                    continue
+                frozen_order = _frozen_order_coordinates(
+                    ctx,
+                    (
+                        tuple((run.route, run.idx) for run in lane.runs),
+                        tuple((run.route, run.idx) for run in other.runs),
+                    ),
+                    # A lane can carry a claim through a semantic source
+                    # transition. Completeness and internal agreement are the
+                    # ownership contract at this mutable/pinned boundary.
+                    require_single_common_source=False,
+                )
+                if frozen_order is None:
+                    continue
+                frozen_coordinate, other_frozen = frozen_order
+                if (
+                    frozen_coordinate < other_frozen - COORD_TOLERANCE
+                    and target >= other.coord - COORD_TOLERANCE
+                ) or (
+                    frozen_coordinate > other_frozen + COORD_TOLERANCE
+                    and target <= other.coord + COORD_TOLERANCE
+                ):
+                    return False
             return not any(
-                moved.fuses_with(other, step) for other in lanes if other is not lane
+                moved.fuses_with(other, step)
+                or (
+                    moved.axis == other.axis
+                    and moved.sign != other.sign
+                    and moved.line_id == other.line_id
+                    and abs(moved.coord - other.coord)
+                    < BUNDLE_TO_BUNDLE_CLEARANCE - COORD_TOLERANCE
+                    and any(
+                        max(run.span[0], obstacle.span[0])
+                        < min(run.span[1], obstacle.span[1]) - COORD_TOLERANCE
+                        for run in moved.runs
+                        for obstacle in other.runs
+                    )
+                )
+                for other in lanes
+                if other is not lane
             )
 
         target = min(
@@ -3763,6 +4855,28 @@ def _restack_htrunk(
     rp = t.route
     pts = rp.points
     k = t.idx
+    owned_offsets = rp.concentric_corner_offsets_by_segment.get(k)
+    owned_bases = rp.concentric_corner_bases_by_segment.get(k)
+    if owned_offsets is not None and owned_bases is not None:
+        offset_in, offset_out = owned_offsets
+        base_in, base_out = owned_bases
+        if (
+            offset_in is not None
+            and offset_out is not None
+            and base_in is not None
+            and base_out is not None
+        ):
+            _reseat_concentric_flanking(
+                rp,
+                k,
+                new_y,
+                axis=1,
+                offset_in=offset_in,
+                offset_out=offset_out,
+                base_radius=base_in,
+                base_radius_out=base_out,
+            )
+            return
     pts[k] = (pts[k][0], new_y)
     pts[k + 1] = (pts[k + 1][0], new_y)
 
@@ -3782,6 +4896,138 @@ def _restack_htrunk(
         rp.curve_radii[k - 1] = r
     if k < len(rp.curve_radii) and k + 2 < len(pts):
         rp.curve_radii[k] = r
+
+
+def _fan_apart_junction_opening_legs(
+    routes: list[RoutedPath],
+    ctx: _RoutingCtx,
+    station_offsets: Mapping[tuple[str, str], float] | None,
+) -> None:
+    """Nest distinct lines' fan-mouth legs apart where line offsets fuse them.
+
+    A fan-out junction's outgoing legs are assigned raw lanes without seeing
+    the per-line separation the renderer adds, so two distinct lines whose raw
+    lanes differ by exactly the offset delta draw on one coordinate for the
+    whole mouth of the fan.  The opening leg is pinned to its source, which
+    keeps :func:`corridor_runs` (and so the general co-travel separation) away
+    from it; a junction source is an invisible fan point, so the leg may take
+    its own lane the way the rest of the fan already does.
+
+    Only the drawn coordinates are compared, and only a leg long enough to
+    read as a run is moved -- the mover steps a full nesting pitch to a lane
+    no other leg of the fan occupies, preferring a leg no plan owns.  The
+    paired same-line ``port -> junction`` tail carries with the fanned leg,
+    so the line stays continuous through the junction instead of jogging a
+    lane at the handoff.
+    """
+    if station_offsets is None:
+        return
+    from nf_metro.layout.route_topology import divergence_junction_sources
+
+    fanouts = divergence_junction_sources(ctx.graph, ctx.topology)
+    if not fanouts:
+        return
+    step = ctx.offset_step
+    by_source: defaultdict[str, list[RoutedPath]] = defaultdict(list)
+    for rp in routes:
+        if not rp.is_inter_section or len(rp.points) < 3:
+            continue
+        if rp.edge.source not in fanouts:
+            continue
+        a, b = rp.points[0], rp.points[1]
+        if abs(a[1] - b[1]) > COORD_TOLERANCE or abs(a[0] - b[0]) <= COORD_TOLERANCE:
+            continue
+        by_source[rp.edge.source].append(rp)
+    for group in by_source.values():
+        if len(group) < 2:
+            continue
+
+        def drawn_y(rp: RoutedPath) -> float:
+            return apply_route_offsets(rp, station_offsets)[0][1]
+
+        for rp in group:
+            for other in group:
+                if other is rp or other.line_id == rp.line_id:
+                    continue
+                if abs(drawn_y(rp) - drawn_y(other)) > COORD_TOLERANCE:
+                    continue
+                lo = max(
+                    min(rp.points[0][0], rp.points[1][0]),
+                    min(other.points[0][0], other.points[1][0]),
+                )
+                hi = min(
+                    max(rp.points[0][0], rp.points[1][0]),
+                    max(other.points[0][0], other.points[1][0]),
+                )
+                if hi - lo <= 2 * COORD_TOLERANCE:
+                    continue
+
+                def leg_is_plan_stated(candidate: RoutedPath) -> bool:
+                    return (
+                        0 in candidate.convergence_owned_segment_ranks
+                        or 0 in candidate.route_system_owned_segment_ranks
+                        or candidate.exit_turn_plan_id is not None
+                        or candidate.fan_plan_id is not None
+                        or bool(candidate.exit_shared_opening_points)
+                    )
+
+                mover, keeper = rp, other
+                if bool(mover.convergence_owned_segment_ranks) and not bool(
+                    keeper.convergence_owned_segment_ranks
+                ):
+                    mover, keeper = keeper, mover
+                if leg_is_plan_stated(mover):
+                    continue
+                occupied = {drawn_y(item) for item in group if item is not mover}
+                for delta in (step, -step):
+                    target = drawn_y(mover) + delta
+                    if all(
+                        abs(target - lane) > step - COORD_TOLERANCE for lane in occupied
+                    ):
+                        start_drawn = apply_route_offsets(mover, station_offsets)[0]
+                        pts = mover.points
+                        pts[0] = (pts[0][0], pts[0][1] + delta)
+                        pts[1] = (pts[1][0], pts[1][1] + delta)
+                        _carry_fanned_upstream_tails(
+                            mover, routes, station_offsets, start_drawn, delta
+                        )
+                        break
+
+
+def _carry_fanned_upstream_tails(
+    mover: RoutedPath,
+    routes: list[RoutedPath],
+    station_offsets: Mapping[tuple[str, str], float],
+    start_drawn: tuple[float, float],
+    delta: float,
+) -> None:
+    """Carry a fanned leg's paired upstream tails onto the leg's new lane.
+
+    *start_drawn* is the fanned leg's drawn start before its lane change.  A
+    same-line ``port -> junction`` tail whose drawn endpoint sits there is the
+    other half of one continuous stroke, so its endpoint follows the lane
+    change; a tail ending anywhere else is a seam another pass owns and is
+    left alone.  A horizontal tail moves whole (both waypoints share the
+    lane); a vertical tail stretches to the new lane through its existing
+    corner.
+    """
+    for upstream in routes:
+        if (
+            upstream.edge.target != mover.edge.source
+            or upstream.line_id != mover.line_id
+            or len(upstream.points) < 2
+        ):
+            continue
+        drawn = apply_route_offsets(upstream, station_offsets)
+        if (
+            abs(drawn[-1][0] - start_drawn[0]) > COORD_TOLERANCE
+            or abs(drawn[-1][1] - start_drawn[1]) > COORD_TOLERANCE
+        ):
+            continue
+        up = upstream.points
+        if abs(up[-1][1] - up[-2][1]) <= COORD_TOLERANCE:
+            up[-2] = (up[-2][0], up[-2][1] + delta)
+        up[-1] = (up[-1][0], up[-1][1] + delta)
 
 
 def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> None:
@@ -3854,8 +5100,16 @@ def _join_fanout_upstream_tails(routes: list[RoutedPath], ctx: _RoutingCtx) -> N
         # Only a genuinely-horizontal final segment is extended; extend
         # its X to the downstream start X, keeping the upstream Y so the
         # approach into the bend stays horizontal.
-        if abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE:
-            up.points[-1] = (down.points[0][0], p_last[1])
+        new_end = (down.points[0][0], p_last[1])
+        if (
+            abs(p_prev[1] - p_last[1]) <= COORD_TOLERANCE_FINE
+            and (
+                abs(p_prev[0] - new_end[0]) > COORD_TOLERANCE
+                or abs(p_prev[1] - new_end[1]) > COORD_TOLERANCE
+            )
+            and (p_last[0] - p_prev[0]) * (new_end[0] - p_prev[0]) > 0.0
+        ):
+            up.points[-1] = new_end
 
 
 def _convergence_line_order(
@@ -3946,6 +5200,19 @@ def _corridor_leadout_right(chans: list[_VChannel], default: bool) -> bool:
     return votes.count(True) >= votes.count(False)
 
 
+def _leg_turns_off_right_of_source(ch: _VChannel) -> bool:
+    """Whether *ch* leaves its source rightward, so its lead-in weaves the fan.
+
+    The approach-weave model is one-sided: a leg that turns off to the right of
+    where it started overtakes the legs seated left of it, while a leg turning
+    off on the left is the mirror image whose deep ends already nest.  Read per
+    leg, not per bundle -- a gap collects legs from unrelated sources, and one
+    foreign leg approaching from the far side says nothing about how the fan it
+    joined has to stack.
+    """
+    return bool(ch.route.points) and ch.route.points[0][0] <= ch.x + COORD_TOLERANCE
+
+
 def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
     """Left-to-right order of the distinct lines in one gap-bundle corridor.
 
@@ -3995,7 +5262,8 @@ def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
         turns[lid].append(ch.y_hi)
         deepest[lid] = max(deepest.get(lid, ch.y_hi), ch.y_hi)
         rep_x[lid] = min(rep_x.get(lid, ch.x), ch.x)
-        approach[lid].append(ch.y_lo if down else ch.y_hi)
+        if _leg_turns_off_right_of_source(ch):
+            approach[lid].append(ch.y_lo if down else ch.y_hi)
         span_lo[lid] = min(span_lo.get(lid, ch.y_lo), ch.y_lo)
         span_hi[lid] = max(span_hi.get(lid, ch.y_hi), ch.y_hi)
 
@@ -4007,17 +5275,6 @@ def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
         # Leftward: a's deeper vertical crosses b's shallower lead-outs.
         return sum(1 for t in turns[b] if t < deepest[a] - COORD_TOLERANCE)
 
-    # The approach-weave term models a fan whose lead-ins enter from the LEFT
-    # and descend rightward (a bypass overtaking its down-turns on the right).
-    # A leftward-descending fan (source to the right of its channels) is the
-    # mirror image, where the deep-end ordering already nests the lines; the
-    # rightward-only term would mis-order it, so restrict it to fans whose
-    # source sits left of every descent channel.
-    fan_rightward = all(
-        ch.route.points and ch.route.points[0][0] <= ch.x + COORD_TOLERANCE
-        for ch in chans
-    )
-
     def approach_crossings_if_left(a: str, b: str) -> int:
         # Source-end (fan) crossings when a is placed LEFT of b: the RIGHT
         # line's lead-in, extending from the shared junction past the LEFT
@@ -4025,8 +5282,6 @@ def _distinct_line_order(chans: list[_VChannel]) -> list[str]:
         # bypass makes when it descends on the far side of the fan but
         # approaches from the bundle's near side; ordering it out avoids the
         # tangle the deep-end-only test cannot see.
-        if not fan_rightward:
-            return 0
         right = b  # a is LEFT, so b sits to the RIGHT
         lo, hi = span_lo[a], span_hi[a]
         return sum(

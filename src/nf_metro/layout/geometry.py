@@ -24,6 +24,16 @@ if TYPE_CHECKING:
 _Box = tuple[float, float, float, float]
 
 
+def section_bbox_edges(section: Section) -> _Box:
+    """Return ``(left, top, right, bottom)`` for one section box."""
+    return (
+        section.bbox_x,
+        section.bbox_y,
+        section.bbox_x + section.bbox_w,
+        section.bbox_y + section.bbox_h,
+    )
+
+
 def quantize_coord(value: float, ndigits: int) -> float:
     """Round *value* to *ndigits* decimal places for use as a grouping key.
 

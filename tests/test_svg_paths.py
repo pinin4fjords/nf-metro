@@ -10,6 +10,7 @@ RoutedPath waypoints + curve_radii into well-formed SVG paths with:
 
 import math
 import re
+import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -776,3 +777,164 @@ class TestSharedCornerTangents:
             checked += 1
         if checked == 0:
             pytest.skip(f"no multi-corner routes in {fixture.stem}")
+
+
+# ---------------------------------------------------------------------------
+# Nested corner families share one arc center across edges
+# ---------------------------------------------------------------------------
+
+
+class TestNestedCornerFamilies:
+    """Corners nested one lane pitch apart must pivot about one center.
+
+    A concentric corner family is not limited to routes of one source or one
+    edge: legs of several edges can stack through one physical turn, offset
+    diagonally by the lane pitch.  Two same-direction corners in that
+    wholesale relation that do not share an arc center draw wedge gaps
+    mid-curve (delamination), and a family re-derived from a smaller nesting
+    frame than actually turns there collapses onto a second center.  Corners
+    whose resolved radius is clamped by a short leg are exempt: a clamped
+    radius is not shared geometry.
+
+    Membership is decided by the nesting geometry alone.  Reading the drawn
+    radii for a lane-pitch difference first would exempt the worst case:
+    two lanes offset diagonally that draw the *same* radius pivot a full
+    pitch apart and pinch shut through the turn.
+    """
+
+    CENTER_EPS = 1.5
+    MAX_PITCH = 3 * OFFSET_STEP
+
+    def _corners(self, routes, offsets):
+        out = []
+        for r in routes:
+            if not r.is_inter_section or not r.curve_radii:
+                continue
+            pts = apply_route_offsets(r, offsets)
+            if len(pts) - 2 != len(r.curve_radii):
+                continue
+            resolved = resolve_curve_radii(pts, list(r.curve_radii))
+            for k in range(1, len(pts) - 1):
+                prev, curr, nxt = pts[k - 1], pts[k], pts[k + 1]
+                if not (
+                    (abs(prev[0] - curr[0]) < 0.01 and abs(curr[1] - nxt[1]) < 0.01)
+                    or (abs(prev[1] - curr[1]) < 0.01 and abs(curr[0] - nxt[0]) < 0.01)
+                ):
+                    continue
+                if abs(resolved[k - 1] - r.curve_radii[k - 1]) > 0.01:
+                    continue
+                u = _unit_direction(prev, curr)
+                v = _unit_direction(curr, nxt)
+                if u is None or v is None or u == v:
+                    continue
+                out.append((r, k, curr, r.curve_radii[k - 1], u, v))
+        return out
+
+    def _check(self, routes, offsets):
+        corners = self._corners(routes, offsets)
+        for i, (ra, ka, va, radius_a, ua, vaxis) in enumerate(corners):
+            for rb, kb, vb, radius_b, ub, vbxis in corners[i + 1 :]:
+                if (ua, vaxis) != (ub, vbxis):
+                    continue
+                dx, dy = vb[0] - va[0], vb[1] - va[1]
+                span = max(abs(dx), abs(dy))
+                if span < 0.01 or span > self.MAX_PITCH:
+                    continue
+                if abs(abs(dx) - abs(dy)) > 0.01:
+                    continue
+                # Nesting offsets run along the concentric diagonal (the sum
+                # of the inward normals); a perpendicular offset is a
+                # staggered pair, not one family.
+                diag = (vaxis[0] - ua[0], vaxis[1] - ua[1])
+                if abs(dx * diag[1] - dy * diag[0]) > 0.01:
+                    continue
+                center_a = _arc_center(
+                    ra.points[ka - 1], va, ra.points[ka + 1], radius_a
+                )
+                center_b = _arc_center(
+                    rb.points[kb - 1], vb, rb.points[kb + 1], radius_b
+                )
+                spread = max(
+                    abs(center_a[0] - center_b[0]),
+                    abs(center_a[1] - center_b[1]),
+                )
+                assert spread <= self.CENTER_EPS, (
+                    f"nested corners at {va} ({ra.edge.source}->"
+                    f"{ra.edge.target} {ra.line_id} r={radius_a}) and {vb} "
+                    f"({rb.edge.source}->{rb.edge.target} {rb.line_id} "
+                    f"r={radius_b}) pivot about centers {center_a} and "
+                    f"{center_b}: the family delaminates through the turn"
+                )
+
+    @pytest.mark.parametrize(
+        "fixture",
+        sorted(TOPOLOGIES_DIR.glob("*.mmd")),
+        ids=lambda p: p.stem,
+    )
+    def test_topology_fixtures(self, fixture):
+        _, routes, offsets, _ = _layout_and_route_file(fixture)
+        self._check(routes, offsets)
+
+
+def _unit_direction(a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    if abs(dx) < 0.01 and abs(dy) < 0.01:
+        return None
+    if abs(dx) >= abs(dy):
+        return (1, 0) if dx > 0 else (-1, 0)
+    return (0, 1) if dy > 0 else (0, -1)
+
+
+def test_packed_cell_entry_families_keep_the_base_radius():
+    """A settled exit turn's reseat states the standard corner base.
+
+    A corner that carries no recorded concentric inputs falls back to the
+    standard base radius: reading the lane's resolved radius as a base
+    re-records its whole stack depth as the family's reference, and the
+    semantic corner cohort then re-derives every lane of the entry family
+    from that inflated base, drawing a non-standard, far-too-wide turn.
+    Every maximal nested up-then-right corner chain in this map must
+    therefore bottom out at the standard base radius.
+    """
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan, emit_render_plan
+
+    fixture = TOPOLOGIES_DIR / "packed_cell_right_exit_left_entry_wrap.mmd"
+    graph = prepare_graph(fixture.read_text(), source_dir=str(fixture.parent))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    svg = emit_render_plan(observed.plan)
+
+    corners = []
+    for match in re.finditer(r'<path d="([^"]+)"', svg):
+        for before, corner, after in _q_corner_triples(match.group(1)):
+            up_then_right = (
+                abs(before[0] - corner[0]) < 0.01
+                and before[1] > corner[1]
+                and abs(after[1] - corner[1]) < 0.01
+                and after[0] > corner[0]
+            )
+            if up_then_right:
+                corners.append((corner, abs(corner[1] - before[1])))
+
+    chains: list[list[tuple[tuple[float, float], float]]] = []
+    for corner, radius in sorted(corners):
+        for chain in chains:
+            head_corner, _head_radius = chain[-1]
+            dx = corner[0] - head_corner[0]
+            dy = corner[1] - head_corner[1]
+            if 0.01 < dx <= 2 * OFFSET_STEP and abs(dx - dy) < 0.01:
+                chain.append((corner, radius))
+                break
+        else:
+            chains.append([(corner, radius)])
+
+    families = [chain for chain in chains if len(chain) >= 3]
+    assert families, "expected at least one nested up-then-right entry family"
+    for chain in families:
+        innermost = min(radius for _corner, radius in chain)
+        assert innermost <= CURVE_RADIUS + 0.01, (
+            f"entry family at {chain[0][0]} bottoms out at radius {innermost}: "
+            f"the family was re-derived from an inflated base"
+        )

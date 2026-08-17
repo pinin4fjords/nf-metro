@@ -30,11 +30,11 @@ from nf_metro.layout.routing.context import (  # noqa: F401
     _has_intervening_sections,
     _max_offset_at,
     _MergeRouting,
+    _perpendicular_port_lane_offset,
     _resolve_section_col,
     _resolve_section_colrow,
     _resolve_section_row,
     _RoutingCtx,
-    _tb_x_offset,
     compute_junction_fan_info,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -327,6 +327,7 @@ def _route_edges(  # noqa: C901
         allow_convergence_clearance_requirements=(
             allow_convergence_clearance_requirements
         ),
+        prior_plan=reservations,
     )
     execution = planning.exit_turns
     member_geometry = planning.member_geometry
@@ -362,9 +363,11 @@ def _route_edges(  # noqa: C901
             convergence_diagnostics=convergence_execution.diagnostics,
             boundary_clearance_requirements=(
                 convergence_execution.clearance_requirements
+                + member_geometry.clearance_requirements
             ),
             member_geometry_plans=published_member_geometry,
             exit_turn_dispositions=planning.exit_turn_dispositions,
+            corridor_cohort_ledger=planning.corridor_cohort_ledger,
         )
     # Route into the context's own list so handlers can read the routes settled
     # so far (a wrap clearing an already-placed sibling channel); it grows as
@@ -687,6 +690,7 @@ def observe_route_edges(
     station_offsets: dict[tuple[str, str], float] | None = None,
     *,
     offset_step: float | None = None,
+    allow_convergence_clearance_requirements: bool = False,
 ) -> RouteObservation:
     """Route once and return the context-local semantic observation."""
     from nf_metro.layout.route_plan import RouteObservation
@@ -698,6 +702,9 @@ def observe_route_edges(
         station_offsets,
         observe_plan=True,
         offset_step=offset_step,
+        allow_convergence_clearance_requirements=(
+            allow_convergence_clearance_requirements
+        ),
     )
     assert plan is not None
     return RouteObservation(routes, plan)

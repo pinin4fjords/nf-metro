@@ -50,11 +50,12 @@ and a narrowed one fails.  Nothing is retried.
 Re-routing the settled geometry can produce a *different* ledger -- corridors
 appear, vanish, and change their required width -- so this function never
 iterates over successive ledgers.  Each invocation settles exactly the ledger
-it was handed.  The renderer has one bounded exception around a provisional
-convergence-clearance grant: it performs a strict fresh observation after the
-grant, measures that observation's drawn containment once, and settles that
-final ledger before a consuming re-route.  No clearance requirement may be
-published by either strict observation.
+it was handed.  The renderer has one bounded exception around strict drawn
+geometry.  After a provisional convergence-clearance grant, or when the
+consuming re-route places a drawn corridor past its frozen edge, it freezes the
+strict observation's measured containment and settles that final demand before
+one consuming re-route.  No clearance requirement may be published by the final
+strict observation.
 
 Every row- and column-gap claim this stage is handed is therefore allocatable:
 the measurement bounds a boundary by the sections that lie wholly on each side
@@ -94,6 +95,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import measured_distance, shift_section
 from nf_metro.layout.phases.guards import PhaseInvariantError
 from nf_metro.layout.route_plan import (
+    ConvergenceDisposition,
     DemandAxis,
     EmissionMemberId,
     RoutePlan,
@@ -114,6 +116,7 @@ from nf_metro.layout.route_reservations import (
 from nf_metro.layout.settlement_demand import (
     BoundaryClearanceDemand,
     BoundaryClearanceRequirement,
+    BoundaryClearanceRequirementKind,
     ClearanceMeasurement,
     SettlementAxis,
 )
@@ -124,6 +127,7 @@ __all__ = [
     "ROW_AXIS",
     "BoundaryClearanceDemand",
     "BoundaryClearanceRequirement",
+    "BoundaryClearanceRequirementKind",
     "ClearanceMeasurement",
     "DrawnCorridorClearanceRequirement",
     "EnvelopeSettlement",
@@ -190,6 +194,14 @@ def drawn_corridor_clearance_requirements(
 ) -> tuple[DrawnCorridorClearanceRequirement, ...]:
     """Freeze widths owed by strict routes drawn past a corridor edge."""
     requirements: list[DrawnCorridorClearanceRequirement] = []
+    fixed_member_ids = {
+        member_id
+        for convergence in (
+            plan.convergence_plans if isinstance(plan, RoutePlan) else ()
+        )
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for member_id in convergence.member_ids
+    }
     for reservation in plan.reservations:
         region = reservation.region
         if not isinstance(region, RowGapRegion | ColumnGapRegion):
@@ -200,12 +212,21 @@ def drawn_corridor_clearance_requirements(
         containment = drawn_corridor_containment(
             reservation, realised, route_polylines, reservation.claims
         )
-        deficit = -containment.positive_side_slack
+        negative_deficit = -containment.negative_side_slack
+        positive_deficit = -containment.positive_side_slack
+        deficit = max(negative_deficit, positive_deficit)
         if deficit <= COORD_TOLERANCE:
             continue
+        recentres = not reservation.claims or any(
+            claim.member_id not in fixed_member_ids for claim in reservation.claims
+        )
+        # Boundary settlement moves the positive side. A fixed run past the
+        # negative edge needs matching room on the positive edge to recenter.
+        recentres = recentres or negative_deficit >= positive_deficit
         requirements.append(
             DrawnCorridorClearanceRequirement(
-                reservation, realised.available_width + deficit
+                reservation,
+                realised.available_width + deficit * (2 if recentres else 1),
             )
         )
     return tuple(requirements)
@@ -455,11 +476,32 @@ def _reservation_coordinate_translation(
     coordinates at or beyond the band's start move.
     """
     section_ids = frozenset(translation.section_ids)
+    endpoint_section_by_group = {
+        group.id: group.section_id for group in plan.endpoint_groups
+    }
+    hidden_endpoint_sections = {
+        divergence.junction_id: endpoint_section_by_group[divergence.exit_group_id]
+        for divergence in plan.divergences
+    }
+    hidden_endpoint_sections.update(
+        {
+            convergence.junction_id: endpoint_section_by_group[
+                convergence.entry_group_id
+            ]
+            for convergence in plan.convergences
+        }
+    )
     fully_owned: list[EmissionMemberId] = []
     crossing: list[EmissionMemberId] = []
     for member in plan.members:
-        source_owned = member.source.section_id in section_ids
-        target_owned = member.target.section_id in section_ids
+        source_section = member.source.section_id or hidden_endpoint_sections.get(
+            member.source.station_id
+        )
+        target_section = member.target.section_id or hidden_endpoint_sections.get(
+            member.target.station_id
+        )
+        source_owned = source_section in section_ids
+        target_owned = target_section in section_ids
         if source_owned and target_owned:
             fully_owned.append(member.id)
         elif source_owned != target_owned:
@@ -800,6 +842,13 @@ def _box_extents(section: Section) -> tuple[tuple[float, float], tuple[float, fl
     )
 
 
+def _drawn_against_the_grid(
+    axis: SettlementAxisGeometry, ahead: Section, behind: Section
+) -> bool:
+    """*ahead* is drawn before *behind* while indexed strictly after it."""
+    return axis.start_index(behind) + axis.span(behind) <= axis.start_index(ahead)
+
+
 def _axis_gaps(
     graph: MetroGraph, axis: SettlementAxisGeometry
 ) -> dict[tuple[str, str], float]:
@@ -809,6 +858,13 @@ def _axis_gaps(
     translation.  Boxes that do not overlap across the axis never face each
     other, so the distance between them is not a separation this stage owes
     anything to.
+
+    Neither does a pair drawn in the reverse of the grid order it is filed
+    under.  A widening carries the bands from its boundary onward and leaves
+    the rest, so it opens the distance between two boxes where that distance
+    runs the way their indices do, and closes it where it runs against them.
+    Boxes sharing an index move together under every translation, so their
+    separation is held and stays comparable.
     """
     along_index = 1 if axis.axis is SettlementAxis.ROW else 0
     across_index = 1 - along_index
@@ -826,9 +882,13 @@ def _axis_gaps(
                 continue
             first_start, first_end = first_extents[along_index]
             second_start, second_end = second_extents[along_index]
-            if first_end <= second_start:
+            if first_end <= second_start and not _drawn_against_the_grid(
+                axis, first, second
+            ):
                 gaps[first_key, second_key] = second_start - first_end
-            elif second_end <= first_start:
+            elif second_end <= first_start and not _drawn_against_the_grid(
+                axis, second, first
+            ):
                 gaps[second_key, first_key] = first_start - second_end
     return gaps
 

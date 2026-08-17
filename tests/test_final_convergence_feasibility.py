@@ -8,13 +8,19 @@ import pytest
 
 import nf_metro.layout.routing.convergences as convergences
 from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, OFFSET_STEP
+from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    OFFSET_STEP,
+)
 from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
 from nf_metro.layout.route_plan import (
     ROUTE_SYSTEM_COMPATIBILITY_REASONS,
     ConvergenceConflictKind,
     RouteSystemId,
 )
+from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
     FinalConvergenceFeasibilityError,
@@ -24,8 +30,70 @@ from nf_metro.layout.routing.core import observe_route_edges
 from nf_metro.layout.routing.member_geometry import empty_member_geometry_execution
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.parser.route_topology import ResolvedEdge
+from nf_metro.render import render_svg
+from nf_metro.themes import THEMES
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_fixed_only_gap_channels_do_not_request_convergence_clearance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixed = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"fixed"}),
+        frozenset({"fixed-member"}),
+        frozenset({"fixed-source"}),
+        frozenset({"fixed-connector"}),
+        RouteSystemId("fixed-system"),
+        frozenset({"fixed-target"}),
+        True,
+    )
+    graph = SimpleNamespace(
+        sections={
+            "left": SimpleNamespace(
+                id="left",
+                grid_col=0,
+                grid_col_span=1,
+                grid_row=0,
+                grid_row_span=1,
+                bbox_x=0.0,
+                bbox_w=40.0,
+            ),
+            "right": SimpleNamespace(
+                id="right",
+                grid_col=1,
+                grid_col_span=1,
+                grid_row=0,
+                grid_row_span=1,
+                bbox_x=50.0,
+                bbox_w=40.0,
+            ),
+        }
+    )
+    monkeypatch.setattr(convergences, "gap_lookup_geometry", lambda _graph: None)
+    monkeypatch.setattr(
+        convergences, "column_gap_edges", lambda *_args, **_kwargs: (40.0, 50.0)
+    )
+
+    requirements = convergences._gap_channel_clearance_requirements(
+        (), graph, (fixed,), CURVE_RADIUS
+    )
+
+    assert requirements == ()
+
+
+def test_exit_turn_allocation_survives_member_geometry_settlement() -> None:
+    path = ROOT / "examples" / "topologies" / "multicarrier_offrow_exit_climb.mmd"
+    graph = prepare_graph(path.read_text())
+    graph.strict = True
+
+    render_svg(graph, THEMES["nfcore"])
 
 
 def test_same_source_channels_from_distinct_systems_never_share_a_carrier() -> None:
@@ -51,6 +119,43 @@ def test_same_source_channels_from_distinct_systems_never_share_a_carrier() -> N
     )
 
     assert not convergences._channels_share_source_carrier(first, second)
+
+
+def test_landing_channel_clearance_uses_active_curve_radius() -> None:
+    first = convergences._PlanGapChannel(
+        None,
+        100.0,
+        0.0,
+        100.0,
+        True,
+        (0, 0),
+        frozenset({"line"}),
+        frozenset({"first-member"}),
+        frozenset({"first-source"}),
+        frozenset({"first-connector"}),
+        RouteSystemId("first-system"),
+        frozenset({"first-target"}),
+        False,
+    )
+    second = replace(
+        first,
+        coordinate=140.0,
+        down=False,
+        claimant_member_ids=frozenset({"second-member"}),
+        source_junction_ids=frozenset({"second-source"}),
+        connector_ids=frozenset({"second-connector"}),
+        system_id=RouteSystemId("second-system"),
+        continuation_endpoint_ids=frozenset({"second-target"}),
+    )
+    curve_radius = CURVE_RADIUS * 2.0
+
+    clearance = convergences._landing_channel_clearance(first, second, curve_radius)
+
+    assert clearance == cotravelling_lane_clearance(
+        same_line=True,
+        counter_running=True,
+        curve_radius=curve_radius,
+    )
 
 
 def test_disjoint_same_system_exit_channels_do_not_share_a_carrier() -> None:
@@ -178,6 +283,64 @@ def test_distinct_source_convergences_keep_opposing_same_line_channels(path) -> 
     assert all(
         abs(first.coordinate - second.coordinate) >= clearance - COORD_TOLERANCE
         for first, second in opposing
+    )
+
+
+def test_seed_15_settles_emitted_bypass_tail_without_column_growth() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+
+    route = next(
+        route
+        for route in observation.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_22", "__merge_10", "l1")
+    )
+
+    assert {
+        requirement.boundary
+        for requirement in observation.plan.boundary_clearance_requirements
+        if requirement.description.endswith(" runway")
+    } == {3}
+    assert route.points[-2][0] == 776.0
+
+
+def test_seed_15_plan_channels_include_emitted_bypass_tail_lane() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.convergence_plans
+        if any(
+            landing.edge == ResolvedEdge("__junction_27", "__merge_11", "l0")
+            for landing in plan.landings
+        )
+    )
+    lookup = convergences.gap_lookup_geometry(graph)
+    channels = convergences._plan_gap_channels(plan, graph, lookup)
+    route = next(
+        route
+        for route in observation.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_27", "__merge_11", "l0")
+    )
+
+    # The landing member reaches its merge on a straight lane run, so the
+    # plan states no bypass-tail vertical for it and no channel may claim one.
+    assert route.points == [(806.0, 508.0), (770.0, 508.0)]
+    assert not any(
+        channel.member_geometry_owned and "l0" in channel.line_ids
+        for channel in channels
     )
 
 
@@ -457,9 +620,9 @@ def test_organellar_joint_allocation_freezes_member_before_emission() -> None:
 def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> None:
     path = ROOT / "examples" / "topologies" / "fan_in_merge.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-    observation = observe_route_edges(
-        graph, station_offsets=compute_station_offsets(graph)
-    )
+    station_offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=station_offsets)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, station_offsets)
     plan = observation.plan.convergence_plans[0]
     system_id = plan.system_id
     edge_order = tuple(member.edge for member in observation.plan.members)
@@ -532,7 +695,7 @@ def test_starved_final_settlement_does_not_publish_crowded_plan(monkeypatch) -> 
         settle_global_convergence_execution(
             execution,
             graph,
-            SimpleNamespace(curve_radius=8.0, prior_exit_turn_dispositions=None),
+            ctx,
             exit_turn_plans=(),
             member_geometry=empty_member_geometry_execution(),
             planned_system_ids=frozenset({system_id}),

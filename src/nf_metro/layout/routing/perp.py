@@ -23,7 +23,8 @@ identical lateral for a given line and side.
 single X at which a bundled inter-section feeder and its intra-section drop both
 cross the port, so the line passes straight through the boundary instead of
 converging on the marker and re-fanning.  It tracks the feeder's own section
-lane (``_tb_x_offset``) for a vertical-flow feeder -- a ``-x`` downward (TB)
+lane (``_perpendicular_port_lane_offset``) for a vertical-flow feeder -- a
+``-x`` downward (TB)
 drop and its ``+x`` upward (BT) image alike -- and the ``-x`` up-and-over riser
 side for any other feeder.  Where distinct lines share the entry on disjoint
 feeders (``needs_perp_approach_fan``), ``_perp_approach_fan_x`` instead fans them
@@ -38,11 +39,13 @@ from nf_metro.layout.routing.common import needs_perp_approach_fan, resolve_sect
 from nf_metro.layout.routing.context import (
     _get_offset,
     _max_offset_at,
+    _perpendicular_port_lane_offset,
     _RoutingCtx,
-    _tb_x_offset,
+    port_lane_coord,
 )
 from nf_metro.layout.routing.corners import reversed_offset
 from nf_metro.parser.model import (
+    Port,
     PortSide,
 )
 
@@ -104,7 +107,8 @@ def _perp_entry_crossing_x(
     Otherwise, a vertical-flow (TB/BT) feeder dropping a *single* bundle crosses
     on its own section lane -- the exact X
     :func:`inter_section_handlers._route_tb_bottom_exit` lands at,
-    :func:`context._tb_x_offset` -- so the crossing tracks that lane.  Its
+    :func:`context._perpendicular_port_lane_offset` -- so the crossing tracks
+    that lane. Its
     per-line lane width (one offset step per distinct line) is narrower than the
     feeder's index in the *whole* cross-boundary bundle, which counts every
     converging feeder's every line: anchoring on the bundle index instead would
@@ -135,15 +139,54 @@ def _perp_entry_crossing_x(
         # horizontal-flow upstream is left unresolved so it keeps that fan.
         upstream = resolve_section(ctx.graph, feeder_st, prefer_upstream=True)
         if upstream is not None and lanes_run_along_x(upstream.direction):
-            return port_x + _tb_x_offset(ctx, source, line_id, upstream.id)
+            return port_x + _perpendicular_port_lane_offset(
+                ctx, source, line_id, upstream.id
+            )
     if feeder_sec is not None and lanes_run_along_x(feeder_sec.direction):
-        return port_x + _tb_x_offset(ctx, source, line_id, section_id)
+        return port_x + _perpendicular_port_lane_offset(
+            ctx, source, line_id, section_id
+        )
     if feeder_sec is not None and lanes_run_along_y(feeder_sec.direction):
         # Horizontal-flow feeder: the up-and-over drop lands each line on the
         # entry port's own per-line offset, so the crossing tracks that, not the
         # feeder's section lane.
         return port_x + _get_offset(ctx, entry_port_id, line_id)
     return port_x - max_index * ctx.offset_step
+
+
+def entry_port_crossing_coord(
+    ctx: _RoutingCtx,
+    port: Port,
+    line_id: str,
+) -> float:
+    """Absolute coordinate where *line_id* crosses an entry-port boundary.
+
+    LEFT/RIGHT ports expose their Y lane through the section lane frame.
+    TOP/BOTTOM ports use the same perpendicular crossing calculation as the
+    route builders, including approach fans and feeder bundle-index channels.
+    The result is in drawable coordinates; callers patching a deferred route
+    must convert its Y coordinate back to stored-route space.
+    """
+    if not port.is_entry:
+        raise ValueError(f"port {port.id!r} is not a section entry port")
+    station = ctx.graph.stations[port.id]
+    if port.side in (PortSide.LEFT, PortSide.RIGHT):
+        return port_lane_coord(
+            ctx.graph,
+            station,
+            line_id,
+            ctx.station_offsets or {},
+            ctx.positive_fan,
+        )
+    crossing = _perp_entry_crossing_x(ctx, port.id, line_id, station.x)
+    if crossing is not None:
+        return crossing
+    return station.x + _perpendicular_port_lane_offset(
+        ctx,
+        port.id,
+        line_id,
+        port.section_id,
+    )
 
 
 def _aligned_horizontal_drop_entry(ctx: _RoutingCtx, exit_port_id: str) -> str | None:

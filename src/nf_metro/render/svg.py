@@ -23,6 +23,7 @@ from typing import Any, Literal, NamedTuple
 import drawsvg as draw
 
 from nf_metro.layout.constants import (
+    COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
     OFFTRACK_TERMINUS_NUB_CLEARANCE,
     SAME_COORD_TOLERANCE,
@@ -30,6 +31,7 @@ from nf_metro.layout.constants import (
     graph_offset_step,
 )
 from nf_metro.layout.envelope_settlement import (
+    BoundaryClearanceRequirementKind,
     EnvelopeSettlement,
     attach_reroute_ledger_delta,
     attach_settlement_diagnostics,
@@ -638,7 +640,7 @@ def _build_render_plan_result(
                 raise reframed from exc
             raise
 
-    if _fold_back_under_compression(graph):
+    if _fold_back_under_compression(graph) or _fold_split_fan_cohort(graph):
         reframed = _fold_threshold_error(graph)
         if reframed is not None:
             raise reframed
@@ -743,6 +745,36 @@ def _fold_back_under_compression(graph: MetroGraph) -> bool:
     if not graph._fold_compressed_sections:
         return False
     return any(iter_opposing_line_overlaps(graph))
+
+
+def _fold_split_fan_cohort(graph: MetroGraph) -> bool:
+    """True when folding wedges another destination into a fan cohort.
+
+    Lines leaving one junction for the same destination must occupy adjacent
+    lanes.  A line bound elsewhere between their offsets makes the cohort cross
+    that line before it can reconverge.  Natural-width layouts have enough
+    runway to move the transition away from the junction; a compressed fold
+    does not, so the requested threshold cannot be rendered cleanly.
+    """
+    if not graph._fold_compressed_sections:
+        return False
+    offsets = compute_station_offsets(graph)
+    for junction_id in graph.junction_ids:
+        lines_by_target: dict[str, set[str]] = {}
+        for edge in graph.edges_from(junction_id):
+            lines_by_target.setdefault(edge.target, set()).add(edge.line_id)
+        all_lines = set().union(*lines_by_target.values()) if lines_by_target else set()
+        for cohort in lines_by_target.values():
+            if len(cohort) < 2:
+                continue
+            cohort_offsets = [offsets[(junction_id, line_id)] for line_id in cohort]
+            low, high = min(cohort_offsets), max(cohort_offsets)
+            if any(
+                low < offsets[(junction_id, line_id)] < high
+                for line_id in all_lines - cohort
+            ):
+                return True
+    return False
 
 
 def _scale_theme_fonts(theme: Theme, scale: float) -> Theme:
@@ -1079,6 +1111,7 @@ def _plan_decision_fingerprint(plan: RoutePlan) -> tuple[object, ...]:
         plan.fan_plans,
         tuple(_convergence_decision(item) for item in plan.convergence_plans),
         tuple(_member_geometry_decision(item) for item in plan.member_geometry_plans),
+        plan.corridor_cohort_ledger,
         plan.bindings,
         plan.provenance,
     )
@@ -1108,6 +1141,199 @@ def _assert_settlement_decisions_frozen(
     ):
         raise LayoutInvariantError(
             "envelope settlement changed route-system planning decisions"
+        )
+
+
+def _assert_clearance_grant_transition(
+    provisional_routes: list[RoutedPath],
+    provisional_plan: RoutePlan,
+    realised_routes: list[RoutedPath],
+    realised_plan: RoutePlan,
+) -> None:
+    """Validate the single provisional-to-final corridor aperture grant."""
+    cohort_requirements = tuple(
+        requirement
+        for requirement in provisional_plan.boundary_clearance_requirements
+        if requirement.kind is BoundaryClearanceRequirementKind.CORRIDOR_COHORT_APERTURE
+    )
+    if not cohort_requirements or realised_plan.boundary_clearance_requirements:
+        raise LayoutInvariantError(
+            "corridor aperture settlement did not consume its typed requirement"
+        )
+    provisional_ledger = provisional_plan.corridor_cohort_ledger
+    realised_ledger = realised_plan.corridor_cohort_ledger
+    if (
+        provisional_ledger is None
+        or realised_ledger is None
+        or provisional_ledger.finalized_owned_segments is not None
+        or realised_ledger.finalized_owned_segments is None
+        or replace(realised_ledger, finalized_owned_segments=None) != provisional_ledger
+    ):
+        raise LayoutInvariantError(
+            "corridor aperture settlement changed its semantic cohort ledger"
+        )
+    final_keys = realised_ledger.finalized_owned_segments
+    expected_by_member_edge: dict[tuple[str, tuple[str, str, str]], set[int]] = {}
+    for member_id, edge_key, segment_rank in final_keys:
+        expected_by_member_edge.setdefault((member_id, edge_key), set()).add(
+            segment_rank
+        )
+
+    if len(provisional_routes) != len(realised_routes):
+        raise LayoutInvariantError(
+            "corridor aperture settlement changed the emitted route population"
+        )
+    normalized_routes: list[RoutedPath] = []
+    for provisional, realised in zip(provisional_routes, realised_routes, strict=True):
+        identity = (
+            str(realised.emission_member_id),
+            (realised.edge.source, realised.edge.target, realised.line_id),
+        )
+        expected_owned = tuple(
+            sorted(
+                {
+                    *provisional.route_system_owned_segment_ranks,
+                    *expected_by_member_edge.get(identity, ()),
+                }
+            )
+        )
+        if realised.route_system_owned_segment_ranks != expected_owned:
+            raise LayoutInvariantError(
+                "corridor aperture settlement published unexpected route ownership"
+            )
+        normalized_routes.append(
+            replace(
+                realised,
+                route_system_owned_segment_ranks=(
+                    provisional.route_system_owned_segment_ranks
+                ),
+            )
+        )
+    if _route_decision_fingerprint(normalized_routes) != _route_decision_fingerprint(
+        provisional_routes
+    ):
+        raise LayoutInvariantError(
+            "corridor aperture settlement changed route topology or other ownership"
+        )
+
+    if len(provisional_plan.member_geometry_plans) != len(
+        realised_plan.member_geometry_plans
+    ):
+        raise LayoutInvariantError(
+            "corridor aperture settlement changed member-plan population"
+        )
+    normalized_member_plans: list[RouteMemberGeometryPlan] = []
+    published_keys: set[tuple[str, tuple[str, str, str], int]] = set()
+    for provisional_member_plan, realised_member_plan in zip(
+        provisional_plan.member_geometry_plans,
+        realised_plan.member_geometry_plans,
+        strict=True,
+    ):
+        edge_key = (
+            realised_member_plan.edge.source,
+            realised_member_plan.edge.target,
+            realised_member_plan.edge.line_id,
+        )
+        identity = str(realised_member_plan.member_id), edge_key
+        expected_ranks = tuple(sorted(expected_by_member_edge.get(identity, ())))
+        if provisional_member_plan.corridor_cohort_owned_segment_ranks or (
+            realised_member_plan.corridor_cohort_owned_segment_ranks != expected_ranks
+        ):
+            raise LayoutInvariantError(
+                "corridor aperture settlement published unexpected member ownership"
+            )
+        published_keys.update(
+            (identity[0], identity[1], rank) for rank in expected_ranks
+        )
+        normalized_member_plans.append(
+            replace(
+                realised_member_plan,
+                corridor_cohort_owned_segment_ranks=(),
+            )
+        )
+    if published_keys != final_keys:
+        raise LayoutInvariantError(
+            "corridor aperture settlement did not publish every finalized cohort key"
+        )
+    normalized_plan = replace(
+        realised_plan,
+        member_geometry_plans=tuple(normalized_member_plans),
+        corridor_cohort_ledger=replace(
+            realised_ledger,
+            finalized_owned_segments=None,
+        ),
+    )
+    if _plan_decision_fingerprint(normalized_plan) != _plan_decision_fingerprint(
+        provisional_plan
+    ):
+        raise LayoutInvariantError(
+            "corridor aperture settlement changed other planning decisions"
+        )
+
+
+def _assert_convergence_clearance_grant_transition(
+    provisional_routes: list[RoutedPath],
+    provisional_plan: RoutePlan,
+    realised_routes: list[RoutedPath],
+    realised_plan: RoutePlan,
+) -> None:
+    """Validate the prerequisite grant from provisional convergence geometry."""
+    requirements = tuple(
+        requirement
+        for requirement in provisional_plan.boundary_clearance_requirements
+        if requirement.kind is BoundaryClearanceRequirementKind.GENERAL
+    )
+    if (
+        not requirements
+        or len(requirements) != len(provisional_plan.boundary_clearance_requirements)
+        or realised_plan.boundary_clearance_requirements
+    ):
+        raise LayoutInvariantError(
+            "convergence settlement did not consume its typed requirements"
+        )
+    if _plan_decision_fingerprint(realised_plan) != _plan_decision_fingerprint(
+        provisional_plan
+    ):
+        raise LayoutInvariantError(
+            "convergence clearance settlement changed semantic planning decisions"
+        )
+    if len(provisional_routes) != len(realised_routes):
+        raise LayoutInvariantError(
+            "convergence clearance settlement changed the emitted route population"
+        )
+    owner_ids = {requirement.owner_id for requirement in requirements}
+    normalized_routes: list[RoutedPath] = []
+    for provisional, realised in zip(provisional_routes, realised_routes, strict=True):
+        convergence_changed = (
+            _route_segment_signature(realised.points)
+            != _route_segment_signature(provisional.points)
+            or realised.convergence_owned_segment_ranks
+            != provisional.convergence_owned_segment_ranks
+        )
+        if convergence_changed and (
+            realised.route_system_id not in owner_ids
+            or realised.convergence_plan_id is None
+            or realised.convergence_member_id is None
+        ):
+            raise LayoutInvariantError(
+                "convergence clearance settlement changed unrelated route geometry"
+            )
+        normalized_routes.append(
+            replace(
+                realised,
+                points=provisional.points,
+                convergence_owned_segment_ranks=(
+                    provisional.convergence_owned_segment_ranks
+                ),
+            )
+            if convergence_changed
+            else realised
+        )
+    if _route_decision_fingerprint(normalized_routes) != _route_decision_fingerprint(
+        provisional_routes
+    ):
+        raise LayoutInvariantError(
+            "convergence clearance settlement changed other route decisions"
         )
 
 
@@ -1219,8 +1445,9 @@ def _ledger_changes_live_derived_band(
                 if ledger is not None and (
                     derived is None
                     or derived.boundary != boundary
-                    or derived.lo != ledger.lo
-                    or derived.hi != ledger.hi
+                    or not derived.lo - COORD_TOLERANCE
+                    <= allocation_coordinate
+                    <= derived.hi + COORD_TOLERANCE
                     # Only a translation can make a claim's coordinate a
                     # consequence of consuming the ledger.  A run that hugs the
                     # box edge its entry port sits on is outside the clearance
@@ -1236,12 +1463,20 @@ def _ledger_changes_live_derived_band(
                 ):
                     return True
 
+    claimed_segments = {
+        (claim.path_rank, rank)
+        for reservation in plan.reservations
+        for claim in reservation.claims
+        for rank in range(claim.segment_rank, claim.segment_end_rank + 1)
+    }
     for path_rank, route in enumerate(routes):
         if not route.is_inter_section:
             continue
         if route_span(path_rank) is None:
             continue
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
+            if (path_rank, rank) in claimed_segments:
+                continue
             dx = abs(end[0] - start[0])
             dy = abs(end[1] - start[1])
             if (dx > SAME_COORD_TOLERANCE) == (dy > SAME_COORD_TOLERANCE):
@@ -1309,27 +1544,26 @@ def _settle_render_geometry(
     the reserved band back rather than deriving one from the row edges the
     translation just moved.
 
-    Settlement runs exactly once, against one ledger.  Re-routing publishes a
-    different ledger -- corridors appear, vanish, and change their required
-    width -- so settling again against it would be a fixpoint search over a
-    moving constraint set rather than an allocation against fixed demand.  The
-    plan published here is therefore the frozen ledger projected through the
-    translations, and the closing guard measures that; where the re-routed
-    ledger's gap demand differs from it,
-    :func:`attach_reroute_ledger_delta` records the difference as a non-blocking
-    diagnostic, so a demand this stage cannot chase is named rather than
-    invisible.
+    Each planning settlement consumes frozen demand rather than iterating toward
+    a fixpoint over successive ledgers.  General convergence clearance is a
+    prerequisite for observing corridor-cohort intent.  That intent may publish
+    one typed aperture requirement, whose grant finalizes the same cohort ledger
+    in the translated coordinate frame.  The resulting plan is frozen before
+    label and header reconciliation, so later geometry passes may project it but
+    cannot select new lanes or repair routing decisions.
 
     Rail-mode sections run a separate layout pipeline whose per-line centrelines
     are anchored during ``compute_layout`` and cannot be re-derived from a
     render-time row shift, so a collision involving one is left for the guard to
     surface rather than reflowed into kinked tracks.
 
-    The Tier-A layout guards run once, on the settled geometry, alongside the
-    header-clearance guard: they judge what the renderer draws rather than an
-    intermediate the later stages then move.  Label growth legitimately carries a
-    bbox edge past a port, so ``carry_ports_with_section_edges`` moves the port
-    with the edge it is anchored to and the port guards see a consistent pair.
+    The layout guards run once, on the settled geometry, alongside the
+    header-clearance guard.  When boundary clearance deferred route-dependent
+    guards, the final pass includes every such registry guard.  They judge what
+    the renderer draws rather than an intermediate the later stages then move.
+    Label growth legitimately carries a bbox edge past a port, so
+    ``carry_ports_with_section_edges`` moves the port with the edge it is
+    anchored to and the port guards see a consistent pair.
 
     A ``group`` caption band below a section grows that section's bottom edge,
     and that edge is the blocker bounding the row corridor beneath it, so the
@@ -1435,22 +1669,107 @@ def _settle_render_geometry(
         (:func:`hold_port_anchored_edges`).
         """
         if carried_ports:
+            frozen_routes = routes
+            frozen_plan = route_plan
             station_offsets, routes, route_plan = _resettle(
-                allow_clearance_requirements=bool(
-                    route_plan.boundary_clearance_requirements
-                )
+                frozen_plan,
             )
             labels = _place(station_offsets, routes)
-            assert_render_curve_invariants(graph, routes, station_offsets)
+            _assert_settlement_decisions_frozen(
+                frozen_routes,
+                frozen_plan,
+                routes,
+                route_plan,
+            )
         return station_offsets, routes, route_plan, labels
 
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-    routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
+    routes, discovery_plan = _route(
+        station_offsets,
+        allow_clearance_requirements=True,
+    )
+    deferred_final_route_guards = graph._validate_active and (
+        graph._final_route_guards_deferred
+        or bool(discovery_plan.boundary_clearance_requirements)
+    )
+    applied_settlements: list[EnvelopeSettlement] = []
+    general_requirements = tuple(
+        requirement
+        for requirement in discovery_plan.boundary_clearance_requirements
+        if requirement.kind is BoundaryClearanceRequirementKind.GENERAL
+    )
+    if len(general_requirements) != len(discovery_plan.boundary_clearance_requirements):
+        raise LayoutInvariantError(
+            "discovery planning published a corridor requirement before cohort intent"
+        )
+    if general_requirements:
+        convergence_settlement = settle_route_envelopes(
+            graph,
+            discovery_plan,
+            clearance=lambda live_graph: measure_boundary_clearance_requirements(
+                live_graph, general_requirements
+            ),
+        )
+        applied_settlements.append(convergence_settlement)
+        provisional_routes = routes
+        station_offsets, routes, route_plan = _resettle(
+            discovery_plan,
+            convergence_settlement.coordinate_translations,
+        )
+        if route_plan.boundary_clearance_requirements:
+            raise LayoutInvariantError(
+                "convergence clearance grant did not consume its requirements"
+            )
+        _assert_convergence_clearance_grant_transition(
+            provisional_routes,
+            discovery_plan,
+            routes,
+            route_plan,
+        )
+    else:
+        route_plan = discovery_plan
+
+    station_offsets, routes, route_plan = _resettle(
+        route_plan,
+        allow_clearance_requirements=True,
+    )
+    deferred_final_route_guards = deferred_final_route_guards or (
+        graph._validate_active and bool(route_plan.boundary_clearance_requirements)
+    )
+    aperture_requirements = tuple(
+        requirement
+        for requirement in route_plan.boundary_clearance_requirements
+        if requirement.kind is BoundaryClearanceRequirementKind.CORRIDOR_COHORT_APERTURE
+    )
+    if len(aperture_requirements) != len(route_plan.boundary_clearance_requirements):
+        raise LayoutInvariantError(
+            "cohort planning republished a convergence clearance requirement"
+        )
+    if aperture_requirements:
+        provisional_routes = routes
+        provisional_plan = route_plan
+        cohort_settlement = settle_route_envelopes(
+            graph,
+            provisional_plan,
+            clearance=lambda live_graph: measure_boundary_clearance_requirements(
+                live_graph, aperture_requirements
+            ),
+        )
+        applied_settlements.append(cohort_settlement)
+        station_offsets, routes, route_plan = _resettle(
+            provisional_plan,
+            cohort_settlement.coordinate_translations,
+        )
+        _assert_clearance_grant_transition(
+            provisional_routes,
+            provisional_plan,
+            routes,
+            route_plan,
+        )
     effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
         graph.permissive
     )
-    assert_render_curve_invariants(graph, routes, station_offsets)
 
     labels = _place(station_offsets, routes)
     station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
@@ -1458,19 +1777,26 @@ def _settle_render_geometry(
     )
     _reserve_group_band_space(graph, theme, station_offsets, labels)
     if render_header_collision(graph) and not graph.has_rail_sections:
-        station_offsets, routes, route_plan = _resettle(
-            allow_clearance_requirements=bool(
-                route_plan.boundary_clearance_requirements
-            )
+        frozen_routes = routes
+        frozen_plan = route_plan
+        station_offsets, routes, route_plan = _resettle(frozen_plan)
+        _assert_settlement_decisions_frozen(
+            frozen_routes,
+            frozen_plan,
+            routes,
+            route_plan,
         )
         labels = _place(station_offsets, routes)
-        assert_render_curve_invariants(graph, routes, station_offsets)
         station_offsets, routes, route_plan, labels = _reconcile_carried_ports(
             station_offsets, routes, route_plan, labels
         )
 
     frozen_routes = routes
     frozen_plan = route_plan
+    if frozen_plan.boundary_clearance_requirements:
+        raise LayoutInvariantError(
+            "canonical planning froze unconsumed boundary clearance requirements"
+        )
 
     # A rail layout pitches its rows to the interchange idiom rather than to
     # ``section_y_gap``, and holds runs between them collinear; widening one of
@@ -1489,38 +1815,34 @@ def _settle_render_geometry(
             graph, frozen_plan.boundary_clearance_requirements
         )
 
-    grant_settlement: EnvelopeSettlement | None = None
     settlement = settle_route_envelopes(
         graph, frozen_plan, clearance=_measure_clearance
     )
+    applied_settlements.append(settlement)
     if settlement.translations or _ledger_changes_live_derived_band(
         graph,
         frozen_plan,
         frozen_routes,
         settlement.coordinate_translations,
     ):
-        grant_settlement = settlement
-        pending_clearance = bool(frozen_plan.boundary_clearance_requirements)
         station_offsets, routes, routed_plan = _resettle(
             frozen_plan,
             settlement.coordinate_translations,
         )
-        if pending_clearance and routed_plan.boundary_clearance_requirements:
+        if routed_plan.boundary_clearance_requirements:
             raise LayoutInvariantError(
-                "envelope settlement did not satisfy convergence boundary "
-                "clearance requirements"
+                "settled canonical planning republished a clearance requirement"
             )
         labels = _place(station_offsets, routes)
-        assert_render_curve_invariants(graph, routes, station_offsets)
-        if pending_clearance:
-            granted_routes = routes
-            granted_plan = routed_plan
-            granted_polylines = [
-                apply_route_offsets(route, station_offsets) for route in granted_routes
-            ]
-            containment_requirements = drawn_corridor_clearance_requirements(
-                graph, granted_plan, granted_polylines
-            )
+        granted_routes = routes
+        granted_plan = routed_plan
+        granted_polylines = [
+            apply_route_offsets(route, station_offsets) for route in granted_routes
+        ]
+        containment_requirements = drawn_corridor_clearance_requirements(
+            graph, granted_plan, granted_polylines
+        )
+        if containment_requirements:
             settlement = settle_route_envelopes(
                 graph,
                 granted_plan,
@@ -1528,11 +1850,11 @@ def _settle_render_geometry(
                     live_graph, containment_requirements
                 ),
             )
+            applied_settlements.append(settlement)
             station_offsets, routes, consumed_plan = _resettle(
                 granted_plan, settlement.coordinate_translations
             )
             labels = _place(station_offsets, routes)
-            assert_render_curve_invariants(graph, routes, station_offsets)
             _assert_settlement_decisions_frozen(
                 granted_routes, granted_plan, routes, consumed_plan
             )
@@ -1555,7 +1877,7 @@ def _settle_render_geometry(
         # across the very step whose contract is coordinate translation only.
         # The routed observation exists to draw and to prove the decisions
         # frozen.
-        if not pending_clearance:
+        if not containment_requirements:
             route_plan = attach_reroute_ledger_delta(
                 adopt_route_reservation_ledger(
                     frozen_plan,
@@ -1569,14 +1891,10 @@ def _settle_render_geometry(
         # frozen pass, which never saw the re-route's own diagnostics; carry
         # forward the one class that names a decision the re-route was itself
         # forced to discard (_adopt_prior_dispositions).
-        adopted_dispositions = (
-            ()
-            if pending_clearance
-            else tuple(
-                item
-                for item in routed_plan.diagnostics
-                if item.code == "exit-turn-disposition-adopted"
-            )
+        adopted_dispositions = tuple(
+            item
+            for item in routed_plan.diagnostics
+            if item.code == "exit-turn-disposition-adopted"
         )
         if adopted_dispositions:
             route_plan = replace(
@@ -1589,10 +1907,10 @@ def _settle_render_geometry(
     # from, would spend clearance the corridor has already been promised.
     if carried_ports:
         hold_port_anchored_edges(graph, carried_from, carried_ports)
-    route_plan = attach_settlement_diagnostics(route_plan, settlement)
-    if grant_settlement is not None and grant_settlement is not settlement:
-        route_plan = attach_settlement_diagnostics(route_plan, grant_settlement)
+    for applied_settlement in applied_settlements:
+        route_plan = attach_settlement_diagnostics(route_plan, applied_settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
+    assert_render_curve_invariants(graph, routes, station_offsets)
     assert_reservations_are_settled(
         graph,
         route_plan,
@@ -1601,12 +1919,16 @@ def _settle_render_geometry(
         strict=effective_strict,
     )
 
-    # The Tier-A layout guards read the settled routes and the settled boxes --
-    # the geometry the renderer is handed -- so a bbox, anchor, elbow,
-    # pass-through, band or crossing defect is judged on what gets drawn rather
-    # than on a first routing pass that later steps move.
+    # The layout guards read the settled routes and boxes.  Deferred
+    # route-dependent guards join the Tier-A set here, so every guard judges the
+    # geometry the renderer is handed rather than a routing pass that later
+    # steps move.
     assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
+        graph,
+        routes,
+        station_offsets,
+        strict=effective_strict or deferred_final_route_guards,
+        include_deferred_final=deferred_final_route_guards,
     )
     assert_render_header_clearance(graph, strict=effective_strict)
     return (
@@ -1718,7 +2040,11 @@ def _build_render_plan_scaled(
     # Resolve headers against the final section bboxes (label and group
     # reservations above can grow a box, moving where its header sits).
     header_placements = resolve_all_section_headers(
-        graph, theme.section_label_font_size, header_polylines, theme.title_font_size
+        graph,
+        theme.section_label_font_size,
+        header_polylines,
+        theme.title_font_size,
+        route_plan,
     )
     _guard_section_headers_clear_routes(header_placements, header_polylines)
     _guard_section_headers_fit_box_width(graph, header_placements)
@@ -2880,7 +3206,8 @@ def _drawn_bundle_span(
 
     A vertical-flow (TB) section is the 90-degree rotation of a horizontal one:
     a line rides ``x - offset`` where an LR line rides ``y + offset`` (matching
-    :func:`_tb_x_offset`).  Spanning the marker over the drawn offsets keeps it
+    :func:`routing.context._perpendicular_port_lane_offset`). Spanning the marker
+    over the drawn offsets keeps it
     centred on the lines that actually pass through the station, so a one-line or
     off-trunk-subset station does not leave its glyph beside its own track.
     """

@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import AbstractSet, NamedTuple
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -29,9 +29,11 @@ from nf_metro.layout.geometry import (
     cotravelling_lanes_fuse,
     lanes_run_along_x,
     lanes_run_along_y,
+    section_bbox_edges,
     spans_share_corridor,
 )
 from nf_metro.layout.route_topology import (
+    convergence_junction_entry_ports,
     convergence_junction_ids,
     merge_fanout_junction_ids,
 )
@@ -260,7 +262,7 @@ def col_right_edge(
 ) -> float:
     """Rightmost X extent of sections in *col* (optionally a single *row*)."""
     secs = _sections_in_col(graph, col, row)
-    return max((s.bbox_x + s.bbox_w for s in secs), default=default)
+    return max((section_bbox_edges(s)[2] for s in secs), default=default)
 
 
 def col_left_edge(
@@ -744,6 +746,8 @@ class RoutedPath:
     """Immutable fan plan that exclusively owns this route, when applicable."""
     fan_route_emitter: str | None = None
     """Planned fan emitter that produced this route."""
+    exit_shared_opening_points: tuple[tuple[float, float], ...] = ()
+    """Immutable prefix emitted from a shared exit-turn opening record."""
     route_system_id: str | None = None
     """Canonical semantic system that owns this inter-section emission."""
     emission_member_id: str | None = None
@@ -869,6 +873,11 @@ def apply_route_offsets(
     tgt_off = station_offsets.get((route.edge.target, route.line_id), 0.0)
     orig_sy = route.points[0][1]
     orig_ty = route.points[-1][1]
+    orig_sx = route.points[0][0]
+    orig_tx = route.points[-1][0]
+    # A same-row route leaves the vertical distance degenerate, so its
+    # interior points split at the nearer endpoint along the travel axis.
+    same_row = abs(orig_sy - orig_ty) <= COORD_TOLERANCE
     last = len(route.points) - 1
     pts: list[tuple[float, float]] = []
     for i, (x, y) in enumerate(route.points):
@@ -876,7 +885,11 @@ def apply_route_offsets(
             pts.append((x, y + src_off))
         elif i == last:
             pts.append((x, y + tgt_off))
-        elif abs(y - orig_sy) <= abs(y - orig_ty):
+        elif (
+            abs(x - orig_sx) <= abs(x - orig_tx)
+            if same_row
+            else abs(y - orig_sy) <= abs(y - orig_ty)
+        ):
             pts.append((x, y + src_off))
         else:
             pts.append((x, y + tgt_off))
@@ -1351,6 +1364,24 @@ def iter_eligible_destination_tail_bundles(
         base = pinned_bases[0] if pinned_bases else min(t.y for t in trunks.values())
         targets = {line_id: base + rank * step for rank, line_id in enumerate(order)}
 
+        # The band is this bundle's own reordering of the corridor, so a target
+        # track can name a lane another line already holds there.  Seating on it
+        # would draw the two lines as one stroke, which the corridor fan the
+        # members arrive on has already spent tracks avoiding; leave them on it.
+        # Any shared stretch counts, not only one long enough to make the two
+        # corridor neighbours: the stroke overlays for as far as they share.
+        if any(
+            id(sibling.route) not in group_routes
+            and sibling.route.line_id != trunk.route.line_id
+            and sibling.sign_x == trunk.sign_x
+            and abs(sibling.y - targets[trunk.route.line_id]) < step - COORD_TOLERANCE
+            and min(sibling.x_hi, trunk.x_hi) - max(sibling.x_lo, trunk.x_lo)
+            > COORD_TOLERANCE
+            for trunk in trunks.values()
+            for sibling in all_trunks
+        ):
+            continue
+
         clear = True
         for route, _tail in bundle.entries:
             trunk = trunks[route.line_id]
@@ -1466,6 +1497,38 @@ def trunk_segments_cross(a: HTrunkSeg, b: HTrunkSeg) -> tuple[float, float] | No
     return None
 
 
+def _corridor_target(
+    graph: MetroGraph,
+    edge: Edge,
+    tgt: Station,
+    merge_entry_ports: Mapping[str, str],
+) -> Station:
+    """The station whose column names the corridor a hop into *tgt* occupies.
+
+    A merge on a LEFT/RIGHT entry stands on that port's own horizontal lead-in,
+    so every feeder reaching it descends the corridor into the port and turns
+    along the lead-in.  Reading the corridor off the raw hop instead makes the
+    merge's own column the corridor, which splits one descent bundle the moment
+    the merge is seated on the far side of the port from a feeder that descends
+    to the port directly -- the two hops then disagree on horizontal sense while
+    sharing a channel.  Resolving through the merge keeps the bundle whole; the
+    lead-in's own Y is shared with the port, so only the column moves.
+    """
+    entry_port_id = merge_entry_ports.get(edge.target)
+    if entry_port_id is None:
+        return tgt
+    port = graph.ports.get(entry_port_id)
+    entry = graph.stations.get(entry_port_id)
+    if (
+        port is None
+        or entry is None
+        or port.side not in (PortSide.LEFT, PortSide.RIGHT)
+        or abs(entry.y - tgt.y) > COORD_TOLERANCE
+    ):
+        return tgt
+    return entry
+
+
 def compute_bundle_info(
     graph: MetroGraph,
     junction_ids: set[str],
@@ -1483,7 +1546,8 @@ def compute_bundle_info(
     Returns dict mapping (source_id, target_id, line_id) -> (index, count).
     """
     # Collect all inter-section edges with their geometry
-    inter_edges: list[tuple[Edge, float, float, float, float]] = []
+    merge_entry_ports = convergence_junction_entry_ports(graph)
+    inter_edges: list[tuple[Edge, float, float, float, float, Station]] = []
     for edge in graph.edges:
         src, tgt = graph.edge_endpoints(edge)
 
@@ -1493,16 +1557,17 @@ def compute_bundle_info(
         if not is_inter:
             continue
 
-        inter_edges.append((edge, src.x, src.y, tgt.x, tgt.y))
+        corridor_tgt = _corridor_target(graph, edge, tgt, merge_entry_ports)
+        inter_edges.append((edge, src.x, src.y, corridor_tgt.x, tgt.y, corridor_tgt))
 
     # Group by corridor: edges sharing the same vertical channel
     # Key: (route_type, rounded_channel_position, vertical_direction)
     corridor_groups: dict[
-        tuple[object, ...], list[tuple[Edge, float, float, float, float]]
+        tuple[object, ...], list[tuple[Edge, float, float, float, float, Station]]
     ] = defaultdict(list)
 
     for item in inter_edges:
-        edge, sx, sy, tx, ty = item
+        edge, sx, sy, tx, ty, corridor_tgt = item
         dx = tx - sx
         dy = ty - sy
 
@@ -1522,12 +1587,14 @@ def compute_bundle_info(
             # proper offsets.  Fall back to round(sx) for junctions
             # or edges without section info.
             h_dir = 1 if dx > 0 else -1
-            src_st, tgt_st = graph.edge_endpoints(edge)
+            src_st = graph.edge_endpoints(edge)[0]
             src_sec = (
                 graph.sections.get(src_st.section_id) if src_st.section_id else None
             )
             tgt_sec = (
-                graph.sections.get(tgt_st.section_id) if tgt_st.section_id else None
+                graph.sections.get(corridor_tgt.section_id)
+                if corridor_tgt.section_id
+                else None
             )
             col_key: int | tuple[int, ...]
             if src_sec and tgt_sec and src_sec.grid_col != tgt_sec.grid_col:
@@ -2401,12 +2468,19 @@ def route_system_owns_segment_boundary(route: RoutedPath, rank: int) -> bool:
     ) or member_plan_owns_segment_boundary(route, rank)
 
 
-def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
+def planner_owns_segment(
+    route: RoutedPath,
+    rank: int,
+    *,
+    relinquished_exit_turn_plan_ids: AbstractSet[str] = frozenset(),
+) -> bool:
     """Whether a pre-routing plan fixes the coordinate of one route segment.
 
-    A convergence-owned segment boundary, a fan emission and a planned exit turn
-    are all resolved against a plan the closing validators check the geometry
-    against, so their coordinate is not a normalisation pass's to choose.
+    A convergence- or member-owned boundary, shared opening, compact lane
+    transition, fan, and planned exit turn are all resolved against a plan the
+    closing validators check the geometry against, so their coordinate is not
+    another allocation or normalisation pass's to choose.  Exit-turn ownership
+    includes both segments adjoining its corner.
 
     Stated once because the passes that move a coordinate and the guards that
     refuse the result both have to agree on which coordinates are theirs: a pass
@@ -2414,11 +2488,16 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuses, and a narrower one would leave a defect neither reports.
     """
     return (
-        convergence_owns_segment_boundary(route, rank)
+        member_plan_owns_segment_boundary(route, rank)
+        or route.exit_lane_transition_plan_id is not None
+        or route.fan_plan_id is not None
         or route.fan_route_emitter is not None
-        or rank in route.route_system_owned_segment_ranks
+        or convergence_owns_segment_boundary(route, rank)
+        or rank < len(route.exit_shared_opening_points)
         or (
-            route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
+            route.exit_turn_segment_rank is not None
+            and route.exit_turn_plan_id not in relinquished_exit_turn_plan_ids
+            and abs(route.exit_turn_segment_rank - rank) <= 1
         )
     )
 

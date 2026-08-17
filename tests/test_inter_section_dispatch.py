@@ -95,12 +95,12 @@ def _facts(**overrides: object) -> H._InterFacts:
         tb_sections=set(),
         station_offsets={},
         merge=SimpleNamespace(trunk_source={}, branch_edges=set()),
-        graph=SimpleNamespace(sections={}),
+        graph=SimpleNamespace(sections={}, ports={}, junctions=set(), edges=[]),
     )
     defaults: dict[str, object] = dict(
         edge=SimpleNamespace(source="a", target="b", line_id="L"),
-        src=SimpleNamespace(section_id="src_sec"),
-        tgt=SimpleNamespace(section_id="tgt_sec"),
+        src=SimpleNamespace(id="a", section_id="src_sec"),
+        tgt=SimpleNamespace(id="b", section_id="tgt_sec"),
         ctx=ctx,
         sx=0.0,
         sy=0.0,
@@ -119,6 +119,10 @@ def _facts(**overrides: object) -> H._InterFacts:
         merge_ep=None,
     )
     defaults.update(overrides)
+    src = defaults["src"]
+    src_port = defaults["src_port"]
+    if src_port is not None:
+        ctx.graph.ports[src.id] = src_port
     return H._InterFacts(**defaults)  # type: ignore[arg-type]
 
 

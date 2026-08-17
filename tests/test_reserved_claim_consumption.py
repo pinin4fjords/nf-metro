@@ -52,9 +52,6 @@ _CORPUS = _corpus()
 # bound, so their failure to render is not itself a finding here.
 KNOWN_NOT_RENDERING = frozenset(
     {
-        "tests/fixtures/hash_seed_determinism/seed_15.mmd",
-        "tests/fixtures/hash_seed_determinism/seed_41.mmd",
-        "tests/fixtures/hash_seed_determinism/seed_77.mmd",
         "tests/fixtures/invalid/backward_feed_rl.mmd",
         "tests/fixtures/invalid/merge_trunk_rightward_source.mmd",
         "tests/fixtures/invalid/mixed_entry_opposing.mmd",
@@ -75,11 +72,7 @@ KNOWN_NOT_RENDERING = frozenset(
 # tolerance" is only worth something if the population sitting just inside the
 # tolerance cannot grow without anyone noticing.  Adding one here is a decision
 # to be argued for, not a side effect.
-WITHIN_TOLERANCE_OVERHANGS: frozenset[tuple[str, int, int]] = frozenset(
-    {
-        ("examples/genomeassembly.mmd", 39, 3),
-    }
-)
+WITHIN_TOLERANCE_OVERHANGS: frozenset[tuple[str, int, int]] = frozenset()
 
 
 def _claim_overhangs(path: Path) -> dict[tuple[int, int], tuple[float, str]] | None:

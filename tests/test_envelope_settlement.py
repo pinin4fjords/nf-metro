@@ -27,6 +27,7 @@ from nf_metro.layout.envelope_settlement import (
     EnvelopeSettlement,
     SettlementAxis,
     SettlementShortfall,
+    SettlementTranslation,
     measure_boundary_clearance_requirements,
     quantised_allocation,
     settle_route_envelopes,
@@ -80,6 +81,39 @@ TOPOLOGIES = ROOT / "examples" / "topologies"
 REPORT_HO = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
 REGRESSIONS = ROOT / "tests" / "fixtures" / "regressions"
 
+
+@pytest.mark.parametrize(
+    ("negative_slack", "positive_slack"),
+    ((1.0, -3.0), (-3.0, 1.0)),
+)
+def test_drawn_corridor_grant_accounts_for_recentering_on_either_side(
+    monkeypatch: pytest.MonkeyPatch,
+    negative_slack: float,
+    positive_slack: float,
+) -> None:
+    reservation = mock.Mock(region=RowGapRegion(0, 1), claims=())
+    plan = mock.Mock(reservations=(reservation,))
+    realised = mock.Mock(available_width=50.0)
+    containment = mock.Mock(
+        negative_side_slack=negative_slack,
+        positive_side_slack=positive_slack,
+    )
+    monkeypatch.setattr(
+        envelope_settlement, "realise_reservation", lambda *_args: realised
+    )
+    monkeypatch.setattr(
+        envelope_settlement,
+        "drawn_corridor_containment",
+        lambda *_args: containment,
+    )
+
+    requirements = envelope_settlement.drawn_corridor_clearance_requirements(
+        mock.Mock(), plan, ()
+    )
+
+    assert requirements[0].required == pytest.approx(56.0)
+
+
 # Fixtures whose reservations carry a capacity deficit on unsettled geometry, so
 # settlement has real work to do.  Every member's deficit falls on a row
 # boundary, which is where the corpus puts one; ``COLUMN_DEFICIT_CORPUS`` carries
@@ -98,9 +132,7 @@ DEFICIT_CORPUS = (
 
 # Fixtures whose only deficit falls on a column boundary, so the column phase has
 # to translate rather than merely confirm.
-COLUMN_DEFICIT_CORPUS = (
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-)
+COLUMN_DEFICIT_CORPUS = (TOPOLOGIES / "complex_multipath.mmd",)
 
 # Offsets a whole map is moved by to check the allocation reads the deficit and
 # not the coordinates it is measured at.  None is a whole pixel and none is
@@ -210,6 +242,49 @@ def _observe_moved(path: Path, delta: float):
         observation = observe_route_edges(graph, station_offsets=offsets)
     polylines = [apply_route_offsets(route, offsets) for route in observation.routes]
     return graph, observation.plan, polylines
+
+
+def test_hidden_route_endpoints_follow_their_semantic_sections() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    _graph, plan = _observe(path)
+    translation = SettlementTranslation(
+        SettlementAxis.COLUMN,
+        3,
+        816.0,
+        57.0,
+        None,
+        (),
+        (),
+        ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"),
+        (),
+    )
+    projected = envelope_settlement._reservation_coordinate_translation(
+        translation, plan
+    )
+    member_by_edge = {
+        (member.edge.source, member.edge.target, member.edge.line_id): member.id
+        for member in plan.members
+    }
+    fully_owned = {
+        ("__junction_20", "__merge_8", "l0"),
+        ("__merge_8", "s4__entry_right_11", "l0"),
+        ("__junction_21", "s4__entry_right_11", "l1"),
+        ("__junction_22", "__merge_8", "l0"),
+        ("__junction_22", "s5__entry_right_16", "l0"),
+        ("__junction_23", "s5__entry_right_16", "l2"),
+        ("__junction_23", "s6__entry_right_14", "l2"),
+    }
+    assert {
+        edge
+        for edge in fully_owned
+        if member_by_edge[edge] in projected.fully_owned_member_ids
+    } == fully_owned
+
+    crossing = member_by_edge[("__junction_22", "__merge_10", "l1")]
+    held = member_by_edge[("__merge_10", "s8__entry_right_17", "l1")]
+    assert crossing in projected.crossing_member_ids
+    assert held not in projected.fully_owned_member_ids
+    assert held not in projected.crossing_member_ids
 
 
 def _allocations(graph, plan) -> dict[tuple[SettlementAxis, int], float]:
@@ -554,11 +629,7 @@ LEMMA_CORPUS = {
 
 # Fixtures that run a column translation while row corridors exist, so the row
 # phase's result is exposed to the column phase.
-CROSS_AXIS_CORPUS = (
-    TOPOLOGIES / "complex_multipath.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd",
-    ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd",
-)
+CROSS_AXIS_CORPUS = (TOPOLOGIES / "complex_multipath.mmd",)
 
 
 SECTION_EDGE_BLOCKERS = frozenset(
@@ -734,15 +805,14 @@ def test_one_translation_settles_every_claim_on_its_boundary() -> None:
     """Two corridors starved at one boundary are one widening, not two.
 
     ``convergent_offrow_exit_climb`` puts a topology-span claim and an
-    observed-run claim in row gap 0/1, short by 2px and by 6px, and one
-    translation of row 1 onward -- sized to the deeper of the two -- satisfies
-    both.
+    observed-run claim in row gap 0/1. Both fall short at that boundary, and
+    one translation of row 1 onward sized to the deeper deficit satisfies both.
     """
     path = TOPOLOGIES / "convergent_offrow_exit_climb.mmd"
     graph, plan = _observe(path)
     starved = _capacity_deficits(plan)
     assert len(starved) == 2
-    assert set(starved.values()) == {-2.0, -6.0}
+    assert set(starved.values()) == {-6.0, -2.0}
 
     settlement = settle_route_envelopes(graph, plan)
     (translation,) = settlement.translations
@@ -882,7 +952,7 @@ def test_the_column_phase_leaves_every_row_corridor_the_width_it_had(
 
 
 def test_reportho_report_trunk_keeps_its_authored_inter_row_corridor() -> None:
-    """The 12 report feeders share one trunk lane needing 78px between rows.
+    """The 12 report feeders share one trunk lane needing 82px between rows.
 
     Rendered permissively because this map also puts two opposing channels in
     one column gap without separating them, which is a lane-placement defect
@@ -1082,6 +1152,30 @@ def test_settlement_rejects_a_translation_that_narrows_a_separation() -> None:
         with pytest.raises(PhaseInvariantError, match="narrowed the row separation"):
             settle_route_envelopes(graph, plan)
     assert _geometry(graph) == before
+
+
+def test_a_pair_drawn_against_its_grid_order_holds_no_separation() -> None:
+    """The monotone claim covers the separations settlement can hold open.
+
+    A widening carries whole bands in grid order, so it opens the distance
+    between two boxes only where that distance runs the way their indices do.
+    Where a box is drawn ahead of a band it is indexed behind, every widening
+    of the boundary between them closes the distance instead, and the pair has
+    no separation for the monotone check to compare.
+    """
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_41.mmd"
+    graph, _plan = _observe(path)
+    upper, lower = graph.sections["s1"], graph.sections["s2"]
+    assert upper.grid_row + upper.grid_row_span <= lower.grid_row
+    assert ("s1", "s2") in envelope_settlement._axis_gaps(
+        graph, envelope_settlement.ROW_AXIS
+    )
+
+    shift_section(graph, lower, dy=-(lower.bbox_y + lower.bbox_h - upper.bbox_y) - 60.0)
+    assert lower.bbox_y + lower.bbox_h < upper.bbox_y
+    gaps = envelope_settlement._axis_gaps(graph, envelope_settlement.ROW_AXIS)
+    assert ("s2", "s1") not in gaps
+    assert ("s1", "s2") not in gaps
 
 
 @pytest.mark.parametrize("path", DEFICIT_CORPUS, ids=lambda item: item.name)

@@ -25,7 +25,13 @@ import pytest
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.member_geometry as member_geometry
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.route_plan import ExitTurnDisposition
+from nf_metro.layout.routing import (
+    compute_station_offsets,
+    observe_route_edges,
+    route_edges,
+)
+from nf_metro.layout.routing.common import Direction, segment_direction
 from nf_metro.layout.routing.invariants import (
     check_concentric_bundle_corners,
     check_no_split_same_line_fanout_descents,
@@ -36,6 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 FIXTURE_TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
+FROZEN = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 
 def _gather_fixtures() -> list[Path]:
@@ -77,6 +84,42 @@ def test_checker_fires_without_fuse_pass(monkeypatch: pytest.MonkeyPatch) -> Non
     graph, routes, offsets = _route(EXAMPLE_TOPOLOGIES / "divergent_fanout_split.mmd")
     violations = check_no_split_same_line_fanout_descents(graph, routes, offsets)
     assert violations, "expected a split fan-out descent with the fuse pass off"
+
+
+def test_opposite_opening_directions_are_not_bundled() -> None:
+    graph = parse_metro_mermaid((FROZEN / "seed_15.mmd").read_text())
+
+    compute_layout(graph)
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.shared_openings == ()
+    outbound = tuple(
+        route
+        for route in observation.routes
+        if route.edge.source == plan.source_id and route.line_id == "l2"
+    )
+    assert len(outbound) == 2
+    assert {route.line_id for route in outbound} == {"l2"}
+    assert len({route.emission_member_id for route in outbound}) == 2
+    descent_columns = {
+        next(
+            start[0]
+            for start, end in zip(route.points, route.points[1:])
+            if segment_direction(start, end) is Direction.D
+        )
+        for route in outbound
+    }
+    assert len(descent_columns) == 2
 
 
 def _opening_descents(routes) -> list[tuple[str, str, float]]:

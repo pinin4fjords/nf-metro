@@ -6,8 +6,9 @@ import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from math import isclose
 from types import MappingProxyType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, NoReturn, TypeVar
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -31,28 +32,50 @@ from nf_metro.layout.route_plan import (
     RouteSemanticScaffold,
     RouteSystemId,
 )
+from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
+from nf_metro.layout.routing import normalize
+from nf_metro.layout.routing.centrelines import route_along
 from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
+    OffsetRegime,
     RoutedPath,
+    centre_inter_column_channel,
     column_gap_edges,
-    convergence_owns_segment_boundary,
+    gap_lo_for_x,
+    iter_vertical_segments,
+    member_plan_owns_segment_boundary,
+    planner_owns_segment,
     segment_direction,
 )
-from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
+from nf_metro.layout.routing.context import (
+    SettledExitTurn,
+    _RoutingCtx,
+)
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
-from nf_metro.layout.routing.families import RouteFamilyId
+from nf_metro.layout.routing.corridor_cohort_integration import (
+    CorridorCohortAllocation,
+    CorridorCohortCompilationError,
+    CorridorCohortLedger,
+    CorridorCohortPlan,
+    CorridorCohortTarget,
+    CorridorScalarRequest,
+    compile_corridor_cohort_plan,
+)
+from nf_metro.layout.routing.families import BYPASS_ROUTE_FAMILIES, RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
+    _declare_placed_channels,
     _route_inter_section,
     packed_cell_handoff_carrier,
 )
 from nf_metro.layout.routing.normalize import (
     _bundle_divergent_distinct_traverses,
-    _bundle_same_destination_tails,
     _coincide_fanout_opening_descents,
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
+    _dogleg_off_exempt_trunks,
+    _fan_apart_junction_opening_legs,
     _hold_runs_in_corridor_clearance,
     _locate_slot_channel,
     _materialize_gap_slots,
@@ -61,6 +84,7 @@ from nf_metro.layout.routing.normalize import (
     _reseat_concentric_flanking,
     _route_endpoint_section_ids,
     _segment_claim_band,
+    _separate_declared_opposing_gap_bundles,
     _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
@@ -69,13 +93,19 @@ from nf_metro.layout.routing.normalize import (
     _VChannel,
 )
 from nf_metro.layout.routing.orientation import direction_axis, lateral_order_sign
+from nf_metro.layout.routing.perp import entry_port_crossing_coord
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     bundle_travel,
     corridor_clearance_band,
     resolved_band,
 )
-from nf_metro.parser.model import Edge, MetroGraph
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceRequirement,
+    BoundaryClearanceRequirementKind,
+    SettlementAxis,
+)
+from nf_metro.parser.model import Edge, MetroGraph, PortSide, Section
 from nf_metro.parser.route_topology import (
     ConnectorId,
     EndpointGroupId,
@@ -109,6 +139,7 @@ class PreliminaryGapChannelClaim:
     line_ids: frozenset[str]
     source_junction_ids: frozenset[str] = frozenset()
     connector_ids: frozenset[str] = frozenset()
+    continuation_endpoint_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +197,9 @@ class MemberGeometryExecution:
     settled_exit_turns: Mapping[tuple[str, str, str], SettledExitTurn] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    reconciled_member_ids: frozenset[EmissionMemberId] = frozenset()
+    corridor_cohorts: CorridorCohortPlan | None = None
+    clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
 
     def plan_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -191,6 +225,512 @@ class MemberGeometryExecution:
 
 def empty_member_geometry_execution() -> MemberGeometryExecution:
     return MemberGeometryExecution((), MappingProxyType({}), MappingProxyType({}))
+
+
+def _corridor_cohort_target(
+    candidate: _MemberCandidate,
+    scaffold: RouteSemanticScaffold,
+    ctx: _RoutingCtx,
+    *,
+    mutable: bool,
+) -> CorridorCohortTarget:
+    route = candidate.route
+    resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+    port = ctx.graph.ports.get(resolved.target)
+    station = ctx.graph.stations.get(resolved.target)
+    endpoint_lane_axis: int | None = None
+    endpoint_lane_coordinate: float | None = None
+    if port is not None and port.is_entry and station is not None:
+        endpoint_lane_axis = int(port.side in (PortSide.LEFT, PortSide.RIGHT))
+        endpoint_lane_coordinate = entry_port_crossing_coord(ctx, port, route.line_id)
+        if route.offset_regime is OffsetRegime.DEFERRED and endpoint_lane_axis == 1:
+            endpoint_lane_coordinate -= (ctx.station_offsets or {}).get(
+                (resolved.target, route.line_id),
+                0.0,
+            )
+    network_ids = {
+        str(scaffold.query.connector(connector_id).network_id)
+        for connector_id in candidate.connector_ids
+    }
+    return CorridorCohortTarget(
+        str(scaffold.member_id_by_edge[resolved]),
+        str(_member_geometry_plan_id(scaffold, candidate)),
+        (resolved.source, resolved.target, resolved.line_id),
+        candidate.family_id,
+        candidate.connector_ids,
+        route,
+        mutable,
+        endpoint_lane_axis,
+        endpoint_lane_coordinate,
+        next(iter(network_ids)) if len(network_ids) == 1 else None,
+        legal_crossing_segment_ranks=frozenset(route.convergence_owned_segment_ranks),
+    )
+
+
+def _corridor_cohort_targets(
+    candidates: Sequence[_MemberCandidate],
+    context_candidates: Sequence[_MemberCandidate],
+    scaffold: RouteSemanticScaffold,
+    ctx: _RoutingCtx,
+) -> tuple[CorridorCohortTarget, ...]:
+    selected: dict[tuple[str, tuple[str, str, str]], CorridorCohortTarget] = {}
+
+    def add(population: Sequence[_MemberCandidate], *, mutable: bool) -> None:
+        seen: dict[tuple[str, tuple[str, str, str]], CorridorCohortTarget] = {}
+        for candidate in population:
+            target = _corridor_cohort_target(
+                candidate,
+                scaffold,
+                ctx,
+                mutable=mutable,
+            )
+            key = target.member_id, target.edge_key
+            existing = seen.get(key)
+            if existing is not None:
+                if existing.route is target.route:
+                    continue
+                raise RuntimeError(
+                    "corridor cohort target identity is ambiguous in one population"
+                )
+            seen[key] = target
+            if mutable or key not in selected:
+                selected[key] = target
+
+    add(candidates, mutable=True)
+    add(context_candidates, mutable=False)
+    return tuple(selected.values())
+
+
+def _corridor_boundary_sections(
+    graph: MetroGraph,
+    region: ColumnGapRegion | RowGapRegion,
+    claim_sections: tuple[Section, ...],
+    blocker_sections: tuple[Section, ...],
+    required_shift_sign: int,
+) -> tuple[tuple[Section, ...], tuple[Section, ...]]:
+    if isinstance(region, ColumnGapRegion):
+        start_attr = "grid_col"
+        span_attr = "grid_col_span"
+        cross_start_attr = "grid_row"
+        cross_span_attr = "grid_row_span"
+        negative_index = region.left_column
+        positive_index = region.right_column
+        axis_name = "column"
+    else:
+        start_attr = "grid_row"
+        span_attr = "grid_row_span"
+        cross_start_attr = "grid_col"
+        cross_span_attr = "grid_col_span"
+        negative_index = region.upper_row
+        positive_index = region.lower_row
+        axis_name = "row"
+
+    def start(section: Section) -> int:
+        return int(getattr(section, start_attr))
+
+    def span(section: Section) -> int:
+        return int(getattr(section, span_attr))
+
+    def cross_start(section: Section) -> int:
+        return int(getattr(section, cross_start_attr))
+
+    def cross_span(section: Section) -> int:
+        return int(getattr(section, cross_span_attr))
+
+    def overlaps(left: Section, right: Section) -> bool:
+        return cross_start(left) < cross_start(right) + cross_span(
+            right
+        ) and cross_start(right) < cross_start(left) + cross_span(left)
+
+    if required_shift_sign > 0:
+        negative_sections = claim_sections
+        if any(
+            start(section) + span(section) - 1 != negative_index
+            for section in negative_sections
+        ):
+            raise ValueError(
+                f"clearance target does not face the negative {axis_name} side"
+            )
+        if any(start(section) < positive_index for section in blocker_sections):
+            raise ValueError(
+                f"active blocker is not carried by the positive {axis_name} side"
+            )
+        positive_sections = tuple(
+            section
+            for section in graph.sections.values()
+            if start(section) == positive_index
+            and any(overlaps(section, negative) for negative in negative_sections)
+        )
+    else:
+        positive_sections = claim_sections
+        if any(start(section) != positive_index for section in positive_sections):
+            raise ValueError(
+                f"clearance target does not face the positive {axis_name} side"
+            )
+        if any(
+            start(section) + span(section) - 1 > negative_index
+            for section in blocker_sections
+        ):
+            raise ValueError(
+                f"active blocker is not held by the negative {axis_name} side"
+            )
+        negative_sections = tuple(
+            section
+            for section in graph.sections.values()
+            if start(section) + span(section) - 1 == negative_index
+            and any(overlaps(section, positive) for positive in positive_sections)
+        )
+    if not negative_sections or not positive_sections:
+        raise ValueError("clearance boundary has no facing section pair")
+    return negative_sections, positive_sections
+
+
+def _corridor_cohort_aperture_requirements(
+    graph: MetroGraph,
+    scaffold: RouteSemanticScaffold,
+    ledger: CorridorCohortLedger,
+    targets: Sequence[CorridorCohortTarget],
+    scalar_requests: Sequence[CorridorScalarRequest],
+    error: CorridorCohortCompilationError,
+) -> tuple[BoundaryClearanceRequirement, ...]:
+    claims_by_id = {claim.claim_id: claim for claim in ledger.claims}
+    scalar_requests_by_id = {
+        request.variable.variable_id: request for request in scalar_requests
+    }
+    targets_by_key = {(target.member_id, target.edge_key): target for target in targets}
+    requirements: dict[
+        tuple[SettlementAxis, int, tuple[str, ...], tuple[str, ...]],
+        BoundaryClearanceRequirement,
+    ] = {}
+
+    def refuse(reason: str) -> NoReturn:
+        raise CorridorCohortCompilationError(
+            f"{error}; corridor aperture handoff refused: {reason}",
+            error.failures,
+        ) from error
+
+    for failure in error.failures:
+        shortfall = failure.clearance_shortfall
+        if shortfall is None:
+            refuse("allocation failure has no typed clearance shortfall")
+        if shortfall.required_shift_sign not in (-1, 1):
+            refuse("clearance shortfall has no directed boundary side")
+        claims = tuple(
+            claims_by_id[claim_id]
+            for claim_id in shortfall.claim_ids
+            if claim_id in claims_by_id
+        )
+        scalar_claims = tuple(
+            scalar_requests_by_id[claim_id]
+            for claim_id in shortfall.claim_ids
+            if claim_id in scalar_requests_by_id
+        )
+        if len(claims) + len(scalar_claims) != len(shortfall.claim_ids):
+            refuse("clearance shortfall names an unknown claim")
+        regions = {claim.region for claim in claims}
+        for request in scalar_claims:
+            request_region = request.region
+            if request_region is None:
+                refuse("clearance claims do not name one corridor region")
+            regions.add(request_region)
+        if not shortfall.claim_ids or len(regions) != 1:
+            refuse("clearance claims do not name one corridor region")
+        region = next(iter(regions))
+        if isinstance(region, ColumnGapRegion):
+            axis = SettlementAxis.COLUMN
+            boundary = region.right_column
+            expected_axis = 0
+        elif isinstance(region, RowGapRegion):
+            axis = SettlementAxis.ROW
+            boundary = region.lower_row
+            expected_axis = 1
+        else:
+            refuse("clearance claim is not on an adjacent grid boundary")
+        if shortfall.axis != expected_axis:
+            refuse("solver axis and corridor boundary disagree")
+
+        claim_target_section_ids = {
+            scaffold.query.connector(connector_id).target_section
+            for connector_ids in (
+                *(claim.connector_ids for claim in claims),
+                *(request.variable.connector_ids for request in scalar_claims),
+            )
+            for connector_id in connector_ids
+        }
+        if not claim_target_section_ids:
+            refuse("clearance claim has no authored target section")
+        claim_sections = tuple(
+            graph.sections[section_id]
+            for section_id in sorted(claim_target_section_ids)
+        )
+        typed_obstacles = {
+            item.obstacle_id: item for item in failure.blocking_obstacles
+        }
+        if set(typed_obstacles) != set(shortfall.blocking_obstacle_ids):
+            refuse("active blockers lack exact typed provenance")
+        blocker_source_sections: set[str] = set()
+        for obstacle in typed_obstacles.values():
+            target = targets_by_key.get((obstacle.member_id, obstacle.edge_key))
+            if target is None or target.connector_ids != obstacle.connector_ids:
+                refuse("active blocker does not match its current route target")
+            blocker_source_sections.update(
+                scaffold.query.connector(connector_id).source_section
+                for connector_id in obstacle.connector_ids
+            )
+        if not blocker_source_sections:
+            refuse("active blocker has no authored source section")
+        blocker_sections = tuple(
+            graph.sections[section_id] for section_id in sorted(blocker_source_sections)
+        )
+        try:
+            negative_sections, positive_sections = _corridor_boundary_sections(
+                graph,
+                region,
+                claim_sections,
+                blocker_sections,
+                shortfall.required_shift_sign,
+            )
+        except ValueError as mapping_error:
+            refuse(str(mapping_error))
+        if isinstance(region, ColumnGapRegion):
+            negative_edge = max(
+                section.bbox_x + section.bbox_w for section in negative_sections
+            )
+            positive_edge = min(section.bbox_x for section in positive_sections)
+        else:
+            negative_edge = max(
+                section.bbox_y + section.bbox_h for section in negative_sections
+            )
+            positive_edge = min(section.bbox_y for section in positive_sections)
+        negative_ids = tuple(sorted(section.id for section in negative_sections))
+        positive_ids = tuple(sorted(section.id for section in positive_sections))
+        required = max(0.0, positive_edge - negative_edge) + shortfall.deficit
+        requirement = BoundaryClearanceRequirement(
+            axis,
+            boundary,
+            f"{failure.component_id}|result:{failure.result_rank}",
+            required,
+            negative_ids,
+            positive_ids,
+            f"corridor cohort aperture at {axis.value} boundary {boundary}",
+            BoundaryClearanceRequirementKind.CORRIDOR_COHORT_APERTURE,
+        )
+        key = axis, boundary, negative_ids, positive_ids
+        held = requirements.get(key)
+        if held is None or requirement.required > held.required:
+            requirements[key] = requirement
+    if not requirements:
+        refuse("allocation failure produced no boundary requirement")
+    return tuple(
+        requirements[key]
+        for key in sorted(
+            requirements,
+            key=lambda item: (item[0].value, item[1], item[2], item[3]),
+        )
+    )
+
+
+def _compile_corridor_cohorts(
+    ledger: CorridorCohortLedger | None,
+    candidates: Sequence[_MemberCandidate],
+    context_candidates: Sequence[_MemberCandidate],
+    scaffold: RouteSemanticScaffold,
+    ctx: _RoutingCtx,
+    *,
+    allow_clearance_requirements: bool,
+    additional_targets: Sequence[CorridorCohortTarget] = (),
+    scalar_requests: Sequence[CorridorScalarRequest] = (),
+) -> tuple[
+    CorridorCohortPlan | None,
+    dict[ResolvedEdge, tuple[int, ...]],
+    tuple[BoundaryClearanceRequirement, ...],
+]:
+    if ledger is None:
+        return None, {}, ()
+    member_targets = _corridor_cohort_targets(
+        candidates,
+        context_candidates,
+        scaffold,
+        ctx,
+    )
+    targets = (*member_targets, *additional_targets)
+    try:
+        cohort_plan = compile_corridor_cohort_plan(
+            ledger,
+            targets,
+            scalar_requests=scalar_requests,
+        )
+    except CorridorCohortCompilationError as error:
+        if not allow_clearance_requirements:
+            raise
+        return (
+            None,
+            {},
+            _corridor_cohort_aperture_requirements(
+                ctx.graph,
+                scaffold,
+                ledger,
+                targets,
+                scalar_requests,
+                error,
+            ),
+        )
+    targets_by_key = {(target.member_id, target.edge_key): target for target in targets}
+    ranks_by_edge: defaultdict[ResolvedEdge, list[int]] = defaultdict(list)
+    for allocation in cohort_plan.allocations:
+        target = targets_by_key.get((allocation.member_id, allocation.edge_key))
+        if target is None or not target.mutable:
+            raise RuntimeError(
+                "corridor cohort allocation has no mutable current target"
+            )
+        edge = ResolvedEdge(*allocation.edge_key)
+        ranks_by_edge[edge].append(allocation.segment_rank)
+    for landing in cohort_plan.landings:
+        target = targets_by_key.get((landing.member_id, landing.edge_key))
+        if target is None or not target.mutable:
+            raise RuntimeError("corridor cohort landing has no mutable current target")
+        ranks_by_edge[ResolvedEdge(*landing.edge_key)].append(landing.segment_rank)
+    return (
+        cohort_plan,
+        {edge: tuple(sorted(set(ranks))) for edge, ranks in ranks_by_edge.items()},
+        (),
+    )
+
+
+def _finalize_corridor_cohorts(
+    execution: MemberGeometryExecution,
+    ledger: CorridorCohortLedger | None,
+    ctx: _RoutingCtx,
+    scaffold: RouteSemanticScaffold,
+    family_by_edge: Mapping[ResolvedEdge, RouteFamilyId],
+    convergence_plans: Sequence[ConvergencePlan],
+    *,
+    allow_clearance_requirements: bool,
+    corridor_targets: Sequence[CorridorCohortTarget] = (),
+    scalar_requests: Sequence[CorridorScalarRequest] = (),
+) -> MemberGeometryExecution:
+    if ledger is None:
+        return execution
+    plan_identities = [
+        (
+            str(plan.member_id),
+            (plan.edge.source, plan.edge.target, plan.edge.line_id),
+        )
+        for plan in execution.plans
+    ]
+    if len(set(plan_identities)) != len(plan_identities):
+        raise RuntimeError("corridor cohort member plans have ambiguous identities")
+
+    def mutable_candidate(plan: RouteMemberGeometryPlan) -> _MemberCandidate:
+        route = fresh_member_route(
+            plan,
+            ctx.edge_by_key[(plan.edge.source, plan.edge.target, plan.edge.line_id)],
+        )
+        route.route_system_owned_segment_ranks = (
+            plan.owned_segment_ranks if plan.owns_complete_path else ()
+        )
+        return _MemberCandidate(
+            route,
+            plan.family_id,
+            plan.system_id,
+            semantic_route_id(
+                "member-channel-carrier", plan.edge.source, plan.edge.target
+            ),
+            plan.connector_ids,
+        )
+
+    candidates = tuple(mutable_candidate(plan) for plan in execution.plans)
+    candidate_edges = {plan.edge for plan in execution.plans}
+    convergence_edges = {
+        edge
+        for plan in convergence_plans
+        if plan.disposition is ConvergenceDisposition.PLANNED
+        for edge in plan.resolved_member_edges
+        if edge not in candidate_edges
+    }
+    context_candidates: list[_MemberCandidate] = []
+    for edge in scaffold.edge_order:
+        if edge not in convergence_edges:
+            continue
+        family_id = family_by_edge.get(edge)
+        route = _convergence_context_route(
+            ctx,
+            (edge.source, edge.target, edge.line_id),
+            family_id,
+        )
+        if route is None or family_id is None:
+            continue
+        context_candidates.append(
+            _MemberCandidate(
+                route,
+                family_id,
+                scaffold.system_for_edge(edge),
+                semantic_route_id("member-channel-carrier", edge.source, edge.target),
+                tuple(scaffold.connector_ids_for_edge(edge)),
+            )
+        )
+    cohort_plan, ranks_by_edge, clearance_requirements = _compile_corridor_cohorts(
+        ledger,
+        candidates,
+        tuple(context_candidates),
+        scaffold,
+        ctx,
+        allow_clearance_requirements=allow_clearance_requirements,
+        additional_targets=corridor_targets,
+        scalar_requests=scalar_requests,
+    )
+    if clearance_requirements:
+        return replace(
+            execution,
+            clearance_requirements=(
+                execution.clearance_requirements + clearance_requirements
+            ),
+        )
+    if cohort_plan is None:
+        return execution
+    routes_by_edge = {
+        ResolvedEdge(
+            candidate.route.edge.source,
+            candidate.route.edge.target,
+            candidate.route.line_id,
+        ): candidate.route
+        for candidate in candidates
+    }
+
+    def finalized_plan(plan: RouteMemberGeometryPlan) -> RouteMemberGeometryPlan:
+        route = routes_by_edge[plan.edge]
+        curve_radii = None if route.curve_radii is None else tuple(route.curve_radii)
+        return replace(
+            plan,
+            points=tuple(route.points),
+            curve_radii=curve_radii,
+            gap_channels=tuple(
+                replace(
+                    channel,
+                    start=route.points[channel.segment_rank],
+                    end=route.points[channel.segment_rank + 1],
+                )
+                for channel in plan.gap_channels
+            ),
+            concentric_corner_offsets_by_segment=tuple(
+                sorted(route.concentric_corner_offsets_by_segment.items())
+            ),
+            concentric_corner_bases_by_segment=tuple(
+                sorted(route.concentric_corner_bases_by_segment.items())
+            ),
+            corridor_cohort_owned_segment_ranks=ranks_by_edge.get(plan.edge, ()),
+        )
+
+    plans = tuple(finalized_plan(plan) for plan in execution.plans)
+    return MemberGeometryExecution(
+        plans,
+        execution.failure_reasons,
+        MappingProxyType({plan.edge: plan for plan in plans}),
+        execution.settled_exit_turns,
+        execution.reconciled_member_ids,
+        cohort_plan,
+        execution.clearance_requirements,
+    )
 
 
 def _allocated_turn(
@@ -446,6 +986,7 @@ def _settled_exit_turns(
     """Read deferred source turns from the jointly seated route population."""
     if ctx.exit_turns is None or not pending_plan_ids:
         return MappingProxyType({})
+    routes = tuple(routes)
     candidates: list[_SettledTurnCandidate] = []
 
     for route in routes:
@@ -582,6 +1123,47 @@ def _settled_exit_turns(
             ),
             candidate.validate_corner_radii,
         )
+    pending_routes = tuple(candidate.route for candidate in candidates)
+    pending_route_ids = frozenset(id(route) for route in pending_routes)
+    settlement_population = [
+        route
+        for route in routes
+        if route.normalize_exempt or id(route) in pending_route_ids
+    ]
+    reseated = _dogleg_off_exempt_trunks(
+        settlement_population,
+        ctx,
+        movable_owned_route_ids=pending_route_ids,
+        reconcile_owned_corridor=True,
+        nested_only=True,
+    )
+    for route in routes:
+        edge_key = (route.edge.source, route.edge.target, route.line_id)
+        if edge_key not in reseated:
+            continue
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if membership is None or membership.assignment is None:
+            continue
+        allocated = _allocated_turn(
+            route,
+            membership.assignment.run_direction,
+            membership.assignment.turn_direction,
+        )
+        if allocated is None:
+            continue
+        run_direction, turn_direction, rank = allocated
+        axis = direction_axis(run_direction).point_index
+        launch = route.points[rank - 1][axis]
+        coordinate = route.points[rank][axis]
+        settled[edge_key] = SettledExitTurn(
+            run_direction,
+            turn_direction,
+            launch,
+            abs(coordinate - launch),
+            coordinate,
+            route.concentric_corner_offsets_by_segment.get(rank, (None, None)),
+            EmissionRole.TERMINAL in membership.assignment.roles,
+        )
     return MappingProxyType(settled)
 
 
@@ -631,7 +1213,57 @@ def _route_template(
     family_id: RouteFamilyId,
     ctx: _RoutingCtx,
 ) -> RoutedPath:
+    """Build the immutable template, consuming a planned shared opening first."""
     source, target = ctx.graph.edge_endpoints(edge)
+    opening = (
+        ctx.exit_turns.shared_opening_for_edge(edge)
+        if ctx.exit_turns is not None
+        else None
+    )
+    if opening is not None:
+        branch_y = opening.points[-1][1]
+        if target.section_id is None:
+            raise MemberGeometryDeclinedError(
+                "shared exit opening has no target section"
+            )
+        target_section = ctx.graph.sections[target.section_id]
+        tail_x = centre_inter_column_channel(
+            ctx.graph,
+            target_section.grid_col,
+            target_section.grid_col + 1,
+            target_section.grid_row,
+        )
+        target_y = target.y + (ctx.station_offsets or {}).get(
+            (edge.target, edge.line_id), 0.0
+        )
+        route = route_along(
+            edge,
+            [(edge, edge.line_id, 0.0)],
+            [
+                *opening.points,
+                (tail_x, branch_y),
+                (tail_x, target_y),
+                (target.x, target_y),
+            ],
+            base_radius=ctx.curve_radius,
+            normalize_exempt=True,
+        )
+        if route is None:
+            raise MemberGeometryDeclinedError("shared exit opening omitted member")
+        source_section = ctx.graph.sections.get(source.section_id or "")
+        route.declare_trunk_slot(
+            gap_upper_row=(
+                None if source_section is None else max(0, source_section.grid_row - 1)
+            )
+        )
+        assert ctx.exit_turns is not None
+        membership = ctx.exit_turns.membership_for_edge(edge)
+        if membership is not None:
+            route.exit_turn_plan_id = str(membership.plan.id)
+            route.exit_turn_member_id = str(membership.member_id)
+        route.exit_shared_opening_points = opening.points
+        _declare_placed_channels(route, ctx)
+        return route
     route = _route_inter_section(
         edge,
         source,
@@ -735,6 +1367,21 @@ def _complete_concentric_corner_description(
     return offsets, bases
 
 
+def _member_geometry_plan_id(
+    scaffold: RouteSemanticScaffold, candidate: _MemberCandidate
+) -> RouteMemberGeometryPlanId:
+    route = candidate.route
+    resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+    return RouteMemberGeometryPlanId(
+        semantic_route_id(
+            "route-member-geometry",
+            candidate.system_id,
+            scaffold.member_id_by_edge[resolved],
+            candidate.family_id.value,
+        )
+    )
+
+
 def _freeze_plan(
     scaffold: RouteSemanticScaffold,
     candidate: _MemberCandidate,
@@ -742,15 +1389,17 @@ def _freeze_plan(
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]],
     *,
     owns_complete_path: bool = False,
+    corridor_cohort_owned_segment_ranks: tuple[int, ...] = (),
 ) -> RouteMemberGeometryPlan:
     route = candidate.route
     family_id = candidate.family_id
     system_id = candidate.system_id
     resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
     member_id = scaffold.member_id_by_edge[resolved]
+    gap_slots = _frozen_gap_slots(route, ctx.graph)
     channels: list[RouteMemberGapChannel] = []
     channel_claims: set[tuple[int, int, int | None, Direction]] = set()
-    for slot in route.gap_slots:
+    for slot in gap_slots:
         channel = _locate_slot_channel(route, slot, ctx.graph)
         if channel is None:
             continue
@@ -768,11 +1417,17 @@ def _freeze_plan(
                 slot.direction,
             )
         )
-    plan_id = RouteMemberGeometryPlanId(
-        semantic_route_id(
-            "route-member-geometry", system_id, member_id, family_id.value
+    shared_opening_tail = _shared_opening_tail_gap_channel(route, ctx.graph)
+    if shared_opening_tail is not None:
+        claim = (
+            shared_opening_tail.segment_rank,
+            shared_opening_tail.gap_lo_col,
+            shared_opening_tail.row,
+            shared_opening_tail.direction,
         )
-    )
+        if claim not in channel_claims:
+            channels.append(shared_opening_tail)
+    plan_id = _member_geometry_plan_id(scaffold, candidate)
     corner_offsets, corner_bases = _complete_concentric_corner_description(route)
     return RouteMemberGeometryPlan(
         plan_id,
@@ -785,7 +1440,7 @@ def _freeze_plan(
         None if route.curve_radii is None else tuple(route.curve_radii),
         route.offset_regime,
         route.normalize_exempt,
-        tuple(route.gap_slots),
+        gap_slots,
         route.trunk_slot,
         tuple(channels),
         tuple(sorted(corner_offsets.items())),
@@ -800,9 +1455,69 @@ def _freeze_plan(
         ),
         fan_plan_id=_typed_id(FanPlanId, route.fan_plan_id),
         fan_route_emitter=route.fan_route_emitter,
+        exit_shared_opening_points=tuple(
+            getattr(route, "exit_shared_opening_points", ())
+        ),
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
+        corridor_cohort_owned_segment_ranks=corridor_cohort_owned_segment_ranks,
         owns_complete_path=owns_complete_path,
     )
+
+
+def _shared_opening_tail_gap_channel(
+    route: RoutedPath, graph: MetroGraph
+) -> RouteMemberGapChannel | None:
+    """Describe the short target-column leg after a shared opening."""
+    opening_size = len(route.exit_shared_opening_points)
+    if not opening_size or opening_size + 1 >= len(route.points):
+        return None
+    start, end = route.points[opening_size : opening_size + 2]
+    direction = segment_direction(start, end)
+    if direction not in (Direction.U, Direction.D):
+        return None
+    _source, target = graph.edge_endpoints(route.edge)
+    if target.section_id is None:
+        return None
+    target_section = graph.sections[target.section_id]
+    return RouteMemberGapChannel(
+        opening_size,
+        start,
+        end,
+        target_section.grid_col,
+        target_section.grid_row,
+        direction,
+    )
+
+
+def _frozen_gap_slots(route: RoutedPath, graph: MetroGraph) -> tuple[GapSlot, ...]:
+    """Bind each frozen slot to the leg its completed member route occupies."""
+    slots: list[GapSlot] = []
+    seen: set[tuple[int, int | None, Direction]] = set()
+    verticals = tuple(iter_vertical_segments(route))
+    for slot in route.gap_slots:
+        candidates = [
+            segment
+            for segment in verticals
+            if gap_lo_for_x(graph, segment[1], segment[2], segment[3])
+            == (slot.gap_lo_col, slot.row)
+        ]
+        if not candidates:
+            continue
+        _rank, _x, _y_lo, _y_hi, down = next(
+            (
+                segment
+                for segment in candidates
+                if (segment[4] and slot.direction is Direction.D)
+                or (not segment[4] and slot.direction is Direction.U)
+            ),
+            candidates[0],
+        )
+        frozen = replace(slot, direction=Direction.D if down else Direction.U)
+        key = (frozen.gap_lo_col, frozen.row, frozen.direction)
+        if key not in seen:
+            seen.add(key)
+            slots.append(frozen)
+    return tuple(slots)
 
 
 def _materialized_channels(
@@ -838,24 +1553,6 @@ def _index_materialized_channels(
 ) -> Mapping[_SystemGapKey, tuple[_MaterializedChannel, ...]]:
     return _index_by_system_gap(
         channels, lambda item: (item.candidate.system_id, item.gap)
-    )
-
-
-def _planner_owns_channel(
-    route: RoutedPath,
-    segment_rank: int,
-    movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
-) -> bool:
-    if route.exit_lane_transition_plan_id is not None:
-        return True
-    if route.fan_plan_id is not None or route.fan_route_emitter is not None:
-        return True
-    if convergence_owns_segment_boundary(route, segment_rank):
-        return True
-    return (
-        route.exit_turn_segment_rank is not None
-        and route.exit_turn_plan_id not in movable_exit_plan_ids
-        and abs(route.exit_turn_segment_rank - segment_rank) <= 1
     )
 
 
@@ -1010,14 +1707,44 @@ def _align_packed_cell_handoffs(
             carrier_channels,
             key=lambda item: abs(item.channel.x - descent_x),
         )
-        assert not _planner_owns_channel(
-            route, handoff_channel.channel.idx, movable_exit_plan_ids
-        ), "packed-cell handoff descent has a conflicting plan owner"
+        if planner_owns_segment(
+            route,
+            handoff_channel.channel.idx,
+            relinquished_exit_turn_plan_ids=movable_exit_plan_ids,
+        ):
+            if not ctx.validate_final_route_frames:
+                continue
+            raise AssertionError(
+                "packed-cell handoff descent has a conflicting plan owner"
+            )
         bounds = _channel_bounds(handoff_channel, ctx)
-        assert _candidate_clears_runway(
+        if not _candidate_clears_runway(
             handoff_channel, bounds, carrier_channel.channel.x, ctx
-        ), "packed-cell handoff lies outside its carrier's feasible corridor"
+        ):
+            if not ctx.validate_final_route_frames:
+                continue
+            raise AssertionError(
+                "packed-cell handoff lies outside its carrier's feasible corridor"
+            )
         _seat_channel(handoff_channel.channel, carrier_channel.channel.x)
+
+
+def _claim_shares_opening_turn(
+    item: _MaterializedChannel, claim: PreliminaryGapChannelClaim
+) -> bool:
+    """Whether a claim and a member leg open from one turn on a shared lane.
+
+    A same-line pair leaving one junction can diverge up and down from the lane
+    it travels, so their spans meet at that lane rather than overlapping.  The
+    two legs are one opening turn and hold one column; read on span overlap
+    alone they read as unrelated and drift apart into a staggered fork.
+    """
+    channel = item.channel
+    return (
+        channel.down is not claim.down
+        and abs(min(channel.y_hi, claim.y_hi) - max(channel.y_lo, claim.y_lo))
+        <= COORD_TOLERANCE
+    )
 
 
 def _align_same_line_channels(
@@ -1033,8 +1760,10 @@ def _align_same_line_channels(
     for item in materialized:
         route = item.candidate.route
         channel = item.channel
-        if item.key in seated or _planner_owns_channel(
-            route, channel.idx, movable_exit_plan_ids
+        if item.key in seated or planner_owns_segment(
+            route,
+            channel.idx,
+            relinquished_exit_turn_plan_ids=movable_exit_plan_ids,
         ):
             continue
         matching = tuple(
@@ -1044,7 +1773,10 @@ def _align_same_line_channels(
             )
             if route.line_id in claim.line_ids
             and _claim_source_compatible(item, claim)
-            and spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
+            and (
+                spans_share_corridor(channel.y_lo, channel.y_hi, claim.y_lo, claim.y_hi)
+                or _claim_shares_opening_turn(item, claim)
+            )
         )
         coordinates = {claim.coordinate for claim in matching}
         if len(coordinates) != 1:
@@ -1164,7 +1896,10 @@ def _claim_source_compatible(
     if claim.system_id != item.candidate.system_id:
         return False
     source_id = item.candidate.route.edge.source
-    if source_id in claim.source_junction_ids:
+    if (
+        source_id in claim.source_junction_ids
+        or source_id in claim.continuation_endpoint_ids
+    ):
         return True
     return not claim.connector_ids.isdisjoint(item.candidate.connector_ids)
 
@@ -1180,6 +1915,14 @@ def _allocate_bundle_around_claims(
     clearance a bundle owes its neighbours is only knowable here: the whole
     bundle translates as one body, which keeps its members' lane order and
     keeps any carrier it already shares with a claim intact.
+
+    Moving as one body is also why the candidate translations are drawn from
+    every member/claim pair that owes a clearance rather than from the crowded
+    pairs alone: the placement that frees the crowded member seats its siblings
+    on lanes it never met, so the positions that clear *those* claims are the
+    ones the body has to choose between.  Offered only the crowded pairs' own
+    positions, the nearest survivor can be a runway coordinate a whole corridor
+    away.
     """
     relevant_by_key = {
         item.key: tuple(
@@ -1194,21 +1937,23 @@ def _allocate_bundle_around_claims(
         )
         for item in items
     }
-    crowded = tuple(
+    owed = tuple(
         (item, claim, required)
         for item in items
         for claim in relevant_by_key[item.key]
         if (required := _claim_clearance(item, claim, ctx)) > 0.0
-        and abs(item.channel.x - claim.coordinate) < required - COORD_TOLERANCE_FINE
     )
-    if not crowded:
+    if not any(
+        abs(item.channel.x - claim.coordinate) < required - COORD_TOLERANCE_FINE
+        for item, claim, required in owed
+    ):
         return
 
     bounds_by_key = {item.key: _channel_bounds(item, ctx) for item in items}
     deltas = {0.0}
     deltas.update(
         claim.coordinate + sign * required - item.channel.x
-        for item, claim, required in crowded
+        for item, claim, required in owed
         for sign in (-1.0, 1.0)
     )
     for item in items:
@@ -1281,8 +2026,10 @@ def _channel_bundles(
     ] = defaultdict(list)
     seen: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
-        if item.key in seen or _planner_owns_channel(
-            item.candidate.route, item.channel.idx, movable_exit_plan_ids
+        if item.key in seen or planner_owns_segment(
+            item.candidate.route,
+            item.channel.idx,
+            relinquished_exit_turn_plan_ids=movable_exit_plan_ids,
         ):
             continue
         seen.add(item.key)
@@ -1344,6 +2091,23 @@ def _claim_for_materialized_channel(
     )
 
 
+def _claims_share_carrier(
+    first: PreliminaryGapChannelClaim,
+    second: PreliminaryGapChannelClaim,
+) -> bool:
+    """Whether two claims describe the same physical semantic channel."""
+    return (
+        first.system_id == second.system_id
+        and first.gap == second.gap
+        and not first.line_ids.isdisjoint(second.line_ids)
+        and spans_share_corridor(first.y_lo, first.y_hi, second.y_lo, second.y_hi)
+        and (
+            not first.source_junction_ids.isdisjoint(second.source_junction_ids)
+            or not first.connector_ids.isdisjoint(second.connector_ids)
+        )
+    )
+
+
 def _allocate_member_gap_channels(
     candidates: tuple[_MemberCandidate, ...],
     preliminary_claims: tuple[PreliminaryGapChannelClaim, ...],
@@ -1360,8 +2124,10 @@ def _allocate_member_gap_channels(
         *(
             _claim_for_materialized_channel(item)
             for item in materialized
-            if _planner_owns_channel(
-                item.candidate.route, item.channel.idx, movable_exit_plan_ids
+            if planner_owns_segment(
+                item.candidate.route,
+                item.channel.idx,
+                relinquished_exit_turn_plan_ids=movable_exit_plan_ids,
             )
         ),
     ]
@@ -1404,7 +2170,7 @@ def _seat_claimed_segments_before_freeze(
 ) -> None:
     """Seat reservation-owned interior runs before their member plan freezes."""
     grouped: defaultdict[
-        tuple[RouteSystemId, str, int, int],
+        tuple[RouteSystemId, int, int],
         list[tuple[RoutedPath, int, float, ReservedBand]],
     ] = defaultdict(list)
     for candidate in candidates:
@@ -1412,26 +2178,74 @@ def _seat_claimed_segments_before_freeze(
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
                 continue
+            if rank < len(route.exit_shared_opening_points):
+                continue
+            if member_plan_owns_segment_boundary(route, rank):
+                continue
+            if route.exit_lane_transition_plan_id is not None or (
+                route.exit_turn_segment_rank is not None
+                and abs(route.exit_turn_segment_rank - rank) <= 1
+            ):
+                continue
             band = _segment_claim_band(ctx, route, rank)
             if band is None:
                 continue
             if abs(start[1] - end[1]) <= COORD_TOLERANCE:
-                grouped[(candidate.system_id, candidate.carrier_id, rank, 1)].append(
+                grouped[(candidate.system_id, rank, 1)].append(
                     (route, rank, start[1], band)
                 )
             elif abs(start[0] - end[0]) <= COORD_TOLERANCE:
-                grouped[(candidate.system_id, candidate.carrier_id, rank, 0)].append(
+                grouped[(candidate.system_id, rank, 0)].append(
                     (route, rank, start[0], band)
                 )
 
     for (*_identity, axis), items in grouped.items():
-        travel = bundle_travel(
-            [(band, coordinate) for _route, _rank, coordinate, band in items]
-        )
-        if abs(travel) <= COORD_TOLERANCE_FINE:
-            continue
-        for route, rank, coordinate, _band in items:
-            _carry_seated_run(route, rank, axis, coordinate + travel)
+        # Same-rank runs in disjoint corridors are not one bundle: a run pinned
+        # at its own band edge must not veto the travel of runs whose bands it
+        # does not even overlap, so items split into band-overlap components
+        # and each component travels as its own bundle.
+        for component in _band_overlap_components(items):
+            travel = bundle_travel(
+                [(band, coordinate) for _route, _rank, coordinate, band in component]
+            )
+            if abs(travel) > COORD_TOLERANCE_FINE:
+                for route, rank, coordinate, _band in component:
+                    _carry_seated_run(route, rank, axis, coordinate + travel)
+                continue
+            # The component cannot travel rigidly (a mate is already pinned at
+            # its own band edge), so an out-of-band run is clamped alone --
+            # but only when the clamp keeps the nesting pitch to every mate,
+            # since two runs on one coordinate draw as a single stroke.
+            pitch = 2 * ctx.offset_step
+            live = {id(route): coordinate for route, _r, coordinate, _b in component}
+            for route, rank, coordinate, band in component:
+                clamped = min(max(coordinate, band.lo), band.hi)
+                if abs(clamped - coordinate) <= COORD_TOLERANCE_FINE:
+                    continue
+                if all(
+                    abs(clamped - other) >= pitch - COORD_TOLERANCE_FINE
+                    for other_id, other in live.items()
+                    if other_id != id(route)
+                ):
+                    _carry_seated_run(route, rank, axis, clamped)
+                    live[id(route)] = clamped
+
+
+def _band_overlap_components(
+    items: list[tuple[RoutedPath, int, float, ReservedBand]],
+) -> list[list[tuple[RoutedPath, int, float, ReservedBand]]]:
+    """*items* partitioned into components of transitively overlapping bands."""
+    ordered = sorted(items, key=lambda item: item[3].lo)
+    components: list[list[tuple[RoutedPath, int, float, ReservedBand]]] = []
+    reach = float("-inf")
+    for item in ordered:
+        band = item[3]
+        if not components or band.lo > reach + COORD_TOLERANCE:
+            components.append([item])
+        else:
+            components[-1].append(item)
+        reach = max(reach, band.hi)
+    return components
 
 
 def _allocate_preliminary_gap_claims(
@@ -1521,6 +2335,7 @@ def build_member_geometry_execution(
     reservation_ids = reservation_ids_by_member or {}
     candidates: list[_MemberCandidate] = []
     context_routes: list[RoutedPath] = []
+    context_candidates: list[_MemberCandidate] = []
     failures: dict[RouteSystemId, str] = {}
     edges_by_system: dict[RouteSystemId, list[ResolvedEdge]] = defaultdict(list)
     for resolved in scaffold.edge_order:
@@ -1539,6 +2354,19 @@ def build_member_geometry_execution(
                     )
                     if context is not None:
                         context_routes.append(context)
+                        context_candidates.append(
+                            _MemberCandidate(
+                                context,
+                                family_by_edge[resolved],
+                                system_id,
+                                semantic_route_id(
+                                    "member-channel-carrier",
+                                    resolved.source,
+                                    resolved.target,
+                                ),
+                                tuple(scaffold.connector_ids_for_edge(resolved)),
+                            )
+                        )
                     continue
                 if key in ctx.skip_edges:
                     continue
@@ -1581,18 +2409,6 @@ def build_member_geometry_execution(
         # makes that rank permanent, so the immutable convergence strokes travel
         # with the candidates rather than being discovered after the fact.
         member_population = [*candidate_routes, *context_routes]
-        deferred_exit_turn_ownership: list[
-            tuple[RoutedPath, str | None, int | None]
-        ] = []
-        if settled_exit_turn_plan_ids:
-            for route in candidate_routes:
-                if route.exit_turn_plan_id not in settled_exit_turn_plan_ids:
-                    continue
-                deferred_exit_turn_ownership.append(
-                    (route, route.exit_turn_axis_id, route.exit_turn_segment_rank)
-                )
-                route.exit_turn_axis_id = None
-                route.exit_turn_segment_rank = None
         allocation_population = (
             [*ctx.built_routes[built_start:], *context_routes]
             if pending_exit_turn_plan_ids
@@ -1610,10 +2426,28 @@ def build_member_geometry_execution(
         complete_path_route_ids = frozenset(
             id(route) for route in complete_path_population
         )
+        movable_gap_exit_plan_ids = (
+            frozenset(
+                plan.id
+                for plan in ctx.exit_turns.plans
+                if plan.id in pending_exit_turn_plan_ids
+                and any(
+                    assignment.planned_family_id
+                    in {
+                        *BYPASS_ROUTE_FAMILIES,
+                        RouteFamilyId.BOTTOM_EXIT_JUNCTION_RIGHT_LANDINGS,
+                    }
+                    for assignment in plan.assignments
+                )
+            )
+            if ctx.exit_turns is not None
+            else frozenset()
+        )
         _materialize_gap_slots(
             allocation_population,
             ctx,
-            movable_exit_plan_ids=pending_exit_turn_plan_ids,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+            deferred_exit_plan_ids=pending_exit_turn_plan_ids,
         )
         _settle_entry_wrap_leadouts(
             normalization_population,
@@ -1621,6 +2455,11 @@ def build_member_geometry_execution(
             movable_route_ids=complete_path_route_ids,
         )
         _materialize_trunk_slots(normalization_population, ctx)
+        from nf_metro.layout.routing.exit_turns import (
+            seat_planned_exit_turn_continuation_flanks,
+        )
+
+        seat_planned_exit_turn_continuation_flanks(normalization_population, ctx)
         # Trunk-slot materialization compares dip groups, never two flows that
         # entered one inter-row gap from opposite rows, so counter-running
         # trunks leave it within bundle pitch of each other and read as one
@@ -1628,8 +2467,20 @@ def build_member_geometry_execution(
         # direction bands have to be settled here rather than by the same pass
         # running after emission, which skips a plan-owned trunk.
         _separate_opposing_inter_row_trunks(normalization_population, ctx)
-        _reconcile_port_peeloff_risers(complete_path_population, ctx)
-        _coincide_same_line_tracks(normalization_population, ctx)
+        _reconcile_port_peeloff_risers(
+            [
+                route
+                for route in normalization_population
+                if route.exit_turn_plan_id not in pending_exit_turn_plan_ids
+            ],
+            ctx,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+        )
+        _coincide_same_line_tracks(
+            normalization_population,
+            ctx,
+            movable_exit_plan_ids=movable_gap_exit_plan_ids,
+        )
         _coincide_fanout_opening_descents(
             normalization_population, ctx, settle_frozen_arcs=True
         )
@@ -1644,6 +2495,15 @@ def build_member_geometry_execution(
             preliminary_gap_claims,
             failures,
         )
+        context_claims = tuple(
+            _claim_for_materialized_channel(item)
+            for item in _materialized_channels(tuple(context_candidates), ctx)
+            if not any(
+                _claims_share_carrier(_claim_for_materialized_channel(item), existing)
+                for existing in eligible_claims
+            )
+        )
+        eligible_claims = (*eligible_claims, *context_claims)
         _allocate_preliminary_gap_claims(
             tuple(candidates),
             eligible_claims,
@@ -1665,10 +2525,13 @@ def build_member_geometry_execution(
         # pass, and over the same whole gap population the passes above ranked --
         # a bundle carrying an immutable convergence stroke is pinned by it, and
         # holding the candidates alone would slide them off that stroke.
-        settled_tail_segments = _bundle_same_destination_tails(
-            normalization_population,
-            ctx,
-            movable_route_ids=complete_path_route_ids,
+        settled_tail_segments = (
+            normalize._bundle_same_destination_tails(
+                normalization_population,
+                ctx,
+                movable_route_ids=complete_path_route_ids,
+            )
+            or frozenset()
         )
         _hold_runs_in_corridor_clearance(
             normalization_population,
@@ -1704,10 +2567,77 @@ def build_member_geometry_execution(
             secondary_movable_route_ids=candidate_route_ids,
             station_offsets=ctx.station_offsets,
             fixed_segment_keys=settled_tail_segments,
+            secondary_may_yield_at_shared_source=True,
         )
-        for route, axis_id, segment_rank in deferred_exit_turn_ownership:
-            route.exit_turn_axis_id = axis_id
-            route.exit_turn_segment_rank = segment_rank
+        opposing_movable_route_ids = frozenset(
+            id(route)
+            for route in candidate_routes
+            if route.exit_turn_plan_id not in pending_exit_turn_plan_ids
+            and route.exit_turn_axis_id is None
+            and route.fan_plan_id is None
+            and route.fan_route_emitter is None
+        )
+        _separate_declared_opposing_gap_bundles(
+            normalization_population,
+            ctx,
+            movable_route_ids=opposing_movable_route_ids,
+        )
+        _align_same_line_channels(
+            _materialized_channels(tuple(candidates), ctx),
+            _index_claims(eligible_claims),
+            ctx,
+            pending_exit_turn_plan_ids,
+        )
+        reconciled_edges = _stagger_convergent_distinct_lines(
+            normalization_population,
+            ctx,
+            movable_route_ids=candidate_route_ids,
+        )
+        reconciled_edges.update(
+            _dogleg_off_exempt_trunks(
+                normalization_population,
+                ctx,
+                movable_owned_route_ids=candidate_route_ids,
+            )
+        )
+        _reconcile_port_peeloff_risers(
+            [
+                route
+                for route in candidate_routes
+                if route.fan_plan_id is None and route.fan_route_emitter is None
+            ],
+            ctx,
+        )
+        if reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        _align_packed_cell_handoffs(tuple(candidates), ctx, pending_exit_turn_plan_ids)
+        if reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        final_dogleg_edges = _dogleg_off_exempt_trunks(
+            normalization_population,
+            ctx,
+            movable_owned_route_ids=candidate_route_ids,
+            reconcile_owned_corridor=True,
+        )
+        reconciled_edges.update(final_dogleg_edges)
+        if final_dogleg_edges:
+            _separate_fused_cotravelling_runs(
+                normalization_population,
+                ctx,
+                movable_route_ids=frozenset(
+                    id(route)
+                    for route in candidate_routes
+                    if (route.edge.source, route.edge.target, route.line_id)
+                    in final_dogleg_edges
+                ),
+                station_offsets=ctx.station_offsets,
+                fixed_segment_keys=settled_tail_segments,
+            )
+        if final_dogleg_edges and reservation_ids_by_member is not None:
+            _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
+        _fan_apart_junction_opening_legs(
+            normalization_population, ctx, ctx.station_offsets
+        )
         plans = tuple(
             _freeze_plan(
                 scaffold,
@@ -1726,6 +2656,12 @@ def build_member_geometry_execution(
         MappingProxyType(failures),
         MappingProxyType({plan.edge: plan for plan in plans}),
         settled_exit_turns,
+        frozenset(
+            plan.member_id
+            for plan in plans
+            if (plan.edge.source, plan.edge.target, plan.edge.line_id)
+            in reconciled_edges
+        ),
     )
 
 
@@ -1753,6 +2689,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
         exit_turn_axis_id=plan.exit_turn_axis_id,
         fan_plan_id=plan.fan_plan_id,
         fan_route_emitter=plan.fan_route_emitter,
+        exit_shared_opening_points=plan.exit_shared_opening_points,
         exit_turn_segment_rank=plan.exit_turn_segment_rank,
         exit_lane_transition_plan_id=plan.exit_lane_transition_plan_id,
         member_geometry_plan_id=str(plan.id),
@@ -1765,12 +2702,49 @@ def validate_member_geometry_emission(
     routes: list[RoutedPath], execution: MemberGeometryExecution
 ) -> None:
     """Require every emitted member to retain its owned channel geometry."""
+    cohort_allocations: defaultdict[str, list[CorridorCohortAllocation]] = defaultdict(
+        list
+    )
+    if execution.corridor_cohorts is not None:
+        for allocation in execution.corridor_cohorts.allocations:
+            cohort_allocations[allocation.member_geometry_plan_id].append(allocation)
     for route in routes:
         plan = execution.plan_for_edge(route.edge)
         if plan is None:
             continue
         if tuple(route.route_system_owned_segment_ranks) != plan.owned_segment_ranks:
             raise RuntimeError(f"member geometry plan {plan.id} lost channel ownership")
+        for rank in plan.corridor_cohort_owned_segment_ranks:
+            actual = tuple(route.points[rank : rank + 2])
+            expected = tuple(plan.points[rank : rank + 2])
+            if actual != expected:
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} changed corridor cohort segment"
+                )
+        for allocation in cohort_allocations[str(plan.id)]:
+            if allocation.edge_key != (
+                plan.edge.source,
+                plan.edge.target,
+                plan.edge.line_id,
+            ):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} changed corridor cohort identity"
+                )
+            start, end = plan.points[
+                allocation.segment_rank : allocation.segment_rank + 2
+            ]
+            if not all(
+                isclose(
+                    point[allocation.axis],
+                    allocation.coordinate,
+                    abs_tol=COORD_TOLERANCE,
+                )
+                for point in (start, end)
+            ):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} changed planned corridor "
+                    "coordinate"
+                )
         for channel in plan.gap_channels:
             actual = tuple(
                 route.points[channel.segment_rank : channel.segment_rank + 2]
@@ -1779,6 +2753,12 @@ def validate_member_geometry_emission(
                 raise RuntimeError(
                     f"member geometry plan {plan.id} channel geometry changed"
                 )
+        if (
+            plan.exit_shared_opening_points
+            and tuple(route.points[: len(plan.exit_shared_opening_points)])
+            != plan.exit_shared_opening_points
+        ):
+            raise RuntimeError(f"member geometry plan {plan.id} changed shared opening")
         radii = route.curve_radii or ()
         planned_radii = plan.curve_radii or ()
         for channel in plan.gap_channels:

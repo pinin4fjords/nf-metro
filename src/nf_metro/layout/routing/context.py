@@ -598,7 +598,7 @@ def _section_lane_frame(
     A vertical-flow section whose bundle draws on the ``+x`` (feed) side
     (:func:`tb_positive_fan_sections`) carries a ``+1`` lane sign so the lane
     accessor reports the side the section actually draws on, matching
-    :func:`_tb_x_offset`.  ``positive_fan`` lets a caller in a per-element loop
+    :func:`_perpendicular_port_lane_offset`.  ``positive_fan`` lets a caller
     pass that set once rather than re-deriving its reversal fixed-point per call.
     """
     frame = AxisFrame.for_direction(
@@ -700,10 +700,10 @@ def lane_x(
     raise ValueError(f"section {section.id!r} has no anchor station for {line_id!r}")
 
 
-def _tb_x_offset(
+def _perpendicular_port_lane_offset(
     ctx: _RoutingCtx, station_id: str, line_id: str, section_id: str | None
 ) -> float:
-    """Compute the X offset for a line at a station in a vertical-flow section.
+    """Compute the lane-axis offset for a line at a perpendicular port.
 
     A vertical-flow section is the horizontal model rotated 90 degrees: where an
     LR line rides ``y + offset``, a vertical-flow line rides

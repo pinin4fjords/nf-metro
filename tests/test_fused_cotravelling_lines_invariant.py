@@ -37,8 +37,10 @@ import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.invariants as invariants
 import nf_metro.layout.routing.member_geometry as member_geometry
+import nf_metro.layout.routing.normalize as normalize
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.phases._common import routes_through_unrelated_sections
 from nf_metro.layout.routing import (
     compute_station_offsets,
     observe_route_edges,
@@ -80,9 +82,6 @@ REPORTED = {
 FUSED_WITHOUT_THE_PASS = {
     EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
         {("l1", "l2", "X")}
-    ),
-    CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
-        {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
     ),
     REGRESSIONS / "entry_trunk_row_bow.mmd": frozenset({("l1", "l2", "Y")}),
     THROUGH_SECTION / "riboseq_packed_lr.mmd": frozenset({("riboseq", "rnaseq", "X")}),
@@ -154,14 +153,49 @@ def _settled(path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def _disable_separation_stages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
+        convergences,
+        "_pack_cotravelling_corridor_runs",
+        lambda plans, graph, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_separate_distinct_cotravelling_trunks",
+        lambda plans, graph, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_settle_reserved_trunk_axes",
+        lambda plans, graph, ctx, member_runs: plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_repack_crowded_gap_channels",
+        lambda plans, graph, curve_radius, fixed_channels, lane_obstacles=(): plans,
+    )
+    monkeypatch.setattr(
+        convergences,
+        "_separate_distinct_terminal_gap_channels",
+        lambda plans, graph, curve_radius: plans,
+    )
+    monkeypatch.setattr(
         routing_core,
         "_separate_fused_cotravelling_runs",
         lambda routes, ctx, **kwargs: None,
     )
     monkeypatch.setattr(
+        routing_core,
+        "_stagger_convergent_distinct_lines",
+        lambda routes, ctx, **kwargs: set(),
+    )
+    monkeypatch.setattr(
         member_geometry,
         "_separate_fused_cotravelling_runs",
         lambda routes, ctx, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        member_geometry,
+        "_stagger_convergent_distinct_lines",
+        lambda routes, ctx, **kwargs: set(),
     )
 
 
@@ -210,6 +244,18 @@ def _longest_horizontal_run(
     ]
     assert horizontal, "route has no horizontal run"
     return max(horizontal, key=lambda item: item[0])
+
+
+def _production_routes(path: Path):
+    """Routes and drawn polylines from the final production render pass."""
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    return graph, tuple(zip(observed.plan.routes, observed.plan.route_polylines))
 
 
 def _pair_identity(
@@ -328,6 +374,115 @@ def test_seed_41_plan_owned_trunks_keep_the_nesting_step() -> None:
     assert separations[("l0", "l2", "Y")] >= graph_offset_step(graph)
 
 
+def test_seed_77_merge_trunk_stays_in_its_inter_row_corridor() -> None:
+    """A convergence trunk does not cross the destination row's stations."""
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    _graph, routes, _offsets = _route(path)
+    trunk = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_42", "__merge_12", "l4")
+    )
+
+    assert trunk.points[2] == pytest.approx((2706.0, 356.0))
+
+
+def test_seed_41_separated_trunk_lane_stays_out_of_the_section_boxes() -> None:
+    """Distinct-line separation reseats a trunk in a corridor, not in a box.
+
+    ``__junction_32``'s l3 trunk reaches five columns west along its own row,
+    and the lane it is separated onto has to be one a run may occupy: the gap
+    above the row carries it clear of every box between the two ends.
+    """
+    path = FROZEN_FUZZ / "seed_41.mmd"
+    graph, routes, offsets = _route(path)
+    trunk = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_32", "__merge_17", "l3")
+    )
+
+    assert trunk.points[2] == pytest.approx((706.0, 546.0))
+    assert not routes_through_unrelated_sections(graph, routes=[trunk], offsets=offsets)
+
+
+def test_seed_77_settled_entry_bundle_keeps_allocation_lanes() -> None:
+    """A settled member carries every destination peer's allocation lane."""
+    _graph, routes, _offsets = _route(FROZEN_FUZZ / "seed_77.mmd")
+    l1 = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_39", "s9__entry_right_25", "l1")
+    )
+    l3 = next(
+        route
+        for route in routes
+        if (route.edge.source, route.edge.target, route.line_id)
+        == ("__junction_41", "s9__entry_right_25", "l3")
+    )
+
+    assert l3.points[-3][0] - l1.points[-3][0] == graph_offset_step(_graph)
+
+
+def test_seed_77_turning_member_stays_off_straight_continuation_lane() -> None:
+    """A planned source turn retains its lane beside a straight continuation."""
+    from nf_metro.api import RenderConfig, _emit_svg_plan, prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+    from nf_metro.render.validate import OFFSET_COLLAPSE, validate_render
+
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    svg = _emit_svg_plan(graph, observed.plan, RenderConfig())
+    routes = {
+        (route.edge.source, route.edge.target, route.line_id): route
+        for route in observed.plan.routes
+    }
+    straight = routes[("__junction_36", "s4__entry_right_21", "l1")]
+    turning = routes[("__junction_42", "__merge_12", "l4")]
+
+    assert turning.points[2][0] - straight.points[3][0] == 3 * graph_offset_step(graph)
+    assert not [
+        finding
+        for finding in validate_render(svg, plan=observed.plan)
+        if finding.kind == OFFSET_COLLAPSE
+    ]
+
+
+def test_seed_15_terminal_openings_keep_the_nesting_step() -> None:
+    """Late same-line fusion preserves the lanes of distinct terminal feeds."""
+    graph, routes, offsets = _route(FROZEN_FUZZ / "seed_15.mmd")
+    separations = _pair_separations(routes, offsets)
+
+    assert separations[("l0", "l2", "X")] == graph_offset_step(graph)
+
+
+def test_seed_77_candidate_executor_completes() -> None:
+    """The full production executor accepts the settled seed_77 route."""
+    from nf_metro.candidate_executor import (
+        CandidateExecutionRequest,
+        CandidateStage,
+        CandidateStatus,
+        ExecutionLimits,
+        execute_candidates,
+    )
+
+    path = FROZEN_FUZZ / "seed_77.mmd"
+    baseline = execute_candidates(
+        CandidateExecutionRequest(
+            path.read_text(),
+            source_dir=str(path.parent),
+            limits=ExecutionLimits(1, 60.0, 70.0),
+        )
+    ).baseline
+
+    assert baseline.status is CandidateStatus.ACCEPTED
+    assert baseline.stage is CandidateStage.COMPLETE
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
@@ -349,11 +504,7 @@ def test_novel_plan_owned_corridor_is_settled_before_freeze(
 ) -> None:
     """The gallery reproducer needs pre-freeze planning to remain renderable."""
     path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
-    monkeypatch.setattr(
-        convergences,
-        "_separate_distinct_cotravelling_trunks",
-        lambda plans, graph, member_runs: plans,
-    )
+    _disable_separation_stages(monkeypatch)
     graph, routes, offsets = _route(path)
     violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
     assert any(
@@ -416,47 +567,256 @@ def test_plan_owned_distinct_lanes_minimize_crossings_independent_of_edge_order(
             assert not tuple(_routes_crossings(primary_points, secondary_points))
 
 
-def test_analytic_candidate_segments_match_the_plan_mover(
+@pytest.mark.parametrize(
+    ("path", "primary_source", "secondary_sources"),
+    (
+        (
+            EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd",
+            "__junction_8",
+            ("secondary_near__exit_left_1", "secondary_far__exit_left_2"),
+        ),
+        (
+            REGRESSIONS / "plan_owned_distinct_lane_separation_reordered.mmd",
+            "__junction_9",
+            ("secondary_near__exit_left_0", "secondary_far__exit_left_1"),
+        ),
+    ),
+    ids=("authored-order", "reordered-edges"),
+)
+def test_production_plan_owned_distinct_lanes_preserve_planned_order(
+    path: Path,
+    primary_source: str,
+    secondary_sources: tuple[str, str],
+) -> None:
+    graph, routed = _production_routes(path)
+    primary = tuple(
+        points
+        for route, points in routed
+        if route.line_id == "primary"
+        and route.edge.source == primary_source
+        and route.edge.target in {"__merge_2", "__merge_3"}
+    )
+    secondary = tuple(
+        points
+        for route, points in routed
+        if route.line_id == "secondary" and route.edge.source in secondary_sources
+    )
+    assert len(primary) == len(secondary) == 2
+
+    step = graph_offset_step(graph)
+    for primary_points in primary:
+        primary_y = _longest_horizontal_run(primary_points)[1]
+        for secondary_points in secondary:
+            secondary_y = _longest_horizontal_run(secondary_points)[1]
+            assert primary_y - secondary_y == pytest.approx(step)
+            assert not tuple(_routes_crossings(primary_points, secondary_points))
+
+
+def test_production_longread_divergence_preserves_source_lane_order() -> None:
+    graph, routed = _production_routes(EXAMPLES / "longread_variant_calling.mmd")
+    trunks = {
+        route.line_id: points
+        for route, points in routed
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    }
+    assert set(trunks) == {"bam", "other"}
+
+    bam_y = _longest_horizontal_run(trunks["bam"])[1]
+    other_y = _longest_horizontal_run(trunks["other"])[1]
+    assert other_y - bam_y == pytest.approx(graph_offset_step(graph))
+    assert not tuple(_routes_crossings(trunks["bam"], trunks["other"]))
+
+
+def test_reserved_trunk_order_bypasses_live_crossing_rank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from nf_metro.api import prepare_graph
+
+    path = EXAMPLES / "longread_variant_calling.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    first = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        allow_convergence_clearance_requirements=True,
+    )
+    live_rank = normalize._band_order_crossings
+
+    def reject_target_live_rank(order, features=None):
+        members = {
+            (trunk.route.edge.source, trunk.route.edge.target, trunk.route.line_id)
+            for slot in order
+            for trunk in slot
+        }
+        target_members = {
+            ("__junction_16", "tr_calling__entry_right_9", "bam"),
+            ("__junction_16", "cnv_calling__entry_right_10", "other"),
+        }
+        if target_members <= members:
+            raise AssertionError("frozen trunk cohort consulted live crossing rank")
+        return live_rank(order, features)
+
+    monkeypatch.setattr(normalize, "_band_order_crossings", reject_target_live_rank)
+    replay = routing_core.observe_route_edges_centred(
+        graph,
+        station_offsets=offsets,
+        reservations=first.plan,
+    )
+    trunks = {
+        route.line_id: route
+        for route in replay.routes
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    }
+    assert (
+        _longest_horizontal_run(trunks["bam"].points)[1]
+        < (_longest_horizontal_run(trunks["other"].points)[1])
+    )
+
+
+def test_frozen_order_rejects_partial_claim_coverage() -> None:
+    from types import SimpleNamespace
+
+    from nf_metro.layout.routing.reserved_bands import ReservedCorridors
+
+    def route(source: str, target: str, line_id: str) -> RoutedPath:
+        return RoutedPath(
+            edge=Edge(source=source, target=target, line_id=line_id),
+            line_id=line_id,
+            points=[(0.0, 0.0), (10.0, 0.0)],
+        )
+
+    first = route("hub", "first", "red")
+    unclaimed_fan_member = route("hub", "first-fan", "red")
+    second = route("hub", "second", "blue")
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(
+            planned_order_coordinates={
+                ("hub", "first", "red", 1): 10.0,
+                ("hub", "second", "blue", 1): 14.0,
+            }
+        )
+    )
+    groups = (
+        ((first, 1), (unclaimed_fan_member, 1)),
+        ((second, 1),),
+    )
+
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=True
+        )
+        is None
+    )
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=False
+        )
+        is None
+    )
+
+
+def test_frozen_source_cohort_rejects_identical_multi_source_sets() -> None:
+    from types import SimpleNamespace
+
+    from nf_metro.layout.routing.reserved_bands import ReservedCorridors
+
+    def route(source: str, target: str, line_id: str) -> RoutedPath:
+        return RoutedPath(
+            edge=Edge(source=source, target=target, line_id=line_id),
+            line_id=line_id,
+            points=[(0.0, 0.0), (10.0, 0.0)],
+        )
+
+    first = (route("source-a", "red-a", "red"), route("source-b", "red-b", "red"))
+    second = (
+        route("source-a", "blue-a", "blue"),
+        route("source-b", "blue-b", "blue"),
+    )
+    claims = {
+        (member.edge.source, member.edge.target, member.line_id, 1): coordinate
+        for group, coordinate in ((first, 10.0), (second, 14.0))
+        for member in group
+    }
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(planned_order_coordinates=claims)
+    )
+    groups = tuple(tuple((member, 1) for member in group) for group in (first, second))
+
+    assert (
+        normalize._frozen_order_coordinates(
+            ctx, groups, require_single_common_source=True
+        )
+        is None
+    )
+    assert normalize._frozen_order_coordinates(
+        ctx, groups, require_single_common_source=False
+    ) == (10.0, 14.0)
+
+
+def test_reserved_plan_owned_lane_never_takes_reversed_live_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reseat = normalize._reseat_lane
+
+    def reject_reversed_candidate(lane, coordinate, *, projected=False):
+        if lane.line_id == "secondary" and coordinate > lane.coord:
+            raise AssertionError("frozen lane took the reversed live candidate")
+        return reseat(lane, coordinate, projected=projected)
+
+    monkeypatch.setattr(normalize, "_reseat_lane", reject_reversed_candidate)
+    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
+    graph, routed = _production_routes(path)
+    trunks = {
+        route.line_id: _longest_horizontal_run(points)[1]
+        for route, points in routed
+        if (
+            route.line_id == "primary"
+            and route.edge.source == "__junction_8"
+            and route.edge.target == "__merge_2"
+        )
+        or (
+            route.line_id == "secondary"
+            and route.edge.source == "secondary_near__exit_left_1"
+        )
+    }
+    assert trunks["primary"] - trunks["secondary"] == pytest.approx(
+        graph_offset_step(graph)
+    )
+
+
+def test_analytic_candidate_segments_match_the_plan_mover() -> None:
     """Analytic scoring prices exactly the geometry the selected move emits."""
     from nf_metro.api import prepare_graph, resolve_theme
     from nf_metro.render.svg import build_observed_render_plan
 
-    real = convergences._crossing_minimal_lane
-    checked = 0
-    mismatches: list[tuple[Path, float]] = []
-    current_path: Path | None = None
-
-    def checking_lane(plan, run, neighbours, clearance):
-        nonlocal checked
+    path = EXAMPLE_TOPOLOGIES / "plan_owned_distinct_lane_separation.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    plans = tuple(
+        plan
+        for plan in observed.route_plan.convergence_plans
+        if plan.line_ids == ("primary",) and plan.trunk_axis is not None
+    )
+    assert len(plans) == 2
+    for plan in plans:
+        axis = plan.trunk_axis
+        assert axis is not None
         candidates = convergences._clear_lane_candidates(
-            tuple(neighbour.coordinate for neighbour in neighbours), clearance
+            (axis.coordinate,), graph_offset_step(graph)
         )
+        assert candidates
         for candidate in candidates:
-            checked += 1
             analytic = convergences._plan_segments(plan, candidate)
             moved = convergences._plan_segments(
                 convergences._move_trunk_axis(plan, candidate)
             )
-            if analytic != moved:
-                assert current_path is not None
-                mismatches.append((current_path, candidate))
-        return real(plan, run, neighbours, clearance)
-
-    monkeypatch.setattr(convergences, "_crossing_minimal_lane", checking_lane)
-    for path in _CORPUS:
-        current_path = path
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
-                build_observed_render_plan(graph, resolve_theme(None, graph))
-        except Exception:  # noqa: BLE001 - invalid fixtures may abort after scoring
-            pass
-
-    assert checked > 0
-    assert not mismatches
+            assert analytic == moved
 
 
 @pytest.mark.parametrize(

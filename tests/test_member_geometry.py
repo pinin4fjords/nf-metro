@@ -1,19 +1,26 @@
 """Non-convergence member geometry is planned once and emitted exactly."""
 
 import json
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
+import nf_metro.layout.routing.exit_turns as exit_turns
 import nf_metro.layout.routing.member_geometry as member_geometry
-from nf_metro.api import prepare_graph
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
+from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout.constants import (
+    CURVE_RADIUS,
+    DIAGONAL_RUN,
+    OFFSET_STEP,
+)
 from nf_metro.layout.route_plan import (
     BindingKind,
     ConvergenceEndpointRole,
     EmissionMemberId,
+    ExitTurnDisposition,
     RouteMemberGapChannel,
     RouteMemberGeometryPlan,
     RouteMemberGeometryPlanId,
@@ -22,7 +29,14 @@ from nf_metro.layout.route_plan import (
     build_route_semantic_scaffold,
     serialize_route_plan,
 )
-from nf_metro.layout.routing.common import Direction, GapSlot, OffsetRegime, RoutedPath
+from nf_metro.layout.route_reservations import drawn_corridor_containment
+from nf_metro.layout.routing.common import (
+    Direction,
+    GapSlot,
+    OffsetRegime,
+    RoutedPath,
+    TrunkSlot,
+)
 from nf_metro.layout.routing.context import _build_routing_context
 from nf_metro.layout.routing.core import _route_edges, observe_route_edges
 from nf_metro.layout.routing.corners import (
@@ -38,8 +52,14 @@ from nf_metro.layout.routing.reserved_bands import (
     ReservedCorridors,
     build_reserved_corridors,
 )
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceRequirement,
+    BoundaryClearanceRequirementKind,
+    SettlementAxis,
+)
 from nf_metro.parser.model import Edge
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge
+from nf_metro.render.svg import build_observed_render_plan
 
 ROOT = Path(__file__).parents[1]
 
@@ -190,15 +210,102 @@ def _assert_channels_equal_emission(observation, plan) -> None:
     route = _route_for_plan(observation, plan)
     assert route.route_system_disposition == "planned"
     assert str(plan.id) in route.route_plan_ids
-    assert route.route_system_owned_segment_ranks == tuple(
-        dict.fromkeys(channel.segment_rank for channel in plan.gap_channels)
-    )
+    assert route.route_system_owned_segment_ranks == plan.owned_segment_ranks
     assert tuple(route.gap_slots) == plan.gap_slots
     for channel in plan.gap_channels:
         assert tuple(route.points[channel.segment_rank : channel.segment_rank + 2]) == (
             channel.start,
             channel.end,
         )
+
+
+def test_seed_15_routes_split_siblings_as_independent_members() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plans = tuple(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge.source == "__junction_23" and plan.edge.line_id == "l2"
+    )
+    assert len(plans) == 2
+    exit_plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    assert exit_plan.disposition is ExitTurnDisposition.LEGACY
+    assert exit_plan.legacy_reason == "unsupported-subshape:left-exit-right-entry-step"
+    assert exit_plan.shared_openings == ()
+    assert {plan.exit_shared_opening_points for plan in plans} == {()}
+    descent_columns = {
+        next(
+            start[0]
+            for start, end in zip(plan.points, plan.points[1:])
+            if start[0] == end[0] and end[1] > start[1]
+        )
+        for plan in plans
+    }
+    assert len(descent_columns) == 2
+    for plan in plans:
+        assert plan.consumed_reservation_ids == ()
+        assert plan.gap_channels
+        _assert_channels_equal_emission(observation, plan)
+
+
+def test_lane_ownership_failure_remains_legacy(monkeypatch) -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    original = exit_turns._classify_assignment_seeds
+
+    def decline(*args, **kwargs):
+        return replace(original(*args, **kwargs), legacy_reason="missing-source-turn")
+
+    monkeypatch.setattr(exit_turns, "_classify_assignment_seeds", decline)
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    observation = observe_route_edges(
+        graph,
+        station_offsets=compute_station_offsets(graph),
+        allow_convergence_clearance_requirements=True,
+    )
+    plan = next(
+        plan
+        for plan in observation.plan.exit_turn_plans
+        if plan.source_id == "__junction_23"
+    )
+    assert plan.disposition is ExitTurnDisposition.LEGACY
+    assert plan.legacy_reason == "missing-source-turn"
+    assert plan.shared_openings == ()
+
+
+def test_seed_15_wraps_u_bypass_above_crossing_merge_trunk() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_15.mmd"
+    graph, observation = _observe(path)
+    plan = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge == ResolvedEdge("__junction_21", "s9__entry_right_15", "l2")
+    )
+
+    assert plan.family_id is RouteFamilyId.BYPASS_FAMILY
+    assert plan.points == (
+        (1488.0, 128.0),
+        (1536.0, 128.0),
+        (1536.0, 40.0),
+        (614.0, 40.0),
+        (614.0, 500.0),
+        (580.0, 500.0),
+    )
+    assert [(slot.gap_lo_col, slot.row, slot.direction) for slot in plan.gap_slots] == [
+        (1, 2, Direction.D),
+        (5, 0, Direction.U),
+    ]
+    assert plan.trunk_slot == TrunkSlot(None)
+    assert {channel.segment_rank for channel in plan.gap_channels} == {1, 3}
+    _assert_channels_equal_emission(observation, plan)
 
 
 def test_live_claim_index_exposes_only_eligible_prior_systems_in_order() -> None:
@@ -745,6 +852,40 @@ def test_one_segment_can_own_distinct_gap_row_claims() -> None:
         )
 
 
+def test_corridor_cohort_ranks_are_frozen_into_member_ownership() -> None:
+    plan = RouteMemberGeometryPlan(
+        RouteMemberGeometryPlanId("plan"),
+        RouteSystemId("system"),
+        EmissionMemberId("member"),
+        ResolvedEdge("source", "target", "line"),
+        ("connector",),
+        RouteFamilyId.BYPASS_FAMILY,
+        ((0.0, 0.0), (50.0, 0.0), (50.0, 100.0)),
+        None,
+        OffsetRegime.BAKED,
+        False,
+        (),
+        None,
+        (),
+        corridor_cohort_owned_segment_ranks=(0,),
+    )
+    route = member_geometry.fresh_member_route(plan, Edge("source", "target", "line"))
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+
+    assert plan.owned_segment_ranks == (0,)
+    assert route.route_system_owned_segment_ranks == (0,)
+    route.points[0] = (-1.0, 0.0)
+    with pytest.raises(RuntimeError, match="changed corridor cohort segment"):
+        member_geometry.validate_member_geometry_emission([route], execution)
+
+    with pytest.raises(ValueError, match="invalid corridor cohort ranks"):
+        replace(plan, corridor_cohort_owned_segment_ranks=(0, 0))
+    with pytest.raises(ValueError, match="invalid corridor cohort ranks"):
+        replace(plan, corridor_cohort_owned_segment_ranks=(2,))
+
+
 def test_reservation_reroute_keeps_identity_and_reuses_settled_template() -> None:
     graph, first = _observe(ROOT / "examples" / "genomeassembly.mmd")
     routes, _moves, second_plan = _route_edges(
@@ -756,6 +897,9 @@ def test_reservation_reroute_keeps_identity_and_reuses_settled_template() -> Non
         reservations=first.plan,
     )
     assert second_plan is not None
+    assert first.plan.corridor_cohort_ledger is None
+    assert second_plan.corridor_cohort_ledger is not None
+    assert second_plan.corridor_cohort_ledger.finalized_owned_segments is not None
     exit_axes = {
         str(axis.id): axis
         for exit_plan in second_plan.exit_turn_plans
@@ -803,6 +947,102 @@ def test_reservation_reroute_keeps_identity_and_reuses_settled_template() -> Non
             assert tuple(
                 route.points[channel.segment_rank : channel.segment_rank + 2]
             ) == (channel.start, channel.end)
+
+
+def test_corridor_grant_extends_fixed_source_leg_without_moving_its_axis() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd"
+    graph, first = _observe(path)
+    routes, _moves, second_plan = _route_edges(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        compute_station_offsets(graph),
+        observe_plan=True,
+        reservations=first.plan,
+    )
+    assert second_plan is not None
+    edge = ResolvedEdge("__junction_39", "s9__entry_right_25", "l1")
+    before = next(
+        route
+        for route in first.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id) == edge
+    )
+    after = next(
+        route
+        for route in routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id) == edge
+    )
+    plan = next(item for item in second_plan.member_geometry_plans if item.edge == edge)
+
+    assert before.points[1][0] == before.points[2][0]
+    assert after.points[1][0] == after.points[2][0] == before.points[1][0]
+    assert after.points[1][1] == before.points[1][1]
+    assert after.points[2][1] != before.points[2][1]
+    assert 1 not in plan.corridor_cohort_owned_segment_ranks
+    assert {2, 3, 4}.issubset(plan.corridor_cohort_owned_segment_ranks)
+
+
+def test_seed_77_shortfall_requests_one_atomic_corridor_aperture() -> None:
+    path = ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_77.mmd"
+    graph, first = _observe(path)
+    _routes, _moves, provisional_plan = _route_edges(
+        graph,
+        DIAGONAL_RUN,
+        CURVE_RADIUS,
+        compute_station_offsets(graph),
+        observe_plan=True,
+        reservations=first.plan,
+        allow_convergence_clearance_requirements=True,
+    )
+
+    assert provisional_plan is not None
+    (requirement,) = provisional_plan.boundary_clearance_requirements
+    assert isinstance(requirement, BoundaryClearanceRequirement)
+    assert requirement.axis is SettlementAxis.COLUMN
+    assert requirement.boundary == 3
+    assert requirement.required == 80.0
+    assert requirement.negative_section_ids == ("s16",)
+    assert requirement.positive_section_ids == ("s17",)
+    assert requirement.kind is (
+        BoundaryClearanceRequirementKind.CORRIDOR_COHORT_APERTURE
+    )
+    assert provisional_plan.corridor_cohort_ledger is not None
+    assert provisional_plan.corridor_cohort_ledger.finalized_owned_segments is None
+    assert all(
+        not plan.corridor_cohort_owned_segment_ranks
+        for plan in provisional_plan.member_geometry_plans
+    )
+
+
+def test_reservation_reroute_reseats_port_peeloff_after_reconciliation() -> None:
+    path = ROOT / "examples" / "topologies" / "convergence_stacked_sink.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        observed = build_observed_render_plan(graph, resolve_theme(None, graph))
+    assert observed.route_plan is not None
+    plan = next(
+        item
+        for item in observed.route_plan.member_geometry_plans
+        if item.edge
+        == ResolvedEdge("dedup__exit_right_3", "merge_pt__entry_right_9", "main")
+    )
+    reservation, claim = next(
+        (reservation, claim)
+        for reservation in observed.route_plan.reservations
+        for claim in reservation.claims
+        if claim.member_id == plan.member_id and claim.segment_rank == 2
+    )
+    realised = build_route_plan_query(observed.route_plan).realised_reservation(
+        reservation.id
+    )
+
+    assert realised is not None
+    drawn = drawn_corridor_containment(
+        reservation, realised, observed.plan.route_polylines, (claim,)
+    )
+    assert drawn.negative_side_slack >= 0.0
+    assert drawn.positive_side_slack >= 0.0
 
 
 def test_failed_system_cannot_fall_back_from_member_geometry(

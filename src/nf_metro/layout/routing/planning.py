@@ -6,9 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from types import MappingProxyType
 
+from nf_metro.layout.constants import COORD_TOLERANCE
 from nf_metro.layout.route_plan import (
     EmissionMemberId,
     ExitTurnPlanId,
+    RouteMemberGeometryPlan,
+    RoutePlan,
     RouteSystemDisposition,
     RouteSystemId,
 )
@@ -16,12 +19,22 @@ from nf_metro.layout.routing import exit_turns as exit_turn_routing
 from nf_metro.layout.routing.context import _RoutingCtx
 from nf_metro.layout.routing.convergences import (
     ConvergencePlanExecution,
+    HandlerGapChannel,
+    apply_convergence_corridor_grants,
     build_convergence_plan_execution,
+    convergence_corridor_requests,
     empty_convergence_plan_execution,
+    handler_gap_channels,
+    overlaying_lane_obstacles,
     preliminary_member_gap_claims,
     restrict_convergence_execution,
     settle_global_convergence_execution,
     settle_preliminary_convergence_execution,
+)
+from nf_metro.layout.routing.corridor_cohort_integration import (
+    CorridorCohortLedger,
+    CorridorCohortPlan,
+    build_corridor_cohort_ledger,
 )
 from nf_metro.layout.routing.exit_turns import ExitTurnExecution
 from nf_metro.layout.routing.families import RouteFamilyId
@@ -30,6 +43,7 @@ from nf_metro.layout.routing.inter_section_handlers import (
 )
 from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
+    _finalize_corridor_cohorts,
     build_member_geometry_execution,
     empty_member_geometry_execution,
 )
@@ -39,6 +53,7 @@ from nf_metro.layout.routing.system_emission import (
     build_route_system_emission_execution,
     classify_route_system_dispositions,
 )
+from nf_metro.layout.settlement_demand import BoundaryClearanceRequirementKind
 from nf_metro.parser.model import MetroGraph
 from nf_metro.parser.route_topology import ResolvedEdge
 
@@ -59,6 +74,43 @@ class RoutePlanningExecution:
     reach a different verdict on a plan sitting near a tolerance boundary.
     Replay reads the verdict from here, which is why it is captured before the
     published record is narrowed to planned systems."""
+    corridor_cohorts: CorridorCohortPlan | None = None
+    corridor_cohort_ledger: CorridorCohortLedger | None = None
+
+
+def _publish_member_exit_axes(
+    execution: ExitTurnExecution,
+    member_geometry: MemberGeometryExecution,
+) -> ExitTurnExecution:
+    """Publish the exit axes carried by the final immutable member paths."""
+    by_member = {plan.member_id: plan for plan in member_geometry.plans}
+    replacements = {}
+    for exit_plan in execution.plans:
+        axes = []
+        changed = False
+        for axis in exit_plan.axes:
+            coordinates = tuple(
+                member.points[member.exit_turn_segment_rank][axis.axis.point_index]
+                for member_id in axis.claimant_member_ids
+                if (member := by_member.get(member_id)) is not None
+                and member.exit_turn_axis_id == axis.id
+                and member.exit_turn_segment_rank is not None
+            )
+            if not coordinates or any(
+                abs(coordinate - coordinates[0]) > COORD_TOLERANCE
+                for coordinate in coordinates[1:]
+            ):
+                axes.append(axis)
+                continue
+            published = replace(axis, coordinate=coordinates[0])
+            axes.append(published)
+            changed |= published != axis
+        if changed:
+            replacements[exit_plan.id] = replace(exit_plan, axes=tuple(axes))
+    if not replacements:
+        return execution
+    query = execution.query.replacing_plans(replacements)
+    return replace(execution, plans=query.plans, query=query)
 
 
 def _allocation_eligible_system_ids(
@@ -69,10 +121,158 @@ def _allocation_eligible_system_ids(
     return preliminary_planned_ids - member_failure_ids
 
 
+def _lands_on_entry_port_lane(
+    points: tuple[tuple[float, float], ...],
+    edge: ResolvedEdge,
+    ctx: _RoutingCtx,
+) -> bool | None:
+    """Whether *points* end on the lane the entry port holds for the line.
+
+    ``None`` where the seam states no lane to land on: a target that is not a
+    flow-side entry port, or one with no settled offset for this line.
+    """
+    from nf_metro.parser.model import PortSide
+
+    offsets = ctx.station_offsets or {}
+    lane = offsets.get((edge.target, edge.line_id))
+    port = ctx.graph.ports.get(edge.target)
+    if lane is None or port is None or not port.is_entry:
+        return None
+    if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+        return None
+    return abs(points[-1][1] - (ctx.graph.stations[edge.target].y + lane)) <= (
+        COORD_TOLERANCE
+    )
+
+
+def _allocated_points_in_source_frame(
+    plan: RouteMemberGeometryPlan,
+    allocated: RouteMemberGeometryPlan,
+    ctx: _RoutingCtx,
+) -> tuple[tuple[float, float], ...]:
+    """Keep an allocated route's initial run on its frozen fork frame."""
+    if plan.edge.source not in ctx.fork_stations or len(allocated.points) < 2:
+        return allocated.points
+    first, second = allocated.points[:2]
+    if abs(first[0] - second[0]) <= COORD_TOLERANCE:
+        secondary_axis = 0
+    elif abs(first[1] - second[1]) <= COORD_TOLERANCE:
+        secondary_axis = 1
+    else:
+        return allocated.points
+    allocated_frame = first[secondary_axis]
+    execution_frame = plan.points[0][secondary_axis]
+    if abs(allocated_frame - execution_frame) <= COORD_TOLERANCE:
+        return allocated.points
+    points = list(allocated.points)
+    for index, point in enumerate(points):
+        if abs(point[secondary_axis] - allocated_frame) > COORD_TOLERANCE:
+            break
+        shifted = list(point)
+        shifted[secondary_axis] = execution_frame
+        points[index] = (shifted[0], shifted[1])
+    return tuple(points)
+
+
+def _reconciled_corner_inputs(
+    plan: RouteMemberGeometryPlan,
+    allocated: RouteMemberGeometryPlan,
+    allocated_points: tuple[tuple[float, float], ...],
+    allocation_changed_path: bool,
+) -> tuple[
+    tuple[float, ...] | None,
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+]:
+    """Reconcile a member's settled and allocated corner inputs, per corner.
+
+    An allocation that moved the path owns every corner outright.  On an
+    unchanged path the settled record wins corner by corner, with one
+    exception: a settled corner recording a family reference wider than the
+    standard radius at zero displacement is a provisional handler radius
+    laundered into a base (a real widened family records the displacement it
+    nests at, and a coincide-unified corner shares its vertex), so where the
+    allocation re-derived that corner on the standard base and its record
+    resolves on the allocated geometry, the allocated inputs replace it.
+    """
+    from nf_metro.layout.constants import CURVE_RADIUS
+    from nf_metro.layout.routing.corners import concentric_corner_radius_at
+
+    if allocation_changed_path or plan.curve_radii is None:
+        return (
+            allocated.curve_radii,
+            allocated.concentric_corner_offsets_by_segment,
+            allocated.concentric_corner_bases_by_segment,
+        )
+    if allocated.curve_radii is None or len(allocated.curve_radii) != len(
+        plan.curve_radii
+    ):
+        return (
+            plan.curve_radii,
+            plan.concentric_corner_offsets_by_segment,
+            plan.concentric_corner_bases_by_segment,
+        )
+    allocated_offsets = dict(allocated.concentric_corner_offsets_by_segment)
+    allocated_bases = dict(allocated.concentric_corner_bases_by_segment)
+    plan_offsets = dict(plan.concentric_corner_offsets_by_segment)
+    plan_bases = dict(plan.concentric_corner_bases_by_segment)
+    merged_radii = list(plan.curve_radii)
+    merged_offsets = dict(plan.concentric_corner_offsets_by_segment)
+    merged_bases = dict(plan.concentric_corner_bases_by_segment)
+    for i in range(len(merged_radii)):
+        plan_offset_pair = plan_offsets.get(i + 1)
+        plan_base_pair = plan_bases.get(i + 1)
+        plan_offset = plan_offset_pair[0] if plan_offset_pair is not None else None
+        plan_base = plan_base_pair[0] if plan_base_pair is not None else None
+        if (
+            plan_offset is None
+            or plan_base is None
+            or abs(plan_offset) > COORD_TOLERANCE
+            or plan_base <= CURVE_RADIUS + COORD_TOLERANCE
+        ):
+            continue
+        offset_pair = allocated_offsets.get(i + 1)
+        base_pair = allocated_bases.get(i + 1)
+        offset = offset_pair[0] if offset_pair is not None else None
+        base = base_pair[0] if base_pair is not None else None
+        if (
+            offset is None
+            or base is None
+            or base > CURVE_RADIUS + COORD_TOLERANCE
+            or i + 2 >= len(allocated_points)
+        ):
+            continue
+        implied = concentric_corner_radius_at(
+            allocated_points[i],
+            allocated_points[i + 1],
+            allocated_points[i + 2],
+            offset,
+            base,
+        )
+        if abs(implied - allocated.curve_radii[i]) > COORD_TOLERANCE:
+            continue
+        merged_radii[i] = allocated.curve_radii[i]
+        for segment_rank, tuple_index in ((i, 1), (i + 1, 0)):
+            source_pair = allocated_offsets.get(segment_rank)
+            source_base = allocated_bases.get(segment_rank)
+            if source_pair is None or source_base is None:
+                continue
+            offsets_pair = list(merged_offsets.get(segment_rank, (None, None)))
+            bases_pair = list(merged_bases.get(segment_rank, (None, None)))
+            offsets_pair[tuple_index] = source_pair[tuple_index]
+            bases_pair[tuple_index] = source_base[tuple_index]
+            merged_offsets[segment_rank] = (offsets_pair[0], offsets_pair[1])
+            merged_bases[segment_rank] = (bases_pair[0], bases_pair[1])
+    return (
+        tuple(merged_radii),
+        tuple(sorted(merged_offsets.items())),
+        tuple(sorted(merged_bases.items())),
+    )
+
+
 def _with_settled_exit_turns(
     execution: MemberGeometryExecution,
     allocation: MemberGeometryExecution,
-    pending_member_ids: frozenset[EmissionMemberId],
     ctx: _RoutingCtx,
 ) -> MemberGeometryExecution:
     """Apply each allocated source axis to the fully normalized member path."""
@@ -80,13 +280,70 @@ def _with_settled_exit_turns(
     from nf_metro.layout.routing.exit_turns import planned_exit_turn_corner_offsets
     from nf_metro.layout.routing.normalize import _reseat_concentric_flanking
 
+    allocated_by_edge = {plan.edge: plan for plan in allocation.plans}
+
+    reconciled_targets = {
+        ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
+        for plan in execution.plans
+        if (
+            (plan.edge.source, plan.edge.target, plan.edge.line_id)
+            in ctx.settled_exit_turns
+            or plan.member_id in execution.reconciled_member_ids
+            or plan.member_id in allocation.reconciled_member_ids
+        )
+    }
     plans = []
     for plan in execution.plans:
         settled = ctx.settled_exit_turns.get(
             (plan.edge.source, plan.edge.target, plan.edge.line_id)
         )
         rank = plan.exit_turn_segment_rank
-        if plan.member_id not in pending_member_ids or settled is None or rank is None:
+        allocated = allocated_by_edge.get(plan.edge)
+        allocation_changed_path = (
+            allocated is not None and allocated.points != plan.points
+        )
+        if (
+            settled is not None
+            or plan.member_id in execution.reconciled_member_ids
+            or plan.member_id in allocation.reconciled_member_ids
+            or ctx.merge.entry_port_for.get(plan.edge.target, plan.edge.target)
+            in reconciled_targets
+        ) and allocated is not None:
+            allocated_points = _allocated_points_in_source_frame(plan, allocated, ctx)
+            # The allocation pass settles gap columns before the continuation
+            # flanks are seated, so its path can reach the seam transposed.
+            # A path that lands off the lane the entry port holds cannot be
+            # imported over one that lands on it.
+            if _lands_on_entry_port_lane(
+                plan.points, plan.edge, ctx
+            ) and not _lands_on_entry_port_lane(allocated_points, plan.edge, ctx):
+                plans.append(plan)
+                continue
+            gap_channels = tuple(
+                replace(
+                    channel,
+                    start=allocated_points[channel.segment_rank],
+                    end=allocated_points[channel.segment_rank + 1],
+                )
+                for channel in allocated.gap_channels
+            )
+            radii, offsets, bases = _reconciled_corner_inputs(
+                plan, allocated, allocated_points, allocation_changed_path
+            )
+            plans.append(
+                replace(
+                    plan,
+                    points=allocated_points,
+                    curve_radii=radii,
+                    gap_slots=allocated.gap_slots,
+                    trunk_slot=allocated.trunk_slot,
+                    gap_channels=gap_channels,
+                    concentric_corner_offsets_by_segment=offsets,
+                    concentric_corner_bases_by_segment=bases,
+                )
+            )
+            continue
+        if settled is None or rank is None:
             plans.append(plan)
             continue
         if plan.curve_radii is None or ctx.exit_turns is None:
@@ -169,7 +426,22 @@ def _with_settled_exit_turns(
         execution.failure_reasons,
         MappingProxyType({plan.edge: plan for plan in frozen_plans}),
         allocation.settled_exit_turns,
+        execution.reconciled_member_ids | allocation.reconciled_member_ids,
+        execution.corridor_cohorts,
+        execution.clearance_requirements,
     )
+
+
+def _restore_initial_station_offsets(
+    ctx: _RoutingCtx,
+    station_offsets: dict[tuple[str, str], float] | None,
+    initial: dict[tuple[str, str], float],
+) -> None:
+    """Return the shared offset map to the state a planning pass starts from."""
+    if station_offsets is not None:
+        station_offsets.clear()
+        station_offsets.update(initial)
+    ctx.station_offsets = station_offsets
 
 
 def prepare_route_system_planning(
@@ -179,6 +451,7 @@ def prepare_route_system_planning(
     include_convergence_resources: bool,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     allow_convergence_clearance_requirements: bool = False,
+    prior_plan: RoutePlan | None = None,
 ) -> RoutePlanningExecution:
     """Run the canonical planning phases without emitting production paths.
 
@@ -211,10 +484,33 @@ def prepare_route_system_planning(
             ),
         )
 
+    pending_general_clearance = prior_plan is not None and any(
+        requirement.kind is BoundaryClearanceRequirementKind.GENERAL
+        for requirement in prior_plan.boundary_clearance_requirements
+    )
+    corridor_cohort_ledger = (
+        None
+        if prior_plan is None or pending_general_clearance
+        else prior_plan.corridor_cohort_ledger
+    )
+    if (
+        prior_plan is not None
+        and not pending_general_clearance
+        and corridor_cohort_ledger is None
+    ):
+        corridor_cohort_ledger = build_corridor_cohort_ledger(
+            graph,
+            scaffold,
+            prior_plan,
+            station_offsets=station_offsets or {},
+            curve_radius=ctx.curve_radius,
+        )
+
     def prepare_member_geometry(
         exit_turns: ExitTurnExecution,
         pending_plan_ids: frozenset[ExitTurnPlanId],
         settled_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+        lane_obstacles: tuple[HandlerGapChannel, ...] = (),
     ) -> tuple[
         Mapping[ResolvedEdge, RouteFamilyId],
         ConvergencePlanExecution,
@@ -267,6 +563,7 @@ def prepare_route_system_planning(
             ctx,
             exit_turn_plans=exit_turns.plans,
             planned_system_ids=planned_ids,
+            lane_obstacles=lane_obstacles,
         )
         ctx.convergences = convergences.query
         member_geometry = build_member_geometry_execution(
@@ -290,56 +587,84 @@ def prepare_route_system_planning(
     allocation_exit_turns, pending_plan_ids = (
         exit_turn_routing.promote_pending_gap_allocation(provisional_exit_turns)
     )
-    if pending_plan_ids:
-        _, _, _, allocation_geometry = prepare_member_geometry(
-            allocation_exit_turns, pending_plan_ids
-        )
-        ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
-        if station_offsets is not None:
-            station_offsets.clear()
-            station_offsets.update(initial_station_offsets)
-        ctx.station_offsets = station_offsets
-        exit_turns = exit_turn_routing.build_exit_turn_execution(
-            graph,
-            ctx,
-            adopt_prior_dispositions=False,
-        )
-        unresolved = tuple(
-            plan
-            for plan in exit_turns.plans
-            if plan.legacy_reason == exit_turn_routing.GAP_ALLOCATION_PENDING
-        )
-        if unresolved:
-            exit_turns = exit_turn_routing.decline_unsettled_gap_allocation(exit_turns)
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(
-                exit_turns,
-                frozenset(),
+
+    def seat_members(
+        lane_obstacles: tuple[HandlerGapChannel, ...] = (),
+    ) -> tuple[
+        ExitTurnExecution,
+        Mapping[ResolvedEdge, RouteFamilyId],
+        ConvergencePlanExecution,
+        frozenset[RouteSystemId],
+        MemberGeometryExecution,
+    ]:
+        if pending_plan_ids:
+            _, _, _, allocation_geometry = prepare_member_geometry(
+                allocation_exit_turns,
                 pending_plan_ids,
+                frozenset(),
+                lane_obstacles,
             )
+            ctx.settled_exit_turns = allocation_geometry.settled_exit_turns
+            _restore_initial_station_offsets(
+                ctx, station_offsets, initial_station_offsets
+            )
+            exit_turns = exit_turn_routing.build_exit_turn_execution(
+                graph,
+                ctx,
+            )
+            unresolved = tuple(
+                plan
+                for plan in exit_turns.plans
+                if plan.legacy_reason == exit_turn_routing.GAP_ALLOCATION_PENDING
+            )
+            if unresolved:
+                exit_turns = exit_turn_routing.decline_unsettled_gap_allocation(
+                    exit_turns
+                )
+            family_by_edge, convergences, planned_ids, members = (
+                prepare_member_geometry(
+                    exit_turns,
+                    frozenset(),
+                    pending_plan_ids,
+                    lane_obstacles,
+                )
+            )
+            members = _with_settled_exit_turns(members, allocation_geometry, ctx)
+            return exit_turns, family_by_edge, convergences, planned_ids, members
+        if ctx.prior_exit_turn_dispositions is not None:
+            exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
+        else:
+            exit_turns = provisional_exit_turns
+        family_by_edge, convergences, planned_ids, members = prepare_member_geometry(
+            exit_turns,
+            pending_plan_ids,
+            frozenset(),
+            lane_obstacles,
         )
-        pending_member_ids = frozenset(
-            member_id
-            for plan in provisional_exit_turns.plans
-            if plan.id in pending_plan_ids
-            for member_id in plan.member_ids
-        )
-        member_geometry = _with_settled_exit_turns(
+        return exit_turns, family_by_edge, convergences, planned_ids, members
+
+    (
+        exit_turns,
+        family_by_edge,
+        convergences,
+        preliminary_planned_ids,
+        member_geometry,
+    ) = seat_members()
+    # A landing column is spent before any handler member is frozen, so the
+    # lanes handler-owned members hold are readable only from a seating that
+    # has already produced them.
+    lane_obstacles = overlaying_lane_obstacles(
+        convergences.plans, graph, handler_gap_channels(member_geometry, graph)
+    )
+    if lane_obstacles or corridor_cohort_ledger is not None:
+        _restore_initial_station_offsets(ctx, station_offsets, initial_station_offsets)
+        (
+            exit_turns,
+            family_by_edge,
+            convergences,
+            preliminary_planned_ids,
             member_geometry,
-            allocation_geometry,
-            pending_member_ids,
-            ctx,
-        )
-    elif ctx.prior_exit_turn_dispositions is not None:
-        exit_turns = exit_turn_routing.build_exit_turn_execution(graph, ctx)
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(exit_turns, pending_plan_ids)
-        )
-    else:
-        exit_turns = provisional_exit_turns
-        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
-            prepare_member_geometry(exit_turns, pending_plan_ids)
-        )
+        ) = seat_members(lane_obstacles)
     allocation_planned_ids = _allocation_eligible_system_ids(
         preliminary_planned_ids,
         frozenset(member_geometry.failure_reasons),
@@ -354,6 +679,65 @@ def prepare_route_system_planning(
         include_resources=False,
         allow_clearance_requirements=allow_convergence_clearance_requirements,
     )
+    ctx.convergences = convergences.query
+    corridor_targets, scalar_requests = (
+        convergence_corridor_requests(convergences.plans, graph, ctx)
+        if corridor_cohort_ledger is not None
+        else ((), ())
+    )
+    member_geometry = _finalize_corridor_cohorts(
+        member_geometry,
+        corridor_cohort_ledger,
+        ctx,
+        scaffold,
+        family_by_edge,
+        convergences.plans,
+        allow_clearance_requirements=allow_convergence_clearance_requirements,
+        corridor_targets=corridor_targets,
+        scalar_requests=scalar_requests,
+    )
+    if scalar_requests and not member_geometry.clearance_requirements:
+        corridor_plan = member_geometry.corridor_cohorts
+        if corridor_plan is None:
+            raise RuntimeError(
+                "corridor cohort compiler omitted eligible convergence requests"
+            )
+        convergences = apply_convergence_corridor_grants(
+            convergences,
+            scalar_requests,
+            corridor_plan.scalar_grants,
+        )
+        ctx.convergences = convergences.query
+    if (
+        corridor_cohort_ledger is not None
+        and corridor_cohort_ledger.finalized_owned_segments is None
+        and not member_geometry.clearance_requirements
+    ):
+        allocations = (
+            ()
+            if member_geometry.corridor_cohorts is None
+            else member_geometry.corridor_cohorts.allocations
+        )
+        landings = (
+            ()
+            if member_geometry.corridor_cohorts is None
+            else member_geometry.corridor_cohorts.landings
+        )
+        corridor_cohort_ledger = replace(
+            corridor_cohort_ledger,
+            finalized_owned_segments=(
+                frozenset(
+                    (item.member_id, item.edge_key, item.segment_rank)
+                    for item in allocations
+                )
+                | frozenset(
+                    (item.member_id, item.edge_key, item.segment_rank)
+                    for item in landings
+                )
+            ),
+        )
+    exit_turns = _publish_member_exit_axes(exit_turns, member_geometry)
+    ctx.exit_turns = exit_turns.query
     ctx.convergences = convergences.query
     route_systems = build_route_system_emission_execution(
         scaffold,
@@ -395,4 +779,6 @@ def prepare_route_system_planning(
         route_systems,
         planned_system_ids,
         exit_turn_dispositions,
+        member_geometry.corridor_cohorts,
+        corridor_cohort_ledger,
     )

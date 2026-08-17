@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, TypeAlias
 
 from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.parser.model import PortSide
 
 if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlan
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         GapCorridorBand,
         ReservationCoordinateTranslation,
         RouteReservation,
+        RouteReservationClaim,
     )
     from nf_metro.parser.model import MetroGraph
 
@@ -232,7 +234,9 @@ class ReservedCorridors:
     intersection.  ``row_bands_by_edge`` answers the same question before the
     segment rank exists -- a bypass trunk whose depth is computed ahead of the
     route that carries it -- and is decisive only where the edge's row claims
-    agree on one band.
+    agree on one band. ``planned_order_coordinates`` projects each claim's
+    observed allocation for relative-order comparisons. It does not place a
+    lane; the realised bands and declared-channel allocations retain that role.
     """
 
     rows: ReservedBands = field(default_factory=ReservedBands)
@@ -244,12 +248,21 @@ class ReservedCorridors:
     column_bands_by_edge: Mapping[EdgeKey, tuple[ReservedBand, ...]] = field(
         default_factory=dict
     )
+    planned_order_coordinates: Mapping[ClaimSegmentKey, float] = field(
+        default_factory=dict
+    )
 
     def for_segment(
         self, source: str, target: str, line_id: str, rank: int
     ) -> ReservedBand | None:
         """The band the claim covering this emitted segment realises, if any."""
         return self.per_claim.get((source, target, line_id, rank))
+
+    def planned_order_coordinate_for_segment(
+        self, source: str, target: str, line_id: str, rank: int
+    ) -> float | None:
+        """Return the frozen allocation used only to compare lane order."""
+        return self.planned_order_coordinates.get((source, target, line_id, rank))
 
     def claimed_row_band(
         self, source: str, target: str, line_id: str
@@ -392,23 +405,32 @@ def _measured_gap_bands(
     """Every gap reservation in *plan* with the band it leaves clear.
 
     A band is the corridor region inset by each side's clearance, which is what
-    a channel placed there may occupy.  Canvas corridors are excluded: their
-    region is a margin against the canvas edge rather than a boundary a channel
-    is allocated within.
+    a channel placed there may occupy.  A canvas corridor is bounded on one
+    side by content and on the other by the canvas edge; once the canvas has
+    been sized both edges are known, so its clearance reads the same way and a
+    bundle in it can be held off the content it runs beside.  Until then the
+    region does not realise, and the corridor publishes no band.
     """
     from nf_metro.layout.route_reservations import (
+        CanvasRegion,
         ColumnGapRegion,
         RowGapRegion,
+        canvas_content_band,
         realise_reservation,
     )
 
     for reservation in plan.reservations:
-        if not isinstance(reservation.region, RowGapRegion | ColumnGapRegion):
+        if not isinstance(
+            reservation.region, RowGapRegion | ColumnGapRegion | CanvasRegion
+        ):
             continue
         realised = realise_reservation(
             graph, reservation, coordinate_translations=translations
         )
         if realised is None:
+            content_band = canvas_content_band(graph, reservation, translations)
+            if content_band is not None:
+                yield (reservation, *content_band)
             continue
         yield (
             reservation,
@@ -468,14 +490,16 @@ def _axis_bands(
 
 @dataclass(frozen=True, slots=True)
 class _ClaimViews:
-    """Claim-keyed lookup tables over one plan's realised gap reservations."""
+    """Claim-keyed clearance and order views over realised gap reservations."""
 
     per_claim: dict[ClaimSegmentKey, ReservedBand]
     row_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
     column_bands_by_edge: dict[EdgeKey, tuple[ReservedBand, ...]]
+    planned_order_coordinates: dict[ClaimSegmentKey, float]
 
 
 def _claim_views(
+    graph: MetroGraph,
     plan: RoutePlan,
     measured: Sequence[tuple[RouteReservation, float, float]],
     translations: tuple[ReservationCoordinateTranslation, ...],
@@ -484,49 +508,129 @@ def _claim_views(
 
     Two claims naming one segment must both hold there, so a duplicate key keeps
     the intersection, and :func:`resolved_band` decides what an irreconcilable
-    pair publishes.  A declared gap channel publishes its observed allocation
-    coordinate: gap materialisation chooses an exact lane, while the enclosing
-    clearance band permits many positions and cannot replay that choice.  The
-    per-edge views retain each reservation's full clearance band for consumers
-    that place geometry without a segment claim.
+    pair publishes. Every claim publishes its projected allocation as a
+    relative-order key. A declared gap channel additionally publishes that
+    allocation as an exact coordinate: gap materialisation chooses an exact
+    lane, while an ordinary clearance band permits many positions. The per-edge
+    views retain each reservation's full clearance band for consumers that
+    place geometry without a segment claim.
     """
     from nf_metro.layout.route_plan import DemandAxis
     from nf_metro.layout.route_reservations import (
+        ColumnGapRegion,
+        CorridorOrientation,
+        RouteReservationLane,
         RowGapRegion,
+        claim_is_destination_boundary_carrier,
         project_reservation_coordinate,
+        realise_reservation,
     )
 
     edge_by_member = {member.id: member.edge for member in plan.members}
+    geometry_by_member = {item.member_id: item for item in plan.member_geometry_plans}
+
+    def terminal_landing_band(
+        reservation: RouteReservation,
+        claim: RouteReservationClaim,
+        lo: float,
+        hi: float,
+    ) -> tuple[float, float]:
+        record = geometry_by_member.get(claim.member_id)
+        if record is None or not claim_is_destination_boundary_carrier(
+            graph,
+            record.edge.target,
+            reservation.region,
+        ):
+            return lo, hi
+        port = graph.ports[record.edge.target]
+        allocation_axis = int(reservation.orientation is CorridorOrientation.HORIZONTAL)
+        start = record.points[claim.segment_rank]
+        end = record.points[claim.segment_end_rank + 1]
+        coordinate = start[allocation_axis]
+        if abs(coordinate - end[allocation_axis]) > COORD_TOLERANCE:
+            return lo, hi
+        if (
+            lo <= coordinate <= hi
+            or coordinate < lo - COORD_TOLERANCE
+            or coordinate > hi + COORD_TOLERANCE
+        ):
+            return lo, hi
+        try:
+            one_claim = replace(
+                reservation,
+                claimant_member_ids=(claim.member_id,),
+                claims=(claim,),
+                landing_section_ids=(port.section_id,),
+                lanes=(RouteReservationLane((0,)),),
+                lane_count=1,
+                bundle_width=0.0,
+                minimum_width=(
+                    reservation.negative_side_clearance
+                    + reservation.peer_width
+                    + reservation.positive_side_clearance
+                ),
+            )
+            realised = realise_reservation(
+                graph, one_claim, coordinate_translations=translations
+            )
+        except ValueError:
+            return lo, hi
+        if realised is None:
+            return lo, hi
+        if port.side in (PortSide.RIGHT, PortSide.BOTTOM):
+            return (
+                min(lo, realised.region_start + realised.negative_side_clearance),
+                max(hi, coordinate),
+            )
+        return (
+            min(lo, coordinate),
+            max(hi, realised.region_end - realised.positive_side_clearance),
+        )
+
     spans: dict[ClaimSegmentKey, tuple[float, float]] = {}
     allocations: dict[ClaimSegmentKey, tuple[float, float]] = {}
+    planned_order_coordinates: dict[ClaimSegmentKey, float] = {}
     # Keyed by the band quantised to the comparison tolerance, so two
     # reservations describing one corridor alike collapse to a single band.
     row_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
     column_by_edge: dict[EdgeKey, dict[tuple[int, int], tuple[float, float]]] = {}
     for reservation, lo, hi in measured:
         is_row = isinstance(reservation.region, RowGapRegion)
-        allocation_axis = DemandAxis.Y if is_row else DemandAxis.X
-        band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
+        is_column = isinstance(reservation.region, ColumnGapRegion)
+        allocation_axis = (
+            DemandAxis.Y
+            if reservation.orientation is CorridorOrientation.HORIZONTAL
+            else DemandAxis.X
+        )
         for claim in reservation.claims:
+            claim_lo, claim_hi = terminal_landing_band(reservation, claim, lo, hi)
             edge = edge_by_member[claim.member_id]
             edge_key = (edge.source, edge.target, edge.line_id)
-            bands_by_edge = row_by_edge if is_row else column_by_edge
-            bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
+            # The per-edge views answer "which grid boundary does this edge's
+            # corridor cross", which a canvas margin crosses none of.
+            if is_row or is_column:
+                band_key = (round(lo / COORD_TOLERANCE), round(hi / COORD_TOLERANCE))
+                bands_by_edge = row_by_edge if is_row else column_by_edge
+                bands_by_edge.setdefault(edge_key, {}).setdefault(band_key, (lo, hi))
+            planned_order_coordinate = project_reservation_coordinate(
+                claim.allocation_coordinate,
+                allocation_axis,
+                claim.member_id,
+                translations,
+            )
             allocation = (
-                project_reservation_coordinate(
-                    claim.allocation_coordinate,
-                    allocation_axis,
-                    claim.member_id,
-                    translations,
-                )
-                if claim.is_declared_gap_channel
-                else None
+                planned_order_coordinate if claim.is_declared_gap_channel else None
             )
             for rank in range(claim.segment_rank, claim.segment_end_rank + 1):
                 key = (*edge_key, rank)
                 held = spans.get(key)
                 spans[key] = (
-                    (lo, hi) if held is None else (max(held[0], lo), min(held[1], hi))
+                    (claim_lo, claim_hi)
+                    if held is None
+                    else (
+                        max(held[0], claim_lo),
+                        min(held[1], claim_hi),
+                    )
                 )
                 if allocation is not None:
                     held_allocation = allocations.get(key)
@@ -537,6 +641,16 @@ def _claim_views(
                             min(held_allocation[0], allocation),
                             max(held_allocation[1], allocation),
                         )
+                    )
+                held_order_coordinate = planned_order_coordinates.setdefault(
+                    key, planned_order_coordinate
+                )
+                if (
+                    abs(held_order_coordinate - planned_order_coordinate)
+                    > COORD_TOLERANCE
+                ):
+                    raise ValueError(
+                        f"route segment {key!r} has conflicting planned lane order"
                     )
     per_claim: dict[ClaimSegmentKey, ReservedBand] = {}
     for key, (lo, hi) in spans.items():
@@ -570,7 +684,12 @@ def _claim_views(
         )
         for edge_key, bands in column_by_edge.items()
     }
-    return _ClaimViews(per_claim, row_bands, column_bands)
+    return _ClaimViews(
+        per_claim,
+        row_bands,
+        column_bands,
+        planned_order_coordinates,
+    )
 
 
 def build_reserved_corridors(
@@ -589,7 +708,7 @@ def build_reserved_corridors(
     from nf_metro.layout.route_reservations import ColumnGapRegion, RowGapRegion
 
     measured = tuple(_measured_gap_bands(graph, plan, translations))
-    views = _claim_views(plan, measured, translations)
+    views = _claim_views(graph, plan, measured, translations)
     return ReservedCorridors(
         _axis_bands(
             measured,
@@ -606,4 +725,5 @@ def build_reserved_corridors(
         views.per_claim,
         views.row_bands_by_edge,
         views.column_bands_by_edge,
+        views.planned_order_coordinates,
     )

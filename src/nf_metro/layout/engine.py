@@ -503,6 +503,7 @@ def compute_layout(
 
     require_resolved_edge_endpoints(graph)
     require_resolved_port_sections(graph)
+    graph._final_route_guards_deferred = False
 
     if x_spacing is None:
         x_spacing = graph.x_spacing
@@ -570,6 +571,13 @@ def compute_layout(
             _layout_pass(validate)
         elif validate and graph._after_final_deferred:
             _run_after_final_checkpoint(graph, section_y_gap, section_y_padding)
+
+        if validate and graph._final_route_guards_deferred:
+            from nf_metro.render.svg import build_render_plan
+            from nf_metro.themes import resolve_theme
+
+            build_render_plan(graph, resolve_theme(None, graph))
+            graph._final_route_guards_deferred = False
 
 
 def _compute_layout_scaled(

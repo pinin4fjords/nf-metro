@@ -84,7 +84,7 @@ def test_checker_fires_without_coincidence_pass(
     invariant is meant to catch, proving the check is not vacuous."""
     for module in (routing_core, member_geometry):
         monkeypatch.setattr(
-            module, "_coincide_same_line_tracks", lambda routes, ctx: None
+            module, "_coincide_same_line_tracks", lambda routes, ctx, **_kwargs: None
         )
         monkeypatch.setattr(
             module,

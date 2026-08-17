@@ -19,10 +19,11 @@ from nf_metro.layout.constants import (
     CURVE_RADIUS,
     OFFSET_STEP,
 )
-from nf_metro.layout.geometry import cotravelling_lane_clearance
+from nf_metro.layout.geometry import cotravelling_lane_clearance, shift_section
 from nf_metro.layout.route_plan import (
     BindingKind,
     DemandAxis,
+    EmissionMemberId,
     ExitTurnDisposition,
     GridSpan,
     ReservationDecisionKind,
@@ -38,6 +39,7 @@ from nf_metro.layout.route_reservations import (
     CorridorOrientation,
     ReservationCoordinateTranslation,
     RowGapRegion,
+    claim_is_destination_boundary_carrier,
     realise_reservation,
 )
 from nf_metro.layout.routing import (
@@ -51,6 +53,7 @@ from nf_metro.layout.routing.reserved_bands import (
     build_reserved_corridors,
     seat_bundle_in_claimed_bands,
 )
+from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 from nf_metro.render.manifest import read_manifest
 from nf_metro.render.plan import freeze_render_value
 from nf_metro.render.svg import (
@@ -77,6 +80,64 @@ RESERVATION_CORPUS = tuple(
         "disjoint_sameline_trunks.mmd",
     )
 ) + (ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",)
+
+
+@pytest.mark.parametrize(
+    ("side", "adjacent", "reflected"),
+    (
+        (PortSide.LEFT, ColumnGapRegion(3, 4), ColumnGapRegion(5, 6)),
+        (PortSide.RIGHT, ColumnGapRegion(5, 6), ColumnGapRegion(3, 4)),
+        (PortSide.TOP, RowGapRegion(4, 5), RowGapRegion(7, 8)),
+        (PortSide.BOTTOM, RowGapRegion(7, 8), RowGapRegion(4, 5)),
+    ),
+)
+def test_destination_boundary_carrier_follows_port_side_and_section_span(
+    side: PortSide,
+    adjacent: ColumnGapRegion | RowGapRegion,
+    reflected: ColumnGapRegion | RowGapRegion,
+) -> None:
+    section = Section(
+        "target",
+        "Target",
+        grid_col=4,
+        grid_row=5,
+        grid_col_span=2,
+        grid_row_span=3,
+    )
+    port = Port("entry", section.id, side, is_entry=True)
+    graph = MetroGraph(
+        sections={section.id: section},
+        ports={port.id: port},
+    )
+
+    assert claim_is_destination_boundary_carrier(graph, port.id, adjacent)
+    assert not claim_is_destination_boundary_carrier(graph, port.id, reflected)
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        port.id,
+        CanvasRegion(CanvasSide.LEFT),
+    )
+
+
+def test_destination_boundary_carrier_requires_a_resolved_entry_port() -> None:
+    section = Section("target", "Target", grid_col=4, grid_row=5)
+    exit_port = Port("exit", section.id, PortSide.RIGHT, is_entry=False)
+    graph = MetroGraph(
+        sections={section.id: section},
+        ports={exit_port.id: exit_port},
+    )
+
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        exit_port.id,
+        ColumnGapRegion(4, 5),
+    )
+    assert not claim_is_destination_boundary_carrier(
+        graph,
+        "missing",
+        ColumnGapRegion(4, 5),
+    )
+
 
 EXPECTED_RESERVATION_CLAIMS = {
     "inter_row_wrap_clearance.mmd": (
@@ -283,7 +344,6 @@ def test_reportho_preserves_the_full_authored_corridor() -> None:
     assert realised.negative_blocker_ids == ("section-bottom:fetch_ortho",)
     assert realised.positive_blocker_ids == ("section-header:report",)
 
-    # A satisfied corridor publishes no shortfall record.
     assert not [
         item
         for item in plan.reservation_diagnostics
@@ -532,6 +592,45 @@ def test_stacked_collector_reuses_three_lanes_across_twelve_claims() -> None:
         assert realised.capacity_slack >= -0.01
 
 
+@pytest.mark.parametrize(
+    ("region_kind", "path"),
+    (
+        (RowGapRegion, TOPOLOGIES / "opposing_bypass_corridor.mmd"),
+        (
+            ColumnGapRegion,
+            ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd",
+        ),
+    ),
+    ids=("row-gap", "column-gap"),
+)
+def test_a_corridor_beside_no_box_realises_as_nothing(region_kind, path: Path) -> None:
+    """A gap corridor whose run passes no box has no realisation to state.
+
+    A realisation is the room between two named blockers, so a boundary side
+    with nothing beside the run cannot furnish one.  Re-measuring after the
+    geometry has moved out from under a claim is the case that reaches this:
+    the region search reads the same absence as "not this region", and the
+    re-measure has no region to choose.
+    """
+    graph, _routes, plan = _observe(path)
+    reservation = next(
+        item
+        for item in plan.reservations
+        if isinstance(item.region, region_kind)
+        and item.measurement_scope is CorridorMeasurementScope.OBSERVED_RUN
+    )
+    assert realise_reservation(graph, reservation) is not None
+    # The run travels across the boundary, so moving every box along that
+    # travel leaves the claim describing a stretch of bare canvas.
+    away = 10_000.0
+    for section in graph.sections.values():
+        if isinstance(reservation.region, RowGapRegion):
+            shift_section(graph, section, dx=away)
+        else:
+            shift_section(graph, section, dy=away)
+    assert realise_reservation(graph, reservation) is None
+
+
 def test_asymmetric_grid_spans_select_provenance_on_the_canonical_axes() -> None:
     path = ROOT / "tests" / "fixtures" / "regressions" / "stacked_collector_fanin.mmd"
     graph, _routes, plan = _observe(path)
@@ -689,6 +788,109 @@ def test_disjoint_bypass_descents_read_their_observed_gap_allocation() -> None:
         "a": 568.0,
         "b": 564.0,
     }
+
+
+def test_non_gap_claims_publish_order_without_claiming_exact_placement() -> None:
+    graph, routes, plan = _observe(ROOT / "examples" / "longread_variant_calling.mmd")
+    corridors = build_reserved_corridors(graph, plan)
+    target_routes = tuple(
+        route
+        for route in routes
+        if route.edge.source == "__junction_16"
+        and route.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    )
+    assert {route.line_id for route in target_routes} == {"bam", "other"}
+
+    order_coordinates = {
+        route.line_id: corridors.planned_order_coordinate_for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        )
+        for route in target_routes
+    }
+    assert order_coordinates == {"bam": 266.0, "other": 270.0}
+    assert all(
+        corridors.for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        ).allocation
+        is None
+        for route in target_routes
+    )
+
+    claimant_ids = tuple(
+        member.id
+        for member in plan.members
+        if member.edge.source == "__junction_16"
+        and member.edge.target
+        in {"tr_calling__entry_right_9", "cnv_calling__entry_right_10"}
+    )
+    translated = build_reserved_corridors(
+        graph,
+        plan,
+        (
+            ReservationCoordinateTranslation(
+                DemandAxis.Y,
+                0.0,
+                12.0,
+                fully_owned_member_ids=claimant_ids,
+            ),
+        ),
+    )
+    assert {
+        route.line_id: translated.planned_order_coordinate_for_segment(
+            route.edge.source, route.edge.target, route.line_id, 2
+        )
+        for route in target_routes
+    } == {"bam": 278.0, "other": 282.0}
+
+
+def test_conflicting_planned_order_claims_fail_before_emission() -> None:
+    graph, _routes, plan = _observe(ROOT / "examples" / "longread_variant_calling.mmd")
+    reservation = next(
+        item
+        for item in plan.reservations
+        if any(
+            member.edge.source == "__junction_16"
+            and member.edge.target == "tr_calling__entry_right_9"
+            and claim.member_id == member.id
+            and claim.segment_rank <= 2 <= claim.segment_end_rank
+            for claim in item.claims
+            for member in plan.members
+        )
+    )
+    duplicate = replace(
+        reservation,
+        claims=tuple(
+            replace(claim, allocation_coordinate=claim.allocation_coordinate + 8.0)
+            if claim.segment_rank <= 2 <= claim.segment_end_rank
+            else claim
+            for claim in reservation.claims
+        ),
+    )
+    corrupted = replace(plan, reservations=(*plan.reservations, duplicate))
+
+    with pytest.raises(ValueError, match="conflicting planned lane order"):
+        build_reserved_corridors(graph, corrupted)
+
+
+def test_shared_plan_coordinate_follows_its_translated_claimant_atomically() -> None:
+    translated = EmissionMemberId("translated")
+    crossing = EmissionMemberId("crossing")
+    untouched = EmissionMemberId("untouched")
+    translation = ReservationCoordinateTranslation(
+        DemandAxis.Y,
+        408.0,
+        32.0,
+        fully_owned_member_ids=(translated,),
+        crossing_member_ids=(crossing,),
+    )
+
+    assert route_reservations._project_shared_coordinate(
+        348.0,
+        DemandAxis.Y,
+        (translated, crossing, untouched),
+        (translation,),
+    ) == pytest.approx(380.0)
 
 
 def test_reservation_corpus_has_one_linked_record_per_observed_claim() -> None:

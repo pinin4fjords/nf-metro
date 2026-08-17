@@ -397,7 +397,7 @@ def render_test_fixtures() -> None:
         mmd_path = TEST_FIXTURES_DIR / f"{stem}.mmd"
         if not mmd_path.exists():
             continue
-        svg_path = RENDERS_DIR / f"{stem}.svg"
+        svg_path = RENDERS_DIR / f"{Path(stem).name}.svg"
         if _skip_render(mmd_path):
             _manifest[svg_path.name] = section
             continue

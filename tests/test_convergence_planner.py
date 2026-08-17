@@ -32,6 +32,9 @@ from nf_metro.layout.route_plan import (
     build_route_plan_query,
 )
 from nf_metro.layout.route_reservations import (
+    CanvasRegion,
+    CanvasSide,
+    CorridorOrientation,
     expected_convergence_foreign_references,
 )
 from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
@@ -48,6 +51,7 @@ from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.invariants import (
     check_merge_branches_meet_trunk,
     check_merge_feeders_land_on_trunk,
+    check_no_dogleg_crosses_exempt_trunk,
 )
 from nf_metro.parser.model import Edge, MetroGraph, PortSide, Station
 from nf_metro.parser.route_topology import ResolvedEdge, build_route_topology_query
@@ -58,10 +62,14 @@ GUIDE = ROOT / "examples" / "guide"
 FROZEN = ROOT / "tests" / "fixtures" / "hash_seed_determinism"
 
 
-def _observe(path: Path):
+def _observe(path: Path, *, allow_clearance_requirements: bool = False):
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     offsets = compute_station_offsets(graph)
-    observed = observe_route_edges(graph, station_offsets=offsets)
+    observed = observe_route_edges(
+        graph,
+        station_offsets=offsets,
+        allow_convergence_clearance_requirements=allow_clearance_requirements,
+    )
     return graph, offsets, observed
 
 
@@ -369,12 +377,100 @@ def test_multiple_lines_share_the_target_entry_bundle_order() -> None:
 
 @pytest.mark.parametrize("name", ("seed_15.mmd", "seed_41.mmd"))
 def test_frozen_recovery_seeds_have_complete_planned_convergences(name: str) -> None:
-    graph, offsets, observed = _observe(FROZEN / name)
+    graph, offsets, observed = _observe(
+        FROZEN / name, allow_clearance_requirements=True
+    )
 
     assert observed.plan.convergence_plans
     assert all(plan.owns_geometry for plan in observed.plan.convergence_plans)
     assert not check_merge_branches_meet_trunk(graph, observed.routes, offsets)
     assert not check_merge_feeders_land_on_trunk(graph, observed.routes, offsets)
+
+
+def test_seed_15_owned_lane_envelope_requests_boundary_three_runway() -> None:
+    _graph, _offsets, observed = _observe(
+        FROZEN / "seed_15.mmd", allow_clearance_requirements=True
+    )
+
+    runway_boundaries = {
+        requirement.boundary
+        for requirement in observed.plan.boundary_clearance_requirements
+        if requirement.description.endswith(" runway")
+    }
+
+    assert runway_boundaries == {3}
+
+
+def test_seed_15_final_member_plan_owns_its_reconciled_bypass_trunk() -> None:
+    graph, offsets, observed = _observe(
+        FROZEN / "seed_15.mmd", allow_clearance_requirements=True
+    )
+    edge = ResolvedEdge("__junction_24", "s6__entry_right_14", "l1")
+    route = next(
+        route
+        for route in observed.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id) == edge
+    )
+    member = next(
+        plan for plan in observed.plan.member_geometry_plans if plan.edge == edge
+    )
+
+    assert route.points == [
+        (1612.0, 504.0),
+        (1604.5, 504.0),
+        (1604.5, 592.0),
+        (1266.0, 592.0),
+        (1266.0, 504.0),
+        (1246.0, 504.0),
+    ]
+    assert tuple(route.points) == member.points
+    assert member.owned_segment_ranks == (1, 3)
+    assert tuple(channel.segment_rank for channel in member.gap_channels) == (1, 3)
+    assert member.trunk_slot is not None
+    assert member.trunk_slot.gap_upper_row is None
+    assert not check_no_dogleg_crosses_exempt_trunk(graph, observed.routes, offsets)
+
+    trunk_reservations = [
+        reservation
+        for reservation in observed.plan.reservations
+        if member.member_id in reservation.claimant_member_ids
+        and reservation.orientation is CorridorOrientation.HORIZONTAL
+        and any(
+            claim.segment_rank <= 2 <= claim.segment_end_rank
+            for claim in reservation.claims
+        )
+    ]
+    assert len(trunk_reservations) == 1
+    assert trunk_reservations[0].region.side is CanvasSide.BOTTOM
+    assert isinstance(trunk_reservations[0].region, CanvasRegion)
+
+    _graph, _offsets, repeated = _observe(
+        FROZEN / "seed_15.mmd", allow_clearance_requirements=True
+    )
+    repeated_member = next(
+        plan for plan in repeated.plan.member_geometry_plans if plan.edge == edge
+    )
+    assert repeated_member == member
+
+
+def test_seed_41_outer_owned_lane_needs_no_boundary_two_runway() -> None:
+    from nf_metro.layout.routing.normalize import _opening_fanout_descent
+
+    _graph, _offsets, observed = _observe(
+        FROZEN / "seed_41.mmd", allow_clearance_requirements=True
+    )
+    route = next(
+        route
+        for route in observed.routes
+        if ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        == ResolvedEdge("__junction_28", "__merge_10", "l0")
+    )
+
+    assert not any(
+        requirement.boundary == 2
+        for requirement in observed.plan.boundary_clearance_requirements
+    )
+    assert _opening_fanout_descent(route) is not None
 
 
 def test_mixed_direct_bypass_and_multirow_approaches_are_frozen() -> None:

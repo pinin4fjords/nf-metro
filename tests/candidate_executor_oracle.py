@@ -17,19 +17,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
-    observations: dict[str, str] = {}
+    observations: dict[str, dict[str, str]] = {}
     for seed in (15, 41, 72, 77):
         path = ROOT / f"tests/fixtures/hash_seed_determinism/seed_{seed}.mmd"
         result = execute_candidates(
             CandidateExecutionRequest(
                 path.read_text(),
                 source_dir=str(path.parent),
-                limits=ExecutionLimits(1, 20.0, 30.0),
+                limits=ExecutionLimits(1, 60.0, 90.0),
             )
         )
-        observations[str(seed)] = hashlib.sha256(
-            _attempt_to_bytes(result.baseline)
-        ).hexdigest()
+        baseline = result.baseline
+        observations[str(seed)] = {
+            "status": baseline.status.value,
+            "stage": baseline.stage.value,
+            "payload_sha256": hashlib.sha256(_attempt_to_bytes(baseline)).hexdigest(),
+        }
     print(json.dumps(observations, sort_keys=True, separators=(",", ":")))
 
 

@@ -759,12 +759,7 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
         if with_layout:
             try:
                 compute_layout(graph, validate=True)
-            except (
-                CyclicGraphError,
-                BackwardFlowError,
-                MixedEntryDirectionError,
-                PhaseInvariantError,
-            ) as e:
+            except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
                 issues.append(ValidationIssue(ERROR, str(e)))
 
     issues.extend(ValidationIssue(WARNING, str(w.message)) for w in caught)

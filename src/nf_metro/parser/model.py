@@ -703,6 +703,13 @@ class MetroGraph:
     # from readers that don't carry the ``validate`` flag in their signature.
     _validate_active: bool = field(default=False, repr=False)
 
+    # True when the final ``validate=True`` layout checkpoint discarded its
+    # routes because the observation published boundary clearance
+    # requirements: the route-dependent guards then run only at the render
+    # chokepoint, on settled geometry, so a caller that validates without
+    # rendering has to follow up with a render-plan build to run them.
+    _final_route_guards_deferred: bool = field(default=False, repr=False)
+
     def _invalidate_edge_caches(self) -> None:
         """Reset caches that depend on the edge list."""
         self._station_lines_cache = None

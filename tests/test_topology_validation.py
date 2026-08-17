@@ -67,11 +67,6 @@ def _compute_routes(graph):
 # --- Parametrized validation across all topologies ---
 
 
-_ALMOST_HORIZONTAL_XFAILS = {
-    "funcprofiler_upstream": "known almost-horizontal humann3 junction edge",
-    "bypass_fan_in_outer_slot": "meth slope 0.075 in minimum-width column gap",
-}
-
 _ERROR_VALIDATORS = (
     check_section_overlap,
     check_station_containment,
@@ -97,12 +92,11 @@ def test_topology_validation(path: Path) -> None:
             for violation in validator(graph)
             if violation.severity == Severity.ERROR
         )
-    if path.stem not in _ALMOST_HORIZONTAL_XFAILS:
-        problems.extend(
-            f"{check_almost_horizontal_edges.__name__}: {violation.message}"
-            for violation in check_almost_horizontal_edges(graph)
-            if violation.severity == Severity.WARNING
-        )
+    problems.extend(
+        f"{check_almost_horizontal_edges.__name__}: {violation.message}"
+        for violation in check_almost_horizontal_edges(graph)
+        if violation.severity == Severity.WARNING
+    )
     problems.extend(
         f"station {sid!r} remains at the origin"
         for sid, station in graph.stations.items()
@@ -113,18 +107,6 @@ def test_topology_validation(path: Path) -> None:
         and station.y == 0
     )
     assert not problems, "\n".join(problems)
-
-
-@pytest.mark.parametrize(
-    ("stem", "reason"),
-    [
-        pytest.param(stem, reason, id=stem)
-        for stem, reason in _ALMOST_HORIZONTAL_XFAILS.items()
-    ],
-)
-def test_no_almost_horizontal_edges_known_defects(stem: str, reason: str) -> None:
-    """Document fixtures excluded from the almost-horizontal corpus check."""
-    pytest.xfail(f"{stem}: {reason}")
 
 
 # --- Serpentine stacked-section invariant (issue #421) ---

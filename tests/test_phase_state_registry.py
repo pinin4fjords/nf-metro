@@ -46,10 +46,14 @@ CONTRACT = LAYOUT_DIR / "CONTRACT.md"
 #     machinery itself.
 #   - _phase_snapshots_enabled: a per-run coordinate-snapshot flag stashed to
 #     avoid signature churn (#363), pure observation.
+#   - _final_route_guards_deferred: records that the final validate checkpoint
+#     deferred its route guards to settlement at the end of compute_layout; no
+#     positioning pass consumes it.
 _BOOKKEEPING_ALLOWLIST = {
     "_stages_completed",
     "_validate_active",
     "_phase_snapshots_enabled",
+    "_final_route_guards_deferred",
 }
 
 _COMMENT = re.compile(r"#.*$", re.MULTILINE)

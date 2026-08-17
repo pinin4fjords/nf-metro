@@ -2480,12 +2480,13 @@ class _AxisLeg(NamedTuple):
     direction: int  # +1 advancing in the increasing-coordinate sense, else -1
     src: str
     tgt: str
+    route: RoutedPath
+    rank: int
 
 
 def _line_axis_segments(
     pts: list[tuple[float, float]],
-    src: str,
-    tgt: str,
+    route: RoutedPath,
 ) -> Iterator[_AxisLeg]:
     """Yield the axis-aligned legs of a rendered path.
 
@@ -2500,8 +2501,10 @@ def _line_axis_segments(
                 min(y1, y2),
                 max(y1, y2),
                 1 if y2 > y1 else -1,
-                src,
-                tgt,
+                route.edge.source,
+                route.edge.target,
+                route,
+                k,
             )
         elif abs(y1 - y2) <= COLLINEAR_AXIS_TOL and abs(x1 - x2) > GUARD_TOLERANCE:
             yield _AxisLeg(
@@ -2510,8 +2513,10 @@ def _line_axis_segments(
                 min(x1, x2),
                 max(x1, x2),
                 1 if x2 > x1 else -1,
-                src,
-                tgt,
+                route.edge.source,
+                route.edge.target,
+                route,
+                k,
             )
 
 
@@ -2549,7 +2554,7 @@ def iter_opposing_line_overlaps(
     by_line: dict[str, list[_AxisLeg]] = defaultdict(list)
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        for leg in _line_axis_segments(pts, r.edge.source, r.edge.target):
+        for leg in _line_axis_segments(pts, r):
             by_line[r.line_id].append(leg)
 
     for line_id, legs in by_line.items():
@@ -6152,21 +6157,41 @@ def _ensure_pass_c_inputs(
     observational even running mid-pipeline between Pass C stages.  A routing
     failure leaves ``routes`` as ``None`` (it surfaces elsewhere); guards that
     need routes are then skipped.
+
+    A final layout checkpoint precedes completion of the route-plan DAG.
+    Symbolic reservations and boundary-clearance requests are consumed by the
+    following settled-plan stage, so route-dependent guards defer to its
+    chokepoint at the end of ``compute_layout``. Guards without a route
+    dependency continue to inspect the final layout state.
     """
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
+    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
     from nf_metro.layout.routing.core import route_edges_for_placement_guards
 
     if offsets is None:
         offsets = compute_station_offsets(graph)
     if routes is None:
         try:
-            routes = (
-                route_edges(graph, station_offsets=offsets)
-                if validate_final_geometry
-                else route_edges_for_placement_guards(graph, offsets)
-            )
+            if validate_final_geometry:
+                observation = observe_route_edges(
+                    graph,
+                    station_offsets=offsets,
+                    allow_convergence_clearance_requirements=True,
+                )
+                deferred = bool(
+                    observation.plan.boundary_clearance_requirements
+                    or observation.plan.reservations
+                )
+                graph._final_route_guards_deferred = deferred
+                routes = None if deferred else observation.routes
+            else:
+                routes = route_edges_for_placement_guards(graph, offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             routes = None
+            if validate_final_geometry:
+                # The layout engine follows this deferral with a settled-plan
+                # build, where the routing failure resurfaces instead of being
+                # swallowed as a run with every route guard skipped.
+                graph._final_route_guards_deferred = True
     return offsets, routes
 
 
@@ -6234,9 +6259,26 @@ _RENDER_LAYOUT_INVARIANT_SPECS: tuple[GuardSpec, ...] = tuple(
 )
 
 
-def render_layout_invariant_specs() -> tuple[GuardSpec, ...]:
-    """The Tier-A guards :func:`assert_render_layout_invariants` runs."""
-    return _RENDER_LAYOUT_INVARIANT_SPECS
+def deferred_final_route_guard_specs() -> tuple[GuardSpec, ...]:
+    """Final-checkpoint guards that require settled route geometry."""
+    return tuple(spec for spec in GUARD_REGISTRY if "routes" in spec.needs)
+
+
+def render_layout_invariant_specs(
+    *, include_deferred_final: bool = False
+) -> tuple[GuardSpec, ...]:
+    """The guards :func:`assert_render_layout_invariants` runs."""
+    if not include_deferred_final:
+        return _RENDER_LAYOUT_INVARIANT_SPECS
+    tier_a_names = {spec.name for spec in _RENDER_LAYOUT_INVARIANT_SPECS}
+    return (
+        *_RENDER_LAYOUT_INVARIANT_SPECS,
+        *(
+            spec
+            for spec in deferred_final_route_guard_specs()
+            if spec.name not in tier_a_names
+        ),
+    )
 
 
 def assert_render_layout_invariants(
@@ -6245,8 +6287,9 @@ def assert_render_layout_invariants(
     offsets: dict[tuple[str, str], float],
     *,
     strict: bool = False,
+    include_deferred_final: bool = False,
 ) -> None:
-    """Run the cheap Tier-A layout guards on the final settled geometry.
+    """Run layout guards on the final settled geometry.
 
     Sibling of :func:`assert_render_curve_invariants`: both run on the exact
     geometry the renderer is about to draw, so a layout defect is visible to
@@ -6254,15 +6297,20 @@ def assert_render_layout_invariants(
     already pays for ``offsets`` and ``routes``, and the guards are
     observational, so this is near-zero cost and cannot move a pixel.
 
-    Each Tier-A guard raises ``PhaseInvariantError`` on its first violation
-    rather than returning a list, so each runs in isolation and its message is
-    captured; the aggregate is one message.  Without *strict* the aggregate is
-    a :class:`UserWarning`; with *strict* it raises :class:`LayoutInvariantError`
-    (modelled on the ``NF_METRO_ALLOW_BAD_CURVES`` chokepoint).
+    Tier-A guards always run.  When final route checks were deferred for
+    settlement, ``include_deferred_final`` also runs every route-dependent
+    guard in the registry.  Each guard raises ``PhaseInvariantError`` on its
+    first violation rather than returning a list, so each runs in isolation and
+    its message is captured; the aggregate is one message.  Without *strict*
+    the aggregate is a :class:`UserWarning`; with *strict* it raises
+    :class:`LayoutInvariantError` (modelled on the
+    ``NF_METRO_ALLOW_BAD_CURVES`` chokepoint).
     """
     available: dict[str, Any] = {"offsets": offsets, "routes": routes}
     messages: list[str] = []
-    for spec in render_layout_invariant_specs():
+    for spec in render_layout_invariant_specs(
+        include_deferred_final=include_deferred_final
+    ):
         try:
             spec.fn(graph, "render", **{name: available[name] for name in spec.needs})
         except PhaseInvariantError as exc:
@@ -6271,8 +6319,9 @@ def assert_render_layout_invariants(
         return
 
     detail = "\n  ".join(messages)
+    invariant_set = "final" if include_deferred_final else "Tier-A"
     msg = (
-        "the settled layout violates Tier-A invariants the renderer is about "
+        f"the settled layout violates {invariant_set} invariants the renderer is about "
         "to draw. The map will render but is visibly broken; fix the layout "
         "(or the directive combination) that produced this geometry.\n  "
         f"{detail}"

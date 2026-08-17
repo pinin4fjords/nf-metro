@@ -16,7 +16,12 @@ from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
     STATION_ELBOW_TOLERANCE,
 )
-from nf_metro.layout.geometry import AxisFrame, lanes_run_along_x, lanes_run_along_y
+from nf_metro.layout.geometry import (
+    AxisFrame,
+    lanes_run_along_x,
+    lanes_run_along_y,
+    section_bbox_edges,
+)
 from nf_metro.layout.layers import build_station_digraph
 from nf_metro.layout.ordering import split_output_spur_fan
 from nf_metro.layout.phases._common import (
@@ -72,15 +77,6 @@ _PORT_ANCHOR_EDGE = {
 }
 
 
-def _box_edges(section: Section) -> tuple[float, float, float, float]:
-    return (
-        section.bbox_x,
-        section.bbox_y,
-        section.bbox_x + section.bbox_w,
-        section.bbox_y + section.bbox_h,
-    )
-
-
 def _set_box_edge(section: Section, edge: int, value: float) -> None:
     """Move one box edge, leaving the opposite one where it is."""
     if edge == 0:
@@ -112,7 +108,7 @@ def section_box_edges(
     graph: MetroGraph,
 ) -> dict[str, tuple[float, float, float, float]]:
     """Every section's box edges as ``(left, top, right, bottom)``."""
-    return {sid: _box_edges(sec) for sid, sec in graph.sections.items()}
+    return {sid: section_bbox_edges(sec) for sid, sec in graph.sections.items()}
 
 
 def carry_ports_with_section_edges(
@@ -140,7 +136,7 @@ def carry_ports_with_section_edges(
         if anchor is None or prior is None:
             continue
         section, edge = anchor
-        was, now = prior[edge], _box_edges(section)[edge]
+        was, now = prior[edge], section_bbox_edges(section)[edge]
         station = graph.stations[pid]
         coord = station.y if edge % 2 else station.x
         if abs(now - was) <= COORD_TOLERANCE or abs(coord - was) > GUARD_TOLERANCE:
@@ -172,7 +168,7 @@ def hold_port_anchored_edges(
         if anchor is None or prior is None:
             continue
         section, edge = anchor
-        was, now = prior[edge], _box_edges(section)[edge]
+        was, now = prior[edge], section_bbox_edges(section)[edge]
         station = graph.stations[pid]
         coord = station.y if edge % 2 else station.x
         setter = _set_port_y if edge % 2 else _set_port_x

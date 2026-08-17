@@ -194,6 +194,13 @@ frames armed on every fixture. That count is a function of how many systems
 make ownership claims, so a tree that plans more systems shows more mid-pass
 disagreement without its geometry being worse; it is not a quality metric.
 
+If the final observation requires render-time envelope settlement, its
+route-dependent guards defer within the layout engine. Before a successful
+`compute_layout(validate=True)` returns, the engine builds the settled render
+plan and runs those guards against the geometry that would be drawn. This is a
+property of the validated layout API, not an extra obligation placed on CLI or
+embedding callers.
+
 ## Anchor invariant
 
 The **anchors** of a section are its port stations: synthetic points on the
@@ -1584,15 +1591,26 @@ They are design evidence, not part of this specification.
   interchange idiom rather than the declared section gap, and widening one of
   their boundaries to that gap turns a flat inter-row run into a staircase --
   a decision change, which `_assert_settlement_decisions_frozen` refuses.
+- **Clearance grants form a fixed prerequisite DAG, not a retry loop.** Render
+  discovery can publish `GENERAL` convergence requirements. Those are settled
+  first because their translation can change carrier orientation, making any
+  corridor-cohort ledger captured beforehand invalid. One re-observation then
+  builds corridor-cohort intent from the settled convergence geometry. It can
+  publish at most one `CORRIDOR_COHORT_APERTURE` requirement set, which is
+  settled once before the final strict replay and freeze. Each transition is
+  validated against its own requirement kind; neither stage iterates or accepts
+  requirements owned by the other.
 - **The two demands can cover either axis.** The reservation ledger is settled
   on both: `_settle_axis` runs once per axis and every row-gap and column-gap
   claim is measured. Generic box-growth clearance remains row-only because
   `measure_row_gap_clearance` represents `push_lower_rows_after_bbox_grow`.
   Column demands are route-published and narrowly scoped: a
-  `BoundaryClearanceRequirement` grants runway only for a provisional
-  `NO_APPROACH_SETTLEMENT_ROOM` convergence, while a drawn-corridor demand pays
-  positive-side containment measured from the strict post-grant route. Label
-  wrapping does not independently create a column demand.
+  A `GENERAL` `BoundaryClearanceRequirement` grants runway only for a
+  provisional `NO_APPROACH_SETTLEMENT_ROOM` convergence. A
+  `CORRIDOR_COHORT_APERTURE` requirement grants only the typed, solver-measured
+  deficit of an otherwise atomic cohort allocation. A drawn-corridor demand
+  pays positive-side containment measured from the strict post-grant route.
+  Label wrapping does not independently create a column demand.
 - **Precondition**: `compute_layout` has finished, routing has published the
   reservation ledger, render-time label wrapping has taken its bbox growth, and
   the header-collision reconcile has run. Local station geometry, section bbox

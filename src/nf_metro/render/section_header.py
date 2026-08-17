@@ -48,7 +48,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from nf_metro.layout.constants import SAME_COORD_TOLERANCE, SECTION_HEADER_PROTRUSION
 from nf_metro.layout.geometry import point_to_polyline_distance
@@ -65,9 +65,13 @@ from nf_metro.render.constants import (
 )
 from nf_metro.text_metrics import DEFAULT_TEXT_METRICS, TextRole, text_style
 
+if TYPE_CHECKING:
+    from nf_metro.layout.route_plan import RoutePlan
+
 Rect = tuple[float, float, float, float]
 Polyline = list[tuple[float, float]]
 HeaderMode = Literal["above", "below", "left", "right", "nudge"]
+RightCanvasBarrier = tuple[float, float, float]
 
 
 class _BandBlock(NamedTuple):
@@ -574,6 +578,7 @@ def resolve_section_header_placement(
     label_font_size: float,
     polylines: list[Polyline] | None = None,
     title_font_size: float | None = None,
+    right_canvas_barriers: tuple[RightCanvasBarrier, ...] = (),
 ) -> SectionHeaderPlacement:
     """Pick a clash-free position for ``section``'s header (see module docstring).
 
@@ -607,8 +612,12 @@ def resolve_section_header_placement(
         circle_r, num_y, length, half_text, lines, extra_height, height_capped
     )
     above = _above(x0, y0, block)
-    if polylines is None or _placement_clear(above, polylines):
+    if (polylines is None or _placement_clear(above, polylines)) and (
+        _placement_before_right_canvas(above, right_canvas_barriers)
+    ):
         return above
+    if polylines is None:
+        polylines = []
 
     down_max_lines = _max_lines_downward(graph, section, label_font_size)
     lines_dn, length_dn, extra_dn, capped_dn = _wrapped_header_geometry(
@@ -645,6 +654,7 @@ def resolve_section_header_placement(
             _Scored(_route_clearance(candidate, polylines), rank, candidate)
             for rank, candidate in enumerate(candidates)
             if _placement_clear(candidate, polylines)
+            and _placement_before_right_canvas(candidate, right_canvas_barriers)
             and _fits_its_band(
                 graph, section, candidate, label_font_size, title_font_size
             )
@@ -656,9 +666,28 @@ def resolve_section_header_placement(
     scored = _available(upright) or _available(rotated)
     if scored:
         return max(scored, key=lambda item: (item.clearance, -item.rank)).placement
-    return _band_shift(
+    fallback = _band_shift(
         _leftmost_clear_band_start(section, above, length, polylines), section, block
     )
+    if _placement_before_right_canvas(fallback, right_canvas_barriers):
+        return fallback
+    boundary = min(
+        coordinate
+        for coordinate, y_lo, y_hi in right_canvas_barriers
+        if _intervals_overlap(fallback.keepout[1], fallback.keepout[3], y_lo, y_hi)
+    )
+    start = _rightmost_clear_band_start(
+        section,
+        above,
+        length,
+        polylines,
+        boundary - SECTION_HEADER_ROUTE_PAD,
+    )
+    if start >= 0.0:
+        content_side = _band_shift(start, section, block)
+        if _placement_before_right_canvas(content_side, right_canvas_barriers):
+            return content_side
+    return fallback
 
 
 def resolve_all_section_headers(
@@ -666,15 +695,74 @@ def resolve_all_section_headers(
     label_font_size: float,
     polylines: list[Polyline],
     title_font_size: float | None = None,
+    route_plan: RoutePlan | None = None,
 ) -> dict[str, SectionHeaderPlacement]:
     """Resolve every drawn section's header placement once, keyed by section id."""
+    barriers = _right_canvas_barriers(route_plan, polylines)
     return {
         section.id: resolve_section_header_placement(
-            graph, section, label_font_size, polylines, title_font_size
+            graph,
+            section,
+            label_font_size,
+            polylines,
+            title_font_size,
+            barriers,
         )
         for section in graph.sections.values()
         if section.bbox_w > 0 and section.bbox_h > 0 and not section.is_implicit
     }
+
+
+def _right_canvas_barriers(
+    plan: RoutePlan | None, polylines: list[Polyline]
+) -> tuple[RightCanvasBarrier, ...]:
+    if plan is None:
+        return ()
+    from nf_metro.layout.route_reservations import (
+        CanvasRegion,
+        CanvasSide,
+        CorridorOrientation,
+    )
+
+    barriers: list[RightCanvasBarrier] = []
+    for reservation in plan.reservations:
+        if (
+            not isinstance(reservation.region, CanvasRegion)
+            or reservation.region.side is not CanvasSide.RIGHT
+            or reservation.orientation is not CorridorOrientation.VERTICAL
+        ):
+            continue
+        for claim in reservation.claims:
+            points = polylines[claim.path_rank][
+                claim.segment_rank : claim.segment_end_rank + 2
+            ]
+            barriers.append(
+                (
+                    min(point[0] for point in points),
+                    min(point[1] for point in points),
+                    max(point[1] for point in points),
+                )
+            )
+    return tuple(barriers)
+
+
+def _intervals_overlap(
+    first_lo: float, first_hi: float, second_lo: float, second_hi: float
+) -> bool:
+    return first_lo < second_hi and second_lo < first_hi
+
+
+def _placement_before_right_canvas(
+    placement: SectionHeaderPlacement,
+    barriers: tuple[RightCanvasBarrier, ...],
+) -> bool:
+    x_hi = placement.keepout[2]
+    y_lo, y_hi = placement.keepout[1], placement.keepout[3]
+    return all(
+        x_hi <= coordinate - SECTION_HEADER_ROUTE_PAD
+        for coordinate, run_lo, run_hi in barriers
+        if _intervals_overlap(y_lo, y_hi, run_lo, run_hi)
+    )
 
 
 def _placement_clear(
@@ -810,21 +898,60 @@ def _leftmost_clear_band_start(
     stopping at the leftmost such position rather than sweeping past routes the
     finite-width header would never reach.
     """
+    return _clear_band_start(section, above, length, polylines, direction=1)
+
+
+def _rightmost_clear_band_start(
+    section: Section,
+    above: SectionHeaderPlacement,
+    length: float,
+    polylines: list[Polyline],
+    limit: float,
+) -> float:
+    return _clear_band_start(
+        section, above, length, polylines, direction=-1, limit=limit
+    )
+
+
+def _clear_band_start(
+    section: Section,
+    above: SectionHeaderPlacement,
+    length: float,
+    polylines: list[Polyline],
+    *,
+    direction: Literal[-1, 1],
+    limit: float | None = None,
+) -> float:
+    """Find the first route-clear header position in ``direction``."""
     pad = SECTION_HEADER_ROUTE_PAD
     _, band_top, _, band_bottom = above.keepout
     y_lo, y_hi = band_top - pad, band_bottom + pad
-    start = section.bbox_x
+    if direction > 0:
+        start = section.bbox_x
+    else:
+        if limit is None:
+            raise ValueError("a leftward header search requires a limit")
+        start = min(section.bbox_x, limit - length)
     while True:
         band = (start - pad, y_lo, start + length + pad, y_hi)
-        spans = (
-            _segment_rect_xspan(poly[i], poly[i + 1], band)
+        occupied = [
+            span
             for poly in polylines
             for i in range(len(poly) - 1)
-        )
-        rightmost = max((s[1] for s in spans if s is not None), default=None)
-        if rightmost is None or rightmost + pad <= start:
+            if (span := _segment_rect_xspan(poly[i], poly[i + 1], band)) is not None
+        ]
+        if not occupied:
             return start
-        start = rightmost + pad
+        if direction > 0:
+            obstruction = max(span[1] for span in occupied)
+            if obstruction + pad <= start:
+                return start
+            start = obstruction + pad
+        else:
+            obstruction = min(span[0] for span in occupied)
+            if start + length <= obstruction - pad:
+                return start
+            start = obstruction - pad - length
 
 
 def check_section_headers_hold_the_reserved_band(

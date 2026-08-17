@@ -14,6 +14,7 @@ of -- a false abort that blocks a pipeline whose actual output is fine.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -76,3 +77,146 @@ def test_after_final_checkpoint_sees_settled_geometry(fixture, monkeypatch) -> N
             f"{fixture}: 'after final' checkpoint #{i} validated a pre-final "
             f"layout state the renderer never draws: {drift}"
         )
+
+
+def _deferred_route_guard_harness(monkeypatch, *, render_plan) -> object:
+    graph = parse_metro_mermaid(
+        "%%metro line: x | X | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
+    )
+
+    def defer_route_guards(graph, **_kwargs) -> None:
+        graph._final_route_guards_deferred = True
+
+    monkeypatch.setattr(engine, "_compute_layout_scaled", defer_route_guards)
+    monkeypatch.setattr(
+        "nf_metro.layout.geometric_bypass.apply_geometric_bypass",
+        lambda _graph, _layout_pass: False,
+    )
+    monkeypatch.setattr("nf_metro.render.svg.build_render_plan", render_plan)
+    return graph
+
+
+def test_validated_layout_runs_deferred_route_guards_at_settled_chokepoint(
+    monkeypatch,
+) -> None:
+    calls: list[object] = []
+
+    def capture(graph, theme) -> None:
+        calls.append((graph, theme))
+
+    graph = _deferred_route_guard_harness(monkeypatch, render_plan=capture)
+
+    engine.compute_layout(graph, validate=True)
+
+    assert calls and calls[0][0] is graph
+    assert graph._final_route_guards_deferred is False
+
+
+def test_unvalidated_layout_does_not_run_deferred_route_guards(monkeypatch) -> None:
+    def reject(*_args, **_kwargs) -> None:
+        raise AssertionError("unvalidated layout entered route validation")
+
+    graph = _deferred_route_guard_harness(monkeypatch, render_plan=reject)
+
+    engine.compute_layout(graph, validate=False)
+
+
+def test_deferred_route_guard_failure_propagates_from_validated_layout(
+    monkeypatch,
+) -> None:
+    failure = RuntimeError("settled route validation failed")
+
+    def reject(*_args, **_kwargs) -> None:
+        raise failure
+
+    graph = _deferred_route_guard_harness(monkeypatch, render_plan=reject)
+
+    with pytest.raises(RuntimeError, match="settled route validation failed") as raised:
+        engine.compute_layout(graph, validate=True)
+
+    assert raised.value is failure
+
+
+def test_discovery_reservations_defer_route_guards_without_clearance(
+    monkeypatch,
+) -> None:
+    import nf_metro.layout.routing as routing
+    from nf_metro.layout.phases import guards
+
+    graph = parse_metro_mermaid(
+        "%%metro line: x | X | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
+    )
+    discovery_routes = [object()]
+    discovery = SimpleNamespace(
+        routes=discovery_routes,
+        plan=SimpleNamespace(
+            boundary_clearance_requirements=(),
+            reservations=(object(),),
+        ),
+    )
+    monkeypatch.setattr(
+        routing, "observe_route_edges", lambda *_args, **_kwargs: discovery
+    )
+
+    _offsets, routes = guards._ensure_pass_c_inputs(
+        graph,
+        {},
+        None,
+        validate_final_geometry=True,
+    )
+
+    assert routes is None
+    assert graph._final_route_guards_deferred is True
+
+
+def test_discovery_without_settlement_intent_validates_routes_immediately(
+    monkeypatch,
+) -> None:
+    import nf_metro.layout.routing as routing
+    from nf_metro.layout.phases import guards
+
+    graph = parse_metro_mermaid(
+        "%%metro line: x | X | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
+    )
+    discovery_routes = [object()]
+    discovery = SimpleNamespace(
+        routes=discovery_routes,
+        plan=SimpleNamespace(boundary_clearance_requirements=(), reservations=()),
+    )
+    monkeypatch.setattr(
+        routing, "observe_route_edges", lambda *_args, **_kwargs: discovery
+    )
+
+    _offsets, routes = guards._ensure_pass_c_inputs(
+        graph,
+        {},
+        None,
+        validate_final_geometry=True,
+    )
+
+    assert routes is discovery_routes
+    assert graph._final_route_guards_deferred is False
+
+
+def test_render_consumes_discovery_deferral_at_final_route_guard(
+    monkeypatch,
+) -> None:
+    from nf_metro.render import svg as render_svg
+    from nf_metro.themes import resolve_theme
+
+    graph = parse_metro_mermaid(
+        "%%metro line: x | X | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
+    )
+    engine.compute_layout(graph, validate=False)
+    graph._validate_active = True
+    graph._final_route_guards_deferred = True
+
+    def reject(*_args, **kwargs) -> None:
+        assert kwargs["include_deferred_final"] is True
+        assert kwargs["strict"] is True
+        raise RuntimeError("post-cohort route guard failed")
+
+    monkeypatch.setattr(render_svg, "assert_render_layout_invariants", reject)
+
+    with pytest.raises(RuntimeError, match="post-cohort route guard failed"):
+        render_svg._settled_render_graph(graph, resolve_theme(None, graph))

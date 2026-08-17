@@ -82,6 +82,7 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
+    planner_owns_segment,
     resolve_section,
     tail_on_slot,
     trunk_segments_cross,
@@ -1187,8 +1188,9 @@ def classify_merge_port_feeders(
     entry port fed by at least two distinct feeders, with at least one
     horizontal co-traveller and at least one perpendicular feeder.  A
     line is horizontal when its immediate feeder sits in the port's own
-    row; it is ``below`` / ``above`` only when fed by a direct exit port
-    (not a junction) a row below / above the port - the clean
+    row or comes directly from an exit in the same grid row; it is
+    ``below`` / ``above`` only when fed by a direct exit port
+    (not a junction) in a different grid row - the clean
     inter-section edge that arrives perpendicular at the boundary.  A
     line dropped into the row by an upstream fan/merge junction
     co-travels horizontally and is not a perpendicular joiner, so it is
@@ -1219,6 +1221,16 @@ def classify_merge_port_feeders(
             continue
         distinct_sources.add(id(src))
         if lid in bypass_lids:
+            continue
+        source_section = graph.sections.get(src.section_id) if src.section_id else None
+        target_section = graph.sections.get(port_obj.section_id)
+        if (
+            not is_junction
+            and source_section is not None
+            and target_section is not None
+            and source_section.grid_row == target_section.grid_row
+        ):
+            horizontal.append(lid)
             continue
         dy = src.y - port_st.y
         if abs(dy) <= _MERGE_APPROACH_Y_TOL:
@@ -2489,7 +2501,7 @@ def check_merge_fanout_pivots_shared(
     if not fanouts:
         return []
     merges = set(convergence_junction_ids(graph, topology))
-    by_key: dict[tuple[str, bool], list[tuple[str, str, float]]] = defaultdict(list)
+    by_key: dict[tuple[str, str, bool], list[tuple[str, float]]] = defaultdict(list)
     for rp in routes:
         if not rp.is_inter_section or rp.edge.source not in fanouts:
             continue
@@ -2498,22 +2510,22 @@ def check_merge_fanout_pivots_shared(
         corner = _first_corner(apply_route_offsets(rp, offsets))
         if corner is not None:
             cx, down = corner
-            by_key[(rp.edge.source, down)].append((rp.edge.target, rp.line_id, cx))
+            by_key[(rp.edge.source, rp.line_id, down)].append((rp.edge.target, cx))
 
     violations: list[MergeFanoutPivotSplit] = []
-    for (src, _down), branches in by_key.items():
-        xs = [x for _tgt, _lid, x in branches]
+    for (src, line_id, _down), branches in by_key.items():
+        xs = [x for _target, x in branches]
         source_x = graph.stations[src].x if src in graph.stations else xs[0]
         ref = merge_fanout_pivot_reference(xs, source_x, COORD_TOLERANCE)
         if ref is None:
             continue
-        for tgt, lid, x in branches:
+        for target, x in branches:
             if abs(x - ref) > COORD_TOLERANCE:
                 violations.append(
                     MergeFanoutPivotSplit(
                         source=src,
-                        line_id=lid,
-                        target=tgt,
+                        line_id=line_id,
+                        target=target,
                         pivot_x=x,
                         reference_x=ref,
                     )
@@ -2794,7 +2806,7 @@ def check_no_split_same_line_fanout_descents(
     descent (issue #702).  Coincident descents (a fused trunk) are the wanted
     state and never flag.
     """
-    by_source: dict[tuple[str, str, bool], list[tuple[float, float, float]]] = (
+    by_source: dict[tuple[str, str, bool, bool], list[tuple[float, float, float]]] = (
         defaultdict(list)
     )
     for rp in routes:
@@ -2810,10 +2822,13 @@ def check_no_split_same_line_fanout_descents(
         source_station = graph.stations.get(rp.edge.source)
         if source_station is not None and abs(x - source_station.x) <= COORD_TOLERANCE:
             continue
-        by_source[(rp.edge.source, rp.line_id, down)].append((x, y_lo, y_hi))
+        opens_right = rp.points[1][0] > rp.points[0][0]
+        by_source[(rp.edge.source, rp.line_id, down, opens_right)].append(
+            (x, y_lo, y_hi)
+        )
 
     violations: list[SplitFanoutDescent] = []
-    for (source, line_id, _down), descents in by_source.items():
+    for (source, line_id, _down, _opens_right), descents in by_source.items():
         if len(descents) < 2:
             continue
         for i in range(len(descents)):
@@ -5001,6 +5016,14 @@ def check_right_entry_drop_in_when_clear(
         box_bottom = tgt_sec.bbox_y + tgt_sec.bbox_h
         dive_y = max(y for _, y in r.points)
         if dive_y <= box_bottom + tol:
+            continue
+        shared_opening = r.exit_shared_opening_points
+        if shared_opening and any(
+            planner_owns_segment(r, rank)
+            and max(shared_opening[rank][1], shared_opening[rank + 1][1])
+            >= dive_y - tol
+            for rank in range(len(shared_opening) - 1)
+        ):
             continue
         src_station = graph.stations.get(r.edge.source)
         tgt_station = graph.stations.get(r.edge.target)

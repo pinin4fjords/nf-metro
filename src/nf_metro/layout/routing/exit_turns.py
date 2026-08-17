@@ -22,6 +22,7 @@ from nf_metro.layout.route_plan import (
     ExitLaneOrderSource,
     ExitLaneTransition,
     ExitLaneTransitionPlacement,
+    ExitSharedOpening,
     ExitSourceLane,
     ExitTurnAssignment,
     ExitTurnAxis,
@@ -64,7 +65,8 @@ from nf_metro.layout.routing.common import (
     segment_direction,
     vertical_direction,
 )
-from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.context import _perpendicular_port_lane_offset, _RoutingCtx
+from nf_metro.layout.routing.corners import concentric_corner_radius_at
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
     RouteFamilyId,
@@ -168,6 +170,7 @@ PLANNED_EXIT_FAMILIES = frozenset(
         RouteFamilyId.MERGE_ENTRY_CORRIDOR,
         RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
         RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.MERGE_ENTRY_RIGHT_WRAP,
         RouteFamilyId.BYPASS_CELLMATE_GAP_DROP,
         RouteFamilyId.BYPASS_PACKED_CELL_SAME_ROW,
         RouteFamilyId.BYPASS_RIGHT_ENTRY_CROSS_ROW,
@@ -271,6 +274,21 @@ class ExitTurnPlanQuery:
         self, edge: Edge | ResolvedEdge
     ) -> _TransitionMembership | None:
         return self._transition_by_edge.get((edge.source, edge.target, edge.line_id))
+
+    def shared_opening_for_edge(
+        self, edge: Edge | ResolvedEdge
+    ) -> ExitSharedOpening | None:
+        membership = self.membership_for_edge(edge)
+        if membership is None:
+            return None
+        return next(
+            (
+                opening
+                for opening in membership.plan.shared_openings
+                if membership.member_id in opening.member_ids
+            ),
+            None,
+        )
 
     def replacing_plans(
         self, replacements: Mapping[ExitTurnPlanId, ExitTurnPlan]
@@ -713,7 +731,7 @@ def _source_lane_order(
             return _perp_riser_lateral(
                 ctx, exit_port_id, line_id, exit_port.side, section_id
             )
-        return _tb_x_offset(ctx, source_id, line_id, section_id)
+        return _perpendicular_port_lane_offset(ctx, source_id, line_id, section_id)
 
     graph_rank = {line_id: rank for rank, line_id in enumerate(ctx.graph.lines)}
     values = []
@@ -789,7 +807,7 @@ def _bottom_exit_junction_turn_requirement(
     exit_pid, exit_sec = _bottom_exit_junction_exit_port(ctx, edge.source)
 
     def exit_x_offset(line_id: str) -> float:
-        return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+        return _perpendicular_port_lane_offset(ctx, exit_pid, line_id, exit_sec)
 
     members, _source_center, tgt_center = gather_tapered_bundle(ctx, edge)
     geometry = _bottom_exit_junction_geometry(
@@ -922,6 +940,7 @@ _ROUTE_DERIVED_LEAF_FAMILIES = frozenset(
         RouteFamilyId.MERGE_ENTRY_CORRIDOR,
         RouteFamilyId.MERGE_ENTRY_AROUND_BELOW,
         RouteFamilyId.MERGE_ENTRY_PERPENDICULAR,
+        RouteFamilyId.MERGE_ENTRY_RIGHT_WRAP,
         RouteFamilyId.MERGE_TRUNK_AROUND_BELOW,
         RouteFamilyId.SERPENTINE_LEFT,
     }
@@ -1557,13 +1576,13 @@ def _source_lane_ownership(
         target_offsets = dict(offsets)
         target_offsets[exit_port_id, line_id] = desired
         target_ctx = replace(ctx, station_offsets=target_offsets)
-        source_offset = _tb_x_offset(
+        source_offset = _perpendicular_port_lane_offset(
             source_ctx,
             candidate,
             line_id,
             graph.stations[candidate].section_id,
         )
-        target_offset = _tb_x_offset(
+        target_offset = _perpendicular_port_lane_offset(
             target_ctx,
             exit_port_id,
             line_id,
@@ -1658,13 +1677,13 @@ def _continuation_lane_ownership(
         if direction_axis(run_direction) is DemandAxis.Y:
             source_offsets = dict(offsets)
             source_offsets[source_id, line_id] = desired
-            source_offset = _tb_x_offset(
+            source_offset = _perpendicular_port_lane_offset(
                 replace(ctx, station_offsets=source_offsets),
                 source_id,
                 line_id,
                 graph.stations[source_id].section_id,
             )
-            target_offset = _tb_x_offset(
+            target_offset = _perpendicular_port_lane_offset(
                 replace(ctx, station_offsets=dict(offsets)),
                 entry_id,
                 line_id,
@@ -1718,13 +1737,13 @@ def _continuation_lane_ownership(
             if direction_axis(run_direction) is DemandAxis.Y:
                 source_offsets = dict(offsets)
                 source_offsets[current, line_id] = desired
-                source_offset = _tb_x_offset(
+                source_offset = _perpendicular_port_lane_offset(
                     replace(ctx, station_offsets=source_offsets),
                     current,
                     line_id,
                     graph.stations[current].section_id,
                 )
-                target_offset = _tb_x_offset(
+                target_offset = _perpendicular_port_lane_offset(
                     replace(ctx, station_offsets=dict(offsets)),
                     candidate,
                     line_id,
@@ -2457,8 +2476,9 @@ def _build_group_plan(
             reason = "family-changed-after-lane-compaction"
         else:
             seeds = final_classification.seeds
+    shared_opening = None
     axis_plan = _AxisPlan((), MappingProxyType({}), ctx.curve_radius, None)
-    if reason is None:
+    if reason is None and shared_opening is None:
         assert run_direction is not None
         axis_plan = _plan_turn_axes(
             graph,
@@ -2527,6 +2547,7 @@ def _build_group_plan(
                 axis_by_member[seed.member_id].id
                 if disposition is ExitTurnDisposition.PLANNED
                 and seed.turn_direction is not None
+                and seed.member_id in axis_by_member
                 else None
             ),
         )
@@ -2661,6 +2682,7 @@ def _build_group_plan(
         disposition,
         reason,
         decision_refs,
+        () if shared_opening is None else (shared_opening,),
     )
     diagnostic = (
         RoutePlanDiagnostic(
@@ -3094,7 +3116,9 @@ def _planned_axis_cross_range(
                 def bej_exit_x_offset(
                     line_id: str, _pid: str = exit_pid, _sec: str = exit_sec
                 ) -> float:
-                    return _tb_x_offset(tentative_ctx, _pid, line_id, _sec)
+                    return _perpendicular_port_lane_offset(
+                        tentative_ctx, _pid, line_id, _sec
+                    )
 
                 bej_members, _bej_source_center, bej_tgt_center = gather_tapered_bundle(
                     tentative_ctx, graph_edge
@@ -3160,7 +3184,7 @@ def _planned_axis_cross_range(
             if geometry.bundle_offsets is None:
                 values.extend((geometry.points[0][0], geometry.points[-1][0]))
             else:
-                effective_offset = _tb_x_offset(
+                effective_offset = _perpendicular_port_lane_offset(
                     tentative_ctx,
                     edge.source,
                     edge.line_id,
@@ -3471,6 +3495,98 @@ def planned_exit_turn_corner_offsets(
         for item in turn_cohort
     )
     return offset, offset if shares_terminal_destination_entry else 0.0
+
+
+def seat_planned_exit_turn_continuation_flanks(
+    routes: Iterable[RoutedPath],
+    ctx: _RoutingCtx,
+) -> None:
+    """Seat shared-terminal continuations in their planned source-lane frame."""
+    if ctx.exit_turns is None:
+        return
+    cohorts: defaultdict[
+        tuple[ExitTurnPlanId, EndpointGroupId, Direction, Direction],
+        list[tuple[RoutedPath, int, float]],
+    ] = defaultdict(list)
+    for route in routes:
+        if (
+            route.exit_turn_plan_id is None
+            or route.exit_turn_segment_rank is None
+            or route.fan_plan_id is not None
+            or route.fan_route_emitter is not None
+        ):
+            continue
+        membership = ctx.exit_turns.membership_for_edge(route.edge)
+        if (
+            membership is None
+            or membership.assignment is None
+            or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+            or membership.assignment.planned_family_id.value
+            not in BYPASS_ROUTE_FAMILY_VALUES
+        ):
+            continue
+        offsets = planned_exit_turn_corner_offsets(membership)
+        rank = route.exit_turn_segment_rank
+        if offsets is None or rank + 3 >= len(route.points):
+            continue
+        incoming = segment_direction(route.points[rank], route.points[rank + 1])
+        outgoing = segment_direction(route.points[rank + 1], route.points[rank + 2])
+        if (
+            incoming is None
+            or outgoing is None
+            or direction_axis(incoming) is direction_axis(outgoing)
+        ):
+            continue
+        cohorts[
+            (
+                membership.plan.id,
+                membership.assignment.entry_group_id,
+                incoming,
+                outgoing,
+            )
+        ].append((route, rank, offsets[1]))
+
+    for (_plan_id, _entry_group_id, incoming, outgoing), cohort in cohorts.items():
+        if len(cohort) < 2 or not any(
+            abs(offset) > COORD_TOLERANCE for _route, _rank, offset in cohort
+        ):
+            continue
+        reference = next(
+            (
+                (route, rank)
+                for route, rank, offset in cohort
+                if abs(offset) <= COORD_TOLERANCE
+            ),
+            None,
+        )
+        if reference is None:
+            continue
+        reference_route, reference_rank = reference
+        reference_radius = (
+            reference_route.curve_radii[reference_rank]
+            if reference_route.curve_radii is not None
+            and reference_rank < len(reference_route.curve_radii)
+            else ctx.curve_radius
+        )
+        continuation_axis = direction_axis(outgoing)
+        lateral_index = 1 if continuation_axis is DemandAxis.X else 0
+        reference_coordinate = reference_route.points[reference_rank + 1][lateral_index]
+        for route, rank, offset in cohort:
+            lateral_delta = -offset * outgoing.sign / incoming.sign
+            coordinate = reference_coordinate + lateral_delta
+            for point_rank in (rank + 1, rank + 2):
+                point = list(route.points[point_rank])
+                point[lateral_index] = coordinate
+                route.points[point_rank] = (point[0], point[1])
+            if route.curve_radii is not None and rank < len(route.curve_radii):
+                route.record_concentric_corner(rank, offset, reference_radius)
+                route.curve_radii[rank] = concentric_corner_radius_at(
+                    route.points[rank],
+                    route.points[rank + 1],
+                    route.points[rank + 2],
+                    offset,
+                    reference_radius,
+                )
 
 
 def consume_exit_turn_route(
@@ -3884,6 +4000,20 @@ def validate_exit_turn_plans(
                     )
                 )
             route = member_routes[0]
+            opening = next(
+                (
+                    item
+                    for item in exit_turn_plan.shared_openings
+                    if assignment.member_id in item.member_ids
+                ),
+                None,
+            )
+            if opening is not None:
+                if tuple(route.points[: len(opening.points)]) != opening.points:
+                    raise ExitTurnInvariantError(
+                        _failure(exit_turn_plan, "emitted shared opening changed")
+                    )
+                continue
             if route.exit_turn_family_id != assignment.planned_family_id.value:
                 raise ExitTurnInvariantError(
                     _failure(

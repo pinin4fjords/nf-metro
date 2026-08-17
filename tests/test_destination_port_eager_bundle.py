@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import nf_metro.layout.routing.normalize as normalize
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
     CURVE_RADIUS,
@@ -12,6 +14,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import (
+    RoutedPath,
     iter_horizontal_trunks,
     port_peeloff_tail,
 )
@@ -171,10 +174,62 @@ def test_destination_tail_runtime_guard_is_not_vacuous(monkeypatch) -> None:
     monkeypatch.setattr(
         normalize,
         "_bundle_same_destination_tails",
-        lambda routes, ctx: None,
+        lambda routes, ctx, **_kwargs: None,
     )
     routes = route_edges(graph, station_offsets=offsets)
 
     violations = check_peeloff_concentric(graph, routes)
     messages = [violation.message() for violation in violations]
     assert any("qc__entry_left_6" in message for message in messages)
+
+
+def test_destination_tail_mobility_is_an_explicit_bundle_scope(monkeypatch) -> None:
+    routes = [
+        RoutedPath(
+            Edge("source", f"target-{line_id}", line_id),
+            line_id,
+            [(0.0, 0.0), (0.0, y), (100.0, y), (100.0, 100.0)],
+            is_inter_section=True,
+        )
+        for line_id, y in (("movable", 10.0), ("sibling", 20.0), ("other", 40.0))
+    ]
+    trunks = {
+        route.line_id: normalize._HTrunk(
+            route,
+            1,
+            route.points[1][1],
+            route.points[1][0],
+            route.points[2][0],
+            True,
+            1,
+        )
+        for route in routes
+    }
+    bundles = [
+        (
+            object(),
+            {line_id: trunks[line_id] for line_id in ("movable", "sibling")},
+            {"movable": 30.0, "sibling": 33.0},
+        ),
+        (object(), {"other": trunks["other"]}, {"other": 50.0}),
+    ]
+    route_by_line = {route.line_id: route for route in routes}
+    moved: list[str] = []
+    monkeypatch.setattr(
+        normalize,
+        "iter_eligible_destination_tail_bundles",
+        lambda *_args: bundles,
+    )
+    monkeypatch.setattr(
+        normalize,
+        "_set_htrunk_y",
+        lambda route, *_args, **_kwargs: moved.append(route.line_id),
+    )
+
+    normalize._bundle_same_destination_tails(
+        routes,
+        SimpleNamespace(graph=object(), offset_step=3.0, curve_radius=10.0),
+        movable_route_ids=frozenset({id(route_by_line["movable"])}),
+    )
+
+    assert moved == ["movable", "sibling"]

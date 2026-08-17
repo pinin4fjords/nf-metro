@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from nf_metro.layout.route_plan import RoutePlanObserver
 
 from nf_metro.layout.constants import (
+    BUNDLE_TO_BUNDLE_CLEARANCE,
     BYPASS_CLEARANCE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
@@ -85,6 +86,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     reserved_row_band_between,
     resolve_section,
+    resolve_section_colrow,
     right_normal_axis_sign,
     row_bottom_edge,
     row_top_edge,
@@ -100,10 +102,8 @@ from nf_metro.layout.routing.context import (
     _get_offset,
     _has_intervening_sections,
     _hop_needs_bypass,
-    _resolve_section_col,
-    _resolve_section_colrow,
+    _perpendicular_port_lane_offset,
     _RoutingCtx,
-    _tb_x_offset,
     is_near_vertical_drop,
 )
 from nf_metro.layout.routing.corners import (
@@ -234,7 +234,7 @@ class _InterFacts:
             self.src.id: (self.src_col, self.src_row),
             self.tgt.id: (self.tgt_col, self.tgt_row),
         }.get(station.id)
-        return cached or _resolve_section_colrow(self.graph, station)
+        return cached or resolve_section_colrow(self.graph, station)
 
     def h_segment_crosses_other_section(
         self,
@@ -470,12 +470,8 @@ class _InterFacts:
 
     @property
     def is_left_exit(self) -> bool:
-        """Source is a LEFT-side exit port (not an entry)."""
-        return (
-            self.src_port is not None
-            and not self.src_port.is_entry
-            and self.src_port.side is PortSide.LEFT
-        )
+        """Source leaves through a LEFT-side exit."""
+        return _source_exit_side(self.graph, self.src) is Direction.L
 
     @property
     def is_serpentine_left_exit_left_entry(self) -> bool:
@@ -518,8 +514,8 @@ def _build_inter_facts(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> _InterFacts:
     graph = ctx.graph
-    src_col, src_row = _resolve_section_colrow(graph, src)
-    tgt_col, tgt_row = _resolve_section_colrow(graph, tgt)
+    src_col, src_row = resolve_section_colrow(graph, src)
+    tgt_col, tgt_row = resolve_section_colrow(graph, tgt)
     bypass = _hop_needs_bypass(
         graph, HopEnd(src, src_col, src_row), HopEnd(tgt, tgt_col, tgt_row)
     )
@@ -571,10 +567,13 @@ def _route_straight_connector(f: _InterFacts) -> RoutedPath | None:
         is_inter_section=True,
     )
     if planned_transition is not None:
+        _declare_placed_channels(planned_transition, f.ctx)
         return planned_transition
-    return route_straight(
+    route = route_straight(
         f.edge, f.ctx, (f.sx, f.sy), (f.tx, f.ty), base_radius=f.ctx.curve_radius
     )
+    _declare_placed_channels(route, f.ctx)
+    return route
 
 
 def _route_near_vertical_junction(f: _InterFacts) -> RoutedPath | None:
@@ -706,8 +705,68 @@ def _route_bypass_packed_cell_same_row(f: _InterFacts) -> RoutedPath | None:
     return _route_left_entry_family(f)
 
 
+def _u_bypass_wraps_above_merge_trunk(f: _InterFacts) -> bool:
+    """Whether a downward U-bypass must pass above a crossing merge trunk."""
+    if (
+        f.bypass_route is not _BypassRoute.U_BYPASS
+        or f.entry_side is not PortSide.RIGHT
+        or f.horizontal is not Direction.L
+        or f.src_row is None
+        or f.tgt_row is None
+        or f.tgt_row <= f.src_row
+        or f.src_col is None
+        or f.tgt_col is None
+    ):
+        return False
+    graph = f.ctx.graph
+    for merge_id, entry_id in f.ctx.merge.entry_port_for.items():
+        trunk_source = f.ctx.merge.trunk_source.get(merge_id)
+        entry = graph.stations.get(entry_id)
+        source = graph.stations.get(trunk_source) if trunk_source is not None else None
+        if entry is None or source is None:
+            continue
+        entry_col, entry_row = resolve_section_colrow(graph, entry)
+        source_col, source_row = resolve_section_colrow(graph, source)
+        if (
+            entry_col is None
+            or entry_row is None
+            or source_col is None
+            or source_row != f.src_row
+            or entry_row < f.tgt_row
+            or not f.src_col < entry_col
+            or not f.tgt_col < source_col < f.src_col
+        ):
+            continue
+        if any(
+            edge.source == trunk_source
+            and edge.target == merge_id
+            and edge.line_id != f.edge.line_id
+            for edge in graph.edges
+        ):
+            return True
+    return False
+
+
 def _route_u_bypass_family(f: _InterFacts) -> RoutedPath:
     """Build the U-shaped remainder of the bypass family."""
+    if _u_bypass_wraps_above_merge_trunk(f):
+        assert f.src_row is not None
+        return _build_right_entry_wrap_route(
+            f.edge,
+            f.src,
+            f.tgt,
+            f.i,
+            f.n,
+            f.ctx,
+            header_corridor_y(
+                f.graph,
+                f.src_row,
+                below=False,
+                base_radius=f.ctx.curve_radius,
+                default=f.sy,
+            ),
+            normalize_exempt=False,
+        )
     return _route_bypass(f, _bypass_geometry(f))
 
 
@@ -1553,6 +1612,7 @@ class _MergeEntryRoute(Enum):
     CORRIDOR = "corridor"
     AROUND_BELOW = "around_below"
     PERPENDICULAR_ENTRY = "perpendicular_entry"
+    RIGHT_ENTRY_WRAP = "right_entry_wrap"
     L_SHAPE = "l_shape"
 
 
@@ -1575,6 +1635,19 @@ def _merge_entry_route_kind(f: _InterFacts) -> _MergeEntryRoute:
     ep_port = graph.ports.get(ep.id)
     if ep_port and ep_port.side in (PortSide.TOP, PortSide.BOTTOM):
         return _MergeEntryRoute.PERPENDICULAR_ENTRY
+    source_section = resolve_section(graph, src, prefer_upstream=True)
+    if (
+        ep_port
+        and ep_port.side is PortSide.RIGHT
+        and f.cross_row
+        and f.edge.source in ctx.junction_ids
+        and source_section is not None
+        and source_section.bbox_w > 0
+        and f.sx >= source_section.bbox_x + source_section.bbox_w - COORD_TOLERANCE
+        and _l_shape_mid_x(f.edge, src, ep, f.n, ctx)
+        < source_section.bbox_x + source_section.bbox_w - COORD_TOLERANCE
+    ):
+        return _MergeEntryRoute.RIGHT_ENTRY_WRAP
     if ep_port and ep_port.side == PortSide.LEFT:
         exclude = {src.section_id} if src.section_id else set[str]()
         if f.h_segment_crosses_other_section(f.sx, ep.x, ep.y, exclude):
@@ -1640,6 +1713,7 @@ def _route_merge_entry_kind(
         _MergeEntryRoute.PERPENDICULAR_ENTRY: lambda: _route_perpendicular_entry_stair(
             edge, src, ep, f.n, ctx
         ),
+        _MergeEntryRoute.RIGHT_ENTRY_WRAP: lambda: _route_merge_entry_right_wrap(f),
         _MergeEntryRoute.L_SHAPE: lambda: _route_l_shape(edge, src, ep, f.i, f.n, ctx),
     }
     return builders[kind]()
@@ -1666,6 +1740,35 @@ def _route_merge_entry_perpendicular(f: _InterFacts) -> RoutedPath | None:
     return _route_merge_entry_kind(f, _MergeEntryRoute.PERPENDICULAR_ENTRY)
 
 
+def _route_merge_entry_right_wrap(f: _InterFacts) -> RoutedPath:
+    """Feed a merge into a RIGHT entry from the port's outward side."""
+    src_col = f.src_col if f.src_col is not None else 0
+    assert f.merge_ep is not None
+    ep_col, _ep_row = f.section_colrow(f.merge_ep)
+    tgt_col = ep_col if ep_col is not None else src_col
+    channel_y = bypass_bottom_y(
+        f.graph,
+        src_col,
+        tgt_col,
+        BYPASS_CLEARANCE,
+        src_row=f.src_row,
+        cross_row=True,
+    )
+    return _build_right_entry_wrap_route(
+        f.edge,
+        f.src,
+        f.merge_ep,
+        f.i,
+        f.n,
+        f.ctx,
+        channel_y,
+    )
+
+
+def _route_merge_entry_right_wrap_family(f: _InterFacts) -> RoutedPath | None:
+    return _route_merge_entry_kind(f, _MergeEntryRoute.RIGHT_ENTRY_WRAP)
+
+
 def _takes_merge_entry_kind(f: _InterFacts, kind: _MergeEntryRoute) -> bool:
     return f.merge_ep is not None and f.merge_entry_route is kind
 
@@ -1679,9 +1782,24 @@ def _right_entry_plough_needs_bypass(f: _InterFacts) -> bool:
         and f.tgt_row > f.src_row
         and f.src_col is not None
         and f.tgt_col is not None
+        and horizontal_direction(f.dx) is Direction.L
     ):
         return False
-    return f.h_segment_crosses_other_section(f.sx, f.tx, f.ty)
+    if f.is_left_exit and _left_exit_right_entry_step_is_clear(
+        f.graph, f.edge, f.src, f.tgt, f.ctx
+    ):
+        return False
+    if f.h_segment_crosses_other_section(f.sx, f.tx, f.ty):
+        return True
+    _fan, _pos_n, _delta, corner_x = _wrap_fan_geometry(
+        f.ctx,
+        f.edge,
+        f.src,
+        f.i,
+        f.n,
+        vertical_direction(f.dy),
+    )
+    return f.h_segment_crosses_other_section(f.sx, corner_x, f.sy)
 
 
 def _route_right_entry_plough_bypass(f: _InterFacts) -> RoutedPath | None:
@@ -1988,6 +2106,12 @@ _INTER_SECTION_CLAIMS: tuple[_Rule, ...] = (
         _route_merge_entry_perpendicular,
     ),
     _Rule(
+        RouteFamilyId.MERGE_ENTRY_RIGHT_WRAP,
+        "merge entry RIGHT outward wrap",
+        lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.RIGHT_ENTRY_WRAP),
+        _route_merge_entry_right_wrap_family,
+    ),
+    _Rule(
         RouteFamilyId.MERGE_ENTRY,
         "merge entry family",
         lambda f: _takes_merge_entry_kind(f, _MergeEntryRoute.L_SHAPE),
@@ -2183,7 +2307,9 @@ def _tb_bottom_exit_geometry(
             _SourceSeam(run_direction, turn_direction, src.y, channel_y),
         )
 
-    x_offset = _tb_x_offset(ctx, edge.source, edge.line_id, src.section_id)
+    x_offset = _perpendicular_port_lane_offset(
+        ctx, edge.source, edge.line_id, src.section_id
+    )
     source_x = src.x + x_offset
     target_x = tgt.x + x_offset
     if abs(target_x - source_x) <= COORD_TOLERANCE:
@@ -2208,7 +2334,9 @@ def _tb_bottom_exit_geometry(
     riser_sign = -run_direction.sign
 
     def lane_offset(line_id: str) -> float:
-        return riser_sign * _tb_x_offset(ctx, edge.source, line_id, src.section_id)
+        return riser_sign * _perpendicular_port_lane_offset(
+            ctx, edge.source, line_id, src.section_id
+        )
 
     fan_clearance = INTER_ROW_EDGE_CLEARANCE + (len(line_ids) - 1) * ctx.offset_step
     channel_y = src.y + run_direction.sign * max(
@@ -2374,7 +2502,9 @@ def _around_stack_geometry(
         # into ``tx`` (each feeder carries one line), so the lane fan is zero.
         if fans_distinct:
             return 0.0
-        return -_tb_x_offset(ctx, edge.source, line_id, src.section_id)
+        return -_perpendicular_port_lane_offset(
+            ctx, edge.source, line_id, src.section_id
+        )
 
     # The bundle fan lifts the jog's innermost line toward the source box, so
     # seat the corridor a fan width below the clearance that innermost lane owes
@@ -2539,7 +2669,7 @@ def _bottom_exit_junction_parts(
 
     def exit_x_offset(line_id: str) -> float:
         if ctx.station_offsets:
-            return _tb_x_offset(ctx, exit_pid, line_id, exit_sec)
+            return _perpendicular_port_lane_offset(ctx, exit_pid, line_id, exit_sec)
         bi, bn = ctx.bundle_info.get((edge.source, edge.target, line_id), (f.i, f.n))
         return l_shape_stagger(bi, bn, Direction.D, ctx.offset_step)
 
@@ -2747,7 +2877,7 @@ def _route_bottom_exit_junction_via_gap(
     tgt_port = ctx.graph.ports.get(edge.target)
     if tgt_port is None or tgt_port.side != PortSide.LEFT:
         return None
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, tgt)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, tgt)
     if ep_col is None or ep_row is None:
         return None
     corner_x = _corridor_descent_x(ctx, ep_col, ep_row, 0.0)
@@ -2882,13 +3012,15 @@ def _has_around_section_sibling(
 class _MergeTrunkShape(NamedTuple):
     """How a merge trunk reaches the entry port standing behind its junction.
 
-    ``around_below`` marks the loop under the target; every other field is a
+    ``around_below`` marks the loop under the target and ``right_entry_wrap``
+    marks an outward approach to a RIGHT port; every other field is a
     :func:`_bypass_geometry` input for the U-shape drawn otherwise.  Stated
     apart from the builder so the plan naming the trunk's turn and the emission
     drawing it read one description of the shape.
     """
 
     around_below: bool
+    right_entry_wrap: bool
     entry_port: Station | None
     effective_tx: float
     effective_ty: float
@@ -2949,6 +3081,7 @@ def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
         if no_left_channel:
             return _MergeTrunkShape(
                 True,
+                False,
                 ep,
                 effective_tx,
                 effective_ty,
@@ -2958,6 +3091,10 @@ def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
             )
     return _MergeTrunkShape(
         False,
+        ep is not None
+        and ep_port is not None
+        and ep_port.side == PortSide.RIGHT
+        and f.src.x < ep.x,
         ep,
         effective_tx,
         effective_ty,
@@ -2979,6 +3116,19 @@ def _route_merge_trunk(
     """Full U-shape bypass for the trunk carrier, ending at the entry port."""
     shape = shape or f.merge_trunk_shape
     assert not shape.around_below
+    if shape.right_entry_wrap:
+        assert shape.entry_port is not None
+        channel_y = f.ctx.merge.trunk_by.get(f.edge.target)
+        assert channel_y is not None
+        return _build_right_entry_wrap_route(
+            f.edge,
+            f.src,
+            shape.entry_port,
+            f.i,
+            f.n,
+            f.ctx,
+            channel_y,
+        )
     return _route_bypass(f, _bypass_geometry(f, shape))
 
 
@@ -3445,6 +3595,23 @@ def _bypass_geometry(
         gap2_x = _clear_channel_x_in_band(
             graph, gap2_x, by, ty, SECTION_ROUTE_CLEARANCE, exclude, g2_left, g2_right
         )
+
+    emitted_source_y = sy + src_off
+    if _h_segment_crosses_other_section(graph, sx, gap1_x, emitted_source_y, exclude):
+        left_candidate = sx - ctx.curve_radius
+        left_candidate = _clear_channel_x_in_band(
+            graph,
+            left_candidate,
+            emitted_source_y,
+            by,
+            SECTION_ROUTE_CLEARANCE,
+            exclude,
+            bound_right=left_candidate,
+        )
+        if not _h_segment_crosses_other_section(
+            graph, sx, left_candidate, emitted_source_y, exclude
+        ):
+            gap1_x = left_candidate
 
     # Describe the U as a centreline through the two gap channels plus a
     # per-line offset on each, and let build_tapered_bundle derive every
@@ -4076,6 +4243,7 @@ def _route_l_shape_fan(
         normalize_exempt=False,
     )
     assert route is not None  # the lone member is always in its own bundle
+    _anchor_l_shape_fan_source_lane(route, src, ctx)
     _declare_channel(
         route,
         ctx,
@@ -4085,6 +4253,48 @@ def _route_l_shape_fan(
         un,
     )
     return route
+
+
+def _anchor_l_shape_fan_source_lane(
+    route: RoutedPath, src: Station, ctx: _RoutingCtx
+) -> None:
+    """Keep a turning fan member off a planned straight continuation lane."""
+    if ctx.exit_turns is None:
+        return
+    membership = ctx.exit_turns.membership_for_edge(route.edge)
+    if (
+        membership is None
+        or membership.assignment is None
+        or membership.plan.disposition is not ExitTurnDisposition.PLANNED
+        or not any(
+            assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
+            and assignment.source_lane_rank != membership.assignment.source_lane_rank
+            for assignment in membership.plan.assignments
+        )
+    ):
+        return
+    source_y = src.y + _get_offset(ctx, route.edge.source, route.line_id)
+    lane_offsets = {
+        lane.rank: lane.planned_offset for lane in membership.plan.source_lanes
+    }
+    source_offset = lane_offsets[membership.assignment.source_lane_rank]
+    straight_offsets = tuple(
+        lane_offsets[assignment.source_lane_rank]
+        for assignment in membership.plan.assignments
+        if assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
+        and assignment.source_lane_rank != membership.assignment.source_lane_rank
+    )
+    straight_ys = tuple(src.y + offset for offset in straight_offsets)
+    if not any(
+        abs(route.points[0][1] - straight_y) <= COORD_TOLERANCE
+        for straight_y in straight_ys
+    ):
+        return
+    shift = (
+        -ctx.offset_step if source_offset < min(straight_offsets) else ctx.offset_step
+    )
+    fan_y = source_y + shift
+    route.points[:2] = [(point[0], fan_y) for point in route.points[:2]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -4107,11 +4317,11 @@ def _l_shape_fan_source_turn(
     """Resolve the fixed launch and turn column of a junction-fan L-shape."""
     sx, sy = src.x, src.y
     tx, ty = tgt.x, tgt.y
-    run_direction = horizontal_direction(tx - sx)
     turn_direction = vertical_direction(ty - sy)
     _rank, size = fan
     half_width = (size - 1) * ctx.offset_step / 2
-    axis_x = sx + run_direction.sign * (ctx.curve_radius + half_width)
+    toward_target = 1.0 if tx > sx else -1.0
+    axis_x = sx + toward_target * (ctx.curve_radius + half_width)
     axis_x = clear_channel_of_section_edge(
         ctx.graph,
         axis_x,
@@ -4120,6 +4330,13 @@ def _l_shape_fan_source_turn(
         max(sy, ty),
         endpoint_port_xs(ctx.graph, edge),
         target_x=tx,
+    )
+    # Clearing a blocked column can seat the turn on the far side of the source
+    # from the target, so the run direction reads from the cleared axis: a
+    # lead-in measured from the target's side would double back over the turn
+    # and hand the emitter a reversed segment to offset against.
+    run_direction = horizontal_direction(
+        axis_x - sx if abs(axis_x - sx) > COORD_TOLERANCE else tx - sx
     )
     lead_length = ctx.curve_radius + 2 * half_width
     launch_x = axis_x - run_direction.sign * lead_length
@@ -4258,7 +4475,9 @@ def _perp_exit_geometry(f: _InterFacts) -> _PerpExitGeometry | None:
     # so the leg is one straight segment.  Each line drops at the target trunk's
     # per-line X offset, keeping a co-travelling bundle parallel down to the
     # port and on into the trunk, merging only at the first station inside it.
-    drop_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
+    drop_x = tgt.x + _perpendicular_port_lane_offset(
+        ctx, edge.target, edge.line_id, tgt.section_id
+    )
     return _perp_exit_record(
         ((drop_x, src.y), (drop_x, tgt.y)),
         0.0,
@@ -4779,7 +4998,9 @@ def _perp_entry_landing_x(
     standing on that port's lead-in.
     """
     if tgt_sec is not None and _perp_entry_lands_on_its_own_lane(tgt_sec):
-        return tx + _tb_x_offset(ctx, edge.target, line_id, tgt_sec.id)
+        return tx + _perpendicular_port_lane_offset(
+            ctx, edge.target, line_id, tgt_sec.id
+        )
     entry_port_id = ctx.merge.entry_port_for.get(edge.target, edge.target)
     return _perp_entry_crossing_x(ctx, entry_port_id, line_id, tx)
 
@@ -5404,8 +5625,8 @@ def _left_exit_left_entry_drop_channel_x(
     stand on one column, the way
     :func:`seated_left_exit_under_target_descent` does for the far-side loop.
     """
-    src_col = _resolve_section_col(ctx.graph, src)
-    tgt_col = _resolve_section_col(ctx.graph, tgt)
+    src_col, _src_row = resolve_section_colrow(ctx.graph, src)
+    tgt_col, _tgt_row = resolve_section_colrow(ctx.graph, tgt)
     left_edge = min(
         col_left_edge(ctx.graph, src_col, default=src.x),
         col_left_edge(ctx.graph, tgt_col, default=tgt.x),
@@ -5594,7 +5815,7 @@ def _fan_corner_x(
     src_col, src_row = (
         facts.section_colrow(src)
         if facts is not None
-        else _resolve_section_colrow(ctx.graph, src)
+        else resolve_section_colrow(ctx.graph, src)
     )
     if src_col is None:
         return stand_off
@@ -5867,7 +6088,7 @@ def _left_entry_wrap_geometry(
     # the same target column, anchor the descent channel to the column's LEFT
     # edge so the spine and the corridor overlay as one bundle instead of smearing.
     if fan is not None and _fan_has_corridor_sibling(edge.source, ctx):
-        tgt_col = _resolve_section_col(ctx.graph, tgt)
+        tgt_col, _tgt_row = resolve_section_colrow(ctx.graph, tgt)
         if tgt_col is not None:
             shared_vx = _fan_left_entry_descent_x(ctx, tgt_col, pos_n, 0.0)
             if shared_vx is not None:
@@ -6170,8 +6391,8 @@ def _corridor_is_viable(ctx: _RoutingCtx, src: Station, entry_port: Station) -> 
     ep_port = ctx.graph.ports.get(entry_port.id)
     if ep_port is None or ep_port.side != PortSide.LEFT:
         return False
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, entry_port)
     if src_row is None or ep_row is None or src_col is None or ep_col is None:
         return False
     if ep_row <= src_row:
@@ -6243,8 +6464,8 @@ def _route_inter_row_gap_corridor(
         ctx, edge, src, i, n, vertical_direction(entry_port.y - src.y)
     )
 
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col, ep_row = _resolve_section_colrow(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, ep_row = resolve_section_colrow(ctx.graph, entry_port)
     # Guaranteed by the _corridor_is_viable check at every call site.
     assert (
         src_col is not None
@@ -6372,8 +6593,8 @@ def _around_section_below_geometry(
 
     # Bypass Y below all sections in the column range so the route
     # clears every intervening section (cross_row=True).
-    src_col, src_row = _resolve_section_colrow(ctx.graph, src)
-    ep_col = _resolve_section_col(ctx.graph, entry_port)
+    src_col, src_row = resolve_section_colrow(ctx.graph, src)
+    ep_col, _ep_row = resolve_section_colrow(ctx.graph, entry_port)
     # Fallbacks if a column can't be resolved (degenerate cases).
     bc_src_col = src_col if src_col is not None else 0
     bc_tgt_col = ep_col if ep_col is not None else bc_src_col
@@ -6770,6 +6991,49 @@ def _right_entry_wrap_geometry(f: _InterFacts) -> _RightEntryWrapGeometry:
         rank=2,
     )
 
+    for sibling in ctx.graph.edges_from(edge.source):
+        if sibling is edge or sibling.line_id == edge.line_id:
+            continue
+        sibling_src, sibling_tgt = ctx.graph.edge_endpoints(sibling)
+        sibling_facts = _build_inter_facts(sibling, sibling_src, sibling_tgt, ctx)
+        if not (
+            sibling_facts.needs_bypass
+            and sibling_facts.bypass_route is _BypassRoute.U_BYPASS
+        ):
+            continue
+        sibling_geometry = _bypass_geometry(sibling_facts)
+        traverse_y = sibling_geometry.centreline[2][1]
+        if not (
+            sibling_geometry.gap1_x + COORD_TOLERANCE
+            < corner_x
+            < sibling_geometry.gap2_x - COORD_TOLERANCE
+            and hy > traverse_y + COORD_TOLERANCE
+            and sibling_geometry.gap1_x + COORD_TOLERANCE
+            < vx
+            < sibling_geometry.gap2_x - COORD_TOLERANCE
+        ):
+            continue
+        outer_corner = sibling_geometry.gap1_x - BUNDLE_TO_BUNDLE_CLEARANCE
+        outer_descent = vx + BUNDLE_TO_BUNDLE_CLEARANCE + 2 * ctx.offset_step
+        source_left, source_right = column_gap_edges(
+            ctx.graph, src_col, src_col + 1, row=src_row
+        )
+        target_left, target_right = column_gap_edges(
+            ctx.graph, tgt_col, tgt_col + 1, row=tgt_row
+        )
+        if (
+            source_left + EDGE_TO_BUNDLE_CLEARANCE
+            <= outer_corner
+            <= source_right - EDGE_TO_BUNDLE_CLEARANCE
+            and target_left + EDGE_TO_BUNDLE_CLEARANCE
+            <= outer_descent
+            <= target_right - EDGE_TO_BUNDLE_CLEARANCE
+        ):
+            corner_x = outer_corner
+            hy = traverse_y + BUNDLE_TO_BUNDLE_CLEARANCE
+            vx = outer_descent
+            break
+
     # A same-line descent from another source already in the lead-out gap would
     # merge with a source-hugging turn-down into one corner.  Carry the
     # horizontal on and turn down clear to its right (bounded at the target row
@@ -6874,6 +7138,7 @@ def _route_right_entry_wrap(f: _InterFacts) -> RoutedPath:
         slot_index=0,
         n_slots=1,
     )
+    _declare_placed_channels(route, ctx)
     return route
 
 

@@ -27,8 +27,8 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _get_offset,
+    _perpendicular_port_lane_offset,
     _RoutingCtx,
-    _tb_x_offset,
 )
 from nf_metro.layout.routing.perp import (
     _perp_entry_crossing_x,
@@ -53,12 +53,17 @@ def _tb_trunk_endpoints(
     """Source and target X for an intra TB edge, holding continuations straight.
 
     A vertical-flow section stores its offsets in arrival order and draws the
-    rotation ``x - offset`` (:func:`_tb_x_offset`), so a line keeps one lane the
+    rotation ``x - offset`` (:func:`_perpendicular_port_lane_offset`), so a line
+    keeps one lane the
     length of its trunk by construction: source and target read the same
     per-station rotation with no reflection or seam compensation.
     """
-    src_x = src.x + _tb_x_offset(ctx, edge.source, edge.line_id, section.id)
-    tgt_x = tgt.x + _tb_x_offset(ctx, edge.target, edge.line_id, section.id)
+    src_x = src.x + _perpendicular_port_lane_offset(
+        ctx, edge.source, edge.line_id, section.id
+    )
+    tgt_x = tgt.x + _perpendicular_port_lane_offset(
+        ctx, edge.target, edge.line_id, section.id
+    )
     return src_x, tgt_x
 
 
@@ -259,7 +264,8 @@ def _route_tb_lr_exit(
 
     The line drops from the station, turns once, and runs out to the port: a
     vertical leg fanned by the station's in-section column X offset (via
-    :func:`_tb_x_offset`, so the drop continues the column without crossing
+    :func:`_perpendicular_port_lane_offset`, so the drop continues the column
+    without crossing
     lines at the feeder station), a horizontal leg fanned by the port's own Y
     offset.  The exit-port Y order is the reverse of the column order, so the
     drop -> turn corner nests concentrically.
@@ -287,7 +293,9 @@ def _route_tb_lr_exit(
     def vert_x_off(line_id: str) -> float:
         # Drop along the same interior column the trunk rides, so the
         # drop->turn corner nests concentrically against the exit-port Y fan.
-        return _tb_x_offset(ctx, edge.source, line_id, src.section_id)
+        return _perpendicular_port_lane_offset(
+            ctx, edge.source, line_id, src.section_id
+        )
 
     def source_offset(line_id: str) -> float:
         return -td * vert_x_off(line_id)
@@ -335,7 +343,9 @@ def _route_tb_lr_entry(
     vd = _sign(tgt.y - src.y)
 
     def vert_x_off(line_id: str) -> float:
-        return _tb_x_offset(ctx, edge.target, line_id, tgt.section_id)
+        return _perpendicular_port_lane_offset(
+            ctx, edge.target, line_id, tgt.section_id
+        )
 
     def source_offset(line_id: str) -> float:
         return hd * _get_offset(ctx, edge.source, line_id)
@@ -412,7 +422,9 @@ def _route_perp_entry(
         # Aligned perpendicular entry: each line drops straight at its in-section
         # trunk lane, so a multi-line bundle stays parallel into the trunk
         # instead of one line slanting across to a Y-staggered marker.
-        x = tx + _tb_x_offset(ctx, edge.target, edge.line_id, tgt.section_id)
+        x = tx + _perpendicular_port_lane_offset(
+            ctx, edge.target, edge.line_id, tgt.section_id
+        )
         return RoutedPath(
             edge=edge,
             line_id=edge.line_id,

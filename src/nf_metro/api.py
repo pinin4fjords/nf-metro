@@ -44,10 +44,7 @@ from nf_metro.text_metrics import (
     metrics_face_context,
     metrics_face_for_portability,
 )
-from nf_metro.themes import DEFAULT_MODE, THEME_MODES, THEMES
-
-# `style: dark` predates theme names; alias it onto the nfcore brand.
-_STYLE_THEME_ALIASES = {"dark": "nfcore"}
+from nf_metro.themes import resolve_theme
 
 
 @dataclass
@@ -101,31 +98,6 @@ def apply_layout_overrides(graph: MetroGraph, opts: Mapping[str, object]) -> Non
             setattr(graph, opt.target_attr, value)
             if opt.name == "line_order" and is_line_order(value):
                 graph.layout_provenance.record_caller_line_order(value)
-
-
-def resolve_theme(
-    theme: str | None, graph: MetroGraph, mode: str | None = None
-) -> Theme:
-    """Resolve a concrete theme from independent brand and mode axes.
-
-    Brand comes from the explicit ``theme`` name (``--theme``) or the
-    ``%%metro style:`` directive (``dark`` aliases to ``nfcore``). Mode comes
-    from the explicit ``mode`` argument (``--mode``), then the ``%%metro mode:``
-    directive, then ``DEFAULT_MODE``. No brand carries its own mode: a known
-    brand always resolves through its light/dark family for the chosen mode.
-    """
-    if theme is not None:
-        brand = theme
-    else:
-        name = graph.style.strip().lower()
-        brand = _STYLE_THEME_ALIASES.get(name, name)
-
-    resolved_mode = (mode or graph.mode).strip().lower() or DEFAULT_MODE
-    family = THEME_MODES.get(brand)
-    if family and resolved_mode in family:
-        return family[resolved_mode]
-
-    return THEMES.get(brand, THEMES["nfcore"])
 
 
 @dataclass(frozen=True)

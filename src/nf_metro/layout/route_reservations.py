@@ -65,7 +65,7 @@ from nf_metro.layout.route_plan import (
 )
 from nf_metro.layout.routing.common import Direction, RoutedPath, apply_route_offsets
 from nf_metro.layout.routing.families import RouteFamilyId
-from nf_metro.parser.model import MetroGraph, Section
+from nf_metro.parser.model import MetroGraph, PortSide, Section
 from nf_metro.parser.provenance import (
     ConnectorEndpointRole,
     GridCell,
@@ -164,6 +164,38 @@ class CanvasRegion:
 
 
 CorridorRegion: TypeAlias = RowGapRegion | ColumnGapRegion | CanvasRegion
+
+
+def claim_is_destination_boundary_carrier(
+    graph: MetroGraph,
+    target_station_id: str,
+    region: CorridorRegion,
+) -> bool:
+    """Whether *region* is the grid boundary feeding a target entry port."""
+    port = graph.ports.get(target_station_id)
+    if port is None or not port.is_entry:
+        return False
+    section = graph.sections.get(port.section_id)
+    if section is None or section.grid_col < 0 or section.grid_row < 0:
+        return False
+    if isinstance(region, CanvasRegion):
+        return False
+    if port.side is PortSide.LEFT:
+        return (
+            isinstance(region, ColumnGapRegion)
+            and region.right_column == section.grid_col
+        )
+    if port.side is PortSide.RIGHT:
+        return (
+            isinstance(region, ColumnGapRegion)
+            and region.left_column == section.grid_col + section.grid_col_span - 1
+        )
+    if port.side is PortSide.TOP:
+        return isinstance(region, RowGapRegion) and region.lower_row == section.grid_row
+    return (
+        isinstance(region, RowGapRegion)
+        and region.upper_row == section.grid_row + section.grid_row_span - 1
+    )
 
 
 class CanvasRect(NamedTuple):
@@ -2079,6 +2111,31 @@ def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     )
 
 
+def _simultaneous_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
+    """The widest stack drawn at one longitudinal coordinate."""
+    endpoints = sorted(
+        {
+            coordinate
+            for lane in lanes
+            for coordinate in (lane.leg.travel_start, lane.leg.travel_end)
+        }
+    )
+    return max(
+        (
+            _confined_stack_width(
+                [
+                    lane
+                    for lane in lanes
+                    if lane.leg.travel_start < midpoint < lane.leg.travel_end
+                ]
+            )
+            for start, end in zip(endpoints, endpoints[1:])
+            if (midpoint := (start + end) / 2.0) > start + COORD_TOLERANCE_FINE
+        ),
+        default=0.0,
+    )
+
+
 def _unfiled_lanes_in_band(
     group: tuple[_ObservedClaim, ...],
     band: _GroupBand,
@@ -2174,6 +2231,20 @@ def _peer_widths(
                 widths[index] = max(
                     widths[index], _confined_stack_width([*own, *confined])
                 )
+            band = bands[index]
+            assert band is not None
+            if not isinstance(groups[index][0].region, ColumnGapRegion):
+                continue
+            shared_band = [
+                peer
+                for peer in (*lanes, *unfiled_by_group[index])
+                if peer.group_index != index
+                and abs(peer.band_low - band.low) <= COORD_TOLERANCE_FINE
+                and abs(peer.band_high - band.high) <= COORD_TOLERANCE_FINE
+            ]
+            stack_width = _simultaneous_stack_width([*own, *shared_band])
+            if stack_width > band.high - band.low + COORD_TOLERANCE_FINE:
+                widths[index] = max(widths[index], stack_width)
     return dict(widths)
 
 
@@ -2198,6 +2269,71 @@ def _shared_launch_anchors(
     for item in group[1:]:
         shared &= set(item.launch_anchors)
     return tuple(sorted(shared, key=lambda item: (item.station_id, item.runway)))
+
+
+def _plan_owned_clearances(
+    negative: float,
+    positive: float,
+    orientation: CorridorOrientation,
+    claims: Iterable[tuple[EmissionMemberId, RouteFamilyId | None, float, int]],
+    plan: RoutePlan,
+) -> tuple[float, float]:
+    materialized = tuple(claims)
+    convergence_member_ids = {
+        member_id
+        for convergence in plan.convergence_plans
+        if convergence.disposition is ConvergenceDisposition.PLANNED
+        for member_id in convergence.member_ids
+    }
+    allocation_axis = (
+        DemandAxis.X if orientation is CorridorOrientation.VERTICAL else DemandAxis.Y
+    )
+    exit_axis_coordinates = {
+        (member_id, axis.coordinate)
+        for exit_turn in plan.exit_turn_plans
+        if exit_turn.disposition is ExitTurnDisposition.PLANNED
+        for axis in exit_turn.axes
+        if axis.axis is allocation_axis
+        for member_id in axis.claimant_member_ids
+    }
+    exit_turn_segment_ranks = {
+        member_geometry.member_id: member_geometry.exit_turn_segment_rank
+        for member_geometry in plan.member_geometry_plans
+        if member_geometry.exit_turn_segment_rank is not None
+    }
+    owned_coordinates = tuple(
+        coordinate
+        for member_id, family_id, coordinate, segment_rank in materialized
+        if (
+            member_id in convergence_member_ids
+            and family_id
+            in {
+                RouteFamilyId.NEAR_VERTICAL_JUNCTION,
+                RouteFamilyId.SAME_X_VERTICAL_DROP,
+            }
+        )
+        or any(
+            member_id == axis_member_id
+            and (
+                exit_turn_segment_ranks.get(member_id) == segment_rank
+                or (
+                    member_id not in exit_turn_segment_ranks
+                    and abs(coordinate - axis_coordinate) <= COORD_TOLERANCE
+                )
+            )
+            for axis_member_id, axis_coordinate in exit_axis_coordinates
+        )
+    )
+    if not owned_coordinates:
+        return negative, positive
+    coordinates = tuple(
+        coordinate for _member_id, _family_id, coordinate, _segment_rank in materialized
+    )
+    if min(owned_coordinates) <= min(coordinates) + COORD_TOLERANCE:
+        negative = min(negative, CURVE_RADIUS)
+    if max(owned_coordinates) >= max(coordinates) - COORD_TOLERANCE:
+        positive = min(positive, CURVE_RADIUS)
+    return negative, positive
 
 
 def _build_symbolic_records(
@@ -2264,6 +2400,21 @@ def _build_symbolic_records(
         demand_id = DemandId(_stable_id("corridor-demand", reservation_id))
         lane_count = len(lanes)
         negative, positive, keepouts = _clearances(first.orientation, first.region)
+        negative, positive = _plan_owned_clearances(
+            negative,
+            positive,
+            first.orientation,
+            (
+                (
+                    item.member.id,
+                    item.member.family_id,
+                    item.coordinate,
+                    item.claim.segment_rank,
+                )
+                for item in group
+            ),
+            plan,
+        )
         peer_width = max(0.0, peer_widths.get(group_index, 0.0) - bundle_width)
         families = tuple(
             family
@@ -2458,6 +2609,44 @@ def _canvas_region_measurement(
     )
 
 
+def canvas_content_band(
+    graph: MetroGraph,
+    reservation: RouteReservation,
+    coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
+) -> tuple[float, float] | None:
+    """The span a canvas corridor's bundle may occupy on its content side.
+
+    A canvas corridor is bounded by content on one side and the canvas edge on
+    the other.  The content edge is live geometry and readable at any point;
+    the canvas edge is sized from the content it ends up holding, so it is not.
+    The half-band this returns is therefore open toward the canvas: it says how
+    far the corridor must stay off the boxes it runs beside, and leaves growing
+    the canvas to the sizing that follows.  The canvas extent goes in unbounded
+    for the same reason -- only the content edge of the measurement is spent.
+    ``None`` for a non-canvas region.
+    """
+    region = reservation.region
+    if not isinstance(region, CanvasRegion):
+        return None
+    projected = _projected_claim_bounds(reservation, coordinate_translations)
+    try:
+        measurement = _canvas_region_measurement(
+            graph,
+            region,
+            projected.longitudinal_start,
+            projected.longitudinal_end,
+            math.inf,
+            math.inf,
+        )
+    except ValueError:
+        # No box lies beside the corridor over its own run, so there is no
+        # content edge to hold it off and the margin is the canvas edge alone.
+        return None
+    if region.side in CANVAS_EDGE_ON_NEGATIVE_SIDE:
+        return (-math.inf, measurement.end - reservation.positive_side_clearance)
+    return (measurement.start + reservation.negative_side_clearance, math.inf)
+
+
 @dataclass(frozen=True, slots=True)
 class _ProjectedClaimBounds:
     allocation_axis: DemandAxis
@@ -2612,37 +2801,40 @@ def _realise_one(
     occupied_start = projected.occupied_start
     occupied_end = projected.occupied_end
     landing_section_ids = frozenset(reservation.landing_section_ids)
-    if isinstance(reservation.region, RowGapRegion):
-        measurement = _row_region_measurement(
-            graph,
-            reservation.region,
-            reservation.measurement_scope,
-            reservation.span,
-            longitudinal_start,
-            longitudinal_end,
-            landing_section_ids,
-        )
-    elif isinstance(reservation.region, ColumnGapRegion):
-        measurement = _column_region_measurement(
-            graph,
-            reservation.region,
-            reservation.measurement_scope,
-            reservation.span,
-            longitudinal_start,
-            longitudinal_end,
-            landing_section_ids,
-        )
-    else:
-        assert canvas_width is not None and canvas_height is not None
-        measurement = _canvas_region_measurement(
-            graph,
-            reservation.region,
-            longitudinal_start,
-            longitudinal_end,
-            canvas_width,
-            canvas_height,
-            header_keepouts,
-        )
+    try:
+        if isinstance(reservation.region, RowGapRegion):
+            measurement = _row_region_measurement(
+                graph,
+                reservation.region,
+                reservation.measurement_scope,
+                reservation.span,
+                longitudinal_start,
+                longitudinal_end,
+                landing_section_ids,
+            )
+        elif isinstance(reservation.region, ColumnGapRegion):
+            measurement = _column_region_measurement(
+                graph,
+                reservation.region,
+                reservation.measurement_scope,
+                reservation.span,
+                longitudinal_start,
+                longitudinal_end,
+                landing_section_ids,
+            )
+        else:
+            assert canvas_width is not None and canvas_height is not None
+            measurement = _canvas_region_measurement(
+                graph,
+                reservation.region,
+                longitudinal_start,
+                longitudinal_end,
+                canvas_width,
+                canvas_height,
+                header_keepouts,
+            )
+    except ValueError:
+        return None
     measurement = _launch_anchored_measurement(
         graph, reservation, measurement, occupied_start, occupied_end
     )
@@ -2703,7 +2895,10 @@ def realise_reservation(
     has to read live section envelopes rather than a frozen realisation.
     A claim observed before a settlement translation is projected through
     *coordinate_translations* so it measures the geometry it now describes.
-    Returns ``None`` for a canvas-side corridor when no canvas bounds are known.
+    Returns ``None`` for a canvas-side corridor when no canvas bounds are known,
+    and for a corridor whose region has no box beside the run on one of its
+    sides: a realisation states the room between two named blockers, so where
+    one side names none there is no realisation to state.
     """
     return _realise_one(
         graph,
@@ -2765,9 +2960,27 @@ def drawn_corridor_containment(
         for claim in claims
         for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
     )
+    band_start = realised.region_start + realised.negative_side_clearance
+    band_end = realised.region_end - realised.positive_side_clearance
+    if isinstance(reservation.region, ColumnGapRegion):
+        for claim in claims:
+            polyline = route_polylines[claim.path_rank]
+            if claim.segment_end_rank != len(polyline) - 3:
+                continue
+            segment_start, segment_end = polyline[
+                claim.segment_end_rank : claim.segment_end_rank + 2
+            ]
+            final_start, final_end = polyline[-2:]
+            if segment_start[0] != segment_end[0] or final_start[1] != final_end[1]:
+                continue
+            coordinate = segment_start[0]
+            if band_start - COORD_TOLERANCE <= coordinate < band_start:
+                band_start = coordinate
+            elif band_end < coordinate <= band_end + COORD_TOLERANCE:
+                band_end = coordinate
     return DrawnCorridorContainment(
-        realised.region_start + realised.negative_side_clearance,
-        realised.region_end - realised.positive_side_clearance,
+        band_start,
+        band_end,
         min(drawn),
         max(drawn),
     )
@@ -2937,6 +3150,21 @@ def _validate_reservation_record(
 
     expected_negative, expected_positive, expected_keepouts = _clearances(
         reservation.orientation, reservation.region
+    )
+    expected_negative, expected_positive = _plan_owned_clearances(
+        expected_negative,
+        expected_positive,
+        reservation.orientation,
+        (
+            (
+                claim.member_id,
+                members[claim.member_id].family_id,
+                claim.allocation_coordinate,
+                claim.segment_rank,
+            )
+            for claim in reservation.claims
+        ),
+        plan,
     )
     if isinstance(reservation.region, CanvasRegion):
         # The margin against the canvas edge is the one policy term that tracks
@@ -3842,21 +4070,26 @@ def _project_shared_coordinate(
     member_ids: tuple[EmissionMemberId, ...],
     translations: tuple[ReservationCoordinateTranslation, ...],
 ) -> float:
-    """Project a coordinate every listed member shares, requiring agreement.
+    """Project a coordinate every listed member shares as one owned value.
 
-    Shared plan geometry has one position, so every claimant must project it
-    identically; a disagreement means a translation tore shared geometry
-    apart, which settlement is forbidden from doing.
+    A fully translated claimant carries the shared coordinate with it. A group
+    containing only boundary-crossing claimants follows the translated side of
+    the boundary. Individual member claims retain their endpoint-specific
+    projection; only the plan coordinate they jointly own moves atomically.
     """
-    projected = tuple(
-        project_reservation_coordinate(value, axis, member_id, translations)
-        for member_id in member_ids
-    )
-    if not projected or any(
-        abs(item - projected[0]) > SAME_COORD_TOLERANCE for item in projected[1:]
-    ):
-        raise ValueError("settlement separates shared plan geometry")
-    return projected[0]
+    if not member_ids:
+        raise ValueError("shared plan geometry requires a claimant")
+    projected = value
+    claimant_ids = frozenset(member_ids)
+    for translation in translations:
+        if translation.axis is not axis:
+            continue
+        if claimant_ids.intersection(translation.fully_owned_member_ids) or (
+            claimant_ids.intersection(translation.crossing_member_ids)
+            and projected >= translation.coordinate - SAME_COORD_TOLERANCE
+        ):
+            projected += translation.amount
+    return projected
 
 
 def _project_shared_point(

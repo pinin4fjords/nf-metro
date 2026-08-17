@@ -132,6 +132,18 @@ def test_one_system_lanes_the_trunk_channel_its_plans_share(path: Path) -> None:
                 )
 
 
+def test_reserved_band_does_not_collapse_counter_running_merge_trunks() -> None:
+    """A reserved row band cannot erase a convergence lane decision."""
+    path = ROOT / "examples" / "topologies" / "merge_around_below_leftmost.mmd"
+    plans = next(iter(_systems_with_shared_trunks(path).values()))
+    axes = {item.merge_junction_ids: item.trunk_axis for item in plans}
+    extra = axes[("__merge_2",)]
+    target = axes[("__merge_3",)]
+    assert extra is not None and target is not None
+    assert extra.direction is not target.direction
+    assert abs(extra.coordinate - target.coordinate) >= LANE_CLEARANCE
+
+
 def _member_interior_runs(
     plan: RoutePlan, system_id: RouteSystemId
 ) -> list[tuple[float, float, float]]:
@@ -296,6 +308,16 @@ def _planned_plan(
         disposition=ConvergenceDisposition.PLANNED,
         legacy_reason=None,
     )
+
+
+def test_bypass_tail_runway_cannot_disagree_with_minimum_runway() -> None:
+    landing = _planned_plan("runway", DemandAxis.X, Direction.R, 10.0).landings[0]
+
+    with pytest.raises(
+        ValueError,
+        match="bypass tail runway must equal its minimum runway",
+    ):
+        replace(landing, bypass_tail_runway=landing.minimum_runway + 1.0)
 
 
 @pytest.mark.parametrize(

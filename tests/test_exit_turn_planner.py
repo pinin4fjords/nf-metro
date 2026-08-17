@@ -401,11 +401,15 @@ def test_merge_feeder_does_not_compress_a_terminal_landing_curve() -> None:
 
 
 def test_leftward_upturn_preserves_source_lane_order() -> None:
-    graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
-    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
-        FROZEN / "seed_72.mmd"
+    graph, offsets, observation = _observe(
+        TOPOLOGIES / "multi_frame_exit_lane_settlement.mmd"
     )
-    plan = next(item for item in execution.plans if item.source_id == "s7__exit_left_5")
+    _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
+        TOPOLOGIES / "multi_frame_exit_lane_settlement.mmd"
+    )
+    plan = next(
+        item for item in execution.plans if item.source_id == "side_work__exit_left_5"
+    )
     system = next(
         item for item in observation.plan.systems if item.id == plan.system_id
     )
@@ -413,9 +417,9 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
     assert plan.disposition is ExitTurnDisposition.PLANNED
     assert system.disposition is RouteSystemDisposition.PLANNED
     assert not system.compatibility_reasons
-    assert tuple(lane.line_id for lane in plan.source_lanes) == ("l6", "l2")
+    assert tuple(lane.line_id for lane in plan.source_lanes) == ("side_a", "side_b")
     axes = {axis.line_id: axis.coordinate for axis in plan.axes}
-    assert axes["l6"] < axes["l2"]
+    assert axes["side_a"] < axes["side_b"]
     routes = {
         route.line_id: route
         for route in observation.routes
@@ -426,7 +430,7 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
         line_id: apply_route_offsets(route, offsets)[1][0]
         for line_id, route in routes.items()
     }
-    assert turn_x["l6"] < turn_x["l2"]
+    assert turn_x["side_a"] < turn_x["side_b"]
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -3368,3 +3372,26 @@ def test_a_handover_station_seats_its_two_names_on_adjacent_lanes() -> None:
             f"{station_id}: '{arriving}' at {arriving_lane} and '{departing}' at "
             f"{departing_lane} are not one lane apart"
         )
+
+
+def test_a_merge_and_its_cellmate_feeder_share_one_descent_corridor() -> None:
+    """Feeders landing in one flow entry are bundled by the port, not the hop.
+
+    A merge seated outboard of its RIGHT entry port is reached leftward-to-
+    rightward from a feeder above it while a sibling that descends straight to
+    the port is reached rightward-to-leftward.  Keying the corridor on each
+    hop's own sign splits that one descent into two single-line bundles, which
+    costs the sibling the ``n >= 2`` bundle that deflects it onto the cross-row
+    wrap -- so the bundle has to be owned by the port both members land in.
+    """
+    path = FROZEN / "seed_77.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+    offsets = compute_station_offsets(graph)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+
+    through_merge = ctx.bundle_info[("__junction_37", "__merge_11", "l0")]
+    direct = ctx.bundle_info[("__junction_37", "s8__entry_right_23", "l1")]
+    assert ctx.merge.entry_port_for["__merge_11"] == "s8__entry_right_23"
+    assert through_merge[1] == 2, "feeder through the merge is bundled alone"
+    assert direct[1] == 2, "feeder straight to the port is bundled alone"
+    assert {through_merge[0], direct[0]} == {0, 1}
