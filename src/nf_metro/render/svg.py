@@ -1447,6 +1447,9 @@ def _settle_render_geometry(
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
     routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
+    deferred_final_route_guards = bool(
+        graph._validate_active and graph._final_route_guards_deferred
+    )
     effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
         graph.permissive
     )
@@ -1601,12 +1604,16 @@ def _settle_render_geometry(
         strict=effective_strict,
     )
 
-    # The Tier-A layout guards read the settled routes and the settled boxes --
-    # the geometry the renderer is handed -- so a bbox, anchor, elbow,
-    # pass-through, band or crossing defect is judged on what gets drawn rather
-    # than on a first routing pass that later steps move.
+    # The layout guards read the settled routes and boxes. Deferred
+    # route-dependent guards join the Tier-A set here, so every guard judges the
+    # geometry the renderer is handed rather than a routing pass that later
+    # steps move.
     assert_render_layout_invariants(
-        graph, routes, station_offsets, strict=effective_strict
+        graph,
+        routes,
+        station_offsets,
+        strict=effective_strict or deferred_final_route_guards,
+        include_deferred_final=deferred_final_route_guards,
     )
     assert_render_header_clearance(graph, strict=effective_strict)
     return (
