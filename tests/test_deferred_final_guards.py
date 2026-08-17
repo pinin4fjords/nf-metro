@@ -1,14 +1,11 @@
-"""The validate=True final-guard checkpoint must see the geometry the renderer
-draws, not a transient pre-bypass layout state (#1339).
+"""Final layout guards must inspect the settled geometry the renderer draws.
 
-``compute_layout`` lays the graph out, then ``apply_geometric_bypass`` may
-re-lay it with bypass helpers, moving sections to their final positions.  The
-closing ``after final`` guard checkpoint has to run *after* that re-lay, so a
-``validate=True`` render asserts the same section geometry a ``validate=False``
-render (and the SVG renderer) produces.  Running it on the pre-bypass state
-lets a final-only geometry guard (``_guard_no_route_through_section`` and the
-inter-section wrap family) abort on a crossing the settled layout routes clear
-of -- a false abort that blocks a pipeline whose actual output is fine.
+Geometric bypass and render-time route-envelope settlement can move sections,
+ports, or routes after an earlier layout checkpoint. A validated layout defers
+affected guards until those transformations finish so validation and rendering
+inspect the same geometry. This module covers both the post-bypass ``after
+final`` checkpoint (#1339) and route-dependent final guards deferred until
+render-plan settlement (#1759).
 """
 
 from __future__ import annotations
