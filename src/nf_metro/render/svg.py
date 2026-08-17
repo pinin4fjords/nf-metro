@@ -1607,7 +1607,8 @@ def _settle_render_geometry(
     # The layout guards read the settled routes and boxes. Deferred
     # route-dependent guards join the Tier-A set here, so every guard judges the
     # geometry the renderer is handed rather than a routing pass that later
-    # steps move.
+    # steps move. The strictness override preserves hard-fail semantics for
+    # validation-deferred guards.
     assert_render_layout_invariants(
         graph,
         routes,

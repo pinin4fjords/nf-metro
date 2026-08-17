@@ -148,6 +148,10 @@ class LayoutInvariantError(PhaseInvariantError):
     """
 
 
+class SettledRouteValidationError(PhaseInvariantError):
+    """Raised when settled render-plan routing violates an engine invariant."""
+
+
 class BackwardFlowError(NfMetroError, ValueError):
     """Raised when a layout places a section so an inter-section edge must
     flow backward against its own row's flow direction.
@@ -6179,9 +6183,11 @@ def _ensure_pass_c_inputs(
                 routes = None if deferred else observation.routes
             else:
                 routes = route_edges_for_placement_guards(graph, offsets)
-        except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
+        except Exception:  # noqa: BLE001 - the settled plan build resurfaces it
             routes = None
             if validate_final_geometry:
+                # The engine upcall builds the settled plan and preserves the
+                # routing failure as the validation error's cause.
                 graph._final_route_guards_deferred = True
     return offsets, routes
 

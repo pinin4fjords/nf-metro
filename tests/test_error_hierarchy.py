@@ -25,6 +25,7 @@ from nf_metro.layout import (
     FoldThresholdError,
     MixedEntryDirectionError,
     PhaseInvariantError,
+    SettledRouteValidationError,
 )
 from nf_metro.layout.phases.guards import LayoutInvariantError
 from nf_metro.parser import (
@@ -40,7 +41,11 @@ NEXTFLOW_FLOWCHART = REPO_ROOT / "tests" / "fixtures" / "nextflow"
 # PhaseInvariantError/LayoutInvariantError report an engine self-check, not a
 # bad input, so they deliberately don't share ValueError's "invalid input"
 # base -- kept apart from the ValueError-based authoring errors below.
-NOT_VALUE_ERRORS = (PhaseInvariantError, LayoutInvariantError)
+NOT_VALUE_ERRORS = (
+    PhaseInvariantError,
+    LayoutInvariantError,
+    SettledRouteValidationError,
+)
 AUTHORING_ERROR_TYPES = [
     CyclicGraphError,
     UnresolvedEndpointError,
