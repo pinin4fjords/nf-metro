@@ -762,6 +762,7 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
             except (
                 CyclicGraphError,
                 BackwardFlowError,
+                FoldThresholdError,
                 MixedEntryDirectionError,
                 PhaseInvariantError,
             ) as e:

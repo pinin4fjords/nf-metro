@@ -5,6 +5,7 @@ from nf_metro.layout.engine import (
     FoldThresholdError,
     MixedEntryDirectionError,
     PhaseInvariantError,
+    SettledRouteValidationError,
     compute_layout,
     compute_min_y_spacing,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "FoldThresholdError",
     "MixedEntryDirectionError",
     "PhaseInvariantError",
+    "SettledRouteValidationError",
     "compute_layout",
     "compute_min_y_spacing",
 ]

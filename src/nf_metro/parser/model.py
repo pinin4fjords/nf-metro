@@ -703,6 +703,10 @@ class MetroGraph:
     # from readers that don't carry the ``validate`` flag in their signature.
     _validate_active: bool = field(default=False, repr=False)
 
+    # Final route guards await settled-plan validation while true. The engine's
+    # render-plan upcall consumes and clears the flag.
+    _final_route_guards_deferred: bool = field(default=False, repr=False)
+
     def _invalidate_edge_caches(self) -> None:
         """Reset caches that depend on the edge list."""
         self._station_lines_cache = None

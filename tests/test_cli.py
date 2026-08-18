@@ -6,10 +6,12 @@ import pytest
 from click.testing import CliRunner
 
 from nf_metro.cli import cli
+from nf_metro.layout import FoldThresholdError
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 RNASEQ_MMD = EXAMPLES_DIR / "rnaseq_sections.mmd"
-INVALID_DIR = Path(__file__).resolve().parent / "fixtures" / "invalid"
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+INVALID_DIR = FIXTURES_DIR / "invalid"
 
 # Fixtures that parse and pass graph-semantic validation but trip a layout
 # invariant once the engine runs.  They exercise the boundary between the bare
@@ -19,6 +21,23 @@ SEMANTIC_VALID_LAYOUT_BROKEN = [
     "mixed_entry_perpendicular.mmd",
     "backward_feed_rl.mmd",
     "merge_trunk_rightward_source.mmd",
+]
+
+DEFERRED_ROUTE_GUARD_FAILURES = [
+    (
+        "topologies/twoline_fanout_up.mmd",
+        "bottommost-row climb '__junction_3'->'new_tgt__entry_left_2' dives "
+        "to y=346.0 below source box bottom 320.0",
+    ),
+    (
+        "hash_seed_determinism/seed_15.mmd",
+        "bundle 's8__exit_left_8'->'s10__entry_right_19' corner (623.0,616.0)",
+    ),
+    (
+        "hash_seed_determinism/seed_77.mmd",
+        "undeclared gap channel: line 'l0' (__junction_37->__merge_11) runs "
+        "up at x=2158.0",
+    ),
 ]
 
 
@@ -90,6 +109,34 @@ def test_validate_with_layout_passes_clean_file():
     result = runner.invoke(cli, ["validate", "--with-layout", str(RNASEQ_MMD)])
     assert result.exit_code == 0, result.output
     assert "Valid:" in result.output
+
+
+@pytest.mark.parametrize("fixture,guard_detail", DEFERRED_ROUTE_GUARD_FAILURES)
+def test_validate_with_layout_reports_deferred_route_guard_cleanly(
+    fixture: str, guard_detail: str
+) -> None:
+    result = CliRunner().invoke(
+        cli, ["validate", "--with-layout", str(FIXTURES_DIR / fixture)]
+    )
+
+    assert result.exit_code == 1
+    assert "Validation errors:" in result.output
+    assert "Traceback" not in result.output
+    assert guard_detail in result.output
+
+
+def test_validate_with_layout_reports_fold_threshold_cleanly(monkeypatch) -> None:
+    def reject(*_args, **_kwargs) -> None:
+        raise FoldThresholdError("fold threshold is too small")
+
+    monkeypatch.setattr("nf_metro.cli.compute_layout", reject)
+
+    result = CliRunner().invoke(cli, ["validate", "--with-layout", str(RNASEQ_MMD)])
+
+    assert result.exit_code == 1
+    assert "Validation errors:" in result.output
+    assert "fold threshold is too small" in result.output
+    assert "Traceback" not in result.output
 
 
 def _td_graph(tmp_path: Path) -> Path:
