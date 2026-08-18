@@ -579,6 +579,7 @@ def compute_layout(
             from nf_metro.layout.routing.convergences import ConvergenceInvariantError
             from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
             from nf_metro.layout.routing.invariants import CurveInvariantError
+            from nf_metro.render.section_header import SectionHeaderClashError
             from nf_metro.render.svg import build_render_plan
             from nf_metro.themes import resolve_theme
 
@@ -589,6 +590,7 @@ def compute_layout(
                 FanRouteInvariantError,
                 ConvergenceInvariantError,
                 ExitTurnInvariantError,
+                SectionHeaderClashError,
             ) as exc:
                 raise SettledRouteValidationError(str(exc)) from exc
             finally:

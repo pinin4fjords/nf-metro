@@ -17,9 +17,16 @@ import pytest
 
 from nf_metro.layout import engine
 from nf_metro.layout.fan_plans import FanRouteInvariantError
-from nf_metro.layout.phases.guards import FoldThresholdError, PhaseInvariantError
+from nf_metro.layout.phases.guards import (
+    FoldThresholdError,
+    LayoutInvariantError,
+    PhaseInvariantError,
+)
+from nf_metro.layout.routing.convergences import ConvergenceInvariantError
+from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
 from nf_metro.layout.routing.invariants import CurveInvariantError
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.render.section_header import SectionHeaderClashError
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -137,7 +144,16 @@ def test_deferred_route_guard_failure_propagates_from_validated_layout(
     assert raised.value is failure
 
 
-@pytest.mark.parametrize("error_type", [CurveInvariantError, FanRouteInvariantError])
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        ConvergenceInvariantError,
+        CurveInvariantError,
+        ExitTurnInvariantError,
+        FanRouteInvariantError,
+        SectionHeaderClashError,
+    ],
+)
 def test_deferred_route_guard_invariant_has_layout_boundary(
     monkeypatch, error_type
 ) -> None:
@@ -161,6 +177,7 @@ def test_deferred_route_guard_invariant_has_layout_boundary(
     [
         RuntimeError("unrelated failure"),
         PhaseInvariantError("existing phase failure"),
+        LayoutInvariantError("existing layout failure"),
         FoldThresholdError("fold threshold failure"),
     ],
 )
