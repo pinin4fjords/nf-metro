@@ -212,6 +212,10 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   passes). Let CI run on the final pre-review push - which this repo needs
   anyway, because the render-diff *is* the visual review. (A commit that fixes a
   known CI failure must re-run CI: no `[skip ci]` on those.)
+- **One CI-triggering push per round.** A push runs the full test matrix *and*
+  renders the whole gallery twice, on the PR branch and the base. It is the most
+  expensive action in this workflow. Batch accepted fixes into one push instead
+  of pushing each one as it lands.
 
 ## Scope discipline: fix the fallout, don't defer it
 
@@ -507,8 +511,12 @@ them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
 
 ### Primary method: CI render preview (authoritative)
 
-The coordinator pushes the branch and creates a draft PR. No worker performs
-these remote mutations. The CI workflow
+**This is the one and only push and draft-PR creation in the run.** The
+coordinator does it here, once; no worker performs these remote mutations.
+Steps 10 and 11 do not repeat it - Step 10 verifies the push landed and edits
+the PR body, Step 11 only flips the draft to ready. Every push costs a full CI
+matrix plus a gallery render of both branches, so batch accepted fixes into one
+push rather than pushing per fix. The CI workflow
 (`.github/workflows/pr-renders.yml`) automatically renders all gallery
 examples on both the PR branch and base, generates a before/after visual
 diff page, and posts a sticky comment on the PR with the preview link:
@@ -557,7 +565,8 @@ Two traps this closes:
   correctly".** Removing an abort can merely expose a poor layout the abort
   was masking. After any layout/routing fix, require the verifier to inspect
   the full render (cropping the region as needed) and run `probe_layout` plus
-  `inspect_layout` for the whole-layout picture (crossings, port alignment,
+  `inspect_layout` on the *candidate* SHA - the after-state counterpart to
+  Step 3's before-state reading, not a repeat of it - for the whole-layout picture (crossings, port alignment,
   column gaps), not only the targeted invariant.
 - **A clean render-diff verdict only covers the gallery corpus.** It says
   nothing about a NEW fixture that isn't in the gallery yet. Put new
@@ -575,8 +584,13 @@ brief; do not defend a weak fix.
 A single-file sanity render, or a local before/after sweep, belongs in a LIGHT
 read-only worker that returns the verdict and artifact path rather than the
 imagery. Commands:
-[`references/environment.md`](references/environment.md). Neither replaces the
-CI gallery review.
+[`references/environment.md`](references/environment.md).
+
+**Pick one, never both for the same SHA.** The local sweep computes the same
+before/after corpus diff that CI already computes, so running it alongside the
+CI preview is paying twice for one answer. Use it only when you need that answer
+*before* spending a CI cycle; once the preview exists, the preview is the
+review.
 
 ## Step 9: Narrow Over-Applying Fixes
 
@@ -607,7 +621,10 @@ structured blocker that prevents correction or classification.
 After the writer hands off candidate commit SHA(s) and independent gates pass,
 the coordinator confirms `HEAD` equals the accepted SHA and the tree is clean.
 Only the coordinator pushes, creates or edits the PR, and performs later remote
-mutations. Open the draft PR:
+mutations. If Step 8 has not already pushed and opened the draft PR, do it now,
+once, with this body; if it has, **do not re-push or re-create** - edit the
+existing PR body instead (`gh pr edit`) and go straight to the origin check
+below:
 
 ```bash
 cd /tmp/nf-metro-fix-<N>
@@ -649,9 +666,9 @@ Before declaring readiness, run the **pre-ready gate**: one fresh HIGH read-only
 reviewer given the accepted candidate SHA, aggregate diff, issue, diagnostic
 evidence, test artifacts, and visual verdict. It covers correctness, scope,
 invariants, safety, unresolved fallout, *and* aggregate progress in a single
-brief. Revise any later brief from its findings. Create the PR as a draft for CI
-and render evidence. Only after that gate passes may the coordinator run
-`gh pr ready <N>`.
+brief. Revise any later brief from its findings. The draft PR already exists
+from Step 8; this step adds no push and no new PR. Only after the gate passes
+may the coordinator run `gh pr ready <N>`.
 
 A successful fix-issue run is not done when `/simplify` or a test worker
 returns. It reaches PR-ready completion when:

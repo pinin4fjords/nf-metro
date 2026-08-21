@@ -50,12 +50,16 @@ source ~/.local/bin/mm-activate nf-metro-dev && cd <worktree> && \
   PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit ...
 ```
 
-Never skip hooks with `--no-verify`. The full hook sweep needs the `nf-core`
-environment and stub-complete `mypy`:
+Never skip hooks with `--no-verify`. Run hooks on the changed files, which is
+what the commit itself does anyway:
 
 ```bash
-micromamba run -n nf-core prek run --all-files
+micromamba run -n nf-core prek run --files $(git diff --cached --name-only)
 ```
+
+`prek run --all-files` sweeps the entire repo, including a cold `mypy` over all
+of `src/`. Reserve it for a change to the hook config itself or to a
+repo-wide generated artifact; it is not the default.
 
 ## Verifier environment
 
@@ -68,11 +72,13 @@ mkdir -p "$VERIFY_ARTIFACT_DIR/tmp"
 export PYTHONDONTWRITEBYTECODE=1
 export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
 export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
+# mypy's cache is deliberately NOT per-SHA: a fresh cache per candidate makes
+# every verifier run cold. Keep it outside the worktree and reuse it.
 test "$(git rev-parse HEAD)" = <CANDIDATE_SHA>
 test -z "$(git status --porcelain)"
 ruff check --no-cache src/ tests/
 ruff format --check --no-cache src/ tests/
-mypy --cache-dir="$VERIFY_ARTIFACT_DIR/mypy"
+mypy --cache-dir=/tmp/nf-metro-verify-mypy-cache   # persistent, outside the worktree
 PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" -q --no-header -p no:cacheprovider --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp"
 git diff --exit-code <CANDIDATE_SHA>
 test -z "$(git status --porcelain)"
