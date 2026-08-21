@@ -2,6 +2,12 @@
 
 Read before substituting `Explore` for a named role type.
 
+**Claude Code only.** Everything here - agent definitions, `Explore`/`Plan`,
+`effort`, `permissionMode`, `hooks`, `SendMessage` resumption, the
+`CLAUDE_CODE_SUBAGENT_MODEL` precedence - is this harness's mechanics. On another
+harness, skip this file: the LIGHT/MID/HIGH table in `SKILL.md` is the portable
+contract, and you pass the tier's model by whatever means that harness offers.
+
 ## When to use `Explore` instead
 
 `Explore` and `Plan` are the only agent types that skip both CLAUDE.md files and

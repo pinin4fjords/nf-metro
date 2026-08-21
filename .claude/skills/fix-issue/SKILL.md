@@ -166,19 +166,23 @@ override that beats everything in this skill:
 
 Spawn by role name **and** pass the model. Both, deliberately: the per-invocation
 model is verified to beat the definition, and the definition catches a spawn
-where it was forgotten. Every definition carries an explicit `tools` allowlist,
-which matters because a subagent with no allowlist inherits every tool the main
-conversation has - including all MCP servers, and including `Agent`, which would
-let a worker spawn untiered children of its own.
+where it was forgotten.
 
-The read-only roles carry no `Edit` or `Write`, but they all hold `Bash`, so
-treat that as a backstop and not a guarantee; the instruction is what enforces
-read-only. The structural lever, and why `permissionMode` is not it, is in
-[`agent-types.md`](references/agent-types.md).
+**On a harness with no agent definitions**, the role-to-tier table above is still
+the whole contract: name the role from it and pass that tier's model explicitly.
+The definitions are a Claude Code optimisation that makes the tier structural
+rather than remembered; they are not what the rule depends on. Everything in
+[`agent-types.md`](references/agent-types.md) is Claude Code specific and does
+not port. Every definition carries an explicit `tools` allowlist: without one a subagent
+inherits every tool the main conversation has, including all MCP servers and
+`Agent`, which would let a worker spawn untiered children.
 
-Substituting `Explore`/`Plan` skips both CLAUDE.md files but discards the role
-definition and blocks re-briefing; measured at about $1.65 a run once its resident re-reads are counted, so it is a curiosity
-rather than a lever. See [`agent-types.md`](references/agent-types.md).
+The read-only roles carry no `Edit` or `Write`, but all hold `Bash`: a backstop,
+not a guarantee. The instruction is what enforces read-only.
+
+Substituting `Explore`/`Plan` saves each spawn both CLAUDE.md files but discards
+the role definition and blocks re-briefing, and is measured at about $1.65 a run:
+a curiosity, not a lever.
 
 ### Worker brief template
 
