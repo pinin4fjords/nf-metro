@@ -123,8 +123,8 @@ PYTHONPATH=/tmp/nf-metro-fix-<N>/src \
 ```
 
 Plus `PYTHONPATH=<worktree>/src python -m nf_metro explain <file.mmd>` (the rule
-behind each inferred layout decision) and `python -m nf_metro info --json` (the
-structural model). **`PYTHONPATH` is not optional on any of these.** Without it
+behind each inferred layout decision) and `PYTHONPATH=<worktree>/src python -m nf_metro info --json <file.mmd>` (the
+structural model; the file argument is required). **`PYTHONPATH` is not optional on any of these.** Without it
 they raise `ModuleNotFoundError`; worse, once the env has a non-editable install
 they silently diagnose the *installed* snapshot instead of the worktree under
 test, and the numeric claim the whole run rests on is then about the wrong code.

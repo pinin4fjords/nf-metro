@@ -31,7 +31,7 @@ baseline, or doc change to the sole writer. Only that writer runs the mutating
 regeneration under the pinned interpreter and commits the result:
 
 ```bash
-python scripts/routing_gate_coverage.py --write   # rewrites the matrix doc + baseline
+PYTHONPATH=src python scripts/routing_gate_coverage.py --write   # matrix doc + baseline
 ```
 
 **Gotcha:** the arc model is CPython-version-specific, so these tests **skip**
@@ -42,8 +42,13 @@ exist, the phantom-arc trap) is in
 [`docs/dev/routing_gate_triage.md`](../../../../docs/dev/routing_gate_triage.md);
 for a dedicated triage campaign use the `nf-metro-gate-triage` skill.
 
+**`PYTHONPATH=src` is required on all three.** The prescribed env installs no
+`nf_metro`, so without it the first two raise `ModuleNotFoundError` and the third
+reports 27 subprocess errors that look like gate failures - which is exactly what
+provokes the baseline hand-editing this file forbids.
+
 The verifier reruns
-`python -m pytest tests/test_routing_gate_coverage.py -p no:cacheprovider` on the
+`PYTHONPATH=src python -m pytest tests/test_routing_gate_coverage.py -p no:cacheprovider` on the
 candidate SHA and confirms the worktree remains unchanged.
 
 ## New topology fixture: regenerate the guard-trace golden
@@ -57,7 +62,7 @@ it, so it is one of the few cases where a local full-corpus run earns its cost.
 The sole writer regenerates and commits the golden:
 
 ```bash
-NF_METRO_REGEN_GUARD_GOLDEN=1 python tests/test_guard_registry_golden.py
+NF_METRO_REGEN_GUARD_GOLDEN=1 PYTHONPATH=src python tests/test_guard_registry_golden.py
 ```
 
 Before committing, the writer checks that only the new fixture's `.json` changed

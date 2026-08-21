@@ -111,6 +111,20 @@ def check_shell_blocks() -> None:
                     fail(f"{shell} syntax error in {f.name}: {r.stderr.strip()[:120]}")
 
 
+def check_guards_self_fail() -> None:
+    """`set -e` is inert here: the Bash tool runs zsh and evals the block, so
+    ERREXIT never fires. Any bare `test ...` line is a decorative guard."""
+    for f in md_files():
+        for m in re.finditer(r"```bash\n(.*?)```", f.read_text(), re.S):
+            block = m.group(1)
+            if re.search(r"^\s*set -[a-z]*e", block, re.M):
+                fail(f"{f.name}: shell block relies on `set -e`, which does not fire in this harness")
+            for line in block.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("test ") and "||" not in stripped:
+                    fail(f"{f.name}: bare guard `{stripped[:60]}` cannot fail the block; add `|| die ...`")
+
+
 def check_token_budget() -> None:
     try:
         import tiktoken
@@ -134,6 +148,7 @@ def main() -> int:
         check_agent_definitions,
         check_owner_split,
         check_shell_blocks,
+        check_guards_self_fail,
         check_token_budget,
     ):
         check()

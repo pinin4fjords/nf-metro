@@ -37,7 +37,16 @@ right, the user has authorised the write, and the new body stands alone.
 # Worktree (always off latest origin/main, never stale local main)
 cd ~/projects/nf-metro
 git fetch origin main
-git worktree add /tmp/nf-metro-fix-<N> -b fix/<N>-<slug> origin/main
+git worktree add /tmp/nf-metro-fix-<N> -b fix/<N>-<slug> --no-track origin/main
+```
+
+`--no-track` matters: without it the branch takes `main` as upstream, and a bare
+`git push` then fails with "the upstream branch does not match the name of your
+current branch" and helpfully suggests `git push origin HEAD:main`. Push
+explicitly instead:
+
+```bash
+git push -u origin fix/<N>-<slug>
 ```
 
 All repository-changing work for the primary fix happens inside

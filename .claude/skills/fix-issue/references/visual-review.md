@@ -33,43 +33,61 @@ files, the page is multi-megabyte, and the inlined markup is full of `var()` and
 `light-dark()` that cairosvg cannot parse. So: never `Read` the preview page, and
 do not try to download renders from it.
 
-Use the page only to learn *which* examples changed, then render those locally.
+**First prove the preview describes the candidate SHA.** This is the step that
+matters most, and this skill's own `[skip ci]` default is what breaks it: any
+push after Step 8 leaves a preview built from an older tree, and a sweep over its
+stem list then reviews the wrong commit while reporting a clean count.
 
 ```bash
-set -euo pipefail
-export ART=/tmp/nf-metro-visual-<PR_NUMBER>; mkdir -p "$ART"
-curl -sL "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html"
-# Each changed example is a diff-entry div keyed by fixture stem.
-grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html"   | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u > "$ART/stems.txt"
-wc -l < "$ART/stems.txt"     # how many examples the reviewer owes a verdict on
+die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # `set -e` does not fire here
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
+built=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> \
+          --limit 1 --json headSha -q '.[0].headSha')
+test "$built" = "<CANDIDATE_SHA>" || die "preview was built from $built, not the candidate"
+curl -fsS "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html" \
+  || die "preview not published yet (curl -f, so a 404 fails instead of saving an error page)"
+grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html" \
+  | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u > "$ART/stems.txt"
+test -s "$ART/stems.txt" || die "no stems parsed; the sticky comment may say rendering in progress"
+wc -l < "$ART/stems.txt"
 ```
+
+The sticky comment has four wordings, not two: no visual changes, ready for
+review, rendering in progress, and Pages still publishing. Only the first two are
+verdicts; treat the others as not-ready and wait.
+
+**If provenance fails, do not fall back to the stale list.** Enumerate the corpus
+from `scripts/gallery.yaml` instead and compare both sides yourself, because the
+delta you care about is exactly the part the old preview cannot show. In a
+measured quarter-sample of the 248 ids missing from one stale preview's list, four
+rendered differently and five aborted on the candidate but not the base.
+
+### Rendering both sides
 
 Then render each stem at the base SHA and the candidate SHA and rasterise both.
 This block is **self-contained**: shell state does not survive between Bash
 calls, so it re-exports `ART` rather than relying on the block above.
 
 ```bash
-set -euo pipefail
-export ART=/tmp/nf-metro-visual-<PR_NUMBER>
-: "${ART:?}"                        # abort loudly rather than writing to /
-source ~/.local/bin/mm-activate nf-metro-dev
+die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>
+test -s "$ART/stems.txt" || die "run the provenance block first"
+source ~/.local/bin/mm-activate nf-metro-dev || die "env"
 for side in base cand; do
   case $side in base) SHA=<BASE_SHA>;; cand) SHA=<CANDIDATE_SHA>;; esac
-  W="$ART/wt-$side"
-  git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA"
-  # The corpus spans examples/, tests/fixtures/ and tests/fixtures/hash_seed_determinism/,
-  # so resolve against the whole tree, not one root.
+  W="$ART/wt-$SHA"
+  git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA" || die "worktree add $side"
   git -C "$W" ls-files '*.mmd' > "$ART/all-mmd.txt"
   while read -r stem; do
+    # pipeline_<stem> is the same .mmd with the same options, so one verdict covers both.
     for cand in "$stem" "${stem#pipeline_}"; do
       f=$(grep -E "(^|/)${cand}\.mmd$" "$ART/all-mmd.txt" | head -1) && [ -n "$f" ] && break
     done
     if [ -z "${f:-}" ]; then echo "UNRESOLVED: $stem" >&2; continue; fi
-    # Some corpus fixtures abort by design at head. Never let one kill the sweep:
-    # under `set -e` an unguarded failure here ends the whole review.
     if ! PYTHONPATH="$W/src" python -m nf_metro render "$W/$f" \
          -o "$ART/$side-$stem.svg" --no-chrome-css 2>"$ART/$side-$stem.err"; then
-      echo "RENDER-FAILED($side): $stem" >&2; continue
+      echo "RENDER-FAILED($side): $stem" >&2
+      continue
     fi
     python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$ART/$side-$stem.svg"
   done < "$ART/stems.txt"
@@ -77,10 +95,17 @@ for side in base cand; do
 done
 ```
 
-A stem that renders on `base` but is `RENDER-FAILED` on `cand` **is the
-regression** - that is a D-delta of the worst kind, not a stem to skip. One that
-fails on both was already broken at head; say so and move on. The `.err` files
-hold the abort message.
+Three failure shapes, and only one is benign:
+
+- `RENDER-FAILED(cand)` where base rendered: **this is the regression**, a
+  D-delta of the worst kind. Never skip it.
+- `RENDER-FAILED` on **both** sides: pre-existing at head, so not this PR's
+  regression - but still report it by name, and `diff` the two `.err` files: the
+  same fixture aborting for a *different reason* is a finding. There is no
+  declared allow-list of aborting fixtures in this repo, so never treat an abort
+  as expected without comparing both sides yourself.
+- `UNRESOLVED`: a gallery id with no matching `.mmd`, e.g. one rendered from a
+  Nextflow DAG or with non-default options. Name it; do not let it vanish.
 
 Reconcile the count before judging anything: the number of `cand-*.png` files
 must equal `wc -l < "$ART/stems.txt"` minus the `UNRESOLVED` lines. Report every
@@ -129,15 +154,16 @@ Two traps this closes:
 
 - **"Didn't abort" / "the one invariant passes" is not "renders
   correctly".** Removing an abort can merely expose a poor layout the abort
-  was masking. After any layout/routing fix, require the verifier to inspect
-  the full render (cropping the region as needed) and run `probe_layout` plus
-  `inspect_layout` on the *candidate* SHA - the after-state counterpart to
+  was masking. After any layout/routing fix, the LIGHT verifier runs `probe_layout` and
+  `inspect_layout` on the *candidate* SHA and hands over the numbers; the HIGH
+  visual reviewer inspects the full render (cropping as needed) and makes the
+  judgment. Do not ask a LIGHT worker to assess a render - the after-state counterpart to
   Step 3's before-state reading, not a repeat of it - for the whole-layout picture (crossings, port alignment,
   column gaps), not only the targeted invariant.
 - **A clean render-diff verdict only covers the gallery corpus.** It says
-  nothing about a NEW fixture that isn't in the gallery yet. Put new
-  regression fixtures in `scripts/build_gallery.py` (`GALLERY_ENTRIES`), not
-  only `examples/topologies/`, so CI's render-diff makes them visible to a
+  nothing about a NEW fixture that isn't in the gallery yet. Add new regression
+  fixtures to `scripts/gallery.yaml` (`GALLERY_ENTRIES` in
+  `scripts/build_gallery.py` is derived from it), not only `examples/topologies/`, so CI's render-diff makes them visible to a
   human. A topologies-only or tests-only fixture is invisible in the PR
   preview.
 

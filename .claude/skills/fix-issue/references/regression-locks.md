@@ -1,6 +1,6 @@
 # Pre-existing regression locks and the xfail rule
 
-Read this when `grep -rn "#<N>" tests/ scripts/build_gallery.py examples/topologies/`
+Read this when `grep -rn "#<N>" tests/ scripts/gallery.yaml examples/topologies/`
 finds anything, or when you are tempted to add an xfail.
 
 Check what the hits actually reference. A **parent** issue number often appears
@@ -11,8 +11,7 @@ Only a marker naming your issue number counts.
 
 Most issues arrive bare. But some - notably those filed by the
 `nf-metro-stress-render` skill - arrive with their regression infra **already
-built**: a fixture in `examples/topologies/`, a `GALLERY_ENTRIES` row in
-`scripts/build_gallery.py`, and a `strict=True` xfail test referencing the issue
+built**: a fixture in `examples/topologies/`, a row in `scripts/gallery.yaml`, and a `strict=True` xfail test referencing the issue
 number.
 
 - **If a strict-xfail lock exists**, that *is* your failing test. Don't write a

@@ -4,7 +4,11 @@ Read this at the push/merge/cleanup end of a run.
 
 ## Additive only - no force-push, ever
 
-The local pre-push hook blocks force-pushes for a reason. To undo anything, use
+Force pushes are blocked by a Claude Code `PreToolUse` matcher on `Bash`
+(`~/.claude/hooks/block-force-push.sh`, wired in `~/.claude/settings.json`), not
+by a git hook - there is no `pre-push` hook in this repo. It denies `--force` and
+`--force-with-lease` alike, and it only sees Bash tool calls, so it is a
+backstop, not a boundary. To undo anything, use
 `git revert <hash>` and push the revert as a new commit. Never rewrite shared
 history (no `--force`, no `--force-with-lease`, no interactive rebase on a pushed
 branch). This applies even when "it would be cleaner" - cleanliness is not worth
