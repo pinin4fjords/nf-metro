@@ -108,3 +108,57 @@ that order, and only with user authority. Full procedure and the reconciliation
 checks that gate it: [`merge-and-cleanup.md`](merge-and-cleanup.md).
 
 For shepherding a whole stacked chain of PRs back into `main` (rather
+
+## Review gates: two mandatory, the rest on trigger
+
+Independent review is load-bearing, but a reviewer that re-reads raw evidence is
+the most expensive spawn in the run. Two mandatory gates, both HIGH:
+
+1. **Post-diagnosis gate.** One reviewer that challenges the domain
+   classification (Step 3: authoring mistake, engine bug, input-independent
+   structural defect, or no defect at all, and the claim behind whichever came
+   back). A wrong classification wastes the whole run, so this gate pays for
+   itself; a second separate challenger does not.
+2. **Pre-ready gate.** One reviewer combining the Step 11 code review and the
+   final aggregate-progress review. These ask nearly the same question against
+   the same diff; run them as one brief.
+
+Run an extra mid-loop aggregate review only on a trigger: two repeated blocks,
+material scope growth, conflicting worker verdicts, a changed acceptance bar, or
+multiple active worktrees. Send it the compact ledger and *links* to evidence,
+not the evidence inline. Record every review verdict and revise later briefs,
+scope, or gates from its findings.
+
+## One writer, independent readers
+
+Allow exactly one writer in each worktree. Give concurrent writers separate
+worktrees and non-overlapping write scopes; otherwise serialize them. Keep
+diagnostic, verifier, visual-review, and code-review roles read-only and
+independent of the writer. Read-only workers never persist tracked, untracked,
+or ignored worktree changes; place their logs, caches, and generated evidence
+outside the worktree. Readers run concurrently only against a frozen commit SHA
+or snapshot, never a live worktree during an active writer assignment. User
+authority determines whether the coordinator acts; it never transfers that
+ownership to a worker.
+
+The writer is **one continuing worker up to a point**. Steps 6, 7 and 9 re-brief
+the same agent with `SendMessage` to its agent ID, so it keeps the large layout
+modules it already read rather than re-paying for them. A per-invocation `model`
+still applies on resume. Readers, by contrast, are fresh each time so their
+judgment stays independent.
+
+**But hand off at roughly 150 turns.** Measured once, over 45 historical runs of this
+workflow on one machine (not reproducible from this tree): cost grew as
+turns^1.28, spawns in the 150-300 range averaged $25, and the 46 that ran past
+300 averaged $62. Retained
+context stops paying for itself once every turn re-reads all of it. So when the
+writer approaches ~150 turns, have it hand off a candidate SHA plus a short
+state note and start a fresh writer from that SHA. One extra preamble costs
+cents; the superlinear tail costs tens of dollars. This is the single largest
+cost lever in the workflow - larger than tiering by roughly 8x.
+
+Use one candidate sequence throughout: the sole writer makes local candidate
+commit(s), runs mutation-capable hooks or generators, and hands off the exact
+SHA. Independent read-only workers verify and review that SHA without changing
+it. If fixes are required, serialize them back to the writer and verify the new
+SHA.

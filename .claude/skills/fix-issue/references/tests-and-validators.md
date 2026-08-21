@@ -12,7 +12,7 @@ gallery row, and a `strict=True` xfail naming the issue). Grep before writing
 anything:
 
 ```bash
-grep -rn "#<N>" tests/ scripts/build_gallery.py examples/topologies/
+grep -rn "#<N>" tests/ scripts/gallery.yaml examples/topologies/
 ```
 
 Any hit, or any temptation to add an xfail, means read

@@ -116,8 +116,9 @@ EOF
 After every `git push`, **verify origin HEAD matches local**:
 
 ```bash
-git ls-remote origin <branch> | cut -f1
-git rev-parse HEAD
+test "$(git ls-remote origin <branch> | cut -f1)" = "$(git rev-parse HEAD)" \
+  || { echo "ORIGIN MISMATCH: the push did not land"; exit 1; }
+echo "ORIGIN OK"
 ```
 
 The two must match. Prior sessions have lost commits to silent push failures;

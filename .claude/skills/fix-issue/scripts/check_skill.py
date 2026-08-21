@@ -21,6 +21,21 @@ REATTACH_CAP = 5000
 # Coordinator-owned references. ALWAYS_COORD is the subset a normal run reads,
 # which is what the resident-token figure is about; autonomous-mode is
 # coordinator-owned but only read when the user signals that mode.
+# Role -> tier. Checked against each definition's `model` AND against SKILL.md's
+# role table, so a change to either alone is caught.
+ROLE_TIER = {
+    "fix-issue-investigator": "LIGHT",
+    "fix-issue-verifier": "LIGHT",
+    "fix-issue-renderer": "LIGHT",
+    "fix-issue-simplifier": "MID",
+    "fix-issue-gate-specialist": "MID",
+    "fix-issue-diagnostician": "HIGH",
+    "fix-issue-writer": "HIGH",
+    "fix-issue-visual-reviewer": "HIGH",
+    "fix-issue-reviewer": "HIGH",
+    "fix-issue-merge-assessor": "HIGH",
+}
+
 ALWAYS_COORD = {"coordinator.md", "agent-types.md", "scope-discipline.md", "merge-and-cleanup.md"}
 COORD_REFS = ALWAYS_COORD | {"autonomous-mode.md"}
 
@@ -29,6 +44,11 @@ failures: list[str] = []
 
 def fail(msg: str) -> None:
     failures.append(msg)
+
+
+def logical_lines(block: str) -> list[str]:
+    """Shell continuations make a guard span lines; join them before checking."""
+    return re.sub(r"\\\n\s*", " ", block).splitlines()
 
 
 def md_files() -> list[Path]:
@@ -59,11 +79,26 @@ def check_tiers_named() -> None:
     for f in md_files():
         lines = f.read_text().splitlines()
         for i, line in enumerate(lines, 1):
-            if not re.search(r"\b[Aa]ssign\b.*\b(worker|reviewer|verifier|specialist|investigator|assessor)\b", line):
+            # Match any spawn phrasing: the role nouns AND the agent type names,
+            # since a brief may name either. Omitting a noun here is how a
+            # missing tier slipped through before.
+            nouns = (r"worker|reviewer|verifier|specialist|investigator|assessor"
+                     r"|diagnostician|writer|renderer|simplifier|diagnostic")
+            if not (re.search(rf"\b[Aa]ssign\b.*\b({nouns})\b", line)
+                    or re.search(r"\b[Aa]ssign\b.*`fix-issue-[a-z-]+`", line)):
                 continue
             ctx = " ".join(lines[max(0, i - 2) : i + 2])
             if not any(t in ctx for t in tiers) and "sole writer" not in ctx:
                 fail(f"{f.name}:{i} assigns a worker without naming a tier")
+
+
+def table_tier_for(table: str, stem: str) -> str:
+    """The tier cell of the role-table row naming this agent type exactly."""
+    for line in table.splitlines():
+        if line.startswith("|") and f"`{stem}`" in line:
+            cells = [c.strip() for c in line.split("|")]
+            return cells[4] if len(cells) > 4 else ""
+    return ""
 
 
 def check_agent_definitions() -> None:
@@ -80,10 +115,44 @@ def check_agent_definitions() -> None:
             fail(f"{a.name} name '{fields.get('name')}' != filename")
         if fields.get("model") not in tier_model.values():
             fail(f"{a.name} model '{fields.get('model')}' is not a tier model")
+        expected = ROLE_TIER.get(a.stem)
+        if expected is None:
+            fail(f"{a.name} has no entry in ROLE_TIER; add it so drift is detectable")
+        elif fields.get("model") != tier_model[expected]:
+            fail(f"{a.name} is {fields.get('model')} but its role tier is {expected}"
+                 f" ({tier_model[expected]})")
+        elif expected not in table_tier_for(table, a.stem):
+            fail(f"{a.name}: SKILL.md's role table does not give it tier {expected}")
         if "Agent" in fields.get("tools", "") and "Agent(" not in fields.get("tools", ""):
             fail(f"{a.name} grants unrestricted Agent; use Agent(<type>)")
         if a.stem not in table:
             fail(f"{a.name} is not named in SKILL.md")
+
+
+def check_no_dangling_names() -> None:
+    body = (SKILL / "SKILL.md").read_text()
+    defined = {p.stem for p in AGENTS.glob("fix-issue-*.md")}
+    for named in set(re.findall(r"`(fix-issue-[a-z-]+)`", body)):
+        if named not in defined:
+            fail(f"SKILL.md names `{named}` but no agent definition exists")
+    linked = set()
+    for f in md_files():
+        linked |= {t.split("#")[0].split("/")[-1] for _, t in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", f.read_text())}
+    for ref in (SKILL / "references").glob("*.md"):
+        if ref.name not in linked:
+            fail(f"references/{ref.name} is orphaned: nothing links to it")
+
+
+def check_repo_paths() -> None:
+    """A command pointed at a path that does not exist is the class that produced
+    the build_gallery.py lock grep and the fabricated expected_aborts key."""
+    for f in md_files():
+        for m in re.finditer(r"```bash\n(.*?)```", f.read_text(), re.S):
+            for path in re.findall(r"(?<![\w/.-])((?:scripts|tests|src|examples)/[\w./-]+)", m.group(1)):
+                if "<" in path or path.endswith("/"):
+                    continue
+                if not Path(path).exists():
+                    fail(f"{f.name}: command references missing path {path}")
 
 
 def check_owner_split() -> None:
@@ -119,23 +188,55 @@ def check_guards_self_fail() -> None:
             block = m.group(1)
             if re.search(r"^\s*set -[a-z]*e", block, re.M):
                 fail(f"{f.name}: shell block relies on `set -e`, which does not fire in this harness")
-            for line in block.splitlines():
+            for line in logical_lines(block):
                 stripped = line.strip()
-                if stripped.startswith("test ") and "||" not in stripped:
+                if re.match(r"(test |\[ )", stripped) and "||" not in stripped:
                     fail(f"{f.name}: bare guard `{stripped[:60]}` cannot fail the block; add `|| die ...`")
+
+
+def check_recurring_defect_classes() -> None:
+    """Three defects recurred across reviews; each is now a check.
+
+    1. An `nf_metro` invocation without PYTHONPATH either raises
+       ModuleNotFoundError or, worse, silently reads an installed snapshot
+       instead of the worktree under test.
+    2. `curl` without `-f` exits 0 on a 404 and saves the error page, so a
+       missing preview reads as an empty result rather than a failure.
+    3. A `git worktree add -b` without `--no-track` takes main as upstream, and
+       a later bare push suggests pushing to main.
+    """
+    for f in md_files():
+        for m in re.finditer(r"```bash\n(.*?)```", f.read_text(), re.S):
+            block = m.group(1)
+            for line in logical_lines(block):
+                if re.search(r"\b(python -m nf_metro|probe_layout\.py|inspect_layout\.py|routing_gate_coverage\.py|test_guard_registry_golden\.py)", line):
+                    joined = block.replace("\\\n", " ")
+                    if "PYTHONPATH" not in joined:
+                        fail(f"{f.name}: `{line.strip()[:50]}` runs without PYTHONPATH")
+                if re.search(r"\bcurl\b", line) and not re.search(r"-[a-zA-Z]*f", line):
+                    fail(f"{f.name}: curl without -f will exit 0 on a 404: {line.strip()[:50]}")
+                if "worktree add" in line and "-b " in line and "--no-track" not in line:
+                    fail(f"{f.name}: `worktree add -b` without --no-track sets upstream to main")
+            if "die " in block and "die() {" not in block:
+                fail(f"{f.name}: block calls `die` without defining it; the guard is decorative")
 
 
 def check_token_budget() -> None:
     try:
         import tiktoken
     except ImportError:
-        print("  note: tiktoken absent, token budget unchecked")
+        fail("tiktoken is not installed, so the token budget cannot be checked; "
+             "pip install tiktoken (it is not a project dependency)")
         return
     enc = tiktoken.get_encoding("o200k_base")
     count = lambda p: len(enc.encode(p.read_text()))
     body = count(SKILL / "SKILL.md")
-    if body > REATTACH_CAP:
-        fail(f"SKILL.md is {body} tokens, over the {REATTACH_CAP} re-attachment cap")
+    # o200k is a proxy for Claude's tokenizer, so hold a real margin rather than
+    # sitting on the cap and trusting a foreign encoding.
+    margin = REATTACH_CAP - body
+    if margin < REATTACH_CAP * 0.10:
+        fail(f"SKILL.md is {body} tokens: {margin} headroom is under the 10% margin "
+             f"({int(REATTACH_CAP * 0.10)}) the proxy tokenizer requires")
     coord = body + sum(count(SKILL / "references" / n) for n in sorted(ALWAYS_COORD))
     print(f"  SKILL.md {body} tokens ({REATTACH_CAP - body} headroom); coordinator-resident {coord}")
 
@@ -147,8 +248,11 @@ def main() -> int:
         check_tiers_named,
         check_agent_definitions,
         check_owner_split,
+        check_no_dangling_names,
+        check_repo_paths,
         check_shell_blocks,
         check_guards_self_fail,
+        check_recurring_defect_classes,
         check_token_budget,
     ):
         check()

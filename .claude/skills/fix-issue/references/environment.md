@@ -30,8 +30,8 @@ python -m nf_metro render <file.mmd> -o /tmp/out.svg --no-chrome-css
 python -m pytest -k <selector>
 ```
 
-CLAUDE.md documents a separate `nf-metro` env with the project installed
-editable. Leave it alone; fix-issue work uses `nf-metro-dev`. Note that the
+CLAUDE.md now recommends `PYTHONPATH` over an editable install, which agrees
+with this file. fix-issue work uses `nf-metro-dev`. Note that the
 `render-topologies` skill brings its own per-issue editable env, so a renderer
 briefed to use it is a deliberate exception to the rule below.
 
@@ -85,26 +85,31 @@ worktree and it can prove the tree is unchanged:
 # guard below therefore fails itself explicitly.
 die() { echo "VERIFY FAILED: $*" >&2; exit 1; }
 source ~/.local/bin/mm-activate nf-metro-dev || die "env not activated"
-export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>
+export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>-$$   # $$ so two readers on one SHA do not collide
 mkdir -p "$VERIFY_ARTIFACT_DIR/tmp" || die "artifact dir"
 export PYTHONDONTWRITEBYTECODE=1
 export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
 export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
 # The frozen checkout. Nothing else creates it, and reading the writer's live
-# worktree is forbidden. Key it on the SHA so concurrent readers cannot collide.
+# worktree is forbidden. Prune first: a previous run that died mid-block leaves
+# the worktree behind and `add` then fails with "already exists".
 export VERIFY_ROOT="$VERIFY_ARTIFACT_DIR/src"
+git -C ~/projects/nf-metro worktree prune
+test ! -e "$VERIFY_ROOT" || die "stale verify worktree at $VERIFY_ROOT; remove it first"
 git -C ~/projects/nf-metro worktree add --detach "$VERIFY_ROOT" <CANDIDATE_SHA> || die "worktree add"
 cd "$VERIFY_ROOT" || die "cd"
 
 test "$(git rev-parse HEAD)" = "$(git rev-parse <CANDIDATE_SHA>)" || die "HEAD is not the candidate SHA"
-test -z "$(git status --porcelain)" || die "tree dirty before checks"
+st=$(git status --porcelain) || die "git status failed"   # empty stdout from a failed git reads as clean
+test -z "$st" || die "tree dirty before checks"
 ruff check --no-cache src/ tests/ || die "ruff check"
 ruff format --check --no-cache src/ tests/ || die "ruff format"
 mypy --cache-dir=/tmp/nf-metro-verify-mypy-cache || die "mypy"
 PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" \
-  -q --no-header -p no:cacheprovider --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp" || die "pytest"
+  -q --no-header -p no:cacheprovider -p no:warnings --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp" || die "pytest"
 git diff --exit-code <CANDIDATE_SHA> || die "checks modified tracked files"
-test -z "$(git status --porcelain)" || die "tree dirty after checks"
+st=$(git status --porcelain) || die "git status failed"
+test -z "$st" || die "tree dirty after checks"
 cd ~ && git -C ~/projects/nf-metro worktree remove --force "$VERIFY_ROOT"
 echo "VERIFY OK <CANDIDATE_SHA>"
 ```

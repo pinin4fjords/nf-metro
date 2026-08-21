@@ -75,8 +75,10 @@ scans `src/nf_metro/layout/routing/` **only** (`ROUTING_DIR` in
 trips on an `if`/`while` change inside that nested package, or on a new fixture
 that closes a gap. A change elsewhere under `layout/` - `engine.py`, a phase
 module, `ordering.py` - cannot trip it, so do not spend a worker checking
-defensively. The guard-trace golden is separate and trips on any **new** fixture
-under `examples/topologies/`. When either fires, each failure names a specific
+defensively. The guard-trace golden is separate and trips on a **new** fixture under any discovered root:
+`tests/fixtures`, `tests/fixtures/topologies`, `examples`, `examples/topologies`,
+`examples/guide` (see `_discover_fixtures` in `tests/test_engine_guards_perf.py`).
+A test fixture placed under `tests/` reds it too. When either fires, each failure names a specific
 reconciliation you owe in this same PR. Do not hand-edit baselines to silence
 them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
 [`gate-ratchet.md`](gate-ratchet.md).

@@ -24,11 +24,10 @@ simply" or for "less words", cut - don't re-expand.
 
 ## Reference files: load only what you own
 
-**The coordinator reads only the four files marked `coord`.** The rest are
-worker-facing: name the file in the worker's brief and let the worker read it in
-its own context, which is discarded at handoff. Reading a worker's reference "to
-check its work" is what the independent gates are for, and it puts those bytes in
-the context that is re-read on every later turn.
+**The coordinator reads only the files marked `coord`.** The rest are
+worker-facing: name the file in the brief and let the worker read it in its own
+context, which is discarded at handoff. Reading a worker's reference "to check
+its work" is what the gates are for.
 
 | File | Owner | Load when |
 | --- | --- | --- |
@@ -119,19 +118,18 @@ A re-briefed role keeps the tier it was spawned at. If you find a worker running
 on an inherited default, restart it on the intended tier rather than justifying
 the one it got: that call belongs at spawn time or not at all.
 
-| Step | Role | Tier |
-| --- | --- | --- |
-| 1 | issue investigator | LIGHT |
-| 3 | diagnostic worker | HIGH; MID when the issue already names its own single-site cause and the brief is confirm-or-refute |
-| 4-7 | sole writer | HIGH when the diff changes geometry-affecting logic in `src/nf_metro/layout/` (including its `routing/` package) or `src/nf_metro/parser/`; MID for a class (c) structural change in those dirs that alters no geometry, or for anything outside them. Highest tier wins on a mixed diff |
-| 6 | `/simplify` worker | MID |
-| 7 | lint/test verifier | LIGHT |
-| 7 | routing gate specialist | MID |
-| 8 | local render / before-after sweep | LIGHT |
-| 8 | eco-merge assessor | HIGH - it gates shipping code CI has not verified |
-| 8 | visual reviewer | HIGH |
-| 9 | per-D-delta diagnostic | HIGH |
-| 11 | combined code + aggregate reviewer | HIGH |
+| Step | Role | Agent type | Tier |
+| --- | --- | --- | --- |
+| 1 | issue investigator | `fix-issue-investigator` | LIGHT |
+| 3 | diagnosis | `fix-issue-diagnostician` | HIGH; MID when the issue already names its own single-site cause and the brief is confirm-or-refute |
+| 3, 11 | the two review gates | `fix-issue-reviewer` | HIGH |
+| 4-7 | sole writer | `fix-issue-writer` | HIGH when the diff changes geometry-affecting logic in `src/nf_metro/layout/` (including its `routing/` package) or `src/nf_metro/parser/`; MID for a class (c) structural change in those dirs that alters no geometry, or for anything outside them. Highest tier wins on a mixed diff |
+| 6 | `/simplify` review | `fix-issue-simplifier` | MID |
+| 7 | lint/test verification | `fix-issue-verifier` | LIGHT |
+| 7 | routing gate classification | `fix-issue-gate-specialist` | MID |
+| 8 | local render / before-after sweep | `fix-issue-renderer` | LIGHT |
+| 8 | admin-merge gate | `fix-issue-merge-assessor` | HIGH - it gates shipping code CI has not verified |
+| 8, 9 | visual judgment and D-delta narrowing | `fix-issue-visual-reviewer` | HIGH |
 
 A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
@@ -198,58 +196,10 @@ demand an unbounded worker loop or treat diagnosis as implementation. The
 contract file carries the full wording, including what a worker does when the
 work exceeds its briefed tier.
 
-### Review gates: two mandatory, the rest on trigger
+### Gates and writer discipline
 
-Independent review is load-bearing, but a reviewer that re-reads raw evidence is
-the most expensive spawn in the run. Two mandatory gates, both HIGH:
-
-1. **Post-diagnosis gate.** One reviewer that challenges the domain
-   classification (Step 3: authoring mistake, engine bug, input-independent
-   structural defect, or no defect at all, and the claim behind whichever came
-   back). A wrong classification wastes the whole run, so this gate pays for
-   itself; a second separate challenger does not.
-2. **Pre-ready gate.** One reviewer combining the Step 11 code review and the
-   final aggregate-progress review. These ask nearly the same question against
-   the same diff; run them as one brief.
-
-Run an extra mid-loop aggregate review only on a trigger: two repeated blocks,
-material scope growth, conflicting worker verdicts, a changed acceptance bar, or
-multiple active worktrees. Send it the compact ledger and *links* to evidence,
-not the evidence inline. Record every review verdict and revise later briefs,
-scope, or gates from its findings.
-
-### One writer, independent readers
-
-Allow exactly one writer in each worktree. Give concurrent writers separate
-worktrees and non-overlapping write scopes; otherwise serialize them. Keep
-diagnostic, verifier, visual-review, and code-review roles read-only and
-independent of the writer. Read-only workers never persist tracked, untracked,
-or ignored worktree changes; place their logs, caches, and generated evidence
-outside the worktree. Readers run concurrently only against a frozen commit SHA
-or snapshot, never a live worktree during an active writer assignment. User
-authority determines whether the coordinator acts; it never transfers that
-ownership to a worker.
-
-The writer is **one continuing worker up to a point**. Steps 6, 7 and 9 re-brief
-the same agent with `SendMessage` to its agent ID, so it keeps the large layout
-modules it already read rather than re-paying for them. A per-invocation `model`
-still applies on resume. Readers, by contrast, are fresh each time so their
-judgment stays independent.
-
-**But hand off at roughly 150 turns.** Measured across 45 real runs of this
-workflow, a top-tier worker's cost grows as turns^1.28: spawns in the 150-300
-range averaged $25, and the 46 spawns that ran past 300 averaged $62. Retained
-context stops paying for itself once every turn re-reads all of it. So when the
-writer approaches ~150 turns, have it hand off a candidate SHA plus a short
-state note and start a fresh writer from that SHA. One extra preamble costs
-cents; the superlinear tail costs tens of dollars. This is the single largest
-cost lever in the workflow - larger than tiering by roughly 8x.
-
-Use one candidate sequence throughout: the sole writer makes local candidate
-commit(s), runs mutation-capable hooks or generators, and hands off the exact
-SHA. Independent read-only workers verify and review that SHA without changing
-it. If fixes are required, serialize them back to the writer and verify the new
-SHA.
+Two mandatory review gates, one writer per worktree, readers always fresh and
+independent: [`coordinator.md`](references/coordinator.md).
 
 ## Primary invariant: coordinate, delegate, verify independently
 
@@ -269,8 +219,9 @@ Two separate levers, do not confuse them:
   tier decides what it costs. A mechanical worker on the top tier is the most
   expensive thing in this workflow.
 
-The coordinator does not read `src/` at all: `engine.py`, `ordering.py`,
-`fan_bundles.py` and `routing/*` belong only in a worker's context. This is
+The coordinator does not read `src/` at all: `routing/inter_section_handlers.py`,
+`routing/invariants.py`, `phases/guards.py` and `engine.py` - the largest files
+in the tree - belong only in a worker's context. This is
 hygiene, not a headline saving - measured, it is worth under 1% of a run.
 
 It may run trivial deterministic assertions itself - `git rev-parse`, a hash or
@@ -291,8 +242,7 @@ one item that grows every turn and is re-read on all of them.
 
 Layout iteration is where sessions burn tokens and compute. Keep it tight:
 
-- **Name a tier on every spawn** (above). Measured at 5.7% of spend across 45
-  runs - real, but note that most of the per-spawn gap between tiers is *turns*
+- **Name a tier on every spawn** (above). Measured at 5.7% of spend in that same sample - real, but note that most of the per-spawn gap between tiers is *turns*
   (216 vs 65), not price per token, so the tier table gets some credit that
   belongs to task selection. The writer's turn count is the bigger lever.
 - **Lean on CI for the full suite.** Locally, run targeted tests: the new
@@ -309,10 +259,9 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   only earns its cost for a genuine *visual* check. "Is station X on the trunk?"
   is a coordinate read, not a screenshot.
 - **Do not hold a large context idle across a CI run.** Waiting is where the
-  second-largest cost lives: measured over 45 runs, 468 turns (1.8% of all
-  turns) accounted for 9.8% of total spend, each a full re-encode averaging
-  358k tokens at the 1-hour cache premium, caused by idle gaps busting the
-  cache. End the turn after the push and pick the run up fresh, or collapse the
+  second-largest cost lives: in the same one-off measurement, 468 turns (1.8%
+  of all turns) were 9.8% of spend, each a full re-encode averaging 358k tokens
+  at the 1-hour cache premium, caused by idle gaps busting the cache. End the turn after the push and pick the run up fresh, or collapse the
   ledger to its live slice before waiting. When you do watch, watch once in the
   background (`until gh pr checks <N> ...; done`) rather than re-running
   `gh pr checks` each turn, which dumps status into context repeatedly.
@@ -321,8 +270,8 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   diff. A local `build_gallery` / render-diff sweep repeated many times just
   duplicates it. Local rendering is for a *single* file's quick sanity check.
 - **Brief workers to read the big layout files in wide slices and stay
-  oriented.** Re-fetching `engine.py` / `fan_bundles.py` / `ordering.py` /
-  `routing/*` twenty times over a session is the single largest cache-read cost.
+  oriented.** Re-fetching `routing/inter_section_handlers.py` (7.4k lines),
+  `routing/invariants.py` (6.7k) or `phases/guards.py` (6.6k) twenty times over a session is the single largest cache-read cost.
   Read the region once, generously, and keep it in working context.
 - **Push policy is governance, not economy**, and it lives with the push:
   [`merge-and-cleanup.md`](references/merge-and-cleanup.md).

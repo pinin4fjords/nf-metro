@@ -33,22 +33,50 @@ files, the page is multi-megabyte, and the inlined markup is full of `var()` and
 `light-dark()` that cairosvg cannot parse. So: never `Read` the preview page, and
 do not try to download renders from it.
 
-**First prove the preview describes the candidate SHA.** This is the step that
-matters most, and this skill's own `[skip ci]` default is what breaks it: any
-push after Step 8 leaves a preview built from an older tree, and a sweep over its
-stem list then reviews the wrong commit while reporting a clean count.
+**Read the verdict before reaching for the page.** When a PR has no visual
+changes the preview is never published at all: `build_render_diff.py` returns
+early, `pr-renders.yml` sets `has_changes=false`, and every deploy step in
+`pr-render-publish.yml` is gated on `has_changes == 'true'`. So a 404 is the
+*expected* result of a clean run, not a reason to wait.
 
 ```bash
-die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # `set -e` does not fire here
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
-built=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> \
-          --limit 1 --json headSha -q '.[0].headSha')
-test "$built" = "<CANDIDATE_SHA>" || die "preview was built from $built, not the candidate"
+die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>-$$; mkdir -p "$ART" || die "artifact dir"
+run=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
+        --json databaseId,headSha,conclusion) || die "gh run list"
+built=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['headSha'])")
+runid=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['databaseId'])")
+# Normalise both sides: gh returns 40 chars, a hand-copied candidate may be short.
+test "$(git rev-parse "$built")" = "$(git rev-parse <CANDIDATE_SHA>)" \
+  || die "renders were built from $built, not the candidate"
+gh pr view <PR_NUMBER> --json comments \
+  -q '.comments[] | select(.body | contains("Render preview")) | .body' | tail -1 > "$ART/sticky.txt"
+grep -q "no visual changes detected" "$ART/sticky.txt" && { echo "VERDICT: no visual changes"; exit 0; }
+grep -qE "rendering in progress|still publishing" "$ART/sticky.txt" && die "not ready yet, wait"
+```
+
+Exit 0 with "no visual changes" **is** the verdict for a clean run: report it and
+stop. Only continue when the comment says deltas exist.
+
+**Then prove the published page is this run's.** `pr-render-publish.yml` deploys
+with `keep_files: true` and only cleans up when the PR closes, so a previous
+push's page survives. Comparing the workflow's `headSha` is not enough: push A
+with deltas publishes a page, push B without deltas publishes nothing, and the
+headSha check passes while the page you fetch is A's. The page carries the
+discriminator - `build_render_diff.py` writes
+`<meta name="nf-metro-render-run" content="{run id}">`.
+
+```bash
+die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # each block is self-contained
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>-$$
 curl -fsS "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html" \
-  || die "preview not published yet (curl -f, so a 404 fails instead of saving an error page)"
+  || die "page absent though the comment reported deltas; Pages may still be publishing"
+marker=$(grep -o 'nf-metro-render-run" content="[0-9]*"' "$ART/index.html" \
+           | grep -o '[0-9]*') || die "no run marker in page"
+test "$marker" = "$runid" || die "page is from run $marker, not $runid: stale preview"
 grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html" \
   | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u > "$ART/stems.txt"
-test -s "$ART/stems.txt" || die "no stems parsed; the sticky comment may say rendering in progress"
+test -s "$ART/stems.txt" || die "no stems parsed from a page that reported deltas"
 wc -l < "$ART/stems.txt"
 ```
 
@@ -57,8 +85,21 @@ review, rendering in progress, and Pages still publishing. Only the first two ar
 verdicts; treat the others as not-ready and wait.
 
 **If provenance fails, do not fall back to the stale list.** Enumerate the corpus
-from `scripts/gallery.yaml` instead and compare both sides yourself, because the
-delta you care about is exactly the part the old preview cannot show. In a
+from `scripts/gallery.yaml` and compare both sides yourself: the delta you care
+about is exactly the part an old preview cannot show.
+
+```bash
+die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+python -c "import yaml;c=yaml.safe_load(open('scripts/gallery.yaml'));\
+ids=[e['id'] for e in c.get('gallery',[])]+[e['id'] for e in c.get('pipelines',[])];\
+ids+=[e['id'] for g in c.get('render_only',{}).values() for e in (g or [])];\
+print('\n'.join(sorted(set(ids))))" > "$ART/stems.txt" || die "could not enumerate gallery.yaml"
+wc -l < "$ART/stems.txt"   # the whole corpus, not just the changed subset
+```
+
+Then run the both-sides sweep below over that list and diff the PNG pairs
+yourself; `render_only` groups can map an id to a different output name, so
+expect some `UNRESOLVED` and report them. In a
 measured quarter-sample of the 248 ids missing from one stale preview's list, four
 rendered differently and five aborted on the candidate but not the base.
 

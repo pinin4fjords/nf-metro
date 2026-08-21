@@ -6,8 +6,8 @@ Read before substituting `Explore` for a named role type.
 
 `Explore` and `Plan` are the only agent types that skip both CLAUDE.md files and
 the git-status snapshot. Measured with tiktoken on the actual files, that is
-**4,455 tokens per spawn** here (project CLAUDE.md 2,246 + user 2,209), so on a
-ten-spawn run routing just the investigator and verifier through it saves ~8.9k. There is no frontmatter field that exempts a custom type, so this is
+**3,849 tokens per spawn** here (project CLAUDE.md 2,246 + user 1,603). Measured
+over 45 real runs that is worth about $0.24 a run. There is no frontmatter field that exempts a custom type, so this is
 the only lever. `Explore` is read-only - `Write` and `Edit` are denied - and it
 is one-shot: it returns no agent ID and cannot be resumed or re-briefed.
 
@@ -19,8 +19,9 @@ Two consequences before you reach for it:
 - It inherits the main conversation's model, so omitting the `model` parameter
   runs it at the session tier - the exact failure this skill exists to prevent.
 
-Worth it for the investigator reading an issue and the verifier running a fixed
-command block, where the repo architecture is irrelevant. Never for the
+Eligible only for the investigator and the verifier, where the repo architecture
+is irrelevant - but measurement says the saving is negligible and the lost
+re-brief is not, so prefer the named role types. Never for the
 diagnostician, writer, visual reviewer, or reviewer: they need the architecture
 map and the station-as-elbow constraint.
 
@@ -53,6 +54,6 @@ write, and `permissionMode` will not save you - under the parent's auto mode a
 subagent's `permissionMode` is ignored. The instruction is what enforces
 read-only. If you want it enforced structurally, the lever is the per-subagent
 `hooks` field: a `PreToolUse` matcher on `Bash` rejecting `git push`,
-`gh pr merge` and `gh pr edit`. That matters most for
-`fix-issue-merge-assessor`, whose `Skill` grant points at a procedure ending in
-`gh pr merge --admin`.
+`gh pr merge` and `gh pr edit`. The roles holding `Skill` are the simplifier and the
+renderer; `fix-issue-merge-assessor` deliberately holds none, so it cannot reach
+a procedure that performs the merge it is reviewing.

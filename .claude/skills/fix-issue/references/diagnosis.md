@@ -136,3 +136,9 @@ If the issue happens to have been filed by the `nf-metro-stress-render` skill,
 it carries a correct-by-construction repro `.mmd` in a `<details>` fold in the
 issue body - start from that rather than re-deriving one. Most issues won't have
 this; otherwise the same HIGH diagnostician builds a faithful reproducer.
+
+Either way **the diagnostician materialises it itself**, with a Bash heredoc into
+the artifact directory its brief names (`$ART/repro.mmd`), and reports that path.
+A folded reproducer is text in an issue body: the coordinator must not absorb it,
+a handoff must not carry file contents, and the read-only roles hold no `Write`
+tool - so writing it via `Bash` is the route, and it is this worker's job.
