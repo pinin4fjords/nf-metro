@@ -1,6 +1,6 @@
 ---
 name: fix-issue
-description: Coordinator-led end-to-end workflow for fixing GitHub issues on nf-metro with diagnostic rigor and context-light delegation. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Routes diagnosis, implementation, testing, visual judgment, review, and adjacent fallout to scoped workers at explicit capability tiers, while the coordinator retains authority, integration gates, Git/PR mutations, and reporting. Supports autonomous / net-negative requests without inventing merge or issue-closure authority. Trigger on phrases like "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. For shepherding a chain of already-existing PRs back to main, see `pr-chain-vet` instead.
+description: Coordinator-led workflow for fixing GitHub issues on nf-metro: diagnostic-first, invariant-test-first, delegated to tiered workers. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Handles autonomous / net-negative requests. Trigger on "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. For shepherding a chain of existing PRs back to main, see `pr-chain-vet` instead.
 ---
 
 # Fix Issue
@@ -26,6 +26,7 @@ simply" or for "less words", cut - don't re-expand.
 
 | File | Load when |
 | --- | --- |
+| [`references/worker-contract.md`](references/worker-contract.md) | every brief points workers here; read it yourself once |
 | [`references/environment.md`](references/environment.md) | setting up the env, running hooks, briefing a verifier |
 | [`references/gate-ratchet.md`](references/gate-ratchet.md) | the change touched `layout/routing/` or added a topology fixture |
 | [`references/regression-locks.md`](references/regression-locks.md) | the Step 4 grep finds an existing lock, or you are tempted to add an xfail |
@@ -51,6 +52,12 @@ Two separate levers, do not confuse them:
   the tier decides what it costs. A mechanical worker on the top tier is the
   most expensive thing in this workflow.
 
+The coordinator does not read `src/` at all. It does no substantive
+implementation or diagnosis, so `engine.py`, `ordering.py`, `fan_bundles.py`,
+and `routing/*` should only ever occupy a worker's context, never the
+coordinator's. Reading them "just to orient" is the largest avoidable context
+cost in the run.
+
 The coordinator may still run trivial deterministic assertions itself -
 `git rev-parse`, an OID or hash comparison, `git status --porcelain`, an exit
 code, handoff-schema completeness - because those are a few bytes and spawning
@@ -62,6 +69,13 @@ assignments, tiers, and verdicts; changed files and commits; commands and
 outcomes; I/N/D visual classifications; fallout; blockers; CI/PR state; next
 gate. Keep deep context, long test output, render analysis, and review detail
 in worker handoffs or artifacts rather than replaying it into the coordinator.
+
+Hold only the **live slice** in context: current gate, open blockers, accepted
+SHA, active assignments. Append settled rows - closed assignments, completed
+commands, resolved I/N/D classifications - to a ledger file outside the
+worktree and cite it. The live slice then stays a fixed size however long the
+run gets; without this the ledger is the one item that grows every turn and is
+re-read on all of them.
 
 ### Worker tiers are explicit, never inherited
 
@@ -112,32 +126,32 @@ starting high.
 
 ### Worker brief template
 
-Fill this in; do not re-improvise the contract in prose each time.
+Fill this in. Do not restate the authority rules, the return schema, or the
+verifier command block in the brief: they live in
+[`references/worker-contract.md`](references/worker-contract.md) and the worker
+reads them there. Restating them per spawn spends coordinator output that then
+gets re-read on every later turn.
 
 ```
 ROLE / TIER: <role> at <LIGHT|MID|HIGH>
 OBJECTIVE:   <one sentence>
 AUTHORITY:   read-only | sole writer in <worktree>
-SCOPE:       <worktree path>, files: <paths or "read anywhere, write nothing">
-INPUTS:      <SHA, artifact paths, issue number>
-ACCEPTANCE:  <the concrete bar>
-STOP IF:     <escalation conditions>
-RETURN:      the 6-item handoff schema
+SCOPE:       <paths this worker may read or write>
+INPUTS:      <frozen SHA, artifact dir, issue number>
+ACCEPTANCE:  <the concrete bar for this task>
+STOP IF:     <escalation conditions specific to this task>
+CONTRACT:    follow .claude/skills/fix-issue/references/worker-contract.md
 ```
 
-Every worker returns:
-
-1. scope completed;
-2. files changed and candidate commit SHA, or an explicit no-change result;
-3. exact commands and outcomes;
-4. before/after evidence;
-5. risks and blockers;
-6. acceptance verdict: pass, fail, or blocked with the precise escalation.
-
-A blocked handoff is valid when it satisfies this schema. Re-brief from its
-evidence, route a different tier, or escalate to the user when authority or a
-material product decision is missing. Never demand an unbounded worker loop or
-treat diagnosis as implementation.
+Check every handoff against the six items: scope, files+SHA, commands and
+outcomes, evidence, risks/blockers, verdict. Evidence arrives **as a path plus
+the one figure that carries the verdict** - never pasted coordinate dumps,
+render analysis, or test logs. A blocked handoff satisfying the schema is a
+valid outcome: re-brief from its evidence, route a different tier, or escalate
+to the user when authority or a material product decision is missing. Never
+demand an unbounded worker loop or treat diagnosis as implementation. The
+contract file carries the full wording, including what a worker does when the
+work exceeds its briefed tier.
 
 ### One writer, independent readers
 
