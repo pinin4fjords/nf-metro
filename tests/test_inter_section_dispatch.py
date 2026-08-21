@@ -116,6 +116,7 @@ def _facts(**overrides: object) -> H._InterFacts:
         tgt_row=0,
         needs_bypass=False,
         cellmate_blocks_source_row=False,
+        cellmate_blocks_target_row=False,
         merge_ep=None,
     )
     defaults.update(overrides)

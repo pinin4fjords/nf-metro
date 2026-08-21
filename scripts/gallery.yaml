@@ -1151,6 +1151,15 @@ gallery:
       section blocks the row-top corridor. The fallback travels beneath the
       row and reaches the entry from its outward side without crossing a
       section."
+  - id: packed_cell_cellmate_bypass_entry_y
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A fan-out junction hangs below its packed cell-mate's box and feeds the
+      LEFT entry of the cell member beyond it, so the hop's source Y clears the
+      cell-mate while its target entry Y runs straight through it. Both lines
+      take the row-top corridor over the cell-mate; the one that also enters it
+      shares that corridor before splitting off (issue #1766)."
   - id: bypass_left_entry_from_right
     source_dir: examples/topologies
     category: Serpentine Layout

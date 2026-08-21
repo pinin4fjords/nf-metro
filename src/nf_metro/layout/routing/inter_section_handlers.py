@@ -171,6 +171,7 @@ class _InterFacts:
     tgt_row: int | None
     needs_bypass: bool
     cellmate_blocks_source_row: bool
+    cellmate_blocks_target_row: bool
     merge_ep: Station | None
 
     @property
@@ -544,6 +545,7 @@ def _build_inter_facts(
         tgt_row=tgt_row,
         needs_bypass=bypass.needed,
         cellmate_blocks_source_row=bypass.cellmate_blocks_source_row,
+        cellmate_blocks_target_row=bypass.cellmate_blocks_target_row,
         merge_ep=graph.stations.get(ep_id) if ep_id else None,
     )
 
@@ -644,6 +646,11 @@ def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
     ``CELLMATE_GAP_DROP`` and ``PACKED_CELL_SAME_ROW`` name the two arrangements
     whose leaf is chosen by whether a candidate route can be built at all, so
     which shape they draw is settled at emission rather than here.
+
+    The boxed fan-out that ``_source_is_boxed_fanout_junction`` hands to the
+    band-hop is held back from ``PACKED_CELL_SAME_ROW`` only where the block
+    sits on the source row: the band-hop leads out along that row, so it has
+    nothing to offer a hop whose own Y already clears the cell-mate.
     """
     if (
         f.entry_side is PortSide.LEFT
@@ -680,9 +687,9 @@ def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
         return _BypassRoute.LEFT_EXIT_AROUND_BELOW
     if (
         f.entry_side is PortSide.LEFT
-        and f.cellmate_blocks_source_row
+        and (f.cellmate_blocks_source_row or f.cellmate_blocks_target_row)
         and f.src_row == f.tgt_row
-        and not _source_is_boxed_fanout_junction(f)
+        and not (f.cellmate_blocks_source_row and _source_is_boxed_fanout_junction(f))
     ):
         return _BypassRoute.PACKED_CELL_SAME_ROW
     if f.left_entry_from_right:

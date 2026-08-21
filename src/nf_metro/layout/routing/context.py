@@ -797,17 +797,19 @@ def _packed_cell_mate_obstructs(
     tgt: Station,
     src_row: int | None,
     tgt_row: int | None,
+    y: float,
 ) -> bool:
     """Whether a genuine packed cell-mate of *src*'s or *tgt*'s own section
-    sits on the source row's straight path between them.
+    spans *y* between the two endpoints' X range.
 
     :func:`_has_intervening_sections` only sees columns strictly between the
     endpoints' grid columns. A packed cell (``%%metro grid: a, b | col,row``)
     can place more than one section in a boundary column itself, so a
     cell-mate of the route's own endpoint can sit geometrically between the
-    two ports without ever showing up as an "intervening" column - including
-    when the target sits in a row below, since the default L-shape's first
-    leg runs the source row's full width before it turns.
+    two ports without ever showing up as an "intervening" column. The default
+    L-shape lays a full-width horizontal leg at each endpoint's own Y, so
+    either Y is a candidate for *y* and a mate on one of them is enough to
+    force a bypass.
 
     Scoped to actual ``graph.cell_packs`` membership (not "any section the
     segment happens to cross"): a same-row section that isn't declared
@@ -831,7 +833,7 @@ def _packed_cell_mate_obstructs(
     lo_x, hi_x = (src.x, tgt.x) if src.x <= tgt.x else (tgt.x, src.x)
     return any(
         (mate := graph.sections.get(mate_id)) is not None
-        and _h_segment_penetrates_section(lo_x, hi_x, src.y, mate)
+        and _h_segment_penetrates_section(lo_x, hi_x, y, mate)
         for mate_id in cellmates
     )
 
@@ -845,39 +847,48 @@ class HopEnd(NamedTuple):
 
 
 class BypassNeed(NamedTuple):
-    """Whether a hop must leave its row, and whether a cell-mate is why."""
+    """Whether a hop must leave its row, and which of its Ys a cell-mate blocks."""
 
     needed: bool
     cellmate_blocks_source_row: bool
+    cellmate_blocks_target_row: bool
 
 
 def _hop_needs_bypass(graph: MetroGraph, src: HopEnd, tgt: HopEnd) -> BypassNeed:
     """Whether a straight run from *src* to *tgt* would plough through a box.
 
     Two independent triggers force a bypass: a multi-column hop blocked by an
-    intervening section, or a packed cell-mate of either endpoint sitting on
-    the source row's straight path.  The latter is independent of the column
-    gap - a cell-mate can obstruct even an adjacent-column hop where it never
-    registers as an intervening column, and whether the target is same-row or
-    a row below, since the L-shape's first leg spans the full source row
-    before turning (see :func:`_packed_cell_mate_obstructs`).
+    intervening section, or a packed cell-mate of either endpoint standing on
+    either endpoint's own Y, where the L-shape lays its horizontal legs.  The
+    latter is independent of the column gap - a cell-mate can obstruct even an
+    adjacent-column hop where it never registers as an intervening column, and
+    the two endpoints of a hop need not share a Y, so a mate standing across
+    the target's entry Y blocks a hop whose source Y runs below its box (see
+    :func:`_packed_cell_mate_obstructs`).
 
     The merge classifier and the inter-section dispatch both decide whether a
     feeder leaves its row by this predicate, so a feeder cannot be classified as
     needing the trunk's bypass channel while the dispatch routes it straight, or
-    the reverse.  The cell-mate term is reported alongside the verdict because
-    the dispatch keys a separate decision on it and it is the costly half to
-    compute.
+    the reverse.  The two cell-mate terms are reported alongside the verdict
+    because the dispatch keys separate decisions on them and they are the costly
+    half to compute.
     """
     if src.col is None or tgt.col is None:
-        return BypassNeed(False, False)
-    cellmate = _packed_cell_mate_obstructs(
-        graph, src.station, tgt.station, src.row, tgt.row
+        return BypassNeed(False, False, False)
+    blocks_source_row = _packed_cell_mate_obstructs(
+        graph, src.station, tgt.station, src.row, tgt.row, src.station.y
+    )
+    blocks_target_row = _packed_cell_mate_obstructs(
+        graph, src.station, tgt.station, src.row, tgt.row, tgt.station.y
     )
     intervening = _intervening_section_obstructs(
         graph, src.col, src.row, tgt.col, tgt.row
     )
-    return BypassNeed(intervening or cellmate, cellmate)
+    return BypassNeed(
+        intervening or blocks_source_row or blocks_target_row,
+        blocks_source_row,
+        blocks_target_row,
+    )
 
 
 def _adjacent_feeder_reaches_merge_directly(
