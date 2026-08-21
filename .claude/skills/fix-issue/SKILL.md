@@ -145,26 +145,12 @@ A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
 starting high.
 
-**`effort` is a second dial, but a fixed one.** Definitions take `effort`
-(`low`/`medium`/`high`/`xhigh`/`max`) and it is set for the life of the
-definition: there is no per-invocation `effort`, only a per-invocation `model`.
-So the LIGHT roles run `low` and the judgment roles run `high`, and the
-persistent writer cannot be dialled down for its mechanical re-briefs. Accept
-that: the retained context is worth more than the thinking tokens, which is all
-`effort` moves.
+`effort` is a second dial but fixed per definition, with no per-invocation
+form: see [`agent-types.md`](references/agent-types.md).
 
-### The model resolution order
-
-Highest wins:
-
-1. the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable;
-2. the per-invocation `model` parameter;
-3. the agent definition's `model` frontmatter;
-4. the main conversation's model.
-
-If `CLAUDE_CODE_SUBAGENT_MODEL` is set it overrides **every** tier decision in
-this skill, so check it once at session start. An organisation `availableModels`
-allowlist can also substitute a model at any of these levels.
+Resolution order when tiers collide, including the `CLAUDE_CODE_SUBAGENT_MODEL`
+override that beats everything in this skill:
+[`agent-types.md`](references/agent-types.md).
 
 ### Prefer the named agent types
 
@@ -181,15 +167,10 @@ which matters because a subagent with no allowlist inherits every tool the main
 conversation has - including all MCP servers, and including `Agent`, which would
 let a worker spawn untiered children of its own.
 
-The read-only roles carry no `Edit` or `Write`. Treat that as a backstop, not a
-guarantee: they all hold `Bash`, so a worker that ignores its brief can still
-write, and `permissionMode` will not save you - under the parent's auto mode a
-subagent's `permissionMode` is ignored. The instruction is what enforces
-read-only. If you want it enforced structurally, the lever is the per-subagent
-`hooks` field: a `PreToolUse` matcher on `Bash` rejecting `git push`,
-`gh pr merge` and `gh pr edit`. That matters most for
-`fix-issue-merge-assessor`, whose `Skill` grant points at a procedure ending in
-`gh pr merge --admin`.
+The read-only roles carry no `Edit` or `Write`, but they all hold `Bash`, so
+treat that as a backstop and not a guarantee; the instruction is what enforces
+read-only. The structural lever, and why `permissionMode` is not it, is in
+[`agent-types.md`](references/agent-types.md).
 
 `Explore`/`Plan` skip both CLAUDE.md files (~5k tokens a spawn) but discard the
 role definition and cannot be re-briefed: see

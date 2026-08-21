@@ -113,14 +113,22 @@ work, usable for **any** layout issue regardless of how it was reported:
 ```bash
 # Validator/crash/guard verdict: parse -> layout -> validate -> route, with
 # findings split into authoring mistakes vs engine bugs.
-python .claude/skills/nf-metro-stress-render/scripts/probe_layout.py <file.mmd> --json
+PYTHONPATH=/tmp/nf-metro-fix-<N>/src \
+  python .claude/skills/nf-metro-stress-render/scripts/probe_layout.py <file.mmd> --json
 # Per-section station coordinates, flagging stations off their section trunk,
 # off-track in/outputs far from their consumer, and oversized inter-row gaps.
-python .claude/skills/nf-metro-stress-render/scripts/inspect_layout.py <file.mmd>
+PYTHONPATH=/tmp/nf-metro-fix-<N>/src \
+  python .claude/skills/nf-metro-stress-render/scripts/inspect_layout.py <file.mmd>
 ```
 
-Plus `nf-metro explain <file.mmd>` (the rule behind each inferred layout
-decision) and `nf-metro info --json` (the structural model). These are
+Plus `PYTHONPATH=<worktree>/src python -m nf_metro explain <file.mmd>` (the rule
+behind each inferred layout decision) and `python -m nf_metro info --json` (the
+structural model). **`PYTHONPATH` is not optional on any of these.** Without it
+they raise `ModuleNotFoundError`; worse, once the env has a non-editable install
+they silently diagnose the *installed* snapshot instead of the worktree under
+test, and the numeric claim the whole run rests on is then about the wrong code.
+Use `python -m nf_metro`, not the bare `nf-metro` entry point, for the same
+reason. These are
 conveniences, not requirements - any way you pin the bug to numbers is fine.
 
 If the issue happens to have been filed by the `nf-metro-stress-render` skill,

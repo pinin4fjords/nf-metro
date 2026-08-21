@@ -22,3 +22,36 @@ Worth it for the investigator reading an issue and the verifier running a fixed
 command block, where the repo architecture is irrelevant. Never for the
 diagnostician, writer, visual reviewer, or reviewer: they need the architecture
 map and the station-as-elbow constraint.
+
+## The model resolution order
+
+Highest wins:
+
+1. the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable;
+2. the per-invocation `model` parameter;
+3. the agent definition's `model` frontmatter;
+4. the main conversation's model.
+
+If `CLAUDE_CODE_SUBAGENT_MODEL` is set it overrides **every** tier decision in
+this skill, so check it once at session start. An organisation `availableModels`
+allowlist can also substitute a model at any of these levels.
+
+## Effort, and enforcing read-only
+
+**`effort` is a second dial, but a fixed one.** Definitions take `effort`
+(`low`/`medium`/`high`/`xhigh`/`max`) and it is set for the life of the
+definition: there is no per-invocation `effort`, only a per-invocation `model`.
+So the LIGHT roles run `low` and the judgment roles run `high`, and the
+persistent writer cannot be dialled down for its mechanical re-briefs. Accept
+that: the retained context is worth more than the thinking tokens, which is all
+`effort` moves.
+
+The read-only roles carry no `Edit` or `Write`. Treat that as a backstop, not a
+guarantee: they all hold `Bash`, so a worker that ignores its brief can still
+write, and `permissionMode` will not save you - under the parent's auto mode a
+subagent's `permissionMode` is ignored. The instruction is what enforces
+read-only. If you want it enforced structurally, the lever is the per-subagent
+`hooks` field: a `PreToolUse` matcher on `Bash` rejecting `git push`,
+`gh pr merge` and `gh pr edit`. That matters most for
+`fix-issue-merge-assessor`, whose `Skill` grant points at a procedure ending in
+`gh pr merge --admin`.

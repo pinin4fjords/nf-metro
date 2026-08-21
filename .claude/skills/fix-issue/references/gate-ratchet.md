@@ -67,6 +67,14 @@ x86_64. The verifier runs the same test without the regeneration environment
 variable against the candidate SHA, inspects the committed diff, and confirms no
 worktree change.
 
+## Adding or re-tiering a routing check
+
+A new `check_*` in `CHECK_REGISTRY`, or a change to an existing `GuardSpec`'s
+`tier`, rewrites guard traces across the whole corpus rather than one fixture's.
+Decide the tier before writing the check, regenerate under 3.11, and inspect the
+diff's shape: hundreds of changed goldens is expected for a broad tier and a
+signal you picked the wrong one for a narrow invariant.
+
 A new topology fixture therefore owes **three** committed artifacts, not one: the
 `.mmd`, its `GALLERY_ENTRIES`/`gallery.yaml` row (so the render-diff sees it),
 and this guard-trace golden.

@@ -11,8 +11,9 @@ candidate diff and return its findings plus proposed edits.
 
 Run its **review** phases only. Stop before its apply phase: the worktree's sole
 writer applies whatever the coordinator accepts, and you are not that writer.
-If you spawn review children, pass each an explicit `model` - an unset model is
-not a decision.
+Spawn its three review children as type `Explore` - that is the only child type
+your allowlist permits - and pass each an explicit `model`. An unset model is not
+a decision.
 
 Read `.claude/skills/fix-issue/references/worker-contract.md` before you start
 and follow it. You are read-only.

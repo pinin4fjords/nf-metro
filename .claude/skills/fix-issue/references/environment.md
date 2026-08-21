@@ -12,7 +12,7 @@ code per-command:
 # One-time, reused across all issues (skip if it already exists):
 ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-dev python=3.11 cairo -y
 source ~/.local/bin/mm-activate nf-metro-dev
-cd ~/projects/nf-metro && pip install "cairosvg" ".[dev,docs]"
+cd ~/projects/nf-metro && pip install ".[dev,docs]"   # docs extra carries cairosvg
 # Install from pyproject, never a hand-listed set: `lark` is a hard runtime
 # dependency and `coverage` is needed by the gate ratchet, and a hand-written
 # list drifts silently. Non-editable on purpose - PYTHONPATH shadows it below.

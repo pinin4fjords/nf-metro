@@ -44,23 +44,48 @@ grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html"   | sed -E 's/.*
 wc -l < "$ART/stems.txt"     # how many examples the reviewer owes a verdict on
 ```
 
-Then, for each stem, render it at the base SHA and at the candidate SHA and
-rasterise both, so the comparison is like-for-like:
+Then render each stem at the base SHA and the candidate SHA and rasterise both.
+This block is **self-contained**: shell state does not survive between Bash
+calls, so it re-exports `ART` rather than relying on the block above.
 
 ```bash
+set -euo pipefail
+export ART=/tmp/nf-metro-visual-<PR_NUMBER>
+: "${ART:?}"                        # abort loudly rather than writing to /
 source ~/.local/bin/mm-activate nf-metro-dev
 for side in base cand; do
   case $side in base) SHA=<BASE_SHA>;; cand) SHA=<CANDIDATE_SHA>;; esac
-  W="$ART/$side"; git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA"
+  W="$ART/wt-$side"
+  git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA"
+  # The corpus spans examples/, tests/fixtures/ and tests/fixtures/hash_seed_determinism/,
+  # so resolve against the whole tree, not one root.
+  git -C "$W" ls-files '*.mmd' > "$ART/all-mmd.txt"
   while read -r stem; do
-    f=$(cd "$W" && ls examples/**/"$stem".mmd examples/"$stem".mmd 2>/dev/null | head -1)
-    [ -n "$f" ] || continue
-    PYTHONPATH="$W/src" python -m nf_metro render "$W/$f"       -o "$ART/$side-$stem.svg" --no-chrome-css
+    for cand in "$stem" "${stem#pipeline_}"; do
+      f=$(grep -E "(^|/)${cand}\.mmd$" "$ART/all-mmd.txt" | head -1) && [ -n "$f" ] && break
+    done
+    if [ -z "${f:-}" ]; then echo "UNRESOLVED: $stem" >&2; continue; fi
+    # Some corpus fixtures abort by design at head. Never let one kill the sweep:
+    # under `set -e` an unguarded failure here ends the whole review.
+    if ! PYTHONPATH="$W/src" python -m nf_metro render "$W/$f" \
+         -o "$ART/$side-$stem.svg" --no-chrome-css 2>"$ART/$side-$stem.err"; then
+      echo "RENDER-FAILED($side): $stem" >&2; continue
+    fi
     python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$ART/$side-$stem.svg"
   done < "$ART/stems.txt"
   git -C ~/projects/nf-metro worktree remove --force "$W"
 done
 ```
+
+A stem that renders on `base` but is `RENDER-FAILED` on `cand` **is the
+regression** - that is a D-delta of the worst kind, not a stem to skip. One that
+fails on both was already broken at head; say so and move on. The `.err` files
+hold the abort message.
+
+Reconcile the count before judging anything: the number of `cand-*.png` files
+must equal `wc -l < "$ART/stems.txt"` minus the `UNRESOLVED` lines. Report every
+unresolved stem by name; a gallery entry whose output id differs from its source
+stem lands here, and skipping it silently is how a regression ships.
 
 `Read` the `base-<stem>.png` / `cand-<stem>.png` pairs. Every stem in
 `stems.txt` owes an I/N/D verdict; if you could not produce an image for one,
