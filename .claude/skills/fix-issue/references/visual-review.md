@@ -4,8 +4,12 @@ Step 8's detail and Step 9 in full.
 
 ### Primary method: CI render preview (authoritative)
 
-**This is the one and only push and draft-PR creation in the run.** The
-coordinator does it here, once; no worker performs these remote mutations.
+**One CI-triggering push per candidate round, and one draft-PR creation in the
+run.** Additional pushes are permitted only for findings CI surfaced that could
+not be reproduced locally, which in practice means the routing ratchets when the
+local run was not on Python 3.11. Anything you could have caught locally does not
+earn a second push. The coordinator performs it; no worker performs these remote
+mutations.
 Steps 10 and 11 do not repeat it - Step 10 verifies the push landed and edits
 the PR body, Step 11 only flips the draft to ready. Every push costs a full CI
 matrix plus a gallery render of both branches, so batch accepted fixes into one

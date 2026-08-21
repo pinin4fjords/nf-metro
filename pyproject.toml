@@ -72,6 +72,11 @@ font = [
     "fonttools[woff]>=4.0",
 ]
 
+skill-checks = [
+    "pyyaml>=6.0",
+    "tiktoken>=0.7",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
 

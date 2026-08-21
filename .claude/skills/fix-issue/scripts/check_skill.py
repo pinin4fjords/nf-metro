@@ -381,8 +381,18 @@ def check_token_budget() -> None:
     try:
         import tiktoken
     except ImportError:
-        fail("tiktoken is not installed, so the token budget cannot be checked; "
-             "pip install tiktoken (it is not a project dependency)")
+        # The skill-selfcheck CI job installs the skill-checks extra, so this
+        # path means a local run without it. Warn on a byte estimate rather than
+        # skipping silently or failing on a figure too imprecise to gate: 4.1
+        # bytes/token measured on this file. CI is the enforcing gate.
+        body = (SKILL / "SKILL.md").read_text()
+        approx = len(body) / 4.1
+        note = (f"  note: tiktoken absent; SKILL.md ~{approx:.0f} tokens by byte estimate "
+                f"(cap {REATTACH_CAP}). Install `pip install -e \".[skill-checks]\"` "
+                "for the measured count; CI enforces it.")
+        print(note)
+        if approx > REATTACH_CAP:
+            fail(f"SKILL.md is ~{approx:.0f} tokens by byte estimate, over the {REATTACH_CAP} cap")
         return
     enc = tiktoken.get_encoding("o200k_base")
     count = lambda p: len(enc.encode(p.read_text()))
