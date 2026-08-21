@@ -32,6 +32,7 @@ from nf_metro.layout.routing.member_geometry import (
     MemberGeometryExecution,
     build_member_geometry_execution,
     empty_member_geometry_execution,
+    settle_member_geometry_corner_cohorts,
 )
 from nf_metro.layout.routing.system_emission import (
     RouteSystemEmissionExecution,
@@ -164,11 +165,24 @@ def _with_settled_exit_turns(
             )
         )
     frozen_plans = tuple(plans)
+    semantic_corner_templates = dict(execution._semantic_corner_templates)
+    semantic_corner_templates.update(
+        {
+            plan.edge: (
+                plan.curve_radii,
+                plan.concentric_corner_offsets_by_segment,
+                plan.concentric_corner_bases_by_segment,
+            )
+            for plan in frozen_plans
+        }
+    )
     return MemberGeometryExecution(
         frozen_plans,
         execution.failure_reasons,
         MappingProxyType({plan.edge: plan for plan in frozen_plans}),
         allocation.settled_exit_turns,
+        MappingProxyType(semantic_corner_templates),
+        execution.clearance_requirements,
     )
 
 
@@ -179,6 +193,7 @@ def prepare_route_system_planning(
     include_convergence_resources: bool,
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     allow_convergence_clearance_requirements: bool = False,
+    granted_clearance_owner_ids: frozenset[str] = frozenset(),
 ) -> RoutePlanningExecution:
     """Run the canonical planning phases without emitting production paths.
 
@@ -284,6 +299,8 @@ def prepare_route_system_planning(
             reservation_ids_by_member=reservation_ids_by_member,
             pending_exit_turn_plan_ids=pending_plan_ids,
             settled_exit_turn_plan_ids=settled_plan_ids,
+            allow_clearance_requirements=allow_convergence_clearance_requirements,
+            granted_clearance_owner_ids=granted_clearance_owner_ids,
         )
         return family_by_edge, convergences, planned_ids, member_geometry
 
@@ -340,6 +357,51 @@ def prepare_route_system_planning(
         family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
             prepare_member_geometry(exit_turns, pending_plan_ids)
         )
+    if not pending_plan_ids and member_geometry.settled_exit_turns:
+        allocation_geometry = member_geometry
+        settled_plan_ids = frozenset(
+            membership.plan.id
+            for source, target, line_id in member_geometry.settled_exit_turns
+            if (
+                membership := exit_turns.query.membership_for_edge(
+                    ctx.edge_by_key[(source, target, line_id)]
+                )
+            )
+            is not None
+        )
+        settled_member_ids = frozenset(
+            membership.member_id
+            for source, target, line_id in member_geometry.settled_exit_turns
+            if (
+                membership := exit_turns.query.membership_for_edge(
+                    ctx.edge_by_key[(source, target, line_id)]
+                )
+            )
+            is not None
+        )
+        ctx.settled_exit_turns = member_geometry.settled_exit_turns
+        if station_offsets is not None:
+            station_offsets.clear()
+            station_offsets.update(initial_station_offsets)
+        ctx.station_offsets = station_offsets
+        exit_turns = exit_turn_routing.build_exit_turn_execution(
+            graph,
+            ctx,
+            adopt_prior_dispositions=False,
+        )
+        family_by_edge, convergences, preliminary_planned_ids, member_geometry = (
+            prepare_member_geometry(
+                exit_turns,
+                frozenset(),
+                settled_plan_ids,
+            )
+        )
+        member_geometry = _with_settled_exit_turns(
+            member_geometry,
+            allocation_geometry,
+            settled_member_ids,
+            ctx,
+        )
     allocation_planned_ids = _allocation_eligible_system_ids(
         preliminary_planned_ids,
         frozenset(member_geometry.failure_reasons),
@@ -355,6 +417,12 @@ def prepare_route_system_planning(
         allow_clearance_requirements=allow_convergence_clearance_requirements,
     )
     ctx.convergences = convergences.query
+    member_geometry = settle_member_geometry_corner_cohorts(
+        member_geometry,
+        scaffold,
+        family_by_edge,
+        ctx,
+    )
     route_systems = build_route_system_emission_execution(
         scaffold,
         exit_turn_plans=exit_turns.plans,

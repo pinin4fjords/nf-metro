@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter, deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Container,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 
 from nf_metro.layout.constants import (
@@ -16,6 +23,7 @@ from nf_metro.layout.geometry import (
     AxisFrame,
     flow_port_sides,
     lanes_run_along_x,
+    lanes_run_along_y,
     perpendicular_port_sides,
     station_lane_coord,
 )
@@ -34,7 +42,6 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import (
     _has_intervening_sections,
-    _resolve_section_col,
     _resolve_section_colrow,
     _section_lane_frame,
     fanout_divergence_peel_order,
@@ -52,6 +59,7 @@ from nf_metro.layout.routing.invariants import (
 from nf_metro.layout.routing.reversal import detect_reversed_sections
 from nf_metro.layout.routing.seam import SeamOrientation, seam_orientation
 from nf_metro.parser.model import (
+    Edge,
     LineSpread,
     MetroGraph,
     Port,
@@ -594,11 +602,7 @@ def _section_line_feeders(ctx: _OffsetCtx, section: Section) -> dict[str, str]:
 
 def _section_present_line_set(ctx: _OffsetCtx, sec_id: str) -> set[str]:
     """Lines that appear on any station of section *sec_id*."""
-    present: set[str] = set()
-    for sid_s, station in ctx.graph.stations.items():
-        if station.section_id == sec_id:
-            present |= set(ctx.graph.station_lines(sid_s))
-    return present
+    return {lid for _sid, lid in section_node_lines(ctx.graph, sec_id)}
 
 
 def _section_order_offsets(
@@ -895,6 +899,77 @@ def _reorder_fanout_divergence(ctx: _OffsetCtx) -> None:
         _apply_section_line_order(ctx, sec_id, new_order)
 
 
+def _lines_holding_offset(
+    ctx: _OffsetCtx,
+    station_id: str,
+    value: float,
+    exclude: str,
+    candidates: Iterable[str] | None = None,
+) -> list[str]:
+    """Lines sitting on lane *value* at *station_id*, *exclude* aside.
+
+    *candidates* narrows the scan to a cohort; the station's whole line set
+    otherwise.  Callers decide their own arity policy: a swap that only needs
+    somebody to trade with takes the first, one that needs the lane provably
+    held by a single line requires exactly one.
+    """
+    lines = ctx.graph.station_lines(station_id) if candidates is None else candidates
+    return [
+        line_id
+        for line_id in lines
+        if line_id != exclude
+        and abs(ctx.offsets.get((station_id, line_id), 0.0) - value)
+        <= _OFFSET_EQ_TOLERANCE
+    ]
+
+
+def _restore_fanout_peel_order(
+    ctx: _OffsetCtx,
+    same_y_adj: dict[str, dict[str, list[tuple[str, str]]]],
+) -> None:
+    """Re-seat a fan-out source bundle on its semantic peel order."""
+    if ctx.compact:
+        return
+    graph = ctx.graph
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        section = graph.section_for_port(graph.ports[exit_port_id])
+        if not lanes_run_along_y(section.direction):
+            continue
+        peel_order = fanout_divergence_peel_order(
+            graph, junction_id, ctx.line_priority, ctx.topology
+        )
+        if peel_order is None:
+            continue
+        settled = sorted(
+            ctx.offsets.get((exit_port_id, line_id), 0.0) for line_id in peel_order
+        )
+        for line_id, target in zip(peel_order, settled):
+            current = ctx.offsets.get((exit_port_id, line_id), 0.0)
+            if abs(current - target) <= _OFFSET_EQ_TOLERANCE:
+                continue
+            swap_line = next(
+                iter(
+                    _lines_holding_offset(
+                        ctx, exit_port_id, target, line_id, peel_order
+                    )
+                ),
+                None,
+            )
+            if swap_line is None:
+                continue
+            _propagate_offset_swap(
+                ctx,
+                same_y_adj,
+                section.id,
+                exit_port_id,
+                line_id,
+                swap_line,
+                target,
+                current,
+            )
+        _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
+
+
 def _reindex_section_local(ctx: _OffsetCtx) -> None:
     """Re-index offsets per-section to close priority gaps (non-compact only).
 
@@ -1034,16 +1109,9 @@ def _reorder_one_exit_line(
     if abs(cur_off - desired_off) < _OFFSET_EQ_TOLERANCE:
         return  # already in the right slot
 
-    # Find which line currently occupies the desired slot
-    swap_lid = None
-    for other in lines:
-        if (
-            other != lid
-            and abs(ctx.offsets.get((sid, other), 0.0) - desired_off)
-            < _OFFSET_EQ_TOLERANCE
-        ):
-            swap_lid = other
-            break
+    swap_lid = next(
+        iter(_lines_holding_offset(ctx, sid, desired_off, lid, lines)), None
+    )
     if swap_lid is None:
         return
 
@@ -1546,18 +1614,24 @@ def _compute_exit_port_offsets(ctx: _OffsetCtx) -> None:
             _propagate_exit_offsets_to_hubs(ctx, port_id, spatial_offs)
 
 
+def _copy_exit_lanes_to_junction(
+    ctx: _OffsetCtx, junction_id: str, exit_port_id: str
+) -> None:
+    """Give a divergence junction the lanes its feeding exit port holds."""
+    for line_id in ctx.graph.station_lines(junction_id):
+        port_off = ctx.offsets.get((exit_port_id, line_id))
+        if port_off is not None:
+            ctx.offsets[(junction_id, line_id)] = port_off
+
+
 def _propagate_to_junctions(ctx: _OffsetCtx) -> None:
     """Inherit offsets from upstream exit ports to junctions.
 
     Junctions have section_id=None so they get default line-priority
     ordering, which may not match the exit port feeding them.
     """
-    graph = ctx.graph
     for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
-        for line_id in graph.station_lines(junction_id):
-            port_off = ctx.offsets.get((exit_port_id, line_id))
-            if port_off is not None:
-                ctx.offsets[(junction_id, line_id)] = port_off
+        _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
 
 def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
@@ -1570,6 +1644,125 @@ def _apply_planned_fan_offsets(ctx: _OffsetCtx) -> None:
                 ctx.offsets[(carrier.station_id, assignment.line_id)] = (
                     assignment.slot * ctx.offset_step
                 )
+
+
+def section_node_lines(graph: MetroGraph, sec_id: str) -> list[tuple[str, str]]:
+    """Every ``(node_id, line_id)`` lane slot a section owns, ports included."""
+    section = graph.sections[sec_id]
+    return [
+        (sid, lid)
+        for sid in section.station_ids
+        if sid in graph.stations
+        for lid in graph.station_lines(sid)
+    ]
+
+
+def _section_lane_squeeze(
+    ctx: _OffsetCtx, keys: Sequence[tuple[str, str]]
+) -> dict[tuple[str, str], float]:
+    """The drop each of *keys* takes to close the free slots between them.
+
+    Each gap wider than one ``offset_step`` between consecutive occupied levels
+    holds slots no line rides, so everything above it comes down by that many
+    steps.  The drop never exceeds the gap that produced it, so levels stay
+    strictly ordered and distinct: a station keeps one lane per line it carries.
+    """
+    step = ctx.offset_step
+    levels = distinct_offset_levels(ctx.offsets.get(key, 0.0) for key in keys)
+    drop_at: dict[float, float] = {levels[0]: 0.0} if levels else {}
+    free = 0
+    for lower, level in zip(levels, levels[1:]):
+        free += max(0, round((level - lower) / step) - 1)
+        drop_at[level] = free * step
+    return {
+        key: min(
+            (
+                drop
+                for level, drop in drop_at.items()
+                if abs(level - ctx.offsets.get(key, 0.0)) <= COORD_TOLERANCE_FINE
+            ),
+            default=0.0,
+        )
+        for key in keys
+    }
+
+
+def _dead_lane_squeeze_keeps_runs(
+    ctx: _OffsetCtx,
+    shift: Mapping[tuple[str, str], float],
+    edges_by_line: Mapping[str, Sequence[Edge]],
+) -> bool:
+    """Whether closing a section's free lanes leaves every run no worse.
+
+    ``shift`` is the drop each of the section's lane slots takes, zero for the
+    slots that stay.  Every edge carrying a shifted line is measured across: the
+    lane difference between its two ends may shrink but never grow, so a run that
+    was level inside the section or across one of its seams stays level, and a hop
+    that already stepped never steps further.  That covers the seam ports, the
+    bypass junctions that copy a port's lane and the plain interior runs, and it
+    is what lets a boundary port follow the squeeze when doing so lands it on the
+    lane its counterpart across the seam already holds.
+    """
+    for lid in {lid for (_, lid), drop in shift.items() if drop}:
+        for edge in edges_by_line.get(lid, ()):
+            src_key, tgt_key = (edge.source, lid), (edge.target, lid)
+            drops = (shift.get(src_key, 0.0), shift.get(tgt_key, 0.0))
+            if drops == (0.0, 0.0):
+                continue
+            before = ctx.offsets.get(src_key, 0.0) - ctx.offsets.get(tgt_key, 0.0)
+            after = before - drops[0] + drops[1]
+            if abs(after) > abs(before) + COORD_TOLERANCE_FINE:
+                return False
+    return True
+
+
+def _close_section_dead_lanes(ctx: _OffsetCtx) -> None:
+    """Drop lane levels no line of a section occupies anywhere.
+
+    A station whose bundle skips a level draws a marker tall enough to span it.
+    That reservation earns its space when a section-mate rides the level: a line
+    cut at this station but carried either side of it keeps one lane through the
+    whole section instead of stepping around the hole.  A level *no* line of the
+    section rides reserves nothing, so every lane above it drops one step.
+
+    The shift is a rigid, order-preserving relabelling of levels applied to every
+    station and port of the section at once, so each station keeps exactly one
+    lane per line it carries and the bundle order is untouched.  It is applied
+    only when :func:`_dead_lane_squeeze_keeps_runs` confirms no run inside the
+    section or across one of its seams tilts further for it.  Distinct from
+    ``compact_offsets``, which sizes each station's bundle from that station's own
+    line count and so gives one line different lanes at different stations; here a
+    line keeps its single section-wide lane and only genuinely unclaimed levels
+    are reclaimed.
+
+    Where :func:`_compact_station_gaps` re-slots one station's lines early, before
+    the port, fan and entry-frame phases have settled anything, this runs once
+    everything else has, and moves a whole section's levels together or not at
+    all.  It runs before the planned-fan offsets so a fan plan that owns a lane
+    still has the last word on it.  A rail-laid section is skipped: its geometry
+    is drawn from absolute rail coordinates, so its lane levels are not a bundle
+    to tighten.
+    """
+    if ctx.compact:
+        return
+    squeezes: list[dict[tuple[str, str], float]] = []
+    for sec_id in ctx.graph.sections:
+        if ctx.graph.is_rail_section(sec_id):
+            continue
+        shift = _section_lane_squeeze(ctx, section_node_lines(ctx.graph, sec_id))
+        if any(shift.values()):
+            squeezes.append(shift)
+    if not squeezes:
+        return
+    edges_by_line: dict[str, list[Edge]] = {}
+    for edge in ctx.graph.edges:
+        edges_by_line.setdefault(edge.line_id, []).append(edge)
+    for shift in squeezes:
+        if not _dead_lane_squeeze_keeps_runs(ctx, shift, edges_by_line):
+            continue
+        for key, drop in shift.items():
+            if drop:
+                ctx.offsets[key] = ctx.offsets.get(key, 0.0) - drop
 
 
 def _perp_entry_run_turns_right(graph: MetroGraph, port_id: str) -> bool:
@@ -1873,7 +2066,11 @@ def _inherit_level_convergence_entry_offsets(ctx: _OffsetCtx) -> None:
     whose inherited offsets form one distinct, contiguous run.  A gapped
     inherit would spread the entry bundle wider than base ordering (leaving an
     empty interior lane), so a subset-reserving or cross-row bundle - which the
-    reindex and convergence-approach phases own - is left untouched.
+    reindex and convergence-approach phases own - is left untouched.  An
+    inherit that would collide a bundle line with a section-local line the
+    bundle does not carry (:func:`_bundle_reslot_collides`) is left untouched
+    too: the imported values answer to the feeders' bundle, not to the slots
+    already taken further along this run.
     """
     graph = ctx.graph
     for port_id, port_obj in graph.ports.items():
@@ -1902,6 +2099,8 @@ def _inherit_level_convergence_entry_offsets(ctx: _OffsetCtx) -> None:
             continue
         levels = distinct_offset_levels(inherited.values())
         if max_interior_offset_gap(levels, ctx.offset_step) is not None:
+            continue
+        if _bundle_reslot_collides(ctx, port_id, port_obj.section_id, inherited):
             continue
         _apply_offsets_along_bundle(ctx, port_id, port_obj.section_id, inherited)
 
@@ -2259,6 +2458,23 @@ def _recompact_fan_port_bordering_stations(
         _propagate_touched_exit_ports_to_entries(ctx, touched)
 
 
+def _junction_bundle_re_slots_whole(graph: MetroGraph, junction_id: str) -> bool:
+    """Whether a divergence junction's bundle can take a new frame as one unit.
+
+    A line leaving the junction on several branches turns them all at one shared
+    vertex, drawn as a single fused stroke whose radius is the widest of the legs
+    (:func:`corners.widest_coincident_radius`).  Pinned by the widest leg, that
+    radius cannot follow the lane onto a neighbouring slot: the distinct mate it
+    lands beside then reads as one wholesale-translated corner with it, and the
+    concentric reference sized for the pair loses to the fusion, pinching the
+    bundle through the bend.  Moving the other lanes without it would split the
+    bundle instead, so a junction carrying a fused lane keeps the frame its own
+    phases settled.
+    """
+    branches = Counter(edge.line_id for edge in graph.edges_from(junction_id))
+    return all(count == 1 for count in branches.values())
+
+
 def _propagate_touched_exit_ports_to_entries(
     ctx: _OffsetCtx, touched: set[str]
 ) -> None:
@@ -2277,9 +2493,16 @@ def _propagate_touched_exit_ports_to_entries(
     would itself forward: a TOP/BOTTOM entry, a vertical-flow (TB) consumer,
     or a reversing seam each carry the line on their own arrival-order lane
     rather than the feeder's raw stored offset, so a direct copy there would
-    be wrong, not merely redundant.
+    be wrong, not merely redundant.  A divergence junction fed by such a port
+    re-inherits the same way, and only where its whole bundle can take the new
+    frame together (:func:`_junction_bundle_re_slots_whole`).
     """
     graph = ctx.graph
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if exit_port_id in touched and _junction_bundle_re_slots_whole(
+            graph, junction_id
+        ):
+            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
     for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
@@ -2804,11 +3027,25 @@ def _apply_offsets_along_bundle(
     it on the pre-reslot order crosses the bundle at that turn.
     """
     graph = ctx.graph
-    row_y = graph.stations[start_id].y
-    lane_edge_sides = perpendicular_port_sides(graph.sections[sec_id].direction)
     for lid, off in new_offs.items():
         ctx.offsets[(start_id, lid)] = off
+    for tgt_id in _bundle_walk_stations(ctx, start_id, sec_id):
+        for lid in graph.station_lines(tgt_id):
+            if lid in new_offs:
+                ctx.offsets[(tgt_id, lid)] = new_offs[lid]
 
+
+def _bundle_walk_stations(ctx: _OffsetCtx, start_id: str, sec_id: str) -> list[str]:
+    """Stations downstream of *start_id* that a bundle re-slot carries onto.
+
+    The reach depends only on the graph and the row *start_id* stands on, so a
+    caller can ask which stations a re-slot would touch before deciding whether
+    to make it.
+    """
+    graph = ctx.graph
+    row_y = graph.stations[start_id].y
+    lane_edge_sides = perpendicular_port_sides(graph.sections[sec_id].direction)
+    reached: list[str] = []
     visited = {start_id}
     queue = deque([start_id])
     while queue:
@@ -2826,10 +3063,32 @@ def _apply_offsets_along_bundle(
             if not in_section and not on_row:
                 continue
             visited.add(tgt_id)
-            for lid in graph.station_lines(tgt_id):
-                if lid in new_offs:
-                    ctx.offsets[(tgt_id, lid)] = new_offs[lid]
+            reached.append(tgt_id)
             queue.append(tgt_id)
+    return reached
+
+
+def _bundle_reslot_collides(
+    ctx: _OffsetCtx,
+    start_id: str,
+    sec_id: str,
+    new_offs: dict[str, float],
+) -> bool:
+    """Whether carrying *new_offs* along the bundle seats two lines on one slot.
+
+    Values imported from another bundle need not be a permutation of the slots
+    in use along this one: a station the run reaches can carry a line the bundle
+    does not (one that starts inside the section), and moving a bundle line onto
+    that line's slot draws the two strokes on top of each other.
+    """
+    graph = ctx.graph
+    return any(
+        abs(new_offs[moved] - ctx.offsets.get((sid, held), 0.0)) <= _OFFSET_EQ_TOLERANCE
+        for sid in (start_id, *_bundle_walk_stations(ctx, start_id, sec_id))
+        for lines in (set(graph.station_lines(sid)),)
+        for moved in lines & new_offs.keys()
+        for held in lines - new_offs.keys()
+    )
 
 
 def _is_symmetric_fork_arm(graph: MetroGraph, sid: str) -> bool:
@@ -2939,10 +3198,9 @@ def _convergence_feeders(
     off-target row. A single bypass joined by a flat same-row feeder does not
     form a climbing bundle and remains in its ordinary lane order.
     """
-    target_col = _resolve_section_col(graph, graph.stations[port_id])
+    target_col, target_row = _resolve_section_colrow(graph, graph.stations[port_id])
     if target_col is None:
         return None
-    target_row = _resolve_section_colrow(graph, graph.stations[port_id])[1]
 
     feeders: list[tuple[str, int, bool]] = []
     source_rows: set[int | None] = set()
@@ -3313,6 +3571,213 @@ def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:
             ctx.offsets[(port_id, lid)] = lane - shift
 
 
+def _sole_in_section_consumer(
+    graph: MetroGraph, port_id: str, section_id: str, lines: Container[str]
+) -> str | None:
+    """The one real station in *section_id* that *lines* reach from *port_id*.
+
+    ``None`` when they reach several, or none: a port feeding more than one
+    station of the section hands its bundle to a fan, not to a single first stop.
+    """
+    consumers = {
+        edge.target
+        for edge in graph.edges_from(port_id)
+        if edge.line_id in lines
+        and not graph.stations[edge.target].is_port
+        and graph.stations[edge.target].section_id == section_id
+    }
+    if len(consumers) != 1:
+        return None
+    return next(iter(consumers))
+
+
+def _slot_entry_arrivals_on_their_approach_lane(
+    ctx: _OffsetCtx,
+    same_y_adj: dict[str, dict[str, list[tuple[str, str]]]],
+) -> None:
+    """Put a line entering a lane-stacked section on the lane it arrives on.
+
+    An inter-section run arrives on the lane its upstream carrier draws.  Where
+    the receiving section reserves a different slot for that line, the run
+    between the entry port and the first station spends the difference as a
+    sub-radius diagonal; a port draws no marker, so that step lands in open
+    space just inside the section box.  Exchanging the arriving line's slot for
+    the one already holding the approach lane keeps a reserved slot per line -
+    the exchange is a permutation of the slots the station occupies - and lets
+    the run in stay flat.  The swap propagates along the section's horizontal
+    runs, so the line that gave up the approach lane carries its new slot for
+    the rest of its chain.
+    """
+    if ctx.compact:
+        return
+    graph = ctx.graph
+    for section in graph.sections.values():
+        if not lanes_run_along_y(section.direction):
+            continue
+        flow_entry, flow_exit = flow_port_sides(section.direction)
+        for port_id in section.entry_ports:
+            if graph.ports[port_id].side is not flow_entry:
+                continue
+            for line_id in graph.station_lines(port_id):
+                _slot_one_entry_arrival(
+                    ctx, same_y_adj, section, port_id, line_id, flow_exit
+                )
+
+
+def _slot_one_entry_arrival(
+    ctx: _OffsetCtx,
+    same_y_adj: dict[str, dict[str, list[tuple[str, str]]]],
+    section: Section,
+    port_id: str,
+    line_id: str,
+    flow_exit: PortSide,
+) -> None:
+    """Swap one arriving line onto its approach lane, or leave the bundle alone.
+
+    Declines unless the exchange is provably a permutation of lanes already in
+    use at the first station and provably crossing-free: the approach lane must
+    be held by exactly one other line, and that line must originate at the
+    station, so it shares no run with the arriving line on the approach side and
+    the two only meet under the station's own marker.  The approach lane is read
+    off the feeder as a stored lane offset, which names the same lane at the
+    consumer only while the feeder's trunk is level with it, so a stepped seam is
+    declined rather than converted through screen coordinates.
+
+    An exchange that reaches one of the section's exit ports carries on through
+    :func:`_exchange_pair_beyond_exit`, so the bundle the pair joins outside
+    holds the same order they leave on.
+    """
+    graph = ctx.graph
+    port_station = graph.stations[port_id]
+    consumer_id = _sole_in_section_consumer(graph, port_id, section.id, (line_id,))
+    if consumer_id is None:
+        return
+    consumer = graph.stations[consumer_id]
+    if abs(consumer.y - port_station.y) > _SAME_Y_TOLERANCE:
+        return
+    upstream = _upstream_section_lane(ctx, port_id, section.id, line_id, flow_exit)
+    if upstream is None:
+        return
+    _feeder_section_id, feeder_station_id, feeder_offset = upstream
+    if abs(graph.stations[feeder_station_id].y - consumer.y) > _SAME_Y_TOLERANCE:
+        return
+    desired = feeder_offset
+    current = ctx.offsets.get((consumer_id, line_id), 0.0)
+    if abs(current - desired) <= _OFFSET_EQ_TOLERANCE:
+        return
+    holders = _lines_holding_offset(ctx, consumer_id, desired, line_id)
+    if len(holders) != 1:
+        return
+    holder = holders[0]
+    if holder in ctx.inbound.get(consumer_id, set()):
+        return
+    before_exits = {
+        exit_port_id: (
+            ctx.offsets.get((exit_port_id, line_id)),
+            ctx.offsets.get((exit_port_id, holder)),
+        )
+        for exit_port_id in section.exit_ports
+    }
+    _propagate_offset_swap(
+        ctx, same_y_adj, section.id, consumer_id, line_id, holder, desired, current
+    )
+    for exit_port_id, (was_arriving, was_holder) in before_exits.items():
+        if was_arriving is None or was_holder is None:
+            continue
+        if _offsets_exchanged(
+            ctx, exit_port_id, line_id, holder, was_arriving, was_holder
+        ):
+            _exchange_pair_beyond_exit(ctx, section, exit_port_id, line_id, holder)
+
+
+def _offsets_exchanged(
+    ctx: _OffsetCtx,
+    station_id: str,
+    first: str,
+    second: str,
+    was_first: float,
+    was_second: float,
+) -> bool:
+    """Whether *first* and *second* now hold each other's slot at *station_id*."""
+    return (
+        abs(ctx.offsets.get((station_id, first), 0.0) - was_second)
+        <= _OFFSET_EQ_TOLERANCE
+        and abs(ctx.offsets.get((station_id, second), 0.0) - was_first)
+        <= _OFFSET_EQ_TOLERANCE
+        and abs(was_first - was_second) > _OFFSET_EQ_TOLERANCE
+    )
+
+
+def _exchange_pair_at(
+    ctx: _OffsetCtx, station_id: str, first: str, second: str
+) -> bool:
+    """Give each of two lines the other's slot at *station_id*, if both hold one."""
+    arriving = ctx.offsets.get((station_id, first))
+    holding = ctx.offsets.get((station_id, second))
+    if arriving is None or holding is None:
+        return False
+    ctx.offsets[(station_id, first)] = holding
+    ctx.offsets[(station_id, second)] = arriving
+    return True
+
+
+def _exchange_pair_beyond_exit(
+    ctx: _OffsetCtx,
+    section: Section,
+    exit_port_id: str,
+    first: str,
+    second: str,
+) -> None:
+    """Carry a slot exchange out of *section* along the pair's shared chain.
+
+    A line leaving through an exit port joins a bundle whose lead-in order the
+    divergence junction mirrors from that port and whose peel order the
+    destination's own lanes fix.  Exchanging the pair inside the section only
+    leaves those two orders disagreeing, so the bundle's two legs meet the
+    junction on different lanes and the pair inverts through the first corner
+    outside the box.  Continuing the exchange downstream holds the whole chain
+    on one order.
+
+    A section is taken whole: a line crossing it with no station of its own
+    passes through as a hidden through-lane, with no edge of its own to follow,
+    so the walk exchanges the pair at every station of a section it enters that
+    carries them both, and follows the pair's edges only to reach the next
+    section or the junctions between them.
+
+    Only the pair's own two slots ever move and only where both lines already
+    hold one, so every station keeps the lanes it had: the exchange stays a
+    permutation the whole way out.  It stops where the pair stops travelling
+    together, which is where each line's own lane is free again.
+    """
+    graph = ctx.graph
+    pair = {first, second}
+    frontier = [exit_port_id]
+    seen_stations = {*section.station_ids, exit_port_id}
+    seen_sections = {section.id}
+    while frontier:
+        for edge in graph.edges_from(frontier.pop()):
+            if edge.line_id not in pair:
+                continue
+            target = graph.stations.get(edge.target)
+            if target is None:
+                continue
+            if target.section_id is None:
+                reached: tuple[str, ...] = (edge.target,)
+            elif target.section_id in seen_sections:
+                continue
+            else:
+                seen_sections.add(target.section_id)
+                reached = tuple(graph.sections[target.section_id].station_ids)
+            for station_id in reached:
+                if station_id in seen_stations:
+                    continue
+                if not pair <= set(graph.station_lines(station_id)):
+                    continue
+                seen_stations.add(station_id)
+                if _exchange_pair_at(ctx, station_id, first, second):
+                    frontier.append(station_id)
+
+
 def _upstream_section_lane(
     ctx: _OffsetCtx,
     entry_port_id: str,
@@ -3369,14 +3834,7 @@ def _linear_entry_frame(
     if is_near_vertical_junction_right_entry(graph, graph.ports[entry_port_id]):
         return None
     continuing = tuple(graph.station_lines(entry_port_id))
-    entry_targets = {
-        edge.target
-        for edge in graph.edges_from(entry_port_id)
-        if edge.line_id in continuing
-        and not graph.stations[edge.target].is_port
-        and graph.stations[edge.target].section_id == section.id
-    }
-    if len(entry_targets) != 1:
+    if _sole_in_section_consumer(graph, entry_port_id, section.id, continuing) is None:
         return None
     supplied = {
         line_id: _upstream_section_lane(
@@ -3742,6 +4200,19 @@ def compute_station_offsets(
        is the middle of the fan out to that section's rails.  Runs after phase
        13, whose snapping would otherwise pull the port back onto the offsets
        of the rail-laid neighbour it feeds.
+    14b. **Entry-arrival lane slotting** - exchanges an arriving line's slot
+        for the one holding the lane it actually arrives on, so the run from a
+        flow-side entry port into its first station stays flat instead of
+        spending the difference as a markerless diagonal just inside the box.
+        Runs after phase 13 because the upstream lane it reads is only final
+        once the port phases have settled (non-compact, lane-stacked
+        sections).
+    14c. **Section free-lane closure** - drops any lane level no line of a
+        section rides at all, shifting the levels above it down together across
+        every station and port of that section, so no marker spans a slot held
+        for nobody.  Runs after 14b (the last phase that can vacate a level) and
+        before the planned-fan offsets, which own the lanes they state
+        (non-compact, non-rail sections).
     15. **Linear entry-frame materialization** - inherits a flow-aligned entry
         cohort's exact upstream slots across every complete section carrier,
         assigns section-local lines only to exterior slots, and publishes the
@@ -3782,9 +4253,12 @@ def compute_station_offsets(
     _recenter_partial_fan_branches(ctx)
     _reverse_near_vertical_junction_right_entry_offsets(ctx)
     _recompact_fan_port_bordering_stations(ctx, same_y_adj, sec_layer_stations)
+    _restore_fanout_peel_order(ctx, same_y_adj)
     _reconcile_horizontal_offsets(ctx)
     _center_rail_boundary_port_bundles(ctx)
     _recenter_single_line_corridor_entry(ctx)
+    _slot_entry_arrivals_on_their_approach_lane(ctx, same_y_adj)
+    _close_section_dead_lanes(ctx)
     _apply_planned_fan_offsets(ctx)
     frames = _materialize_linear_entry_frames(ctx)
     _validate_linear_entry_frames(ctx, frames)

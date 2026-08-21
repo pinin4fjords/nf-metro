@@ -183,6 +183,8 @@ class FinalCanvasGeometry:
     height: float
     header_keepouts: Mapping[str, CanvasRect]
     route_polylines: Sequence[Sequence[tuple[float, float]]]
+    route_curve_radii: Sequence[Sequence[float] | None]
+    route_segment_shifts: Sequence[int]
 
 
 CANVAS_EDGE_ON_NEGATIVE_SIDE: frozenset[CanvasSide] = frozenset(
@@ -2509,6 +2511,7 @@ def _projected_claim_bounds(
 def _drawn_claim_bounds(
     reservation: RouteReservation,
     route_polylines: Sequence[Sequence[tuple[float, float]]],
+    route_segment_shifts: Sequence[int] = (),
 ) -> _ProjectedClaimBounds:
     """Canvas-run bounds read from the final polylines the renderer emits."""
     allocation_axis, longitudinal_axis = _reservation_axes(reservation)
@@ -2520,7 +2523,13 @@ def _drawn_claim_bounds(
             route_polylines[claim.path_rank][rank][allocation_index],
         )
         for claim in reservation.claims
-        for rank in range(claim.segment_rank, claim.segment_end_rank + 2)
+        for shift in (
+            route_segment_shifts[claim.path_rank] if route_segment_shifts else 0,
+        )
+        for rank in range(
+            claim.segment_rank + shift,
+            claim.segment_end_rank + shift + 2,
+        )
     )
     first_longitudinal, first_allocation = next(coordinates)
     longitudinal_start = longitudinal_end = first_longitudinal
@@ -2597,13 +2606,14 @@ def _realise_one(
     coordinate_translations: tuple[ReservationCoordinateTranslation, ...] = (),
     header_keepouts: Mapping[str, CanvasRect] | None = None,
     route_polylines: Sequence[Sequence[tuple[float, float]]] | None = None,
+    route_segment_shifts: Sequence[int] = (),
 ) -> RealisedRouteReservation | None:
     if isinstance(reservation.region, CanvasRegion) and (
         canvas_width is None or canvas_height is None
     ):
         return None
     projected = (
-        _drawn_claim_bounds(reservation, route_polylines)
+        _drawn_claim_bounds(reservation, route_polylines, route_segment_shifts)
         if isinstance(reservation.region, CanvasRegion) and route_polylines is not None
         else _projected_claim_bounds(reservation, coordinate_translations)
     )
@@ -4080,6 +4090,7 @@ def realise_route_reservations(
                 held_translations.get(reservation.id, coordinate_translations),
                 final_canvas.header_keepouts,
                 final_canvas.route_polylines,
+                final_canvas.route_segment_shifts,
             )
         )
         is not None

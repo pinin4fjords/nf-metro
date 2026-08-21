@@ -11,13 +11,16 @@ __all__ = [
 ]
 
 import copy
+import hashlib
 import html
 import math
+import pickle
 import re
 import textwrap
 import warnings
-from collections.abc import Iterable
-from dataclasses import replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, fields, is_dataclass, replace
+from enum import Enum
 from typing import Any, Literal, NamedTuple
 
 import drawsvg as draw
@@ -74,7 +77,10 @@ from nf_metro.layout.route_plan import (
     RouteMemberGeometryPlan,
     RoutePlan,
     RouteSystem,
+    SettlementStage,
+    SettlementStageTrace,
     grid_span_for_sections,
+    register_settlement_stage,
 )
 from nf_metro.layout.route_reservations import (
     CanvasRect,
@@ -122,6 +128,7 @@ from nf_metro.parser.model import (
     MARKER_FILL_OPEN,
     MARKER_FILL_SOLID,
     MARKER_SHAPE_PILL,
+    Edge,
     Interchange,
     LayoutGeometryWarning,
     MarkerStyle,
@@ -207,7 +214,9 @@ from nf_metro.render.manifest import build_manifest, manifest_metadata_svg
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.ns import ns as _ns
+from nf_metro.render.path_geometry import materialize_source_turnout_paths
 from nf_metro.render.plan import (
+    _RENDER_GRAPH_EXCLUDED_FIELDS,
     FrozenGraph,
     FrozenRecord,
     RenderPlan,
@@ -591,6 +600,82 @@ class ObservedRenderPlan(NamedTuple):
     route_plan: RoutePlan
 
 
+@dataclass(frozen=True, slots=True)
+class _FinalPublishedGeometry(FinalCanvasGeometry):
+    """One source for every geometry-bearing value published by RenderPlan."""
+
+    theme: Theme
+    metrics_face: MetricsFace
+    edge_route_indices: tuple[int, ...]
+    bridge_breaks: Sequence[Sequence[BridgeBreak]]
+    labels: Sequence[LabelPlacement]
+    header_placements: Mapping[str, SectionHeaderPlacement]
+    group_bands: Sequence[_GroupBand]
+    positive_fan_sections: frozenset[str]
+    padding: float
+    legend_x: float
+    legend_y: float
+    legend_w: float
+    legend_h: float
+    show_legend: bool
+    show_logo: bool
+    logo_in_legend: bool
+    adaptive_logo: bool
+    effective_logo: str
+    resolved_logo_light: str
+    resolved_logo_dark: str
+    logo_x: float
+    logo_y: float
+    logo_w: float
+    logo_h: float
+    legend_logo_size: tuple[float, float] | None
+    manifest: Mapping[str, object] | None
+    debug: bool
+    chrome_css: bool
+    bare: bool
+
+
+_FINAL_RENDER_PLAN_FINGERPRINT_SOURCES = {
+    "theme": "published.theme",
+    "graph": "graph",
+    "metrics_face": "published.metrics_face",
+    "station_offsets": "station_offsets",
+    "routes": "routes",
+    "route_polylines": "published.route_polylines",
+    "route_curve_radii": "published.route_curve_radii",
+    "route_segment_shifts": "published.route_segment_shifts",
+    "edge_route_indices": "published.edge_route_indices",
+    "bridge_breaks": "published.bridge_breaks",
+    "labels": "published.labels",
+    "header_placements": "published.header_placements",
+    "group_bands": "published.group_bands",
+    "positive_fan_sections": "published.positive_fan_sections",
+    "svg_width": "published.width",
+    "svg_height": "published.height",
+    "padding": "published.padding",
+    "legend_x": "published.legend_x",
+    "legend_y": "published.legend_y",
+    "legend_w": "published.legend_w",
+    "legend_h": "published.legend_h",
+    "show_legend": "published.show_legend",
+    "show_logo": "published.show_logo",
+    "logo_in_legend": "published.logo_in_legend",
+    "adaptive_logo": "published.adaptive_logo",
+    "effective_logo": "published.effective_logo",
+    "resolved_logo_light": "published.resolved_logo_light",
+    "resolved_logo_dark": "published.resolved_logo_dark",
+    "logo_x": "published.logo_x",
+    "logo_y": "published.logo_y",
+    "logo_w": "published.logo_w",
+    "logo_h": "published.logo_h",
+    "legend_logo_size": "published.legend_logo_size",
+    "manifest": "published.manifest",
+    "debug": "published.debug",
+    "chrome_css": "published.chrome_css",
+    "bare": "published.bare",
+}
+
+
 def _build_render_plan_result(
     graph: MetroGraph,
     theme: Theme,
@@ -842,6 +927,7 @@ def _route_decision_fingerprint(routes: list[RoutedPath]) -> tuple[object, ...]:
             route.convergence_owned_segment_ranks,
             route.exit_turn_segment_rank,
             route.exit_lane_transition_plan_id,
+            route.source_turnout,
         )
         for route in routes
     )
@@ -879,6 +965,7 @@ def _member_geometry_decision(
         plan.exit_turn_axis_id,
         plan.exit_turn_segment_rank,
         plan.exit_lane_transition_plan_id,
+        plan.source_turnout,
         plan.fan_plan_id,
         plan.fan_route_emitter,
         plan.coordinate_regime,
@@ -1081,6 +1168,7 @@ def _plan_decision_fingerprint(plan: RoutePlan) -> tuple[object, ...]:
         tuple(_member_geometry_decision(item) for item in plan.member_geometry_plans),
         plan.bindings,
         plan.provenance,
+        plan.boundary_clearance_owner_ids,
     )
 
 
@@ -1266,6 +1354,280 @@ def _ledger_changes_live_derived_band(
     return False
 
 
+class _DigestSink:
+    """Fold a pickle stream into a digest without retaining the bytes."""
+
+    def __init__(self) -> None:
+        self._digest = hashlib.sha256()
+
+    def write(self, data: bytes) -> None:
+        self._digest.update(data)
+
+    def hexdigest(self) -> str:
+        return self._digest.hexdigest()
+
+
+def _pickled_digest(observed: object) -> str:
+    """Digest a tree of primitives and tuples by pickling it into a hash.
+
+    Serialising the tree costs a fraction of rendering it as text, which is
+    what a settlement fingerprint would otherwise pay for on every stage.
+
+    The pickler runs without its memo. A memoised stream replaces the second
+    occurrence of a value with a back-reference to the first *object*, so it
+    names which equal values happen to share storage -- a property of upstream
+    allocation rather than of the geometry, and one that moves with
+    ``PYTHONHASHSEED``. Un-memoised, equal trees serialise alike.
+    """
+    sink = _DigestSink()
+    pickler = pickle.Pickler(sink, protocol=5)
+    pickler.fast = True
+    pickler.dump(observed)
+    return sink.hexdigest()
+
+
+def _settlement_geometry_fingerprint(
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float],
+    routes: list[RoutedPath],
+) -> str:
+    """Identify the geometry and route ownership visible at a settlement stage."""
+    sections = tuple(
+        (
+            section_id,
+            section.bbox_x,
+            section.bbox_y,
+            section.bbox_w,
+            section.bbox_h,
+        )
+        for section_id, section in sorted(graph.sections.items())
+    )
+    stations = tuple(
+        (station_id, station.x, station.y)
+        for station_id, station in sorted(graph.stations.items())
+    )
+    final_routes = tuple(
+        (
+            tuple(route.points),
+            None if route.curve_radii is None else tuple(route.curve_radii),
+            route.route_reservation_ids,
+            route.member_geometry_plan_id,
+        )
+        for route in routes
+    )
+    observed = (
+        sections,
+        stations,
+        tuple(sorted(station_offsets.items())),
+        _route_decision_fingerprint(routes),
+        final_routes,
+    )
+    return _pickled_digest(observed)
+
+
+# Empty on purpose: a RoutedPath contributes every field it declares, and
+# saying so keeps the four record types a single readable table.
+_FINAL_ROUTE_FINGERPRINT_EXCLUDED_FIELDS: frozenset[str] = frozenset()
+_FINAL_EDGE_FINGERPRINT_EXCLUDED_FIELDS = frozenset({"source_line"})
+_FINAL_PLAN_FINGERPRINT_EXCLUDED_FIELDS = frozenset({"settlement_trace"})
+_FINAL_GRAPH_FINGERPRINT_EXCLUDED_FIELDS = frozenset(_RENDER_GRAPH_EXCLUDED_FIELDS)
+
+
+_FINAL_FINGERPRINT_VERBATIM_TYPES = frozenset(
+    {type(None), bool, int, float, str, bytes}
+)
+
+
+_FINAL_VALUE_TYPE_IDS: dict[type, str] = {}
+_FINAL_FINGERPRINT_FIELD_NAMES: dict[type, tuple[str, ...]] = {}
+
+_FINAL_ENUM_CANONICAL: dict[int, tuple[Enum, object]] = {}
+
+
+def _final_value_type_id(value_type: type) -> str:
+    cached = _FINAL_VALUE_TYPE_IDS.get(value_type)
+    if cached is None:
+        cached = f"{value_type.__module__}.{value_type.__qualname__}"
+        _FINAL_VALUE_TYPE_IDS[value_type] = cached
+    return cached
+
+
+def _final_fingerprint_field_names(value_type: type) -> tuple[str, ...]:
+    """The dataclass fields one type contributes, in declaration order."""
+    cached = _FINAL_FINGERPRINT_FIELD_NAMES.get(value_type)
+    if cached is not None:
+        return cached
+    excluded = (
+        _FINAL_GRAPH_FINGERPRINT_EXCLUDED_FIELDS
+        if issubclass(value_type, MetroGraph)
+        else _FINAL_PLAN_FINGERPRINT_EXCLUDED_FIELDS
+        if issubclass(value_type, RoutePlan)
+        else _FINAL_ROUTE_FINGERPRINT_EXCLUDED_FIELDS
+        if issubclass(value_type, RoutedPath)
+        else _FINAL_EDGE_FINGERPRINT_EXCLUDED_FIELDS
+        if issubclass(value_type, Edge)
+        else frozenset()
+    )
+    names = tuple(
+        field.name for field in fields(value_type) if field.name not in excluded
+    )
+    _FINAL_FINGERPRINT_FIELD_NAMES[value_type] = names
+    return names
+
+
+class _CanonicalMemo:
+    """The values one canonicalisation pass has already projected.
+
+    Published state is a graph rather than a tree - the same routes, sections
+    and plans are reachable from several of an observation's roots - so results
+    are keyed by ``id``. ``_alive`` retains every keyed object for the memo's
+    lifetime: an object freed mid-pass would let a later one inherit its
+    address and, with it, its cached projection.
+    """
+
+    __slots__ = ("_alive", "_projected")
+
+    def __init__(self) -> None:
+        self._projected: dict[int, object] = {}
+        self._alive: list[object] = []
+
+    def projected(self, value: object) -> object | None:
+        """The projection already recorded for *value*, or ``None``."""
+        return self._projected.get(id(value))
+
+    def record(self, value: object, projection: object) -> object:
+        """Record *projection* as *value*'s and return it."""
+        self._projected[id(value)] = projection
+        self._alive.append(value)
+        return projection
+
+
+def _canonical_final_value(value: object, memo: _CanonicalMemo | None = None) -> object:
+    """Project final render state into deterministic, address-free values.
+
+    Runs once per field of every published record, so the per-type facts it
+    needs -- the type id and the fields that type contributes -- are cached
+    against the type rather than re-derived at each value, and *memo* (when a
+    caller shares one across an observation's roots) projects each container
+    and record once rather than once per path that reaches it.
+
+    Exact-type tests come before the abstract ones because plain containers
+    dominate the walk; a ``Mapping`` or sequence subclass falls through to the
+    ``isinstance`` arms below and is projected identically.
+    """
+    if memo is None:
+        memo = _CanonicalMemo()
+    value_type = type(value)
+    if value_type in _FINAL_FINGERPRINT_VERBATIM_TYPES:
+        return value
+    if type(value) is tuple or type(value) is list:
+        recorded = memo.projected(value)
+        if recorded is not None:
+            return recorded
+        return memo.record(
+            value, tuple(_canonical_final_value(item, memo) for item in value)
+        )
+    if type(value) is dict:
+        recorded = memo.projected(value)
+        if recorded is not None:
+            return recorded
+        return memo.record(
+            value,
+            tuple(
+                (
+                    _canonical_final_value(key, memo),
+                    _canonical_final_value(item, memo),
+                )
+                for key, item in value.items()
+            ),
+        )
+    if isinstance(value, Enum):
+        # Members of two ``(str, Enum)`` classes sharing a value compare equal
+        # and hash alike, so the cache is keyed by address.  Each entry holds a
+        # reference to the member it was filled from, which pins that address
+        # for as long as the entry lives; the identity test states the contract
+        # that reference upholds rather than catching a recycled address.
+        cached = _FINAL_ENUM_CANONICAL.get(id(value))
+        if cached is not None and cached[0] is value:
+            return cached[1]
+        projection = (
+            _final_value_type_id(value_type),
+            _canonical_final_value(value.value, memo),
+        )
+        _FINAL_ENUM_CANONICAL[id(value)] = (value, projection)
+        return projection
+    if isinstance(value, Mapping):
+        return tuple(
+            (_canonical_final_value(key, memo), _canonical_final_value(item, memo))
+            for key, item in value.items()
+        )
+    if isinstance(value, (set, frozenset)):
+        return tuple(
+            sorted((_canonical_final_value(item, memo) for item in value), key=repr)
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_canonical_final_value(item, memo) for item in value)
+    if is_dataclass(value):
+        recorded = memo.projected(value)
+        if recorded is not None:
+            return recorded
+        return memo.record(
+            value,
+            (
+                _final_value_type_id(value_type),
+                tuple(
+                    (name, _canonical_final_value(getattr(value, name), memo))
+                    for name in _final_fingerprint_field_names(value_type)
+                ),
+            ),
+        )
+    raise TypeError(
+        f"unsupported final fingerprint value type: {_final_value_type_id(value_type)}"
+    )
+
+
+def _final_settlement_geometry_observation(
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float],
+    routes: list[RoutedPath],
+    route_plan: RoutePlan,
+    published_geometry: _FinalPublishedGeometry,
+) -> tuple[object, ...]:
+    """Read every published geometry and planning field after realisation."""
+    memo = _CanonicalMemo()
+    return (
+        _canonical_final_value(graph, memo),
+        _canonical_final_value(station_offsets, memo),
+        _canonical_final_value(published_geometry, memo),
+        _canonical_final_value(routes, memo),
+        _canonical_final_value(route_plan, memo),
+    )
+
+
+def _final_settlement_geometry_digest(observed: tuple[object, ...]) -> str:
+    """Name one published-state observation for the settlement trace.
+
+    ``_canonical_final_value`` refuses anything but the primitives and tuples it
+    projects onto, so the observation is a finite tree that pickles by
+    construction.
+    """
+    return _pickled_digest(observed)
+
+
+def _assert_final_canvas_read_only_guards(
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float],
+    routes: list[RoutedPath],
+    route_plan: RoutePlan,
+    published_geometry: _FinalPublishedGeometry,
+) -> None:
+    """Run guards that inspect the realised final canvas without changing it."""
+    del station_offsets, routes, published_geometry
+    assert_canvas_corridors_hold_their_claims(
+        route_plan, strict=graph.strict and not graph.permissive
+    )
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
@@ -1353,6 +1715,7 @@ def _settle_render_geometry(
     # `carried_from` holds the edges that pass started from.
     carried_ports: tuple[str, ...] = ()
     carried_from: dict[str, tuple[float, float, float, float]] = {}
+    settlement_trace = SettlementStageTrace()
 
     def _place(
         station_offsets: dict[tuple[str, str], float], routes: list[RoutedPath]
@@ -1380,8 +1743,10 @@ def _settle_render_geometry(
         reservations: RoutePlan | None = None,
         reservation_translations: tuple[ReservationCoordinateTranslation, ...] = (),
         *,
+        stage: SettlementStage,
         allow_clearance_requirements: bool = False,
     ) -> tuple[list[RoutedPath], RoutePlan]:
+        nonlocal settlement_trace
         observation = observe_route_edges_centred(
             graph,
             station_offsets=station_offsets,
@@ -1389,6 +1754,13 @@ def _settle_render_geometry(
             reservations=reservations,
             reservation_translations=reservation_translations,
             allow_convergence_clearance_requirements=allow_clearance_requirements,
+        )
+        settlement_trace = register_settlement_stage(
+            settlement_trace,
+            stage,
+            geometry_fingerprint=_settlement_geometry_fingerprint(
+                graph, station_offsets, observation.routes
+            ),
         )
         return observation.routes, observation.plan
 
@@ -1409,6 +1781,7 @@ def _settle_render_geometry(
             offsets,
             reservations,
             reservation_translations,
+            stage=SettlementStage.GENERAL_SETTLEMENT,
             allow_clearance_requirements=allow_clearance_requirements,
         )
         carried_ports = ()
@@ -1446,7 +1819,11 @@ def _settle_render_geometry(
 
     reanchor_junctions(graph)
     station_offsets = compute_station_offsets(graph, offset_step=offset_step)
-    routes, route_plan = _route(station_offsets, allow_clearance_requirements=True)
+    routes, route_plan = _route(
+        station_offsets,
+        stage=SettlementStage.DISCOVERY,
+        allow_clearance_requirements=True,
+    )
     deferred_final_route_guards = bool(
         graph._validate_active and graph._final_route_guards_deferred
     )
@@ -1617,6 +1994,7 @@ def _settle_render_geometry(
         include_deferred_final=deferred_final_route_guards,
     )
     assert_render_header_clearance(graph, strict=effective_strict)
+    route_plan = replace(route_plan, settlement_trace=settlement_trace)
     return (
         station_offsets,
         routes,
@@ -1700,6 +2078,13 @@ def _build_render_plan_scaled(
         offset_step,
         section_y_gap,
     )
+    route_polylines, route_curve_radii, route_segment_shifts = (
+        materialize_source_turnout_paths(
+            routes,
+            route_polylines,
+            default_radius=SVG_CURVE_RADIUS,
+        )
+    )
     line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
     edge_routes = sorted(
         routes, key=lambda route: -line_priority.get(route.line_id, -1)
@@ -1707,9 +2092,14 @@ def _build_render_plan_scaled(
     route_indices = {id(route): index for index, route in enumerate(routes)}
     edge_route_indices = tuple(route_indices[id(route)] for route in edge_routes)
     edge_polylines = [route_polylines[index] for index in edge_route_indices]
+    edge_radii = [route_curve_radii[index] for index in edge_route_indices]
     bridges = (
         compute_bridges(
-            graph, edge_routes, edge_polylines, curve_radius=SVG_CURVE_RADIUS
+            graph,
+            edge_routes,
+            edge_polylines,
+            curve_radius=SVG_CURVE_RADIUS,
+            curve_radii=edge_radii,
         )
         if theme.bridge_glyph
         else {}
@@ -1812,26 +2202,7 @@ def _build_render_plan_scaled(
     svg_width = width or int(auto_width)
     svg_height = height or int(auto_height)
 
-    route_plan = realise_route_reservations(
-        route_plan,
-        graph,
-        final_canvas=FinalCanvasGeometry(
-            svg_width,
-            svg_height,
-            {
-                section_id: CanvasRect(*placement.keepout)
-                for section_id, placement in header_placements.items()
-            },
-            route_polylines,
-        ),
-        coordinate_translations=settlement_translations,
-    )
-    assert_canvas_corridors_hold_their_claims(
-        route_plan, strict=graph.strict and not graph.permissive
-    )
-
-    positive_fan = tb_positive_fan_sections(graph)
-
+    positive_fan = frozenset(tb_positive_fan_sections(graph))
     manifest = None
     if graph.embed_manifest:
         boxes: dict[str, dict[str, float]] = {}
@@ -1839,7 +2210,7 @@ def _build_render_plan_scaled(
             if s.is_port or s.is_hidden:
                 continue
             cx, cy, w, h, rx = station_marker_box(
-                graph, theme, s, station_offsets, positive_fan
+                graph, theme, s, station_offsets, set(positive_fan)
             )
             boxes[s.id] = {"x": cx, "y": cy, "w": w, "h": h, "rx": rx}
         manifest = build_manifest(
@@ -1849,25 +2220,25 @@ def _build_render_plan_scaled(
             station_radius=theme.station_radius,
             extra_node_data=boxes,
         )
-    frozen_graph = freeze_render_value(graph)
-    assert isinstance(frozen_graph, FrozenGraph)
-    frozen_theme = freeze_render_value(theme)
-    assert isinstance(frozen_theme, FrozenRecord)
-    return RenderPlan(
-        theme=frozen_theme,
-        graph=frozen_graph,
+
+    published_geometry = _FinalPublishedGeometry(
+        width=svg_width,
+        height=svg_height,
+        header_keepouts={
+            section_id: CanvasRect(*placement.keepout)
+            for section_id, placement in header_placements.items()
+        },
+        route_polylines=route_polylines,
+        route_curve_radii=route_curve_radii,
+        route_segment_shifts=route_segment_shifts,
+        theme=theme,
         metrics_face=active_metrics_face(),
-        station_offsets=freeze_render_value(station_offsets),
-        routes=freeze_render_value(routes),
-        route_polylines=freeze_render_value(route_polylines),
         edge_route_indices=edge_route_indices,
-        bridge_breaks=freeze_render_value(bridge_breaks),
-        labels=freeze_render_value(labels),
-        header_placements=freeze_render_value(header_placements),
-        group_bands=freeze_render_value(group_bands),
-        positive_fan_sections=frozenset(positive_fan),
-        svg_width=svg_width,
-        svg_height=svg_height,
+        bridge_breaks=bridge_breaks,
+        labels=labels,
+        header_placements=header_placements,
+        group_bands=group_bands,
+        positive_fan_sections=positive_fan,
         padding=padding,
         legend_x=legend_x,
         legend_y=legend_y,
@@ -1885,10 +2256,93 @@ def _build_render_plan_scaled(
         logo_w=logo_w,
         logo_h=logo_h,
         legend_logo_size=legend_logo_size,
-        manifest=freeze_render_value(manifest) if manifest is not None else None,
+        manifest=manifest,
         debug=debug,
         chrome_css=chrome_css,
         bare=bare,
+    )
+    route_plan = realise_route_reservations(
+        route_plan,
+        graph,
+        final_canvas=published_geometry,
+        coordinate_translations=settlement_translations,
+    )
+    final_observation = _final_settlement_geometry_observation(
+        graph, station_offsets, routes, route_plan, published_geometry
+    )
+    final_fingerprint = _final_settlement_geometry_digest(final_observation)
+    settlement_trace = register_settlement_stage(
+        route_plan.settlement_trace,
+        SettlementStage.COHORT_FINAL,
+        geometry_fingerprint=final_fingerprint,
+    )
+    route_plan = replace(route_plan, settlement_trace=settlement_trace)
+    _assert_final_canvas_read_only_guards(
+        graph, station_offsets, routes, route_plan, published_geometry
+    )
+    # The read-only guard must leave the geometry where it found it, so the
+    # published state is read a second time to check.  Re-observing is cheap
+    # and digesting is not, so the digest is re-derived only when the second
+    # observation differs, which is the only case the trace rejects.
+    revalidated_observation = _final_settlement_geometry_observation(
+        graph, station_offsets, routes, route_plan, published_geometry
+    )
+    settlement_trace = register_settlement_stage(
+        settlement_trace,
+        SettlementStage.VALIDATION,
+        geometry_fingerprint=(
+            final_fingerprint
+            if revalidated_observation == final_observation
+            else _final_settlement_geometry_digest(revalidated_observation)
+        ),
+    )
+    route_plan = replace(route_plan, settlement_trace=settlement_trace)
+    frozen_graph = freeze_render_value(graph)
+    assert isinstance(frozen_graph, FrozenGraph)
+    frozen_theme = freeze_render_value(published_geometry.theme)
+    assert isinstance(frozen_theme, FrozenRecord)
+    return RenderPlan(
+        theme=frozen_theme,
+        graph=frozen_graph,
+        metrics_face=published_geometry.metrics_face,
+        station_offsets=freeze_render_value(station_offsets),
+        routes=freeze_render_value(routes),
+        route_polylines=freeze_render_value(published_geometry.route_polylines),
+        route_curve_radii=freeze_render_value(published_geometry.route_curve_radii),
+        route_segment_shifts=tuple(published_geometry.route_segment_shifts),
+        edge_route_indices=published_geometry.edge_route_indices,
+        bridge_breaks=freeze_render_value(published_geometry.bridge_breaks),
+        labels=freeze_render_value(published_geometry.labels),
+        header_placements=freeze_render_value(published_geometry.header_placements),
+        group_bands=freeze_render_value(published_geometry.group_bands),
+        positive_fan_sections=published_geometry.positive_fan_sections,
+        svg_width=int(published_geometry.width),
+        svg_height=int(published_geometry.height),
+        padding=published_geometry.padding,
+        legend_x=published_geometry.legend_x,
+        legend_y=published_geometry.legend_y,
+        legend_w=published_geometry.legend_w,
+        legend_h=published_geometry.legend_h,
+        show_legend=published_geometry.show_legend,
+        show_logo=published_geometry.show_logo,
+        logo_in_legend=published_geometry.logo_in_legend,
+        adaptive_logo=published_geometry.adaptive_logo,
+        effective_logo=published_geometry.effective_logo,
+        resolved_logo_light=published_geometry.resolved_logo_light,
+        resolved_logo_dark=published_geometry.resolved_logo_dark,
+        logo_x=published_geometry.logo_x,
+        logo_y=published_geometry.logo_y,
+        logo_w=published_geometry.logo_w,
+        logo_h=published_geometry.logo_h,
+        legend_logo_size=published_geometry.legend_logo_size,
+        manifest=(
+            freeze_render_value(published_geometry.manifest)
+            if published_geometry.manifest is not None
+            else None
+        ),
+        debug=published_geometry.debug,
+        chrome_css=published_geometry.chrome_css,
+        bare=published_geometry.bare,
     ), route_plan
 
 
@@ -1930,6 +2384,12 @@ def _emit_render_plan(
     station_offsets: Any = plan.station_offsets
     routes: Any = plan.routes
     edge_routes: Any = plan.edge_routes
+    edge_polylines = tuple(
+        plan.route_polylines[index] for index in plan.edge_route_indices
+    )
+    edge_radii = tuple(
+        plan.route_curve_radii[index] for index in plan.edge_route_indices
+    )
     bridge_breaks: Any = plan.bridge_breaks
     labels: Any = plan.labels
     header_placements: Any = plan.header_placements
@@ -2023,7 +2483,15 @@ def _emit_render_plan(
         _render_first_class_sections(d, graph, theme, header_placements)
 
     # Draw edges (lines) behind stations
-    _render_edges(d, graph, edge_routes, station_offsets, bridge_breaks, theme)
+    _render_edges(
+        d,
+        graph,
+        edge_routes,
+        edge_polylines,
+        edge_radii,
+        bridge_breaks,
+        theme,
+    )
 
     # Directional chevrons ride on top of the lines but behind stations.
     if graph.directional:
@@ -2619,16 +3087,19 @@ def _render_edges(
     d: draw.Drawing,
     graph: MetroGraph,
     routes: list[RoutedPath],
-    station_offsets: dict[tuple[str, str], float],
+    polylines: Sequence[Sequence[tuple[float, float]]],
+    drawable_radii: Sequence[Sequence[float] | None],
     bridge_breaks: tuple[tuple[BridgeBreak, ...], ...],
     theme: Theme,
     curve_radius: float = SVG_CURVE_RADIUS,
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
 
-    polylines = [apply_route_offsets(route, station_offsets) for route in routes]
-
-    for route, pts, breaks in zip(routes, polylines, bridge_breaks):
+    for route, pts, route_radii, breaks in zip(
+        routes, polylines, drawable_radii, bridge_breaks, strict=True
+    ):
+        pts = list(pts)
+        route_radii = None if route_radii is None else list(route_radii)
         line = graph.lines.get(route.line_id)
         color = line.color if line else FALLBACK_LINE_COLOR
         style_kw = line_style_kwargs(line.style) if line else {}
@@ -2645,6 +3116,7 @@ def _render_edges(
                 class_name,
                 theme,
                 curve_radius,
+                route_radii,
             )
         elif len(pts) == 2:
             d.append(
@@ -2675,7 +3147,7 @@ def _render_edges(
             path.M(*pts[0])
 
             resolved = resolve_curve_radii(
-                pts, route.curve_radii, default_radius=curve_radius
+                pts, route_radii, default_radius=curve_radius
             )
             before, after, curved = _curve_tangents(pts, resolved)
 
@@ -2838,6 +3310,7 @@ def _render_bridged_edge(
     class_name: str,
     theme: Theme,
     curve_radius: float,
+    curve_radii: list[float] | None,
 ) -> None:
     """Render an under-line interrupted by a short gap at each crossing.
 
@@ -2845,7 +3318,7 @@ def _render_bridged_edge(
     straight run carrying a crossing, the pen lifts across a small gap so the
     over-line reads as passing over the top.
     """
-    resolved = resolve_curve_radii(pts, route.curve_radii, default_radius=curve_radius)
+    resolved = resolve_curve_radii(pts, curve_radii, default_radius=curve_radius)
     m = len(pts) - 1
     before, after, _ = _curve_tangents(pts, resolved)
 
