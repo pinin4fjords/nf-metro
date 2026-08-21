@@ -459,6 +459,20 @@ current behaviour.
 
 ## Step 6: /simplify Pass
 
+**Run this by default.** `/simplify` is worthwhile on anything beyond the
+trivial, and "the diff is small" is not by itself a reason to skip it. Skip only
+when **every** one of these holds, and say in one line that you did:
+
+- the production diff adds no new function, class, branch, or code path;
+- it does not touch a shared helper, a dispatch table, or anything with more
+  than one caller;
+- it is under roughly 20 lines of non-test production code;
+- no later step (narrowing, lint, review) has added production code since.
+
+A five-line change that introduces a branch, or threads an argument through
+three call sites, is not trivial. If you are weighing whether it qualifies, it
+does not: run the pass.
+
 After the fix and tests are passing, assign a fresh MID read-only worker to
 invoke the `simplify` skill on the changed code. It returns findings, proposed
 edits, and a pass/fail verdict without writing. Re-brief the worktree's sole
