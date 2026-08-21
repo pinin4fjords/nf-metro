@@ -49,7 +49,6 @@ from nf_metro.layout.pass_metrics import (
 from nf_metro.layout.phases._common import (
     _build_section_subgraph,
     _exit_reaching_nodes,
-    iter_sole_trunk_continuations,
     perp_entry_lands_left,
     section_exit_lines,
 )
@@ -242,6 +241,7 @@ def _layout_single_section(
     y_spacing: float,
     section_x_padding: float,
     section_y_padding: float,
+    continuation_predecessors: dict[str, str],
 ) -> MetroGraph | None:
     """Lay out a single section's internal stations and compute its bbox.
 
@@ -269,11 +269,6 @@ def _layout_single_section(
         "RL",
     ) and _has_horizontal_predecessor_section(graph, section)
 
-    continuation_nodes = frozenset(
-        node
-        for sec_id, _pred, node in iter_sole_trunk_continuations(graph)
-        if sec_id == section.id
-    )
     # A terminal spur carries only lines that never leave the section, so its
     # chain ends inside it.  The section subgraph cannot tell a spur from a
     # through-line node -- it omits the exit-port edges -- so classify against
@@ -295,7 +290,7 @@ def _layout_single_section(
         sub,
         layers,
         entry_top=entry_top,
-        continuation_nodes=continuation_nodes,
+        continuation_predecessors=continuation_predecessors,
         terminal_nodes=terminal_nodes,
         exit_reaching=exit_reaching,
     )

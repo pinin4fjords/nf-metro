@@ -24,6 +24,7 @@ import pytest
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import RoutedPath
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.layout.routing.invariants import (
     check_no_dogleg_crosses_exempt_trunk,
 )
@@ -35,12 +36,20 @@ EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 FIXTURE_TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
 
+# Named one by one rather than swept: the hash-seed corpus is a hundred fuzz
+# renders, several of which fail unrelated guards, so only the seeds whose
+# dogleg geometry is locked belong here.
+EXTRA_FIXTURES = (
+    REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism" / "seed_72.mmd",
+)
+
 
 def _gather_fixtures() -> list[Path]:
     paths: list[Path] = []
     paths.extend(sorted(EXAMPLES.glob("*.mmd")))
     paths.extend(sorted(EXAMPLE_TOPOLOGIES.glob("*.mmd")))
     paths.extend(sorted(FIXTURE_TOPOLOGIES.glob("*.mmd")))
+    paths.extend(EXTRA_FIXTURES)
     return paths
 
 
@@ -124,3 +133,135 @@ def test_checker_passes_parallel_dogleg() -> None:
     """The checker stays silent when the trunk clears to the parallel side."""
     violations = check_no_dogleg_crosses_exempt_trunk(None, _routes(_BYP_ABOVE), {})
     assert not violations, "parallel bundle above the exempt run must not flag"
+
+
+def _same_source_corner_routes(radius: float) -> list[RoutedPath]:
+    exempt = RoutedPath(
+        edge=Edge("junction", "right_entry", "lower"),
+        line_id="lower",
+        points=[
+            (283.5, 120.0),
+            (317.5, 120.0),
+            (317.5, 196.0),
+            (645.0, 196.0),
+            (645.0, 652.0),
+            (617.0, 652.0),
+        ],
+        curve_radii=[radius] * 4,
+        is_inter_section=True,
+        normalize_exempt=True,
+    )
+    baseline = RoutedPath(
+        edge=Edge("junction", "left_entry", "upper"),
+        line_id="upper",
+        points=[
+            (283.5, 132.0),
+            (309.5, 132.0),
+            (309.5, 200.0),
+            (651.3, 200.0),
+            (651.3, 124.0),
+            (677.0, 124.0),
+        ],
+        curve_radii=[radius] * 4,
+        is_inter_section=True,
+    )
+    return [baseline, exempt]
+
+
+def test_checker_allows_resolved_same_source_corner_arcs() -> None:
+    """Two same-source corners whose arcs swallow the raw contact do not cross.
+
+    Both trunks leave one junction and turn away from each other, so the arcs
+    their resolved radii draw cover the point where the raw polylines touch and
+    no ink crosses. No shipped fixture routes that geometry, so this hand-built
+    pair is what holds the exemption: dropping it makes the checker report the
+    raw contact as a crossing here.
+    """
+    assert not check_no_dogleg_crosses_exempt_trunk(
+        None, _same_source_corner_routes(10.0), {}
+    )
+
+
+@pytest.mark.parametrize("radius", (0.0, 2.0))
+def test_checker_reports_raw_crossings_without_sufficient_corner_arcs(
+    radius: float,
+) -> None:
+    violations = check_no_dogleg_crosses_exempt_trunk(
+        None, _same_source_corner_routes(radius), {}
+    )
+
+    assert [(violation.x, violation.y) for violation in violations] == [(645.0, 200.0)]
+
+
+def test_natural_blocked_riser_records_metadata_backed_corner_radii() -> None:
+    """Two same-source risers into one destination carry their corner records.
+
+    ``upper`` and the exempt ``lower`` share a source junction and turn in the
+    same inter-row channel, so each has to reach its shared turn on a resolved
+    radius its concentric-corner metadata accounts for -- 10px inside a -4px
+    offset for ``upper``, 14px on the reference for the exempt run -- and each
+    turn belongs to a member-geometry plan.  The fixture then routes clear of
+    the dogleg check.  It clears it because the two trunks never bring their
+    axes into contact, not through the same-source corner exemption:
+    ``test_checker_allows_resolved_same_source_corner_arcs`` is what covers
+    that branch.
+    """
+    graph, routes, offsets = _route(
+        EXAMPLE_TOPOLOGIES / "same_destination_vertical_convergence.mmd"
+    )
+    upper = next(
+        route
+        for route in routes
+        if route.edge.source == "__junction_12"
+        and route.line_id == "upper"
+        and route.edge.target.startswith("target__entry_left")
+    )
+    exempt = next(
+        route
+        for route in routes
+        if route.edge.source == "__junction_12"
+        and route.edge.target == "s7__entry_right_9"
+        and route.line_id == "lower"
+    )
+
+    assert resolve_curve_radii(upper.points, upper.curve_radii)[2] == 10.0
+    assert resolve_curve_radii(exempt.points, exempt.curve_radii)[2] == 14.0
+    assert upper.concentric_corner_offsets_by_segment[3] == (0.0, -4.0)
+    assert upper.concentric_corner_bases_by_segment[3] == (10.0, 10.0)
+    assert exempt.concentric_corner_offsets_by_segment[3] == (0.0, 0.0)
+    assert exempt.concentric_corner_bases_by_segment[3] == (14.0, 14.0)
+    assert upper.member_geometry_plan_id is not None
+    assert exempt.member_geometry_plan_id is not None
+    assert not check_no_dogleg_crosses_exempt_trunk(graph, routes, offsets)
+
+
+def test_checker_flags_other_crossing_despite_coincident_end_axis() -> None:
+    exempt = RoutedPath(
+        edge=Edge("junction", "right_entry", "lower"),
+        line_id="lower",
+        points=[
+            (80.0, 80.0),
+            (100.0, 80.0),
+            (100.0, 100.0),
+            (200.0, 100.0),
+            (200.0, 200.0),
+            (220.0, 200.0),
+        ],
+        is_inter_section=True,
+        normalize_exempt=True,
+    )
+    crossing = RoutedPath(
+        edge=Edge("junction", "left_entry", "upper"),
+        line_id="upper",
+        points=[
+            (120.0, 90.0),
+            (150.0, 90.0),
+            (150.0, 104.0),
+            (200.0, 104.0),
+            (200.0, 200.0),
+            (220.0, 200.0),
+        ],
+        is_inter_section=True,
+    )
+    violations = check_no_dogleg_crosses_exempt_trunk(None, [crossing, exempt], {})
+    assert [(violation.x, violation.y) for violation in violations] == [(150.0, 100.0)]

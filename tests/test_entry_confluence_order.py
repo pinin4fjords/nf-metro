@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
+from nf_metro.layout.constants import COORD_TOLERANCE, CURVE_RADIUS, DIAGONAL_RUN
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing import normalize as routing_normalize
@@ -192,6 +192,10 @@ def _candidate_bundle(
     "candidate",
     [
         pytest.param({"second_port_y": 100.0}, id="duplicate-port-slot"),
+        pytest.param(
+            {"second_port_y": 100.0 + COORD_TOLERANCE / 2},
+            id="near-coincident-port-slot",
+        ),
         pytest.param({"second_port_y": 108.0}, id="noncontiguous-port-band"),
         pytest.param({"second_peel_x": 108.0}, id="noncontiguous-channel-band"),
         pytest.param(

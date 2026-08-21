@@ -15,27 +15,39 @@ interchange or a line's approach to a station join.  These tests pin:
   ``main``), while animation motion paths flow over it unchanged.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
+import drawsvg as draw
 import pytest
 
 from nf_metro.layout.constants import CURVE_RADIUS
 from nf_metro.layout.engine import compute_layout
-from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing import RoutedPath, compute_station_offsets, route_edges
+from nf_metro.layout.routing.common import Direction, SourceTurnout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.render.bridges import (
     BRIDGE_NODE_TOLERANCE,
+    BridgeBreak,
     _line_reachability,
     _same_line_is_fan,
+    _segment_containing,
     _segment_intersection,
     compute_bridges,
 )
-from nf_metro.render.svg import apply_route_offsets, render_svg
+from nf_metro.render.path_geometry import materialize_source_turnout_paths
+from nf_metro.render.svg import (
+    _render_edges,
+    _route_decision_fingerprint,
+    apply_route_offsets,
+    render_svg,
+)
 from nf_metro.themes import NFCORE_THEME
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
+SEED_72 = Path(__file__).parent / "fixtures" / "hash_seed_determinism" / "seed_72.mmd"
 
 # Fixtures with at least one bridged crossing: the two crossing bundles share
 # a colour, so a gap is needed to show which passes over.
@@ -116,6 +128,307 @@ def test_bridge_span_lies_on_under_segment(path):
             a, b = poly[bk.seg_index], poly[bk.seg_index + 1]
             for pt in (bk.cut_a, bk.cut_b):
                 assert _perp_distance(pt, a, b) <= 1.0
+
+
+def test_seed72_straight_endpoint_bridges_keep_the_full_gap() -> None:
+    graph = parse_metro_mermaid(SEED_72.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    line_priority = {line_id: index for index, line_id in enumerate(graph.lines)}
+    routes = sorted(
+        route_edges(graph, station_offsets=offsets),
+        key=lambda route: -line_priority.get(route.line_id, -1),
+    )
+    polylines = [apply_route_offsets(route, offsets) for route in routes]
+    geometry_and_ownership = tuple(
+        (
+            tuple(route.points),
+            route.curve_radii,
+            route.route_system_id,
+            route.emission_member_id,
+            route.route_plan_ids,
+            route.route_system_owned_segment_ranks,
+        )
+        for route in routes
+    )
+    decision_fingerprint = _route_decision_fingerprint(routes)
+
+    bridges = compute_bridges(graph, routes, polylines, curve_radius=CURVE_RADIUS)
+
+    assert _route_decision_fingerprint(routes) == decision_fingerprint
+    assert (
+        tuple(
+            (
+                tuple(route.points),
+                route.curve_radii,
+                route.route_system_id,
+                route.emission_member_id,
+                route.route_plan_ids,
+                route.route_system_owned_segment_ranks,
+            )
+            for route in routes
+        )
+        == geometry_and_ownership
+    )
+    # The l0/l3 pair leaves __junction_15 on a bare two-point run (540 -> 602):
+    # neither end is a smoothed corner, so no corner clearance narrows the gap.
+    # One l0 descent crosses the run, at x=568, so the over bundle has zero
+    # span and the gap is BRIDGE_GAP_HALF either side of that descent.
+    for line_id, y in (("l0", 324.0), ("l3", 328.0)):
+        route = next(
+            route
+            for route in routes
+            if route.edge.source == "__junction_15"
+            and route.edge.target == "s5__entry_left_11"
+            and route.line_id == line_id
+        )
+        assert bridges[id(route)] == [
+            BridgeBreak(
+                seg_index=0,
+                cut_a=(562.0, y),
+                cut_b=(574.0, y),
+            )
+        ]
+
+    # That descent's own approach run (530 -> 568 at y=506) is crossed by two
+    # descents, at x=546 and x=554.  Its right end is a smoothed corner, whose
+    # clearance stops the gap at 552; its left end is the s3 exit port, a
+    # straight run start that imposes no clearance, so the gap keeps the full
+    # BRIDGE_GAP_HALF below the leftmost descent rather than being pulled in.
+    descent = next(
+        route
+        for route in routes
+        if route.edge.source == "s3__exit_right_2"
+        and route.edge.target == "s4__entry_left_9"
+    )
+    assert bridges[id(descent)] == [
+        BridgeBreak(
+            seg_index=0,
+            cut_a=(540.0, 506.0),
+            cut_b=(552.0, 506.0),
+        )
+    ]
+
+
+def test_bridge_gap_cannot_invade_horizontal_to_diagonal_curve() -> None:
+    points = [(0.0, 0.0), (100.0, 0.0), (120.0, 20.0)]
+
+    assert (
+        _segment_containing(
+            points,
+            ((80.0, 0.0), (90.0, 0.0)),
+            CURVE_RADIUS,
+            [CURVE_RADIUS],
+        )
+        is None
+    )
+    assert (
+        _segment_containing(
+            points,
+            ((60.0, 0.0), (70.0, 0.0)),
+            CURVE_RADIUS,
+            [CURVE_RADIUS],
+        )
+        == 0
+    )
+
+
+def test_bridge_gap_cannot_cut_a_materialized_source_turnout() -> None:
+    route = RoutedPath(
+        Edge("junction", "target", "line"),
+        "line",
+        [(100.0, 0.0), (100.0, 100.0)],
+        source_turnout=SourceTurnout(
+            "upstream",
+            "continuing",
+            Direction.R,
+            Direction.D,
+            14.0,
+        ),
+    )
+    points, radii, _shifts = materialize_source_turnout_paths(
+        [route],
+        [route.points],
+        default_radius=CURVE_RADIUS,
+    )
+
+    assert (
+        _segment_containing(
+            points[0],
+            ((100.0, 14.0), (100.0, 16.0)),
+            CURVE_RADIUS,
+            radii[0],
+        )
+        is None
+    )
+    assert (
+        _segment_containing(
+            points[0],
+            ((100.0, 30.0), (100.0, 40.0)),
+            CURVE_RADIUS,
+            radii[0],
+        )
+        == 1
+    )
+
+
+def test_terminal_source_turnout_clips_incoming_member_at_tangent() -> None:
+    incoming = RoutedPath(
+        Edge("upstream", "junction", "line"),
+        "line",
+        [(80.0, 0.0), (100.0, 0.0)],
+    )
+    outgoing = RoutedPath(
+        Edge("junction", "target", "line"),
+        "line",
+        [(100.0, 0.0), (100.0, 100.0)],
+        source_turnout=SourceTurnout(
+            "upstream",
+            None,
+            Direction.R,
+            Direction.D,
+            CURVE_RADIUS,
+        ),
+    )
+
+    points, radii, shifts = materialize_source_turnout_paths(
+        [incoming, outgoing],
+        [incoming.points, outgoing.points],
+        default_radius=CURVE_RADIUS,
+    )
+
+    assert points == [
+        [(80.0, 0.0), (90.0, 0.0)],
+        [(90.0, 0.0), (100.0, 0.0), (100.0, 100.0)],
+    ]
+    assert radii == [None, [CURVE_RADIUS]]
+    assert shifts == [0, 1]
+
+
+def test_terminal_source_turnouts_sharing_an_incoming_member_clip_once() -> None:
+    incoming = RoutedPath(
+        Edge("upstream", "junction", "line"),
+        "line",
+        [(80.0, 0.0), (100.0, 0.0)],
+    )
+    outgoing = [
+        RoutedPath(
+            Edge("junction", target, "line"),
+            "line",
+            [(100.0, 0.0), (100.0, 100.0)],
+            source_turnout=SourceTurnout(
+                "upstream",
+                None,
+                Direction.R,
+                Direction.D,
+                CURVE_RADIUS,
+            ),
+        )
+        for target in ("first", "second")
+    ]
+
+    points, radii, shifts = materialize_source_turnout_paths(
+        [incoming, *outgoing],
+        [incoming.points, *(route.points for route in outgoing)],
+        default_radius=CURVE_RADIUS,
+    )
+
+    assert points[0] == [(80.0, 0.0), (90.0, 0.0)]
+    assert points[1:] == [
+        [(90.0, 0.0), (100.0, 0.0), (100.0, 100.0)],
+        [(90.0, 0.0), (100.0, 0.0), (100.0, 100.0)],
+    ]
+    assert radii == [None, [CURVE_RADIUS], [CURVE_RADIUS]]
+    assert shifts == [0, 1, 1]
+
+
+@pytest.mark.parametrize(
+    ("factory", "message"),
+    (
+        (
+            lambda: SourceTurnout(
+                "", "continuing", Direction.R, Direction.D, CURVE_RADIUS
+            ),
+            "incoming member",
+        ),
+        (
+            lambda: SourceTurnout(
+                "upstream", "", Direction.R, Direction.D, CURVE_RADIUS
+            ),
+            "continuing source turnout",
+        ),
+        (
+            lambda: SourceTurnout(
+                "upstream", "continuing", Direction.D, Direction.D, CURVE_RADIUS
+            ),
+            "enters horizontally",
+        ),
+        (
+            lambda: SourceTurnout(
+                "upstream", "continuing", Direction.R, Direction.R, CURVE_RADIUS
+            ),
+            "leaves vertically",
+        ),
+        (
+            lambda: SourceTurnout(
+                "upstream", "continuing", Direction.R, Direction.D, 0.0
+            ),
+            "positive finite radius",
+        ),
+        (
+            lambda: SourceTurnout(
+                "upstream", "continuing", Direction.R, Direction.D, float("inf")
+            ),
+            "positive finite radius",
+        ),
+    ),
+)
+def test_source_turnout_rejects_invalid_frozen_metadata(
+    factory: Callable[[], SourceTurnout],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        factory()
+
+
+def test_rendered_bridge_break_uses_materialized_turnout_segment_index() -> None:
+    graph = parse_metro_mermaid(
+        """%%metro line: line | Line | #24B064
+graph LR
+    upstream -->|line| junction
+    junction -->|line| target
+"""
+    )
+    route = RoutedPath(
+        Edge("junction", "target", "line"),
+        "line",
+        [(100.0, 0.0), (100.0, 100.0)],
+        source_turnout=SourceTurnout(
+            "upstream",
+            "continuing",
+            Direction.R,
+            Direction.D,
+            CURVE_RADIUS,
+        ),
+    )
+    drawing = draw.Drawing(200, 200)
+    polylines, radii, _shifts = materialize_source_turnout_paths(
+        [route], [route.points], default_radius=CURVE_RADIUS
+    )
+
+    _render_edges(
+        drawing,
+        graph,
+        [route],
+        polylines,
+        radii,
+        ((BridgeBreak(1, (100.0, 30.0), (100.0, 40.0)),),),
+        NFCORE_THEME,
+        CURVE_RADIUS,
+    )
+
+    svg = drawing.as_svg()
+    assert "L100.0,30.0 M100.0,40.0" in svg
 
 
 @pytest.mark.parametrize("path", FIXTURES_WITH_CROSSINGS, ids=lambda p: p.stem)

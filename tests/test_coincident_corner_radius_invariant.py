@@ -9,8 +9,9 @@ concentrically a few pixels apart -- a doubled corner.
 
 ``check_concentric_bundle_corners`` deliberately skips this case (it tests
 *offset* bundle-mates, which nest by design); ``check_coincident_corner_radii``
-covers it, and :func:`_unify_coincident_corner_radii` snaps every such shared
-turn to the widest coincident radius so the fused stroke is one clean arc.
+covers it. Planning freezes owned cohorts through
+:func:`_unify_coincident_corner_radii`, while the post-emission call settles
+only wholly unowned cohorts.
 
 Covers:
 
@@ -150,38 +151,69 @@ def test_unify_uses_widest_radius_all_shared_legs_can_resolve() -> None:
     assert not check_coincident_corner_radii(graph, routes, {})
 
 
-def test_unify_refreshes_a_shared_route_after_changing_one_corner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A second coincident bucket sees an earlier radius correction."""
-    import nf_metro.layout.routing.normalize as normalize
+def test_unify_refreshes_a_shared_route_after_changing_one_corner() -> None:
+    """Chained corners on one route settle to a fixpoint within a single call.
 
+    ``shared`` carries two coincident turns 30px apart, so its two corners
+    compete for one segment budget: equalising the near corner against ``wide``
+    changes what the far corner can draw against ``peer``.  The far corner's
+    bucket is visited first, so reaching agreement takes more than one sweep
+    over the buckets.  A repeat call must therefore be inert -- if it still
+    moves a radius, the first call returned before the buckets stopped
+    influencing each other and the emitted arcs are a doubled corner apart.
+    """
     shared = _make_route("shared", "x", 22.0)
     shared.points = [
         (0.0, 100.0),
         (100.0, 100.0),
-        (100.0, 200.0),
-        (200.0, 200.0),
+        (100.0, 130.0),
+        (200.0, 130.0),
     ]
-    shared.curve_radii = [22.0, 22.0]
+    shared.curve_radii = [6.0, 22.0]
 
-    short = _make_route("short", "x", 22.0)
-    short.points = [(80.0, 100.0), (100.0, 100.0), (100.0, 300.0)]
+    wide = _make_route("wide", "x", 22.0)
+    wide.points = [(0.0, 100.0), (100.0, 100.0), (100.0, 400.0)]
 
     peer = _make_route("peer", "x", 22.0)
-    peer.points = [(100.0, 100.0), (100.0, 200.0), (200.0, 200.0)]
+    peer.points = [(0.0, 130.0), (100.0, 130.0), (100.0, 400.0)]
 
-    real_resolve = normalize.resolve_curve_radii
-    shared_resolutions = 0
+    routes = [peer, wide, shared]
+    _unify_coincident_corner_radii(routes)
 
-    def counting_resolve(points, radii, *args, **kwargs):
-        nonlocal shared_resolutions
-        if points is shared.points:
-            shared_resolutions += 1
-        return real_resolve(points, radii, *args, **kwargs)
+    assert shared.curve_radii == pytest.approx([8.0, 22.0])
+    assert wide.curve_radii == pytest.approx([8.0])
+    assert peer.curve_radii == pytest.approx([22.0])
 
-    monkeypatch.setattr(normalize, "resolve_curve_radii", counting_resolve)
-    _unify_coincident_corner_radii([shared, short, peer])
+    settled = [list(route.curve_radii or []) for route in routes]
+    _unify_coincident_corner_radii(routes)
+    assert [list(route.curve_radii or []) for route in routes] == settled
 
-    assert shared.curve_radii == pytest.approx([20.0, 22.0])
-    assert shared_resolutions == 3
+
+def test_owned_coincident_cohort_settles_only_during_planning() -> None:
+    """Member, convergence, and exit ownership share one frozen corner."""
+    member = _make_route("member", "x", 10.0)
+    member.route_system_owned_segment_ranks = (0,)
+    convergence = _make_route("convergence", "x", 14.0)
+    convergence.convergence_owned_segment_ranks = (0,)
+    exit_owned = _make_route("exit", "x", 12.0)
+    exit_owned.exit_turn_axis_id = "axis"
+    exit_owned.exit_turn_segment_rank = 1
+    routes = [member, convergence, exit_owned]
+
+    before = [route.curve_radii[:] for route in routes if route.curve_radii]
+    _unify_coincident_corner_radii(routes)
+    assert [route.curve_radii for route in routes] == before
+
+    _unify_coincident_corner_radii(routes, include_owned=True)
+
+    assert [route.curve_radii for route in routes] == [[14.0], [14.0], [14.0]]
+    assert [route.concentric_corner_offsets_by_segment[1][0] for route in routes] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert [route.concentric_corner_bases_by_segment[1][0] for route in routes] == [
+        14.0,
+        14.0,
+        14.0,
+    ]

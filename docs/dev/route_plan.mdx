@@ -166,6 +166,13 @@ ledger and rebuilds its templates once against those fixed bands. This is
 reservation consumption, not a fixed-point search: one routing pass materializes
 one set of gap slots, then production reuses those exact coordinates.
 
+After exit-turn and convergence settlement, the final member-planning pass
+reconstructs every owned route in canonical order. Same-line members that turn
+at one coincident vertex receive one clamp-safe reference radius and matching
+concentric inputs before member plans and route-system templates are published.
+Emission copies those frozen values; the later corner normalizer handles only
+cohorts with no planner-owned member.
+
 Convergence classification precedes this boundary and constructs canonical
 trial templates only for members owned by each convergence. Global settlement
 follows it and reads non-convergence obstacles only from frozen member gap

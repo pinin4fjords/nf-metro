@@ -3435,6 +3435,16 @@ def planned_exit_turn_corner_offsets(
         return None
     run_direction = assignment.run_direction
     axis_by_id = {axis.id: axis for axis in membership.plan.axes}
+    member_settled_axis_id = ExitTurnAxisId(
+        semantic_route_id(
+            "exit-turn-axis",
+            membership.plan.id,
+            membership.axis.line_id,
+            assignment.run_direction.value,
+            assignment.turn_direction.value,
+            None,
+        )
+    )
     turn_cohort = tuple(
         item
         for item in membership.plan.assignments
@@ -3443,16 +3453,16 @@ def planned_exit_turn_corner_offsets(
         and item.axis_id is not None
     )
     if (
-        len(
-            {
-                item.entry_group_id
-                for item in turn_cohort
-                if item.axis_id is not None
-                and axis_by_id[item.axis_id].fixed_anchor_id is not None
-            }
-        )
-        > 1
-    ):
+        membership.axis.pinning_group_id is not None
+        and membership.axis.id == member_settled_axis_id
+    ) or len(
+        {
+            item.entry_group_id
+            for item in turn_cohort
+            if item.axis_id is not None
+            and axis_by_id[item.axis_id].fixed_anchor_id is not None
+        }
+    ) > 1:
         turn_cohort = tuple(
             item
             for item in turn_cohort

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import NamedTuple
+from typing import AbstractSet, NamedTuple
 
 from nf_metro.layout.constants import (
     BUNDLE_TO_BUNDLE_CLEARANCE,
@@ -20,12 +20,15 @@ from nf_metro.layout.constants import (
     HEADER_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     INTER_ROW_HEADER_CLEARANCE,
+    MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
     SECTION_HEADER_PROTRUSION,
     SECTION_ROUTE_CLEARANCE,
+    graph_offset_step,
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
+    cotravelling_lane_clearance,
     cotravelling_lanes_fuse,
     lanes_run_along_x,
     lanes_run_along_y,
@@ -38,6 +41,7 @@ from nf_metro.layout.route_topology import (
 from nf_metro.layout.routing.reserved_bands import (
     ReservedBand,
     ReservedBands,
+    corridor_clearance_band,
     held_in_reserved_band,
 )
 from nf_metro.parser.model import Edge, MetroGraph, Port, PortSide, Section, Station
@@ -76,6 +80,29 @@ class Direction(Enum):
     def sign(self) -> float:
         """``+1.0`` for R / D (positive axis), ``-1.0`` for L / U."""
         return 1.0 if self in (Direction.R, Direction.D) else -1.0
+
+
+@dataclass(frozen=True, slots=True)
+class SourceTurnout:
+    """A rounded source junction shared across consecutive route members."""
+
+    incoming_source_id: str
+    continuing_target_id: str | None
+    incoming_direction: Direction
+    outgoing_direction: Direction
+    radius: float
+
+    def __post_init__(self) -> None:
+        if not self.incoming_source_id:
+            raise ValueError("a source turnout names its incoming member")
+        if self.continuing_target_id == "":
+            raise ValueError("a continuing source turnout names its target")
+        if self.incoming_direction not in (Direction.R, Direction.L):
+            raise ValueError("a source turnout enters horizontally")
+        if self.outgoing_direction not in (Direction.U, Direction.D):
+            raise ValueError("a source turnout leaves vertically")
+        if not math.isfinite(self.radius) or self.radius <= 0:
+            raise ValueError("a source turnout has a positive finite radius")
 
 
 def right_normal_axis_sign(direction: Direction) -> int:
@@ -776,6 +803,8 @@ class RoutedPath:
     """Reference radii supplied with the standard concentric corner offsets."""
     exit_lane_transition_plan_id: str | None = None
     """Plan that owns this explicit compact-lane hand-off."""
+    source_turnout: SourceTurnout | None = None
+    """Frozen cross-member curve into a vertical arm at its source junction."""
 
     def record_concentric_corner(
         self, radius_index: int, offset: float, base_radius: float
@@ -1045,12 +1074,643 @@ class OpposingEntryConfluence(NamedTuple):
     port_lead_sign: int
 
 
+class SameDestinationVerticalBundle(NamedTuple):
+    """Distinct lines sharing the final vertical corridor into one side port."""
+
+    port_id: str
+    entries: list[tuple[RoutedPath, PeeloffTail]]
+    per_line: dict[str, PeeloffTail]
+    trunk_sign: int
+    vertical_sign: int
+    port_lead_sign: int
+
+
 class PeeloffSlot(NamedTuple):
     """A peel-off line's target peel-x, port-slot Y, and concentric rank."""
 
     peel_x: float
     port_y: float
     rank: int
+
+
+class _SameDestinationCohort(NamedTuple):
+    """One same-shape H-V-H group at an entry port, with its measured spans."""
+
+    port_id: str
+    trunk_sign: int
+    vertical_sign: int
+    port_lead_sign: int
+    entries: list[tuple[RoutedPath, PeeloffTail]]
+    per_line: dict[str, PeeloffTail]
+    suffix_run: float
+    vertical_overlap: float
+
+    def bundle(self) -> SameDestinationVerticalBundle:
+        return SameDestinationVerticalBundle(
+            self.port_id,
+            self.entries,
+            self.per_line,
+            self.trunk_sign,
+            self.vertical_sign,
+            self.port_lead_sign,
+        )
+
+
+def _cohort_gap_ids(
+    graph: MetroGraph, per_line: Mapping[str, PeeloffTail]
+) -> set[tuple[int, int | None] | None]:
+    """The inter-column gap each member's vertical approach classifies into."""
+    return {
+        gap_lo_for_x(
+            graph,
+            tail.peel_x,
+            min(tail.trunk_y, tail.port_y),
+            max(tail.trunk_y, tail.port_y),
+        )
+        for tail in per_line.values()
+    }
+
+
+def _iter_same_destination_cohorts(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    admit: Callable[[RoutedPath, PeeloffTail, Port], bool],
+) -> Iterator[_SameDestinationCohort]:
+    """Group peel-off tails into complete, distinctly-landed cohorts per port.
+
+    *admit* screens one member against the caller's own shape requirements; the
+    cohort-level facts every caller needs -- complete destination-line
+    membership, one member per line, distinct landings within the bundle pitch,
+    the shared landing suffix and the shared vertical overlap -- are measured
+    once here.
+    """
+    by_shape: dict[tuple[str, int, int, int], list[tuple[RoutedPath, PeeloffTail]]] = (
+        defaultdict(list)
+    )
+    for route in routes:
+        tail = port_peeloff_tail(route)
+        port = graph.ports.get(route.edge.target)
+        if tail is None or port is None or not port.is_entry:
+            continue
+        if not admit(route, tail, port):
+            continue
+        by_shape[
+            route.edge.target,
+            tail.trunk_sign,
+            tail.vertical_sign,
+            tail.port_lead_sign,
+        ].append((route, tail))
+
+    for (
+        port_id,
+        trunk_sign,
+        vertical_sign,
+        port_lead_sign,
+    ), entries in by_shape.items():
+        per_line: dict[str, PeeloffTail] = {}
+        for route, tail in entries:
+            per_line.setdefault(route.line_id, tail)
+        n = len(per_line)
+        if (
+            n < 2
+            or len(entries) != n
+            or set(per_line) != set(graph.station_lines(port_id))
+        ):
+            continue
+        port_ys = sorted(tail.port_y for tail in per_line.values())
+        if (
+            any(
+                right - left <= COORD_TOLERANCE
+                for left, right in zip(port_ys, port_ys[1:])
+            )
+            or port_ys[-1] - port_ys[0] > (n - 1) * step + COORD_TOLERANCE
+        ):
+            continue
+        suffix_lo = max(
+            min(tail.peel_x, route.points[-1][0]) for route, tail in entries
+        )
+        suffix_hi = min(
+            max(tail.peel_x, route.points[-1][0]) for route, tail in entries
+        )
+        vertical_lo = max(min(tail.trunk_y, tail.port_y) for tail in per_line.values())
+        vertical_hi = min(max(tail.trunk_y, tail.port_y) for tail in per_line.values())
+        yield _SameDestinationCohort(
+            port_id,
+            trunk_sign,
+            vertical_sign,
+            port_lead_sign,
+            entries,
+            per_line,
+            suffix_hi - suffix_lo,
+            vertical_hi - vertical_lo,
+        )
+
+
+def iter_same_destination_approach_bundles(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    *,
+    min_common_run: float = 2 * CURVE_RADIUS,
+    max_separation: float = EDGE_TO_BUNDLE_CLEARANCE,
+) -> Iterator[SameDestinationVerticalBundle]:
+    """Yield complete same-direction H-V-H groups eligible for tight bundling."""
+
+    def admit(route: RoutedPath, tail: PeeloffTail, port: Port) -> bool:
+        return (
+            port.side in (PortSide.LEFT, PortSide.RIGHT)
+            and not graph.station_is_rail(route.edge.source)
+            and not graph.station_is_rail(route.edge.target)
+        )
+
+    for cohort in _iter_same_destination_cohorts(routes, graph, step, admit):
+        peel_xs = [tail.peel_x for tail in cohort.per_line.values()]
+        if max(peel_xs) - min(peel_xs) > max_separation:
+            continue
+        if cohort.suffix_run < min_common_run - COORD_TOLERANCE:
+            continue
+        if cohort.vertical_overlap < min_common_run - COORD_TOLERANCE:
+            continue
+        gaps = _cohort_gap_ids(graph, cohort.per_line)
+        if len(gaps) != 1 or None in gaps:
+            continue
+        yield cohort.bundle()
+
+
+def _flow_exit_feeding_route_source(graph: MetroGraph, route: RoutedPath) -> str | None:
+    current = route.edge.source
+    seen: set[str] = set()
+    while current not in seen:
+        seen.add(current)
+        port = graph.ports.get(current)
+        if port is not None:
+            return (
+                current
+                if not port.is_entry and port.side in (PortSide.LEFT, PortSide.RIGHT)
+                else None
+            )
+        if current not in graph.junctions:
+            return None
+        predecessors = {
+            edge.source
+            for edge in graph.edges_to(current)
+            if edge.line_id == route.line_id
+        }
+        if len(predecessors) != 1:
+            return None
+        current = next(iter(predecessors))
+    return None
+
+
+def iter_plannable_short_same_destination_bundles(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    step: float,
+    curve_radius: float,
+    *,
+    require_short_overlap: bool = True,
+) -> Iterator[SameDestinationVerticalBundle]:
+    """Yield short-run LEFT-entry cohorts with a complete geometric proof.
+
+    These cohorts occupy an open multi-row void that has no single grid-gap
+    identity, so the general iterator cannot name their channel.  Eligibility
+    instead requires distinct horizontal-flow exits, complete destination-line
+    membership, a positive but short shared vertical run, sufficient landing
+    suffix, and conflict-free adjacent slots proven by the proposal pass.
+    """
+    exits: dict[int, str] = {}
+
+    def admit(route: RoutedPath, tail: PeeloffTail, port: Port) -> bool:
+        exit_id = _flow_exit_feeding_route_source(graph, route)
+        if exit_id is None:
+            return False
+        exit_port = graph.ports.get(exit_id)
+        if (
+            port.side is not PortSide.LEFT
+            or exit_port is None
+            or exit_port.side is not PortSide.RIGHT
+            or tail.trunk_sign != 1
+            or tail.port_lead_sign != 1
+        ):
+            return False
+        exits[id(route)] = exit_id
+        return True
+
+    minimum_run = 2 * curve_radius
+    for cohort in _iter_same_destination_cohorts(routes, graph, step, admit):
+        if len({exits[id(route)] for route, _tail in cohort.entries}) != len(
+            cohort.per_line
+        ):
+            continue
+        if cohort.suffix_run < minimum_run - COORD_TOLERANCE:
+            continue
+        overlap = cohort.vertical_overlap
+        if overlap <= COORD_TOLERANCE or (
+            require_short_overlap and overlap >= minimum_run - COORD_TOLERANCE
+        ):
+            continue
+        if _cohort_gap_ids(graph, cohort.per_line) - {None}:
+            continue
+        yield cohort.bundle()
+
+
+def same_destination_approach_slots(
+    bundle: SameDestinationVerticalBundle,
+    graph: MetroGraph,
+    step: float,
+) -> dict[str, PeeloffSlot]:
+    """Map destination lane order onto adjacent final vertical channels."""
+    port = graph.ports[bundle.port_id]
+    n = len(bundle.per_line)
+    realised_xs = [tail.peel_x for tail in bundle.per_line.values()]
+    inner_x = max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
+    x_slots = (
+        [inner_x - (n - rank - 1) * step for rank in range(n)]
+        if port.side is PortSide.LEFT
+        else [inner_x + rank * step for rank in range(n)]
+    )
+    y_slots = sorted(tail.port_y for tail in bundle.per_line.values())
+    port_order = sorted(
+        bundle.per_line,
+        key=lambda line_id: bundle.per_line[line_id].port_y,
+    )
+    x_follows_port = bundle.vertical_sign == -bundle.port_lead_sign
+    return {
+        line_id: PeeloffSlot(
+            x_slots[rank if x_follows_port else n - rank - 1],
+            y_slots[rank],
+            rank if x_follows_port else n - rank - 1,
+        )
+        for rank, line_id in enumerate(port_order)
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class SameDestinationApproachProposal:
+    """One route's complete proposed geometry and symbolic gap declarations."""
+
+    route: RoutedPath
+    points: tuple[tuple[float, float], ...]
+    gap_slots: tuple[GapSlot, ...]
+
+
+def _same_destination_edge_identity(
+    route: RoutedPath, route_rank: int
+) -> tuple[str, str, str, int]:
+    return (
+        route.edge.source,
+        route.edge.target,
+        route.edge.line_id,
+        route_rank,
+    )
+
+
+def _conflict_quantise(value: float) -> int:
+    return round(value / COORD_TOLERANCE)
+
+
+def _points_coincide(first: tuple[float, float], second: tuple[float, float]) -> bool:
+    return (
+        abs(first[0] - second[0]) <= COORD_TOLERANCE
+        and abs(first[1] - second[1]) <= COORD_TOLERANCE
+    )
+
+
+def segments_properly_cross(
+    a0: tuple[float, float],
+    a1: tuple[float, float],
+    b0: tuple[float, float],
+    b1: tuple[float, float],
+    *,
+    reject_collinear_touch: bool,
+) -> tuple[float, float] | None:
+    """The interior intersection of segments ``a0a1`` and ``b0b1``, or ``None``.
+
+    With *reject_collinear_touch* an endpoint sitting on the other segment's
+    supporting line counts as no crossing; without it only a strict sign change
+    on both sides is required, which admits such a T-touch.
+    """
+
+    def cross(
+        origin: tuple[float, float],
+        end: tuple[float, float],
+        point: tuple[float, float],
+    ) -> float:
+        return (end[0] - origin[0]) * (point[1] - origin[1]) - (end[1] - origin[1]) * (
+            point[0] - origin[0]
+        )
+
+    d1, d2 = cross(b0, b1, a0), cross(b0, b1, a1)
+    d3, d4 = cross(a0, a1, b0), cross(a0, a1, b1)
+    if reject_collinear_touch:
+        if d1 * d2 >= 0 or d3 * d4 >= 0:
+            return None
+    elif (d1 > 0) == (d2 > 0) or (d3 > 0) == (d4 > 0):
+        return None
+    denominator = (a0[0] - a1[0]) * (b0[1] - b1[1]) - (a0[1] - a1[1]) * (b0[0] - b1[0])
+    if abs(denominator) <= COORD_TOLERANCE:
+        return None
+    position = (
+        (a0[0] - b0[0]) * (b0[1] - b1[1]) - (a0[1] - b0[1]) * (b0[0] - b1[0])
+    ) / denominator
+    return (
+        a0[0] + position * (a1[0] - a0[0]),
+        a0[1] + position * (a1[1] - a0[1]),
+    )
+
+
+def _proper_segment_crossing(
+    a0: tuple[float, float],
+    a1: tuple[float, float],
+    b0: tuple[float, float],
+    b1: tuple[float, float],
+) -> tuple[float, float] | None:
+    """Return a strict interior crossing, excluding every shared endpoint."""
+    if any(
+        _points_coincide(first, second) for first in (a0, a1) for second in (b0, b1)
+    ):
+        return None
+    return segments_properly_cross(a0, a1, b0, b1, reject_collinear_touch=True)
+
+
+def _positive_collinear_overlap(
+    a0: tuple[float, float],
+    a1: tuple[float, float],
+    b0: tuple[float, float],
+    b1: tuple[float, float],
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Return the positive-length overlap endpoints of two collinear segments."""
+    dx, dy = a1[0] - a0[0], a1[1] - a0[1]
+    if abs(dx) <= COORD_TOLERANCE and abs(dy) <= COORD_TOLERANCE:
+        return None
+    cross_b0 = dx * (b0[1] - a0[1]) - dy * (b0[0] - a0[0])
+    cross_b1 = dx * (b1[1] - a0[1]) - dy * (b1[0] - a0[0])
+    if abs(cross_b0) > COORD_TOLERANCE or abs(cross_b1) > COORD_TOLERANCE:
+        return None
+    axis = 0 if abs(dx) >= abs(dy) else 1
+    lo = max(min(a0[axis], a1[axis]), min(b0[axis], b1[axis]))
+    hi = min(max(a0[axis], a1[axis]), max(b0[axis], b1[axis]))
+    if hi - lo <= COORD_TOLERANCE:
+        return None
+    delta = dx if axis == 0 else dy
+
+    def point_at(coordinate: float) -> tuple[float, float]:
+        fraction = (coordinate - a0[axis]) / delta
+        return (
+            a0[0] + fraction * dx,
+            a0[1] + fraction * dy,
+        )
+
+    return point_at(lo), point_at(hi)
+
+
+def _same_destination_conflicts(
+    routes: Sequence[RoutedPath],
+    points_by_route: Mapping[int, Sequence[tuple[float, float]]],
+    relevant_route_ids: frozenset[int],
+) -> set[tuple[object, ...]]:
+    """Stable conflicts involving a proposed route against the full population."""
+    conflicts: set[tuple[object, ...]] = set()
+    for route_rank, route in enumerate(routes):
+        points = points_by_route.get(id(route), route.points)
+        identity = _same_destination_edge_identity(route, route_rank)
+        if id(route) in relevant_route_ids:
+            for first_rank, (a0, a1) in enumerate(zip(points, points[1:])):
+                for second_rank in range(first_rank + 2, len(points) - 1):
+                    b0, b1 = points[second_rank : second_rank + 2]
+                    if crossing := _proper_segment_crossing(a0, a1, b0, b1):
+                        conflicts.add(
+                            (
+                                "self-cross",
+                                identity,
+                                first_rank,
+                                second_rank,
+                                *map(_conflict_quantise, crossing),
+                            )
+                        )
+                    if overlap := _positive_collinear_overlap(a0, a1, b0, b1):
+                        conflicts.add(
+                            (
+                                "self-overlap",
+                                identity,
+                                first_rank,
+                                second_rank,
+                                tuple(
+                                    tuple(map(_conflict_quantise, point))
+                                    for point in overlap
+                                ),
+                            )
+                        )
+
+        for other_rank in range(route_rank + 1, len(routes)):
+            other = routes[other_rank]
+            if (
+                id(route) not in relevant_route_ids
+                and id(other) not in relevant_route_ids
+            ):
+                continue
+            other_points = points_by_route.get(id(other), other.points)
+            other_identity = _same_destination_edge_identity(other, other_rank)
+            for first_rank, (a0, a1) in enumerate(zip(points, points[1:])):
+                for second_rank, (b0, b1) in enumerate(
+                    zip(other_points, other_points[1:])
+                ):
+                    if crossing := _proper_segment_crossing(a0, a1, b0, b1):
+                        conflicts.add(
+                            (
+                                "cross",
+                                identity,
+                                first_rank,
+                                other_identity,
+                                second_rank,
+                                *map(_conflict_quantise, crossing),
+                            )
+                        )
+                    if route.line_id == other.line_id:
+                        continue
+                    if overlap := _positive_collinear_overlap(a0, a1, b0, b1):
+                        conflicts.add(
+                            (
+                                "overlap",
+                                identity,
+                                first_rank,
+                                other_identity,
+                                second_rank,
+                                tuple(
+                                    tuple(map(_conflict_quantise, point))
+                                    for point in overlap
+                                ),
+                            )
+                        )
+    return conflicts
+
+
+def feasible_same_destination_approach_proposals(
+    graph: MetroGraph,
+    routes: Sequence[RoutedPath],
+    bundle: SameDestinationVerticalBundle,
+    slots: Mapping[str, PeeloffSlot],
+    *,
+    movable_route_ids: frozenset[int] | None = None,
+    segment_move_is_blocked: Callable[[RoutedPath, int, float], bool] | None = None,
+    replannable_exit_turn_plan_ids: frozenset[str] = frozenset(),
+) -> tuple[SameDestinationApproachProposal, ...] | None:
+    """Return an atomic tail move when it introduces no ownership or geometry defect."""
+    proposals: list[SameDestinationApproachProposal] = []
+    proposed_points: dict[int, Sequence[tuple[float, float]]] = {}
+
+    def tail_segment_is_held(
+        route: RoutedPath, segment_rank: int, target_x: float
+    ) -> bool:
+        """Whether some frozen decision forbids moving this tail's riser.
+
+        Held by the caller's own movable set, by an exit-turn plan that no
+        replan may disturb, by the route system's segment ownership, by a
+        reservation, or by the caller's own veto.
+        """
+        return (
+            (movable_route_ids is not None and id(route) not in movable_route_ids)
+            or (
+                planner_owns_segment(route, segment_rank)
+                and (
+                    route.exit_turn_plan_id not in replannable_exit_turn_plan_ids
+                    or convergence_owns_segment_boundary(route, segment_rank)
+                    or route.fan_route_emitter is not None
+                    or segment_rank in route.route_system_owned_segment_ranks
+                )
+            )
+            or route_system_owns_segment_boundary(route, segment_rank)
+            or bool(route.route_reservation_ids)
+            or (
+                segment_move_is_blocked is not None
+                and segment_move_is_blocked(route, segment_rank, target_x)
+            )
+        )
+
+    for route, tail in bundle.entries:
+        segment_rank = len(route.points) - 3
+        target_x = slots[route.line_id].peel_x
+        moves = abs(tail.peel_x - target_x) > COORD_TOLERANCE
+        if moves and tail_segment_is_held(route, segment_rank, target_x):
+            return None
+        own_sections = {
+            graph.section_for_station(route.edge.source),
+            graph.section_for_station(route.edge.target),
+        }
+        if moves and _section_intrudes(
+            graph,
+            target_x,
+            min(tail.trunk_y, tail.port_y),
+            max(tail.trunk_y, tail.port_y),
+            exclude=own_sections,
+            margin=EDGE_TO_BUNDLE_CLEARANCE,
+        ):
+            return None
+
+        points = list(route.points)
+        points[segment_rank] = (target_x, points[segment_rank][1])
+        points[segment_rank + 1] = (target_x, points[segment_rank + 1][1])
+        y_lo = min(tail.trunk_y, tail.port_y)
+        y_hi = max(tail.trunk_y, tail.port_y)
+        old_gap = gap_lo_for_x(graph, tail.peel_x, y_lo, y_hi)
+        new_gap = gap_lo_for_x(graph, target_x, y_lo, y_hi)
+        if old_gap is not None and new_gap is None:
+            return None
+        corridor_band = corridor_clearance_band(
+            graph,
+            axis=0,
+            section_ids=tuple(
+                section_id for section_id in own_sections if section_id is not None
+            ),
+            coordinate=target_x,
+            run_start=y_lo,
+            run_end=y_hi,
+        )
+        if corridor_band is not None and not (
+            corridor_band.lo - COORD_TOLERANCE
+            <= target_x
+            <= corridor_band.hi + COORD_TOLERANCE
+        ):
+            return None
+        gap_slots = list(route.gap_slots)
+        if new_gap is not None and new_gap != old_gap:
+            gap_slots = [
+                slot
+                for slot in gap_slots
+                if not (
+                    old_gap is not None
+                    and slot.gap_lo_col == old_gap[0]
+                    and (slot.direction is Direction.D) == (tail.vertical_sign > 0)
+                )
+            ]
+            gap_slots.append(
+                GapSlot(
+                    new_gap[0],
+                    new_gap[0] + 1,
+                    new_gap[1],
+                    Direction.D if tail.vertical_sign > 0 else Direction.U,
+                    0,
+                    1,
+                )
+            )
+        proposal = SameDestinationApproachProposal(
+            route,
+            tuple(points),
+            tuple(gap_slots),
+        )
+        proposals.append(proposal)
+        proposed_points[id(route)] = proposal.points
+
+    if all(proposal.points == tuple(proposal.route.points) for proposal in proposals):
+        # A proposal that reproduces its route's own points cannot fail either
+        # scan below: the clearance walk reads geometry already drawn, and the
+        # conflict pair is a delta against that same geometry.
+        return tuple(proposals)
+
+    relevant_route_ids = frozenset(proposed_points)
+    offset_step = graph_offset_step(graph)
+    for route, _tail in bundle.entries:
+        proposal_points = proposed_points[id(route)]
+        segment_rank = len(proposal_points) - 3
+        start, end = proposal_points[segment_rank : segment_rank + 2]
+        candidate_lo, candidate_hi = sorted((start[1], end[1]))
+        candidate_down = end[1] > start[1]
+        for other in routes:
+            other_points = proposed_points.get(id(other), other.points)
+            for other_rank, (other_start, other_end) in enumerate(
+                zip(other_points, other_points[1:])
+            ):
+                if other is route and other_rank == segment_rank:
+                    continue
+                if abs(other_start[0] - other_end[0]) > COORD_TOLERANCE:
+                    continue
+                other_lo, other_hi = sorted((other_start[1], other_end[1]))
+                if (
+                    min(candidate_hi, other_hi) - max(candidate_lo, other_lo)
+                    <= MIN_CORRIDOR_Y_OVERLAP
+                ):
+                    continue
+                required = cotravelling_lane_clearance(
+                    same_line=route.line_id == other.line_id,
+                    counter_running=candidate_down
+                    is not (other_end[1] > other_start[1]),
+                    curve_radius=CURVE_RADIUS,
+                    offset_step=offset_step,
+                )
+                if (
+                    required > 0.0
+                    and abs(start[0] - other_start[0]) < required - COORD_TOLERANCE_FINE
+                ):
+                    return None
+
+    baseline_conflicts = _same_destination_conflicts(routes, {}, relevant_route_ids)
+    proposed_conflicts = _same_destination_conflicts(
+        routes, proposed_points, relevant_route_ids
+    )
+    if proposed_conflicts - baseline_conflicts:
+        return None
+    return tuple(proposals)
 
 
 def iter_opposing_entry_confluences(
@@ -1096,7 +1756,9 @@ def iter_opposing_entry_confluences(
         if set(per_line) != set(graph.station_lines(port_id)):
             continue
         port_ys = sorted(tail.port_y for tail in per_line.values())
-        if len({round(value, 6) for value in port_ys}) != n:
+        if any(
+            right - left <= COORD_TOLERANCE for left, right in zip(port_ys, port_ys[1:])
+        ):
             continue
         if port_ys[-1] - port_ys[0] > (n - 1) * step + COORD_TOLERANCE:
             continue
@@ -1452,18 +2114,30 @@ def _vert_horiz_cross(
     )
 
 
+def trunk_segment_crossings(
+    a: HTrunkSeg, b: HTrunkSeg
+) -> tuple[tuple[float, float], ...]:
+    """Return every riser/trunk crossing between two horizontal trunks."""
+    crossings: list[tuple[float, float]] = []
+    for seg, other in ((a, b), (b, a)):
+        for vx, vy in ((seg.xa, seg.before_y), (seg.xb, seg.after_y)):
+            crossing = (vx, other.y)
+            if (
+                _vert_horiz_cross(vx, seg.y, vy, other.y, other.x_lo, other.x_hi)
+                and crossing not in crossings
+            ):
+                crossings.append(crossing)
+    return tuple(crossings)
+
+
 def trunk_segments_cross(a: HTrunkSeg, b: HTrunkSeg) -> tuple[float, float] | None:
-    """Return where trunks *a* and *b* cross, or ``None`` if they don't.
+    """Return the first crossing between trunks *a* and *b*, if any.
 
     A crossing is a riser of one trunk piercing the horizontal run of the
     other (the two parallel runs themselves never cross).  Returns the first
     crossing point found.
     """
-    for seg, other in ((a, b), (b, a)):
-        for vx, vy in ((seg.xa, seg.before_y), (seg.xb, seg.after_y)):
-            if _vert_horiz_cross(vx, seg.y, vy, other.y, other.x_lo, other.x_hi):
-                return vx, other.y
-    return None
+    return next(iter(trunk_segment_crossings(a, b)), None)
 
 
 def compute_bundle_info(
@@ -2061,6 +2735,63 @@ def _h_segment_penetrates_section(
     if hi_x <= section.bbox_x or lo_x >= right:
         return False
     return section.bbox_y - margin <= y <= section.bbox_y + section.bbox_h + margin
+
+
+def _v_segment_crosses_other_section(
+    graph: MetroGraph,
+    x: float,
+    y1: float,
+    y2: float,
+    exclude_section_ids: AbstractSet[str | None],
+    margin: float = 0.0,
+    *,
+    include_margin_boundary: bool = True,
+) -> bool:
+    """Whether a vertical segment at *x* crosses a non-exempt section.
+
+    The segment and each section use open Y interiors. The X test includes the
+    expanded box boundary by default; callers policing a prospective move can
+    request an open expanded boundary without changing the segment endpoints.
+    """
+    lo_y, hi_y = (y1, y2) if y1 <= y2 else (y2, y1)
+    for section in graph.sections.values():
+        if section.bbox_w <= 0 or section.id in exclude_section_ids:
+            continue
+        bottom = section.bbox_y + section.bbox_h
+        if hi_y <= section.bbox_y or lo_y >= bottom:
+            continue
+        left = section.bbox_x - margin
+        right = section.bbox_x + section.bbox_w + margin
+        inside_x = left <= x <= right if include_margin_boundary else left < x < right
+        if inside_x:
+            return True
+    return False
+
+
+def _section_intrudes(
+    graph: MetroGraph,
+    x: float,
+    y_lo: float,
+    y_hi: float,
+    *,
+    exclude: AbstractSet[str | None] = frozenset(),
+    margin: float = COORD_TOLERANCE,
+) -> bool:
+    """True if a channel at ``x`` over ``[y_lo, y_hi]`` lands inside a section bbox.
+
+    Sections in ``exclude`` are skipped, for a channel that legitimately meets
+    its own endpoints' sections.  The expanded boundary is open, so a channel
+    seated exactly *margin* clear of a section does not intrude.
+    """
+    return _v_segment_crosses_other_section(
+        graph,
+        x,
+        y_lo,
+        y_hi,
+        exclude,
+        margin=margin,
+        include_margin_boundary=False,
+    )
 
 
 def resolve_section(

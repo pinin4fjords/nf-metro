@@ -15,6 +15,7 @@ safe when no rendering code changed.
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import sys
@@ -102,6 +103,56 @@ PIPELINE_ENTRIES: list[tuple[str, str, str, str]] = [
     for entry in _config["pipelines"]
 ]
 
+# The render-diff-only corpus. The section is required in gallery.yaml; the keys
+# below it are not.
+_RENDER_ONLY = _config["render_only"]
+
+
+def _resolve_guard(qualified_name: str) -> type[BaseException]:
+    """The exception class an ``expected_aborts`` value names.
+
+    Module-qualified, because a bare class name matches any same-named class
+    from anywhere and cannot be resolved to the one that was meant.
+    """
+    module_name, _, class_name = qualified_name.rpartition(".")
+    if not module_name:
+        raise ValueError(
+            f"expected_aborts needs a module-qualified guard, got {qualified_name!r}"
+        )
+    guard = getattr(importlib.import_module(module_name), class_name)
+    if not (isinstance(guard, type) and issubclass(guard, BaseException)):
+        raise TypeError(f"expected_aborts entry {qualified_name!r} is not a guard")
+    return guard
+
+
+# Registered render-diff stems whose render aborts, mapped to the guard that
+# raises. A stem here produces no render-diff entry, so the annotation is what
+# distinguishes a known reproducer from a regression in the build log.
+EXPECTED_ABORTS: dict[str, type[BaseException]] = {
+    stem: _resolve_guard(name)
+    for stem, name in (_RENDER_ONLY.get("expected_aborts") or {}).items()
+}
+
+
+def _render_only_stems() -> list[str]:
+    """The ``test_fixtures`` stems, checked for a flattened-name collision.
+
+    Each stem renders to ``<basename>.svg``, so two stems from different
+    subdirectories sharing a basename would land on one SVG and one manifest
+    key, and the second would silently replace the first.
+    """
+    stems: list[str] = _RENDER_ONLY["test_fixtures"]
+    by_name: dict[str, str] = {}
+    for stem in stems:
+        name = Path(stem).name
+        if by_name.setdefault(name, stem) != stem:
+            raise ValueError(
+                f"render-only stems {by_name[name]!r} and {stem!r} both render to "
+                f"{name}.svg; give one a distinct basename"
+            )
+    return stems
+
+
 # Manifest mapping SVG filename -> section for the render diff page.
 # Populated by each render function, written to RENDERS_DIR/manifest.json.
 _manifest: dict[str, str] = {}
@@ -168,6 +219,36 @@ def render_mmd(
     svg_path.write_text(svg_str)
     _record_metrics(graph, plan, svg_path.name, svg_str)
     return svg_str
+
+
+def _render_registered_stem(stem: str, mmd_path: Path, svg_path: Path) -> bool:
+    """Render one stem named in gallery.yaml, reporting what happened.
+
+    Returns True when an SVG was written, which is what earns the stem a
+    render-diff manifest entry. A stem in :data:`EXPECTED_ABORTS` reports the
+    guard it trips rather than a failure, and reports its annotation as stale
+    if it starts rendering.
+    """
+    expected_abort = EXPECTED_ABORTS.get(stem)
+    try:
+        render_mmd(mmd_path, svg_path)
+    except Exception as e:
+        if expected_abort is not None and isinstance(e, expected_abort):
+            print(
+                f"  {stem}: ABORTS ({expected_abort.__name__}) - registered "
+                f"reproducer, no render-diff entry"
+            )
+        else:
+            print(f"  {stem}: FAIL - {e}")
+        return False
+    if expected_abort:
+        print(
+            f"  {stem}: OK - renders now; drop its expected_aborts entry in "
+            f"scripts/gallery.yaml"
+        )
+    else:
+        print(f"  {stem}: OK")
+    return True
 
 
 def clean_name(stem: str) -> str:
@@ -267,12 +348,8 @@ def render_guide_examples() -> None:
         if _skip_render(mmd_path):
             _manifest[svg_path.name] = section
             continue
-        try:
-            render_mmd(mmd_path, svg_path)
+        if _render_registered_stem(stem, mmd_path, svg_path):
             _manifest[svg_path.name] = section
-            print(f"  {stem}: OK")
-        except Exception as e:
-            print(f"  {stem}: FAIL - {e}")
 
     debug_src = EXAMPLES_DIR / "rnaseq_auto.mmd"
     debug_svg = RENDERS_DIR / "rnaseq_auto_debug.svg"
@@ -393,20 +470,16 @@ def render_test_fixtures() -> None:
     RENDERS_DIR.mkdir(parents=True, exist_ok=True)
     section = "Test Fixtures"
     print("Test fixtures:")
-    for stem in _config["render_only"]["test_fixtures"]:
+    for stem in _render_only_stems():
         mmd_path = TEST_FIXTURES_DIR / f"{stem}.mmd"
         if not mmd_path.exists():
             continue
-        svg_path = RENDERS_DIR / f"{stem}.svg"
+        svg_path = RENDERS_DIR / f"{Path(stem).name}.svg"
         if _skip_render(mmd_path):
             _manifest[svg_path.name] = section
             continue
-        try:
-            render_mmd(mmd_path, svg_path)
+        if _render_registered_stem(stem, mmd_path, svg_path):
             _manifest[svg_path.name] = section
-            print(f"  {stem}: OK")
-        except Exception as e:
-            print(f"  {stem}: FAIL - {e}")
     print()
 
 

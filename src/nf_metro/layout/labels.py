@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from nf_metro.layout.constants import (
@@ -794,6 +794,35 @@ def _pill_offsets(
     return _station_bundle_offset_span(graph, station.id, station_offsets)
 
 
+def _label_anchor_ys(
+    graph: MetroGraph,
+    placement: LabelPlacement,
+    station: "Station",
+    station_offsets: dict[tuple[str, str], float] | None,
+    safe_offsets: dict[str, tuple[float, float]],
+    label_offset: float,
+) -> tuple[float, float]:
+    """``(unpushed_y, collision_pushed_y)`` for one label beside its own pill.
+
+    The un-pushed anchor is the closest the label sits to its pill; the pushed
+    one is where a both-sides collision drives it.  Which pill edge and which
+    safe offset apply follows from the side the label settled on.
+    """
+    min_off, max_off = _pill_offsets(graph, station, station_offsets)
+    safe_above, safe_below = safe_offsets.get(
+        placement.station_id, (label_offset, label_offset)
+    )
+    if placement.above:
+        return (
+            station.y + min_off - safe_above - DESCENDER_CLEARANCE,
+            station.y + min_off - safe_above * COLLISION_MULTIPLIER,
+        )
+    return (
+        station.y + max_off + safe_below,
+        station.y + max_off + safe_below * COLLISION_MULTIPLIER,
+    )
+
+
 def _lift_wrapped_labels_off_foreign_trunks(
     placements: list[LabelPlacement],
     graph: MetroGraph,
@@ -828,18 +857,48 @@ def _lift_wrapped_labels_off_foreign_trunks(
         st = graph.stations.get(p.station_id)
         if st is None:
             continue
-        min_off, max_off = _pill_offsets(graph, st, station_offsets)
-        safe_above, safe_below = safe_offsets.get(
-            p.station_id, (label_offset, label_offset)
+        base_y, _pushed_y = _label_anchor_ys(
+            graph, p, st, station_offsets, safe_offsets, label_offset
         )
-        if p.above:
-            base_y = st.y + min_off - safe_above - DESCENDER_CLEARANCE
-            if base_y > p.y:  # base sits closer to the pill than the push-out
-                p.y = base_y
-        else:
-            base_y = st.y + max_off + safe_below
-            if base_y < p.y:
-                p.y = base_y
+        # Move only inward: the base sits closer to the pill than the push-out.
+        if (base_y > p.y) if p.above else (base_y < p.y):
+            p.y = base_y
+
+
+def _relax_collision_pushed_labels(
+    placements: list[LabelPlacement],
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float] | None,
+    safe_offsets: dict[str, tuple[float, float]],
+    label_offset: float,
+) -> None:
+    """Return a pushed-out label to its un-pushed anchor once wrapping clears it.
+
+    :func:`_place_alternating_candidate` answers a label that collides on both
+    sides by pushing it ``COLLISION_MULTIPLIER`` offsets clear of its pill,
+    decided while every label is still one line wide.
+    :func:`_wrap_overlapping_labels` then narrows the crowded labels, which
+    usually removes the overlap the push answered and leaves the label stranded
+    the extra offset away from its pill while its same-row neighbours sit at
+    the plain anchor - two stations on one trunk Y whose names hang at
+    different heights.  A label whose wrapped block clears its neighbours at
+    the plain anchor is put back there.
+    """
+    for p in placements:
+        if p.obstacle_bbox is not None or p.angle or p.dominant_baseline:
+            continue
+        station = graph.stations.get(p.station_id)
+        if station is None:
+            continue
+        base_y, pushed_y = _label_anchor_ys(
+            graph, p, station, station_offsets, safe_offsets, label_offset
+        )
+        if abs(p.y - pushed_y) > SAME_COORD_TOLERANCE:
+            continue
+        relaxed = replace(p, y=base_y)
+        if _has_collision(relaxed, [q for q in placements if q is not p]):
+            continue
+        p.y = base_y
 
 
 def _wrap_text_to_chars(text: str, max_chars: int) -> str:
@@ -1725,9 +1784,11 @@ def place_labels(
     anchored at the pill and tilted (transit-map style); they hang on one
     side and pack by their narrow rotated footprint.
 
-    ``lift_wrapped_off_trunks`` runs a final render-time pass that pulls a
-    wrapped label back to its un-pushed anchor when its grown block overruns a
-    foreign trunk.  Callers measuring overlaps for the layout (the spacing
+    ``lift_wrapped_off_trunks`` runs the final render-time passes that pull a
+    wrapped label back to its un-pushed anchor: one when the wrapped block no
+    longer needs the both-sides-collision push-out
+    (:func:`_relax_collision_pushed_labels`), one when the grown block overruns
+    a foreign trunk.  Callers measuring overlaps for the layout (the spacing
     search probe) pass False so the engine sees the pre-lift geometry and the
     deliberate neighbour graze never trips the label-overlap guard.
     """
@@ -1755,6 +1816,9 @@ def place_labels(
     )
 
     if lift_wrapped_off_trunks:
+        _relax_collision_pushed_labels(
+            placements, graph, station_offsets, ctx.safe_offsets, label_offset
+        )
         _lift_wrapped_labels_off_foreign_trunks(
             placements, graph, routes, station_offsets, ctx.safe_offsets, label_offset
         )
