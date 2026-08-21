@@ -10,6 +10,7 @@ and the token budget against the post-compaction re-attachment cap.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -323,6 +324,59 @@ def check_recurring_defect_classes() -> None:
                 fail(f"{f.name}: block calls `die` without defining it; the guard is decorative")
 
 
+def check_grep_strings_exist() -> None:
+    """A script greps the CI comment for specific wordings. Assert those strings
+    are what the workflow actually emits, so a self-consistent rename of both the
+    grep and its own test fixture cannot pass."""
+    wf = Path(".github/workflows/pr-render-publish.yml")
+    if not wf.exists():
+        fail("pr-render-publish.yml missing; the sticky-comment wordings cannot be checked")
+        return
+    emitted = wf.read_text()
+    script = SKILL / "scripts" / "visual_preview.sh"
+    if not script.exists():
+        return
+    for phrase in re.findall(r'grep -q[xE]? "([^"$]{12,})"', script.read_text()):
+        for alt in phrase.split("|"):
+            if alt and alt not in emitted:
+                fail(f"visual_preview.sh greps for '{alt}', which pr-render-publish.yml "
+                     "does not emit")
+
+
+def check_scripts() -> None:
+    """The bundled scripts are the part that used to be prose. Parse them in both
+    shells and run their self-tests, so a defect in them fails here rather than
+    in a run. This is what a documented block could never offer."""
+    scripts = sorted((SKILL / "scripts").glob("*.sh"))
+    if not scripts:
+        fail("no scripts/*.sh found; the shell chains should live in scripts")
+    for sh_file in scripts:
+        for shell in ("bash", "zsh"):
+            r = subprocess.run([shell, "-n", str(sh_file)], capture_output=True, text=True)
+            if r.returncode:
+                fail(f"{sh_file.name}: {shell} parse error: {r.stderr.strip()[:120]}")
+        # shellcheck catches what a parse check cannot: a variable referenced but
+        # never assigned, which is exactly the defect class that kept shipping.
+        if shutil.which("shellcheck"):
+            r = subprocess.run(["shellcheck", "-S", "warning", str(sh_file)],
+                               capture_output=True, text=True)
+            if r.returncode:
+                first = next((l for l in r.stdout.splitlines() if "SC" in l), r.stdout[:100])
+                fail(f"{sh_file.name}: shellcheck: {first.strip()[:120]}")
+        if "--self-test" not in sh_file.read_text():
+            fail(f"{sh_file.name} has no --self-test; its logic cannot be checked here")
+            continue
+        r = subprocess.run(["bash", str(sh_file), "--self-test"], capture_output=True, text=True)
+        if r.returncode:
+            fail(f"{sh_file.name} --self-test failed: "
+                 f"{(r.stdout + r.stderr).strip().splitlines()[-1][:120]}")
+    # Every script must be referenced, or it is dead weight nobody will run.
+    body = "\n".join(f.read_text() for f in md_files())
+    for sh_file in scripts:
+        if sh_file.name not in body:
+            fail(f"{sh_file.name} is not referenced from any skill file")
+
+
 def check_token_budget() -> None:
     try:
         import tiktoken
@@ -356,6 +410,8 @@ def main() -> int:
         check_prose_tool_claims,
         check_prose_paths,
         check_shell_blocks,
+        check_scripts,
+        check_grep_strings_exist,
         check_guards_self_fail,
         check_recurring_defect_classes,
         check_token_budget,

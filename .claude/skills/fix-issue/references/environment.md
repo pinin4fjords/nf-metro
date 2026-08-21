@@ -76,52 +76,18 @@ repo-wide generated artifact; it is not the default.
 
 ## Verifier environment
 
-Give every read-only verifier this block so its caches and logs land outside the
-worktree and it can prove the tree is unchanged:
+One script, which creates the frozen checkout, asserts against it, and removes
+it in the same process. `set -e` fires in a script, so its guards bite without
+being written defensively.
 
 ```bash
-# NEVER rely on `set -e` here. The Bash tool runs zsh and evals the block, where
-# ERREXIT does not fire: `(set -e; false; echo SURVIVED)` prints SURVIVED. Every
-# guard below therefore fails itself explicitly.
-die() { echo "VERIFY FAILED: $*" >&2; exit 1; }
-source ~/.local/bin/mm-activate nf-metro-dev || die "env not activated"
-export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>-$$   # $$ so two readers on one SHA do not collide
-mkdir -p "$VERIFY_ARTIFACT_DIR/tmp" || die "artifact dir"
-export PYTHONDONTWRITEBYTECODE=1
-export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
-export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
-# The frozen checkout. Nothing else creates it, and reading the writer's live
-# worktree is forbidden. Prune first: a previous run that died mid-block leaves
-# the worktree behind and `add` then fails with "already exists".
-export VERIFY_ROOT="$VERIFY_ARTIFACT_DIR/src"
-git -C ~/projects/nf-metro worktree prune
-test ! -e "$VERIFY_ROOT" || die "stale verify worktree at $VERIFY_ROOT; remove it first"
-git -C ~/projects/nf-metro worktree add --detach "$VERIFY_ROOT" <CANDIDATE_SHA> || die "worktree add"
-cd "$VERIFY_ROOT" || die "cd"
-
-test "$(git rev-parse HEAD)" = "$(git rev-parse <CANDIDATE_SHA>)" || die "HEAD is not the candidate SHA"
-st=$(git status --porcelain) || die "git status failed"   # empty stdout from a failed git reads as clean
-test -z "$st" || die "tree dirty before checks"
-ruff check --no-cache src/ tests/ || die "ruff check"
-ruff format --check --no-cache src/ tests/ || die "ruff format"
-mypy --cache-dir=/tmp/nf-metro-verify-mypy-cache || die "mypy"
-PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" \
-  -q --no-header -p no:cacheprovider -p no:warnings --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp" || die "pytest"
-git diff --exit-code <CANDIDATE_SHA> || die "checks modified tracked files"
-st=$(git status --porcelain) || die "git status failed"
-test -z "$st" || die "tree dirty after checks"
-cd ~ && git -C ~/projects/nf-metro worktree remove --force "$VERIFY_ROOT"
-echo "VERIFY OK <CANDIDATE_SHA>"
+source ~/.local/bin/mm-activate nf-metro-dev
+.claude/skills/fix-issue/scripts/verify_candidate.sh --candidate <SHA> --selector "<fixture-or-invariant>"
 ```
 
-Report the final line. **An absent `VERIFY OK` is a failure**, whatever the exit
-status looked like: `die` is what makes a guard bite, and a block that merely
-"ran" proves nothing.
-
-
-`mypy` needs no target: `pyproject.toml` sets `files = ["src"]`. Run it exactly
-as written rather than adding a path. The cache is deliberately outside the
-per-SHA directory so verification is not cold every time.
+It prints `VERIFY OK <SHA>` on success. **An absent `VERIFY OK` is a failure**,
+whatever the exit status looked like. Report the last line, the failing command
+and a short excerpt; never the full output. Carries `--self-test`.
 
 ## Local renders
 

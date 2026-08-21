@@ -27,158 +27,45 @@ https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 
 ### Getting the renders in front of the reviewer
 
-The preview publishes **one** file, `index.html`, with every render inlined by
-`_inline_svg` in `scripts/build_render_diff.py`. There are no fetchable `.svg`
-files, the page is multi-megabyte, and the inlined markup is full of `var()` and
-`light-dark()` that cairosvg cannot parse. So: never `Read` the preview page, and
-do not try to download renders from it.
-
-**Read the verdict before reaching for the page.** When a PR has no visual
-changes the preview is never published at all: `build_render_diff.py` returns
-early, `pr-renders.yml` sets `has_changes=false`, and every deploy step in
-`pr-render-publish.yml` is gated on `has_changes == 'true'`. So a 404 is the
-*expected* result of a clean run, not a reason to wait.
+Two scripts do this. They are scripts, not blocks to paste, because the logic is
+a chain that must share state: as separate Bash calls, variables do not survive
+between steps and `set -e` does not fire under this harness. Both carry
+`--self-test`, and `check_skill.py` runs it.
 
 ```bash
-die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
-source ~/.local/bin/mm-activate nf-metro-dev || die "env"   # `python` is not on PATH otherwise
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
-run=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
-        --json databaseId,headSha,conclusion) || die "gh run list"
-built=$(echo "$run" | python -c "import json,sys;d=json.load(sys.stdin);print(d[0]['headSha'] if d else '')")
-test -n "$built" || die "no pr-renders run for this branch yet"
-runid=$(echo "$run" | python -c "import json,sys;d=json.load(sys.stdin);print(d[0]['databaseId'] if d else '')")
-test -n "$runid" || die "no pr-renders run for this branch yet"
-# Normalise both sides: gh returns 40 chars, a hand-copied candidate may be short.
-test "$(git rev-parse "$built")" = "$(git rev-parse <CANDIDATE_SHA>)" \
-  || die "renders were built from $built, not the candidate"
-# `last | .body`, not `| tail -1`: the body is multi-line and its last LINE is
-# the sticky HTML marker, so a line-wise tail makes every grep below miss.
-# Anchor on the sticky marker, not the prose: a human comment saying "the Render
-# preview looks fine" would otherwise be selected as the latest match.
-gh pr view <PR_NUMBER> --json comments \
-  -q '[.comments[] | select(.body | contains("Sticky Pull Request Commentrender-preview"))] | last | .body' \
-  > "$ART/sticky.txt" || die "gh pr view failed"
-# jq prints the literal "null" and exits 0 when nothing matches.
-# zsh rejects `a && ! b`, and this harness is zsh, so keep the guards separate.
-test -s "$ART/sticky.txt" || die "no sticky render-preview comment yet"
-grep -qx "null" "$ART/sticky.txt" && die "no sticky render-preview comment yet"
-grep -q "no visual changes detected" "$ART/sticky.txt" && { echo "VERDICT: no visual changes"; exit 0; }
-grep -q "was not generated because" "$ART/sticky.txt" \
-  && die "the render job itself failed; fix CI, waiting will not help"
-grep -qE "rendering in progress|still publishing" "$ART/sticky.txt" && die "not ready yet, wait"
+source ~/.local/bin/mm-activate nf-metro-dev
+.claude/skills/fix-issue/scripts/visual_preview.sh --pr <N> --branch <HEAD_BRANCH> --candidate <CANDIDATE_SHA>
 ```
 
-Exit 0 with "no visual changes" **is** the verdict for a clean run: report it and
-stop. Only continue when the comment says deltas exist.
+Three outcomes, all of them verdicts:
 
-**Then prove the published page is this run's.** `pr-render-publish.yml` deploys
-with `keep_files: true` and only cleans up when the PR closes, so a previous
-push's page survives. Comparing the workflow's `headSha` is not enough: push A
-with deltas publishes a page, push B without deltas publishes nothing, and the
-headSha check passes while the page you fetch is A's. The page carries the
-discriminator - `build_render_diff.py` writes
-`<meta name="nf-metro-render-run" content="{run id}">`.
+- `VERDICT: no visual changes` - **this is the answer for a clean run**, and no
+  page is published in that case. Report it and stop.
+- a non-zero exit naming CI failure, a preview still publishing, or a stale page
+  whose run marker does not match this run. None of these are "wait and hope";
+  read the message.
+- `STEMS: <n>` with `$ART/stems.txt` written. Then render both sides:
 
 ```bash
-die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # each block is self-contained
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
-# Re-derive runid here: block variables do not survive between Bash calls.
-runid=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
-          --json databaseId -q '.[0].databaseId') || die "gh run list"
-test -n "$runid" || die "no pr-renders run for this branch yet"
-curl -fsS "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html" \
-  || die "page absent though the comment reported deltas; Pages may still be publishing"
-marker=$(grep -o 'nf-metro-render-run" content="[0-9]*"' "$ART/index.html" \
-           | grep -o '[0-9]*') || die "no run marker in page"
-test "$marker" = "$runid" || die "page is from run $marker, not $runid: stale preview"
-grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html" \
-  | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u > "$ART/stems.txt"
-test -s "$ART/stems.txt" || die "no stems parsed from a page that reported deltas"
-wc -l < "$ART/stems.txt"
+.claude/skills/fix-issue/scripts/render_pairs.sh --base <BASE_SHA> --candidate <CANDIDATE_SHA>
 ```
 
-The sticky comment has five wordings, not two: no visual changes, ready for review,
-rendering in progress, Pages still publishing, and "was not generated because a
-prerequisite check or the render job failed". Only the first two are verdicts.
-The last is not a wait: CI failed, and no amount of waiting fixes it.
+`Read` the `base-<stem>.png` / `cand-<stem>.png` pairs it reports. Never `Read`
+the preview page itself: it is one multi-megabyte inlined `index.html`, and its
+SVG carries `var()` and `light-dark()` that cairosvg cannot parse.
 
-**If provenance fails, do not fall back to the stale list.** Enumerate the corpus
-from `scripts/gallery.yaml` and compare both sides yourself: the delta you care
-about is exactly the part an old preview cannot show.
+Every stem owes an I/N/D verdict. Reconcile against the script's summary line:
 
-```bash
-die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
-source ~/.local/bin/mm-activate nf-metro-dev || die "env"
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
-# render_only mixes list-of-str (guide_examples, test_fixtures) with list-of-dict
-# (nextflow_conversions), so handle both or this raises TypeError.
-python -c "import yaml;c=yaml.safe_load(open('scripts/gallery.yaml'));\
-ids=[e['id'] for e in c.get('gallery',[])]+[e['id'] for e in c.get('pipelines',[])];\
-ids+=[e if isinstance(e,str) else e['id'] for g in c.get('render_only',{}).values() for e in (g or [])];\
-print('\n'.join(sorted(set(ids))))" > "$ART/stems.txt" || die "could not enumerate gallery.yaml"
-wc -l < "$ART/stems.txt"   # the whole corpus, not just the changed subset
-```
+- `RENDER-FAILED(cand)` where base rendered **is the regression**, the worst kind
+  of D-delta. Never skip it.
+- failures on both sides pre-date this PR; still name them, and diff the two
+  `.err` files, because the same fixture aborting for a new reason is a finding.
+- `UNRESOLVED` is a gallery id with no matching `.mmd`. Name it; do not let it
+  vanish.
 
-Then run the both-sides sweep below over that list and diff the PNG pairs
-yourself; `render_only` groups can map an id to a different output name, so
-expect some `UNRESOLVED` and report them. In a
-measured quarter-sample of the 248 ids missing from one stale preview's list, four
-rendered differently and five aborted on the candidate but not the base.
-
-### Rendering both sides
-
-Then render each stem at the base SHA and the candidate SHA and rasterise both.
-This block is **self-contained**: shell state does not survive between Bash
-calls, so it re-exports `ART` rather than relying on the block above.
-
-```bash
-die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
-test -s "$ART/stems.txt" || die "run the provenance block first"
-source ~/.local/bin/mm-activate nf-metro-dev || die "env"
-for side in base cand; do
-  case $side in base) SHA=<BASE_SHA>;; cand) SHA=<CANDIDATE_SHA>;; esac
-  W="$ART/wt-$SHA"
-  git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA" || die "worktree add $side"
-  git -C "$W" ls-files '*.mmd' > "$ART/all-mmd.txt"
-  while read -r stem; do
-    # pipeline_<stem> is the same .mmd with the same options, so one verdict covers both.
-    for cand in "$stem" "${stem#pipeline_}"; do
-      f=$(grep -E "(^|/)${cand}\.mmd$" "$ART/all-mmd.txt" | head -1) && [ -n "$f" ] && break
-    done
-    if [ -z "${f:-}" ]; then echo "UNRESOLVED: $stem" >&2; continue; fi
-    if ! PYTHONPATH="$W/src" python -m nf_metro render "$W/$f" \
-         -o "$ART/$side-$stem.svg" --no-chrome-css 2>"$ART/$side-$stem.err"; then
-      echo "RENDER-FAILED($side): $stem" >&2
-      continue
-    fi
-    python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$ART/$side-$stem.svg"
-  done < "$ART/stems.txt"
-  git -C ~/projects/nf-metro worktree remove --force "$W"
-done
-```
-
-Three failure shapes, and only one is benign:
-
-- `RENDER-FAILED(cand)` where base rendered: **this is the regression**, a
-  D-delta of the worst kind. Never skip it.
-- `RENDER-FAILED` on **both** sides: pre-existing at head, so not this PR's
-  regression - but still report it by name, and `diff` the two `.err` files: the
-  same fixture aborting for a *different reason* is a finding. There is no
-  declared allow-list of aborting fixtures in this repo, so never treat an abort
-  as expected without comparing both sides yourself.
-- `UNRESOLVED`: a gallery id with no matching `.mmd`, e.g. one rendered from a
-  Nextflow DAG or with non-default options. Name it; do not let it vanish.
-
-Reconcile the count before judging anything: the number of `cand-*.png` files
-must equal `wc -l < "$ART/stems.txt"` minus the `UNRESOLVED` lines. Report every
-unresolved stem by name; a gallery entry whose output id differs from its source
-stem lands here, and skipping it silently is how a regression ships.
-
-`Read` the `base-<stem>.png` / `cand-<stem>.png` pairs. Every stem in
-`stems.txt` owes an I/N/D verdict; if you could not produce an image for one,
-say which and why rather than passing over it silently.
+If the preview cannot be trusted, `render_pairs.sh` falls back to enumerating the
+whole corpus from `scripts/gallery.yaml` on its own. That is a few hundred renders
+on both sides, so it is a real cost: prefer fixing the preview.
 
 ### Render-preview verdict gating
 
