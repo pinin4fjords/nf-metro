@@ -397,41 +397,64 @@ def check_scripts() -> None:
 
 
 def check_token_budget() -> None:
+    """Gate SKILL.md against the post-compaction re-attachment cap.
+
+    The correct instrument is Anthropic's count_tokens endpoint: token counts are
+    model-specific and only it knows Claude's tokenizer. Use it when the SDK and a
+    credential are present. Otherwise fall back to tiktoken, which is OpenAI's
+    encoding and is documented to **undercount Claude tokens by 15-20%**, more on
+    code. So the fallback is not compared to the cap directly: it is scaled by
+    that factor first. A raw proxy reading under 5,000 means nothing.
+    """
+    body_text = (SKILL / "SKILL.md").read_text()
+
+    exact = None
     try:
-        import tiktoken
-    except ImportError:
-        # Local run without the skill-checks extra. Warn on a byte estimate
-        # rather than skipping silently, but do not gate on it: bytes/token
-        # measures 3.37 on the shell scripts and 4.31 on prose, so a fixed
-        # constant cannot track a change in content shape and would under-count a
-        # code-heavier file by ~20%. CI, which has tiktoken, is the gate.
-        body = (SKILL / "SKILL.md").read_text()
-        approx = len(body) / 4.1
-        note = (f"  note: tiktoken absent; SKILL.md ~{approx:.0f} tokens by byte estimate "
-                f"(cap {REATTACH_CAP}). Install `pip install -e \".[skill-checks]\"` "
-                "for the measured count; CI enforces it.")
-        print(note)
-        if approx > REATTACH_CAP:
-            fail(f"SKILL.md is ~{approx:.0f} tokens by byte estimate, over the {REATTACH_CAP} cap")
+        import anthropic  # noqa: PLC0415
+
+        exact = (
+            anthropic.Anthropic()
+            .messages.count_tokens(
+                model="claude-opus-5",
+                messages=[{"role": "user", "content": body_text}],
+            )
+            .input_tokens
+        )
+    except Exception:
+        exact = None  # no SDK, no credential, or no network: fall back below
+
+    if exact is not None:
+        margin = REATTACH_CAP - exact
+        print(f"  SKILL.md {exact} tokens (count_tokens, exact); {margin} headroom "
+              f"under the {REATTACH_CAP} cap")
+        if margin < 0:
+            fail(f"SKILL.md is {exact} tokens, over the {REATTACH_CAP} re-attachment cap")
         return
-    # o200k is OpenAI's encoding, not Claude's. It is used because it tracks
-    # content shape - the thing a bytes/token constant cannot do - and because the
-    # correct instrument, the Anthropic count_tokens endpoint, needs network and
-    # credentials that a hermetic CI gate should not require. The absolute figure
-    # therefore carries an unknown bias, reportedly up to ~10% denser on markdown
-    # this heavy in backticks and pipe tables. The 10% margin below exists to
-    # absorb exactly that bias; it is not arbitrary padding, and cutting it means
-    # trusting a foreign tokenizer against a hard cap.
+
+    try:
+        import tiktoken  # noqa: PLC0415
+    except ImportError:
+        fail("neither the anthropic SDK nor tiktoken is available, so the token "
+             "budget cannot be checked at all")
+        return
+
     enc = tiktoken.get_encoding("o200k_base")
-    count = lambda p: len(enc.encode(p.read_text()))
-    body = count(SKILL / "SKILL.md")
-    margin = REATTACH_CAP - body
-    if margin < REATTACH_CAP * 0.10:
-        fail(f"SKILL.md is ~{body} tokens by o200k proxy: {margin} headroom is under "
-             f"the {int(REATTACH_CAP * 0.10)} margin that covers the encoding bias")
-    coord = body + sum(count(SKILL / "references" / n) for n in sorted(ALWAYS_COORD))
-    print(f"  SKILL.md ~{body} tokens by o200k proxy ({REATTACH_CAP - body} headroom "
-          f"against a {REATTACH_CAP} Claude-token cap); coordinator-resident ~{coord}")
+    proxy = len(enc.encode(body_text))
+    # Documented undercount is 15-20%; take the pessimistic end.
+    UNDERCOUNT = 1.20
+    projected = int(proxy * UNDERCOUNT)
+    coord = proxy + sum(len(enc.encode((SKILL / "references" / n).read_text()))
+                        for n in sorted(ALWAYS_COORD))
+    print(f"  SKILL.md {proxy} o200k tokens -> ~{projected} Claude tokens at the "
+          f"documented {int((UNDERCOUNT - 1) * 100)}% undercount (cap {REATTACH_CAP}); "
+          f"coordinator-resident ~{int(coord * UNDERCOUNT)}")
+    # 5% slack on top of the pessimistic projection: the 15-20% band is itself a
+    # range, and the docs say the undercount is worse on code-heavy content.
+    ceiling = int(REATTACH_CAP * 0.95)
+    if projected > ceiling:
+        fail(f"SKILL.md projects to ~{projected} Claude tokens, over the {ceiling} "
+             f"working ceiling ({REATTACH_CAP} cap less 5% slack). Install the "
+             "anthropic SDK with a credential for an exact count, or cut the file.")
 
 
 def main() -> int:

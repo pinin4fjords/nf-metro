@@ -39,6 +39,11 @@ jobs:
       - run: pip install -e ".[skill-checks]"
       - run: sudo apt-get update && sudo apt-get install -y shellcheck zsh
       - run: python .claude/skills/fix-issue/scripts/check_skill.py
+        env:
+          # With a key the token budget is measured exactly via count_tokens.
+          # Without one the checker falls back to a scaled tiktoken proxy, which
+          # is conservative rather than wrong, so this secret is optional.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   format:
     runs-on: ubuntu-latest

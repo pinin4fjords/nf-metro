@@ -166,11 +166,8 @@ override that beats everything in this skill:
 
 ### Prefer the named agent types
 
-`.claude/agents/` defines one type per role, tier and tool set already set:
-`fix-issue-investigator`, `fix-issue-diagnostician`, `fix-issue-writer`,
-`fix-issue-simplifier`, `fix-issue-verifier`, `fix-issue-gate-specialist`,
-`fix-issue-visual-reviewer`, `fix-issue-reviewer`, `fix-issue-renderer`,
-`fix-issue-merge-assessor`.
+`.claude/agents/fix-issue-*.md` defines one type per role in the table above,
+with its tier and tool set already set.
 
 Spawn by role name **and** pass the model. Both, deliberately: the per-invocation
 model is verified to beat the definition, and the definition catches a spawn
@@ -188,35 +185,14 @@ Substituting `Explore`/`Plan` saves each spawn both CLAUDE.md files but discards
 the role definition and blocks re-briefing, and is measured at about $1.65 a run:
 a curiosity, not a lever.
 
-### Worker brief template
+### Briefing a worker
 
-Fill this in. Do not restate the authority rules, the return schema, or the
-verifier command block in the brief: they live in
-[`references/worker-contract.md`](references/worker-contract.md) and the worker
-reads them there. Restating them per spawn spends coordinator output that then
-gets re-read on every later turn.
-
-```
-ROLE / TIER: <role> at <LIGHT|MID|HIGH>
-OBJECTIVE:   <one sentence>
-AUTHORITY:   read-only | sole writer in <worktree>
-SCOPE:       <paths this worker may read or write>
-INPUTS:      <frozen SHA, artifact dir, issue number>
-ACCEPTANCE:  <the concrete bar for this task>
-STOP IF:     <escalation conditions specific to this task>
-DECIDE:      <options this worker must surface rather than pick, if any>
-CONTRACT:    follow .claude/skills/fix-issue/references/worker-contract.md
-```
-
-Check every handoff against the six items: scope, files+SHA, commands and
-outcomes, evidence, risks/blockers, verdict. Evidence arrives **as a path plus
-the one figure that carries the verdict** - never pasted coordinate dumps,
-render analysis, or test logs. A blocked handoff satisfying the schema is a
-valid outcome: re-brief from its evidence, route a different tier, or escalate
-to the user when authority or a material product decision is missing. Never
-demand an unbounded worker loop or treat diagnosis as implementation. The
-contract file carries the full wording, including what a worker does when the
-work exceeds its briefed tier.
+Fill the template in [`coordinator.md`](references/coordinator.md); do not
+re-improvise the authority rules, the return schema or the verifier command block
+per spawn, which spends coordinator output that is then re-read every later turn.
+Check every handoff against the seven-item schema in
+[`worker-contract.md`](references/worker-contract.md); evidence arrives as a path
+plus the one figure carrying the verdict, never as pasted logs.
 
 ### Gates and writer discipline
 
@@ -252,52 +228,20 @@ completeness - since spawning for a few bytes buys nothing. It must not
 substitute its own *substantive* review.
 
 The ledger tracks: issue and authority state; worktree, branch, base, writer;
-current hypothesis and evidence links; worker assignments, tiers and verdicts;
-changed files and commits; commands and outcomes; I/N/D classifications;
-fallout; blockers; CI/PR state; next gate. Hold only the **live slice** in
-context - current gate, open blockers, accepted SHA, active assignments. Append settled rows to a ledger file outside the
-worktree and cite it. Keep deep context, long test output, render analysis, and
-review detail in worker handoffs or artifacts. Without this the ledger is the
-one item that grows every turn and is re-read on all of them.
+hypothesis and evidence links; assignments, tiers and verdicts; changed files and
+commits; commands and outcomes; I/N/D classifications; fallout; blockers; CI/PR
+state; next gate. Hold only the **live slice** in context - current gate, open
+blockers, accepted SHA, active assignments - and append settled rows to a file
+outside the worktree. Otherwise the ledger is the one item that grows every turn
+and is re-read on all of them.
 
-## Cost discipline (applies throughout)
+## Cost discipline
 
-Layout iteration is where sessions burn tokens and compute. Keep it tight:
-
-- **Name a tier on every spawn** (above). Worth ~3-6% of spend, and most of the
-  per-spawn gap between tiers is *turns*, not price per token, so the table takes
-  some credit that belongs to task selection.
-- **Lean on CI for the full suite.** Locally, run targeted tests: the new
-  invariant test, the affected module, `--lf`, `-q --no-header -x`, Python 3.11
-  for the routing/TB ratchets. CI runs the complete matrix on push and that is
-  the authoritative full-suite signal. Do not run a local full suite per branch
-  or per worker. Reserve it for the three cases in Step 7.
-- **Reuse the persistent env.** Do not `micromamba create` per issue - it
-  re-solves the whole dependency set every session for nothing. See
-  [`references/environment.md`](references/environment.md).
-- **Read coordinates, not pixels, for non-visual questions.** `inspect_layout.py`
-  and `probe_layout.py` print geometry as cheap text; a render, rasterise and
-  image-into-context cycle only earns its cost for a genuine visual check.
-- **Do not park a large context across a CI wait.** Full re-encodes of a ~476k
-  context are ~10% of spend in the one-off measurement. Finish the session at the
-  push and start fresh for the CI verdict, or compact before waiting; collapsing
-  the ledger trims kilobytes off half a million and is not the fix. Honest limit:
-  only about a third of those re-encodes follow an idle gap, so this reaches
-  roughly $10 of the ~$28 a session. When you do watch, watch once in the
-  background rather than re-running `gh pr checks` each turn.
-- **Lean on the CI render-diff for regression review; don't rebuild the gallery
-  locally in a loop.** The CI preview (Step 8) is the authoritative whole-corpus
-  diff. A local `build_gallery` / render-diff sweep repeated many times just
-  duplicates it. Local rendering is for a *single* file's quick sanity check.
-- **Keep bulk command output out of every context.** Measured, tool output is
-  **74.5% of all resident-context cost** across 36k worker Bash calls - far more
-  than file reads. So brief every worker: pipe to `tail`, `grep -c` or `wc -l`,
-  redirect full output to the artifact directory, and cite the path. This is the
-  largest cost lever in the workflow. Two specific cases the skill already
-  names - never re-run `gh pr checks` each turn, never paste test logs - are
-  instances of it, not the whole rule.
-- **Push policy is governance, not economy**, and it lives with the push:
-  [`merge-and-cleanup.md`](references/merge-and-cleanup.md).
+The measured levers, in order: keep bulk command output out of every context
+(tool output is 74.5% of all resident-context cost), hand the writer off around
+200 turns, name a tier on every spawn, never `fork`, and do not park a large
+context across a CI wait. Full list with the figures behind each:
+[`coordinator.md`](references/coordinator.md).
 
 ## Scope discipline
 

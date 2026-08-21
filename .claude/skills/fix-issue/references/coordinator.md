@@ -172,3 +172,72 @@ commit(s), runs mutation-capable hooks or generators, and hands off the exact
 SHA. Independent read-only workers verify and review that SHA without changing
 it. If fixes are required, serialize them back to the writer and verify the new
 SHA.
+
+## Worker brief template
+
+Fill this in. Do not restate the authority rules, the return schema, or the
+verifier command block in the brief: they live in
+[`references/worker-contract.md`](worker-contract.md) and the worker
+reads them there. Restating them per spawn spends coordinator output that then
+gets re-read on every later turn.
+
+```
+ROLE / TIER: <role> at <LIGHT|MID|HIGH>
+OBJECTIVE:   <one sentence>
+AUTHORITY:   read-only | sole writer in <worktree>
+SCOPE:       <paths this worker may read or write>
+INPUTS:      <frozen SHA, artifact dir, issue number>
+ACCEPTANCE:  <the concrete bar for this task>
+STOP IF:     <escalation conditions specific to this task>
+DECIDE:      <options this worker must surface rather than pick, if any>
+CONTRACT:    follow .claude/skills/fix-issue/references/worker-contract.md
+```
+
+Check every handoff against the six items: scope, files+SHA, commands and
+outcomes, evidence, risks/blockers, verdict. Evidence arrives **as a path plus
+the one figure that carries the verdict** - never pasted coordinate dumps,
+render analysis, or test logs. A blocked handoff satisfying the schema is a
+valid outcome: re-brief from its evidence, route a different tier, or escalate
+to the user when authority or a material product decision is missing. Never
+demand an unbounded worker loop or treat diagnosis as implementation. The
+contract file carries the full wording, including what a worker does when the
+work exceeds its briefed tier.
+
+## Cost discipline (applies throughout)
+
+Layout iteration is where sessions burn tokens and compute. Keep it tight:
+
+- **Name a tier on every spawn** (above). Worth ~3-6% of spend, and most of the
+  per-spawn gap between tiers is *turns*, not price per token, so the table takes
+  some credit that belongs to task selection.
+- **Lean on CI for the full suite.** Locally, run targeted tests: the new
+  invariant test, the affected module, `--lf`, `-q --no-header -x`, Python 3.11
+  for the routing/TB ratchets. CI runs the complete matrix on push and that is
+  the authoritative full-suite signal. Do not run a local full suite per branch
+  or per worker. Reserve it for the three cases in Step 7.
+- **Reuse the persistent env.** Do not `micromamba create` per issue - it
+  re-solves the whole dependency set every session for nothing. See
+  [`references/environment.md`](environment.md).
+- **Read coordinates, not pixels, for non-visual questions.** `inspect_layout.py`
+  and `probe_layout.py` print geometry as cheap text; a render, rasterise and
+  image-into-context cycle only earns its cost for a genuine visual check.
+- **Do not park a large context across a CI wait.** Full re-encodes of a ~476k
+  context are ~10% of spend in the one-off measurement. Finish the session at the
+  push and start fresh for the CI verdict, or compact before waiting; collapsing
+  the ledger trims kilobytes off half a million and is not the fix. Honest limit:
+  only about a third of those re-encodes follow an idle gap, so this reaches
+  roughly $10 of the ~$28 a session. When you do watch, watch once in the
+  background rather than re-running `gh pr checks` each turn.
+- **Lean on the CI render-diff for regression review; don't rebuild the gallery
+  locally in a loop.** The CI preview (Step 8) is the authoritative whole-corpus
+  diff. A local `build_gallery` / render-diff sweep repeated many times just
+  duplicates it. Local rendering is for a *single* file's quick sanity check.
+- **Keep bulk command output out of every context.** Measured, tool output is
+  **74.5% of all resident-context cost** across 36k worker Bash calls - far more
+  than file reads. So brief every worker: pipe to `tail`, `grep -c` or `wc -l`,
+  redirect full output to the artifact directory, and cite the path. This is the
+  largest cost lever in the workflow. Two specific cases the skill already
+  names - never re-run `gh pr checks` each turn, never paste test logs - are
+  instances of it, not the whole rule.
+- **Push policy is governance, not economy**, and it lives with the push:
+  [`merge-and-cleanup.md`](merge-and-cleanup.md).

@@ -73,8 +73,13 @@ font = [
     "fonttools[woff]>=4.0",
 ]
 
+# The skill self-check needs pyyaml for the gallery corpus map, and a tokenizer to
+# gate SKILL.md against Claude Code's post-compaction re-attachment cap. `anthropic`
+# is the correct instrument (count_tokens knows Claude's tokenizer); tiktoken is a
+# fallback that undercounts Claude by 15-20% and is scaled accordingly.
 skill-checks = [
     "pyyaml>=6.0",
+    "anthropic>=0.40",
     "tiktoken>=0.7",
 ]
 
