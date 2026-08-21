@@ -137,6 +137,11 @@ def check_agent_definitions() -> None:
             fail(f"{a.name} model '{fields.get('model')}' is not a tier model")
         if fields.get("effort") not in {"low", "medium", "high", "xhigh", "max"}:
             fail(f"{a.name} effort '{fields.get('effort')}' is not a documented value")
+        if a.stem != "fix-issue-writer":
+            for forbidden in {"Edit", "Write", "NotebookEdit"} & {
+                h.split("(")[0] for h in {t.strip() for t in fields.get("tools", "").split(",")}
+            }:
+                fail(f"{a.name} is read-only but holds `{forbidden}`")
         needs = REQUIRED_TOOLS.get(a.stem, set())
         have = {t.strip() for t in fields.get("tools", "").split(",")}
         for tool in needs - {h.split("(")[0] for h in have}:
@@ -197,7 +202,7 @@ def check_repo_paths() -> None:
     the build_gallery.py lock grep and the fabricated expected_aborts key."""
     for f in md_files():
         for m in re.finditer(r"```bash\n(.*?)```", f.read_text(), re.S):
-            for path in re.findall(r"(?<![\w/.-])((?:scripts|tests|src|examples)/[\w./-]+)", m.group(1)):
+            for path in re.findall(r"(?<![\w/.-])((?:scripts|tests|src|examples|docs|\.github|\.claude)/[\w./-]+)", m.group(1)):
                 if "<" in path or path.endswith("/"):
                     continue
                 if not Path(path).exists():
@@ -209,7 +214,7 @@ def check_prose_paths() -> None:
     command; both have happened."""
     for f in md_files():
         body = re.sub(r"```.*?```", "", f.read_text(), flags=re.S)
-        for path in re.findall(r"`((?:scripts|tests|src|examples)/[\w./-]+)`", body):
+        for path in re.findall(r"`((?:scripts|tests|src|examples|docs|\.github|\.claude)/[\w./-]+)`", body):
             if "<" in path or path.endswith("/"):
                 continue
             if not Path(path).exists():
@@ -220,14 +225,21 @@ def check_numeric_consistency() -> None:
     """The same measured quantity must carry the same figure everywhere. Two files
     disagreed on the Explore saving ($0.24 vs "a few dollars") and nothing caught
     it."""
+    # Distinctive subjects only, and sentence scope: a paragraph mentioning several
+    # quantities produced false conflicts.
+    subjects = ("explore", "fork")
     figures: dict[str, set[str]] = {}
     for f in md_files():
-        for m in re.finditer(r"(Explore|fork|handoff|narrowing round)[^.\n]{0,80}?\$([\d.,]+)",
-                             f.read_text()):
-            figures.setdefault(m.group(1).lower(), set()).add(m.group(2).rstrip("."))
-    for subject, vals in figures.items():
+        for sentence in re.split(r"(?<=[.;])\s+", f.read_text()):
+            amounts = {a.rstrip(".") for a in re.findall(r"\$([\d.,]+)", sentence)}
+            low = sentence.lower()
+            for subject in subjects:
+                if amounts and subject in low:
+                    figures.setdefault(subject, set()).update(amounts)
+    for subject, vals in sorted(figures.items()):
         if len(vals) > 1:
-            fail(f"conflicting figures for '{subject}': {sorted(vals)}")
+            fail(f"'{subject}' carries conflicting figures {sorted(vals)}; "
+                 "one measured quantity, one number")
 
 
 def check_owner_split() -> None:
@@ -265,7 +277,13 @@ def check_guards_self_fail() -> None:
                 fail(f"{f.name}: shell block relies on `set -e`, which does not fire in this harness")
             for line in logical_lines(block):
                 stripped = line.strip()
-                if re.match(r"(test |\[ )", stripped) and "||" not in stripped:
+                if re.match(r"(test |\[ |\[\[ )", stripped) and "||" not in stripped:
+                    if not re.match(r"(if|while|until)\b", stripped):
+                        fail(f"{f.name}: bare guard `{stripped[:60]}` cannot fail the "
+                             "block; add `|| die ...`")
+                        continue
+                if re.match(r"if (\[|\[\[|test )", stripped) and "; then" in stripped \
+                        and not re.search(r"\b(exit|die|return|continue|break)\b", stripped):
                     fail(f"{f.name}: bare guard `{stripped[:60]}` cannot fail the block; add `|| die ...`")
 
 
@@ -296,6 +314,9 @@ def check_recurring_defect_classes() -> None:
                 tail = block[m2.end():m2.end() + 200]
                 if not re.search(r"\b(exit|die|return)\b", tail.split("fi")[0]):
                     fail(f"{f.name}: `if [ ... ]` guard whose body never exits is decorative")
+            if re.search(r"ART=[^\n]*\$\$", block):
+                fail(f"{f.name}: `$$` in a shared artifact path - it differs per Bash "
+                     "call, so later blocks cannot find it")
             if re.search(r"\$ART/", block) and "mkdir -p" not in block:
                 fail(f"{f.name}: block writes into $ART without creating it")
             if "die " in block and "die() {" not in block:

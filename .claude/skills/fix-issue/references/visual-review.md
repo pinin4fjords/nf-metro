@@ -41,20 +41,31 @@ early, `pr-renders.yml` sets `has_changes=false`, and every deploy step in
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+source ~/.local/bin/mm-activate nf-metro-dev || die "env"   # `python` is not on PATH otherwise
 export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
 run=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
         --json databaseId,headSha,conclusion) || die "gh run list"
-built=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['headSha'])")
-runid=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['databaseId'])")
+built=$(echo "$run" | python -c "import json,sys;d=json.load(sys.stdin);print(d[0]['headSha'] if d else '')")
+test -n "$built" || die "no pr-renders run for this branch yet"
+runid=$(echo "$run" | python -c "import json,sys;d=json.load(sys.stdin);print(d[0]['databaseId'] if d else '')")
+test -n "$runid" || die "no pr-renders run for this branch yet"
 # Normalise both sides: gh returns 40 chars, a hand-copied candidate may be short.
 test "$(git rev-parse "$built")" = "$(git rev-parse <CANDIDATE_SHA>)" \
   || die "renders were built from $built, not the candidate"
 # `last | .body`, not `| tail -1`: the body is multi-line and its last LINE is
 # the sticky HTML marker, so a line-wise tail makes every grep below miss.
+# Anchor on the sticky marker, not the prose: a human comment saying "the Render
+# preview looks fine" would otherwise be selected as the latest match.
 gh pr view <PR_NUMBER> --json comments \
-  -q '[.comments[] | select(.body | contains("Render preview"))] | last | .body' \
-  > "$ART/sticky.txt" || die "could not read the sticky comment"
+  -q '[.comments[] | select(.body | contains("Sticky Pull Request Commentrender-preview"))] | last | .body' \
+  > "$ART/sticky.txt" || die "gh pr view failed"
+# jq prints the literal "null" and exits 0 when nothing matches.
+# zsh rejects `a && ! b`, and this harness is zsh, so keep the guards separate.
+test -s "$ART/sticky.txt" || die "no sticky render-preview comment yet"
+grep -qx "null" "$ART/sticky.txt" && die "no sticky render-preview comment yet"
 grep -q "no visual changes detected" "$ART/sticky.txt" && { echo "VERDICT: no visual changes"; exit 0; }
+grep -q "was not generated because" "$ART/sticky.txt" \
+  && die "the render job itself failed; fix CI, waiting will not help"
 grep -qE "rendering in progress|still publishing" "$ART/sticky.txt" && die "not ready yet, wait"
 ```
 
@@ -72,6 +83,10 @@ discriminator - `build_render_diff.py` writes
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # each block is self-contained
 export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
+# Re-derive runid here: block variables do not survive between Bash calls.
+runid=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
+          --json databaseId -q '.[0].databaseId') || die "gh run list"
+test -n "$runid" || die "no pr-renders run for this branch yet"
 curl -fsS "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html" \
   || die "page absent though the comment reported deltas; Pages may still be publishing"
 marker=$(grep -o 'nf-metro-render-run" content="[0-9]*"' "$ART/index.html" \
@@ -83,9 +98,10 @@ test -s "$ART/stems.txt" || die "no stems parsed from a page that reported delta
 wc -l < "$ART/stems.txt"
 ```
 
-The sticky comment has four wordings, not two: no visual changes, ready for
-review, rendering in progress, and Pages still publishing. Only the first two are
-verdicts; treat the others as not-ready and wait.
+The sticky comment has five wordings, not two: no visual changes, ready for review,
+rendering in progress, Pages still publishing, and "was not generated because a
+prerequisite check or the render job failed". Only the first two are verdicts.
+The last is not a wait: CI failed, and no amount of waiting fixes it.
 
 **If provenance fails, do not fall back to the stale list.** Enumerate the corpus
 from `scripts/gallery.yaml` and compare both sides yourself: the delta you care
@@ -93,6 +109,7 @@ about is exactly the part an old preview cannot show.
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+source ~/.local/bin/mm-activate nf-metro-dev || die "env"
 export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
 # render_only mixes list-of-str (guide_examples, test_fixtures) with list-of-dict
 # (nextflow_conversions), so handle both or this raises TypeError.
@@ -176,7 +193,7 @@ kind. Every changed render gets HIGH eyes.
 
 The sticky comment ends in a verdict line. Gate the next step on it:
 
-- **"No visual changes detected"** -> a clean result, but **not** a
+- **"no visual changes detected"** (lowercase, as emitted) -> a clean result, but **not** a
   licence to merge. Report the verdict and wait for the user to say
   merge. There is no standing auto-merge authorisation.
 - **"Ready for review"** (or any wording indicating visual deltas exist)
