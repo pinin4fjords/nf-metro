@@ -33,6 +33,9 @@ map and the station-as-elbow constraint.
 
 ## The model resolution order
 
+Levels 2 and 3 are verified by test on this setup: spawning a named type with no
+`model` parameter ran the definition's model, not the session's.
+
 Highest wins:
 
 1. the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable;

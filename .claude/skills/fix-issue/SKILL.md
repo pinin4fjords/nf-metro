@@ -169,12 +169,15 @@ override that beats everything in this skill:
 `.claude/agents/fix-issue-*.md` defines one type per role in the table above,
 with its tier and tool set already set.
 
-Spawn by role name **and** pass the model. Both, deliberately: the per-invocation
-model is verified to beat the definition, and the definition catches a spawn
-where it was forgotten.
+**Spawning by role name is enough.** Verified by test: omitting the `model`
+parameter resolves to the definition's model, not the session's, so a named type
+carries its tier whether or not anyone remembers to pass it. That is the whole
+point of the definitions - the tier is structural rather than remembered.
 
-The definitions make the tier structural rather than remembered; the table is
-what the rule depends on. Every definition carries an explicit `tools` allowlist: without one a subagent
+Two cases still need the model passed explicitly. If you spawn a generic type
+(`general-purpose`, `Explore`) there is no definition to fall back on, so an
+omitted model means the session's. And if `CLAUDE_CODE_SUBAGENT_MODEL` is set it
+overrides both; check it once at session start. Every definition carries an explicit `tools` allowlist: without one a subagent
 inherits every tool the main conversation has, including all MCP servers and
 `Agent`, which would let a worker spawn untiered children.
 
