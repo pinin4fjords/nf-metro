@@ -461,7 +461,7 @@ test("bug report builds a prefilled GitHub issue with the map and explanation", 
   await expect(page.locator("#report-modal")).toBeHidden();
   await expect
     .poll(() => page.evaluate(() => window.__nfMetroLastIssueUrl))
-    .not.toBeNull();
+    .toEqual(expect.stringContaining("github.com"));
   const issueUrl = await page.evaluate(() => window.__nfMetroLastIssueUrl);
   const u = new URL(issueUrl);
   expect(u.host).toBe("github.com");
@@ -493,7 +493,7 @@ test("bug report URL stays within GitHub's request limit", async () => {
 
   await expect
     .poll(() => page.evaluate(() => window.__nfMetroLastIssueUrl))
-    .not.toBeNull();
+    .toEqual(expect.stringContaining("github.com"));
   const issueUrl = await page.evaluate(() => window.__nfMetroLastIssueUrl);
   expect(issueUrl.length).toBeLessThanOrEqual(7500);
   expect(new URL(issueUrl).searchParams.get("body")).toContain("#mmd-gz=");

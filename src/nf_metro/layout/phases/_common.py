@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -81,116 +82,309 @@ def perp_entry_lands_left(section: Section, graph: MetroGraph) -> bool:
 def iter_sole_trunk_continuations(
     graph: MetroGraph,
 ) -> Iterator[tuple[str, str, str]]:
-    """Yield ``(section_id, pred, node)`` for in-section linear continuations.
+    """Yield the full-graph-proven continuation relation, with sections.
 
-    A linear continuation has exactly one visible, on-track predecessor whose
-    complete forward target set contains only that node.  Line membership may
-    change at the boundary, but there is no sibling path that needs a separate
-    track.  The relation is axis-independent and excludes ports, hidden
-    stations, and off-track stations.
+    Carries every exclusion :func:`continuation_track_predecessors` applies, so
+    a vertical (TB/BT) section and a file-icon station yield nothing here
+    either. A test that needs those chains has to derive them from the
+    sections' own edges rather than from this iterator.
     """
-    for section in graph.sections.values():
-        visible = [
-            station_id
-            for station_id in section.station_ids
-            if (station := graph.stations.get(station_id)) is not None
-            and not station.is_port
-            and not station.is_hidden
-            and not station.off_track
-        ]
-        visible_set = set(visible)
-        predecessors: dict[str, set[str]] = {
-            station_id: set() for station_id in visible
-        }
-        successors: dict[str, set[str]] = {station_id: set() for station_id in visible}
-        for edge in graph.edges:
-            if edge.source not in visible_set or edge.target not in visible_set:
-                continue
-            successors[edge.source].add(edge.target)
-            predecessors[edge.target].add(edge.source)
+    for node, predecessor in continuation_track_predecessors(graph).items():
+        section_id = graph.stations[node].section_id
+        assert section_id is not None
+        yield section_id, predecessor, node
 
-        def reachable(start: str, adjacency: Mapping[str, set[str]]) -> set[str]:
-            found: set[str] = set()
-            frontier = list(adjacency[start])
-            while frontier:
-                station_id = frontier.pop()
-                if station_id in found:
-                    continue
-                found.add(station_id)
-                frontier.extend(adjacency[station_id] - found)
-            return found
 
-        sec_ids = set(section.station_ids)
-        for sid in section.station_ids:
-            st = graph.stations.get(sid)
-            if st is None or st.is_port or st.is_hidden or st.off_track:
-                continue
-            preds = {
-                e.source
-                for e in graph.edges_to(sid)
-                if e.source in sec_ids
-                and not graph.stations[e.source].is_port
-                and not graph.stations[e.source].is_hidden
-            }
-            if len(preds) != 1:
-                continue
-            pred = next(iter(preds))
-            if graph.stations[pred].off_track:
-                continue
-            if {e.target for e in graph.edges_from(pred)} != {sid}:
-                continue
-            pred_lines = set(graph.station_lines(pred))
-            node_lines = set(graph.station_lines(sid))
-            if pred_lines == node_lines:
-                continue
-            if not pred_lines > node_lines and graph.stations[pred].is_blank_terminus:
-                continue
+def continuation_track_is_realizable(
+    graph: MetroGraph, node: str, predecessor: str
+) -> bool:
+    """Whether a continuation can occupy its predecessor's track at its layer."""
+    station = graph.stations[node]
+    predecessor_station = graph.stations[predecessor]
+    section_id = station.section_id
+    if section_id is None or predecessor_station.section_id != section_id:
+        return False
+    target = predecessor_station.y
+    return not any(
+        other_id not in {node, predecessor}
+        and other.section_id == section_id
+        and other.layer == station.layer
+        and not other.is_port
+        and not other.is_hidden
+        and abs(other.y - target) < SAME_COORD_TOLERANCE
+        for other_id, other in graph.stations.items()
+    )
+
+
+def _topological_station_order(
+    station_ids: set[str],
+    targets: Mapping[str, set[str]],
+    predecessors: Mapping[str, set[str]],
+) -> list[str] | None:
+    """Return a station-id-stable topological order, or None for a cycle."""
+    indegree = {station_id: len(predecessors[station_id]) for station_id in station_ids}
+    frontier = [station_id for station_id, degree in indegree.items() if degree == 0]
+    heapq.heapify(frontier)
+    topological: list[str] = []
+    while frontier:
+        station_id = heapq.heappop(frontier)
+        topological.append(station_id)
+        for target in sorted(targets[station_id]):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                heapq.heappush(frontier, target)
+    return topological if len(topological) == len(station_ids) else None
+
+
+def _line_bypasses_boundary(
+    line_id: str,
+    predecessor: str,
+    node: str,
+    line_predecessors: Mapping[str, Mapping[str, set[str]]],
+    line_targets: Mapping[str, Mapping[str, set[str]]],
+    targets: Mapping[str, set[str]],
+) -> bool:
+    """Whether one line reaches below a boundary without crossing it.
+
+    Each query holds only its line-local bypass set and one global forward-walk
+    set, avoiding an all-pairs descendant index for the station DAG.
+    """
+    predecessors_for_line = line_predecessors.get(line_id, {})
+    targets_for_line = line_targets.get(line_id, {})
+    upstream: set[str] = set()
+    frontier = list(predecessors_for_line.get(predecessor, set()))
+    while frontier:
+        station_id = frontier.pop()
+        if station_id in upstream:
+            continue
+        upstream.add(station_id)
+        frontier.extend(predecessors_for_line.get(station_id, set()) - upstream)
+
+    bypass_reachable: set[str] = set()
+    visited: set[str] = set()
+    frontier = list(upstream)
+    while frontier:
+        station_id = frontier.pop()
+        if station_id in visited:
+            continue
+        visited.add(station_id)
+        for target in targets_for_line.get(station_id, set()):
+            if target not in {predecessor, node}:
+                bypass_reachable.add(target)
+                frontier.append(target)
+
+    if not bypass_reachable:
+        return False
+    visited.clear()
+    frontier = list(targets[node])
+    while frontier:
+        station_id = frontier.pop()
+        if station_id in bypass_reachable:
+            return True
+        if station_id in visited:
+            continue
+        visited.add(station_id)
+        frontier.extend(targets[station_id] - visited)
+    return False
+
+
+def _leads_to_flow_side_entry(
+    graph: MetroGraph,
+    line_targets: Mapping[str, Mapping[str, set[str]]],
+    line_id: str,
+    exit_port_id: str,
+) -> bool:
+    """Whether *line_id* reaches an entry port on a vertical section boundary.
+
+    Such an entry proves the line continues past the section it is leaving,
+    rather than ending at the exit port itself.
+    """
+    return any(
+        successor in graph.ports
+        and graph.ports[successor].is_entry
+        and graph.ports[successor].side in {PortSide.LEFT, PortSide.RIGHT}
+        for successor in line_targets.get(line_id, {}).get(exit_port_id, ())
+    )
+
+
+def _shared_y_lane_section(
+    graph: MetroGraph, predecessor: str, node: str
+) -> str | None:
+    """The one Y-lane section a sole predecessor->node link stays inside.
+
+    A shared secondary track exists only where the section stacks its lines
+    along Y.  One that lanes along X separates its lines on the flow's own
+    cross axis, so there is no common Y track to inherit.
+    """
+    section_id = graph.stations[predecessor].section_id
+    if (
+        section_id is None
+        or graph.stations[node].section_id != section_id
+        or lanes_run_along_x(graph.sections[section_id].direction)
+    ):
+        return None
+    return section_id
+
+
+def continuation_track_predecessors(graph: MetroGraph) -> dict[str, str]:
+    """Return horizontal track inheritance proven against the complete graph.
+
+    Seeds cross a safe line-membership transition. Equal-line closure then
+    extends only through one-in/one-out visible chains. Ports and hidden nodes
+    remain in the adjacency and reachability facts, so an external branch or a
+    hidden merge prevents inheritance instead of disappearing from the proof.
+
+    Scoped to horizontal (LR/RL) sections: a vertical (TB/BT) section
+    contributes no relation at all. It needs none -- a vertical sole successor
+    already settles on its predecessor's lane column unaided -- and admitting
+    one re-seats bundle geometry this relation has no business moving (it
+    re-seats ``seed_41`` and gains it a defect class). Both halves of that claim
+    are locked outside this function, against the sections' own edges rather
+    than against the answer here: ``tests/test_continuation_tracks.py`` for the
+    two named fixtures, and
+    ``test_vertical_passthrough_chain_holds_one_lane_column`` in
+    ``tests/test_layout_invariants.py`` across the corpus.
+
+    A file-icon (blank-terminus) station is also outside the proof. It is drawn
+    as an icon at the line convergence rather than a labelled pill and the
+    router seats it against the producer it hangs off, so naming it here would
+    re-assert a placement this relation does not own.
+    ``test_file_icon_sole_continuation_holds_its_producer_track`` asserts the
+    shared track for those chains directly.
+    """
+    inherited: dict[str, str] = {}
+    visible = {
+        station_id
+        for station_id, station in graph.stations.items()
+        if not station.is_port
+        and not station.is_hidden
+        and not station.off_track
+        and not station.is_blank_terminus
+        and not station.terminus_icon_types
+    }
+    station_ids = set(graph.stations)
+    targets: dict[str, set[str]] = {station_id: set() for station_id in station_ids}
+    predecessors: dict[str, set[str]] = {
+        station_id: set() for station_id in station_ids
+    }
+    line_memberships: dict[str, set[str]] = {
+        station_id: set() for station_id in station_ids
+    }
+    connecting_lines: dict[tuple[str, str], set[str]] = defaultdict(set)
+    line_predecessors: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    line_targets: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for edge in graph.edges:
+        if edge.source not in station_ids or edge.target not in station_ids:
+            continue
+        targets[edge.source].add(edge.target)
+        predecessors[edge.target].add(edge.source)
+        line_memberships[edge.source].add(edge.line_id)
+        line_memberships[edge.target].add(edge.line_id)
+        connecting_lines[edge.source, edge.target].add(edge.line_id)
+        line_predecessors[edge.line_id][edge.target].add(edge.source)
+        line_targets[edge.line_id][edge.source].add(edge.target)
+
+    topological = _topological_station_order(station_ids, targets, predecessors)
+    if topological is None:
+        return inherited
+
+    for node in topological:
+        if node not in visible:
+            continue
+        node_predecessors = predecessors[node]
+        if len(node_predecessors) != 1:
+            continue
+        predecessor = next(iter(node_predecessors))
+        if predecessor not in visible:
+            continue
+        predecessor_station = graph.stations[predecessor]
+        node_station = graph.stations[node]
+        shared_section_id = _shared_y_lane_section(graph, predecessor, node)
+        if targets[predecessor] != {node} or shared_section_id is None:
+            continue
+        predecessor_lines = line_memberships[predecessor]
+        node_lines = line_memberships[node]
+        if predecessor_lines == node_lines:
+            next_ids = targets[node]
             if (
-                not pred_lines > node_lines
-                and len({edge.target for edge in graph.edges_from(sid)}) > 1
+                len(predecessors[predecessor]) > 1
+                or len(next_ids) > 1
+                or any(
+                    target not in graph.ports and target not in visible
+                    for target in next_ids
+                )
             ):
                 continue
-            upstream = reachable(pred, predecessors)
-            downstream = reachable(sid, successors)
-            before = set().union(
-                *(
-                    set(graph.station_lines(station_id))
-                    for station_id in upstream | {pred}
-                )
+            inherited[node] = predecessor
+            continue
+        added_lines = node_lines - predecessor_lines
+        dropped_lines = predecessor_lines - node_lines
+        if any(
+            _line_bypasses_boundary(
+                line_id,
+                predecessor,
+                node,
+                line_predecessors,
+                line_targets,
+                targets,
             )
-            after = set().union(
-                *(
-                    set(graph.station_lines(station_id))
-                    for station_id in downstream | {sid}
-                )
-            )
-            if any(
-                line_id not in pred_lines or line_id not in node_lines
-                for line_id in before & after
-            ):
+            for line_id in dropped_lines
+        ):
+            continue
+        if not predecessor_lines > node_lines:
+            if predecessor_station.is_blank_terminus or len(targets[node]) > 1:
                 continue
-            if not pred_lines > node_lines:
-                added = node_lines - pred_lines
-                earlier = set().union(
-                    *(set(graph.station_lines(station_id)) for station_id in upstream)
+            rejoined_lines = (predecessor_lines & node_lines) - connecting_lines[
+                predecessor, node
+            ]
+            flow_exit_ports = flow_axis_exit_ports(
+                graph.sections[shared_section_id], graph
+            )
+            added_continues = (
+                any(
+                    target in visible
+                    and graph.stations[target].section_id == node_station.section_id
+                    and bool(connecting_lines[node, target] & added_lines)
+                    for target in targets[node]
                 )
-                edge_lines = {
-                    edge.line_id
-                    for edge in graph.edges_from(pred)
-                    if edge.target == sid
-                }
-                added_continues = any(
-                    edge.line_id in added
-                    and edge.target in sec_ids
-                    and not graph.stations[edge.target].is_port
-                    and not graph.stations[edge.target].is_hidden
-                    and not graph.stations[edge.target].off_track
-                    for edge in graph.edges_from(sid)
+                or len(added_lines) == 1
+                and any(
+                    target in flow_exit_ports
+                    and any(
+                        line_id in connecting_lines[node, target]
+                        and _leads_to_flow_side_entry(
+                            graph, line_targets, line_id, target
+                        )
+                        for line_id in added_lines
+                    )
+                    for target in targets[node]
                 )
-                rejoined = (pred_lines & node_lines) - edge_lines
-                if not added_continues and not added & earlier and not rejoined:
-                    continue
-            yield (section.id, pred, sid)
+            )
+            if not added_continues and not rejoined_lines:
+                continue
+        inherited[node] = predecessor
+
+    frontier = list(reversed(inherited))
+    while frontier:
+        predecessor = frontier.pop()
+        successor_ids = targets.get(predecessor, set())
+        if len(successor_ids) != 1:
+            continue
+        node = next(iter(successor_ids))
+        if node in inherited or node not in visible:
+            continue
+        if (
+            _shared_y_lane_section(graph, predecessor, node) is None
+            or predecessors[node] != {predecessor}
+            or targets[predecessor] != {node}
+            or line_memberships[predecessor] != line_memberships[node]
+        ):
+            continue
+        inherited[node] = predecessor
+        frontier.append(node)
+    return inherited
 
 
 def line_forks_within_section(

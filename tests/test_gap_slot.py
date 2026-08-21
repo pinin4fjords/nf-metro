@@ -8,6 +8,8 @@ row, direction)`` and assigns the concentric X.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from conftest import content_corpus
 
@@ -20,6 +22,54 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import Edge
 
 CORPUS = content_corpus()
+
+
+def _simple_gap_graph():
+    def section(col, x):
+        return SimpleNamespace(
+            grid_col=col,
+            grid_row=0,
+            grid_row_span=1,
+            bbox_x=x,
+            bbox_y=0.0,
+            bbox_w=100.0,
+            bbox_h=100.0,
+        )
+
+    return SimpleNamespace(sections={"a": section(0, 0.0), "b": section(1, 200.0)})
+
+
+def _two_row_gap_graph():
+    """Columns 0 and 1 filled in grid rows 0 and 1, both bracketing x=150."""
+
+    def section(col, row, y):
+        return SimpleNamespace(
+            grid_col=col,
+            grid_row=row,
+            grid_row_span=1,
+            bbox_x=0.0 if col == 0 else 200.0,
+            bbox_y=y,
+            bbox_w=100.0,
+            bbox_h=100.0,
+        )
+
+    return SimpleNamespace(
+        sections={
+            "a0": section(0, 0, 0.0),
+            "b0": section(1, 0, 0.0),
+            "a1": section(0, 1, 200.0),
+            "b1": section(1, 1, 200.0),
+        }
+    )
+
+
+def _simple_gap_route():
+    return RoutedPath(
+        edge=Edge(source="a", target="b", line_id="l1"),
+        line_id="l1",
+        points=[(0.0, 0.0), (150.0, 0.0), (150.0, 50.0)],
+        is_inter_section=True,
+    )
 
 
 def test_gap_slot_carries_documented_fields():
@@ -44,6 +94,101 @@ def test_routed_path_gap_slots_default_to_empty():
         points=[(0.0, 0.0), (10.0, 0.0)],
     )
     assert rp.gap_slots == []
+
+
+def test_slot_locator_skips_gap_reclassification_when_disabled(monkeypatch):
+    graph = _simple_gap_graph()
+    route = _simple_gap_route()
+    slot = GapSlot(0, 1, 0, Direction.D, 0, 1)
+
+    monkeypatch.setattr(
+        normalize,
+        "gap_lookup_geometry",
+        lambda _graph: pytest.fail("disabled locator built gap lookup geometry"),
+    )
+    monkeypatch.setattr(
+        normalize,
+        "gap_lo_for_x",
+        lambda *_args, **_kwargs: pytest.fail("disabled locator reclassified a gap"),
+    )
+
+    located = normalize._locate_slot_channel_with_slot(route, slot, graph)
+
+    assert located is not None
+    assert located[0].x == 150.0
+
+
+def test_slot_locator_reuses_one_gap_lookup_when_reclassifying(monkeypatch):
+    graph = _simple_gap_graph()
+    route = _simple_gap_route()
+    slot = GapSlot(0, 1, 1, Direction.D, 0, 1)
+    real_lookup = normalize.gap_lookup_geometry
+    real_classify = normalize.gap_lo_for_x
+    calls = {"lookup": 0, "classify": 0}
+
+    def observe_lookup(graph):
+        calls["lookup"] += 1
+        return real_lookup(graph)
+
+    def observe_classify(graph, x, y_lo, y_hi, tol=1.0, *, lookup=None):
+        calls["classify"] += 1
+        return real_classify(graph, x, y_lo, y_hi, tol, lookup=lookup)
+
+    monkeypatch.setattr(normalize, "gap_lookup_geometry", observe_lookup)
+    monkeypatch.setattr(normalize, "gap_lo_for_x", observe_classify)
+
+    located = normalize._locate_slot_channel_with_slot(
+        route, slot, graph, reclassify_collapsed=True
+    )
+
+    assert located is not None
+    assert located[1].row == 0
+    assert calls == {"lookup": 1, "classify": 1}
+
+
+def test_slot_locator_reclassification_does_not_build_a_lookup_for_a_real_gap(
+    monkeypatch,
+):
+    graph = _simple_gap_graph()
+    route = _simple_gap_route()
+    slot = GapSlot(0, 1, 0, Direction.D, 0, 1)
+
+    monkeypatch.setattr(
+        normalize,
+        "gap_lookup_geometry",
+        lambda _graph: pytest.fail("a measurable gap built gap lookup geometry"),
+    )
+
+    located = normalize._locate_slot_channel_with_slot(
+        route, slot, graph, reclassify_collapsed=True
+    )
+
+    assert located is not None
+    assert located[0].x == 150.0
+
+
+def test_slot_locator_keeps_a_bracketed_leg_classified_into_another_row():
+    """The collapsed-row fallback must not tighten the bracket match.
+
+    The leg sits inside the declared row's own gap bracket, so that row is the
+    one the slot names -- even though the leg's vertical extent makes
+    :func:`gap_lo_for_x` classify it into the other row's band.  Requiring the
+    classification to agree would drop the leg out of the joint allocation and
+    seat its corridor-mates without it.
+    """
+    graph = _two_row_gap_graph()
+    route = _simple_gap_route()
+    slot = GapSlot(0, 1, 1, Direction.D, 0, 1)
+
+    assert normalize.gap_lo_for_x(graph, 150.0, 0.0, 50.0) == (0, 0)
+
+    for reclassify in (False, True):
+        located = normalize._locate_slot_channel_with_slot(
+            route, slot, graph, reclassify_collapsed=reclassify
+        )
+        assert located is not None, reclassify
+        assert located[0].x == 150.0
+        assert located[1].row == 1
 
 
 def test_normalize_gap_channels_is_gone():

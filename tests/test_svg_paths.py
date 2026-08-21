@@ -21,6 +21,7 @@ from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import curve_tangents, resolve_curve_radii
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.render import build_render_plan, emit_render_plan
 from nf_metro.render.animate import _points_to_svg_path
 from nf_metro.render.svg import _curve_tangents, apply_route_offsets, render_svg
 from nf_metro.themes import NFCORE_THEME
@@ -402,18 +403,34 @@ class TestConcentricBundles:
 class TestQCountMatchesCorners:
     """Number of Q commands in SVG path should equal number of corners in route."""
 
-    def _check(self, routes, offsets, svg_str):
-        """Verify Q count in SVG matches expected corners for multi-point routes."""
-        # Count expected corners across all routes with 3+ points
+    def _check(self, mmd_text):
+        """Verify Q count in SVG matches the corners the renderer was handed.
+
+        The count comes from the plan's drawable polylines rather than the
+        routed ones: a source turnout is a corner shared with the incoming
+        member, so the routed polyline holds it as an endpoint and only the
+        drawable polyline materialises it as a vertex.
+        """
+        graph = parse_metro_mermaid(mmd_text)
+        compute_layout(graph)
+        plan = build_render_plan(graph, NFCORE_THEME)
         expected_corners = sum(
-            max(0, len(apply_route_offsets(r, offsets)) - 2)
-            for r in routes
-            if len(apply_route_offsets(r, offsets)) >= 3
+            max(0, len(points) - 2) for points in plan.route_polylines
+        )
+
+        # Materialisation may add exactly one vertex per turnout member: the
+        # corner a turnout shares with its incoming member, which each routed
+        # polyline carries as an endpoint rather than as an interior vertex.
+        routed_corners = sum(max(0, len(tuple(r.points)) - 2) for r in plan.routes)
+        turnouts = sum(1 for r in plan.routes if r.source_turnout is not None)
+        assert expected_corners == routed_corners + turnouts, (
+            f"drawable corners ({expected_corners}) exceed routed corners "
+            f"({routed_corners}) plus one per turnout ({turnouts})"
         )
 
         # Count actual Q commands in SVG paths
         actual_q = 0
-        for d in _parse_svg_edge_paths(svg_str):
+        for d in _parse_svg_edge_paths(emit_render_plan(plan)):
             cmds = _parse_path_commands(d)
             actual_q += sum(1 for cmd, _ in cmds if cmd == "Q")
 
@@ -424,7 +441,7 @@ class TestQCountMatchesCorners:
         )
 
     def test_simple(self):
-        mmd = (
+        self._check(
             "%%metro line: main | Main | #ff0000\n"
             "%%metro line: alt | Alt | #0000ff\n"
             "graph LR\n"
@@ -433,8 +450,6 @@ class TestQCountMatchesCorners:
             "    b -->|main| d\n"
             "    c -->|alt| d\n"
         )
-        _, routes, offsets, svg = _layout_and_route(mmd)
-        self._check(routes, offsets, svg)
 
     @pytest.mark.parametrize(
         "fixture",
@@ -442,8 +457,7 @@ class TestQCountMatchesCorners:
         ids=lambda p: p.stem,
     )
     def test_topology_fixtures(self, fixture):
-        _, routes, offsets, svg = _layout_and_route_file(fixture)
-        self._check(routes, offsets, svg)
+        self._check(fixture.read_text())
 
 
 # ---------------------------------------------------------------------------

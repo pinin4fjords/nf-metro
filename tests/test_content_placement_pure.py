@@ -98,12 +98,16 @@ def test_content_placement_phases_complete():
     ``_run_placement`` wrapper in ``_compute_section_layout`` must equal the
     guarded ``CONTENT_PLACEMENT_PHASES`` set.
 
-    ``_run_placement`` is the single chokepoint every content-placement phase
-    flows through, and it records each ``fn.__name__`` into
-    ``engine._PLACEMENT_PHASES_RUN``.  Rendering the whole corpus (which
-    includes ``center_ports`` fixtures, exercising the gated 6.3 / 6.7 phases)
-    accumulates the ground-truth run set.  Asserting it equals the guarded set
-    means:
+    ``_run_placement`` is the chokepoint for every *pure* content-placement
+    phase, and it records each ``fn.__name__`` into
+    ``engine._PLACEMENT_PHASES_RUN``.  Coordinate-inheritance passes (Stage
+    6.7a's ``_carry_full_bundle_continuations`` and its 6.7b/6.7c/6.7d siblings)
+    read a coordinate an earlier phase settled, so purity cannot hold for them
+    and they are called directly; CONTRACT.md carries their stage entries.
+
+    Rendering the whole corpus (which includes ``center_ports`` fixtures,
+    exercising the gated 6.3 / 6.7 phases) accumulates the ground-truth run set.
+    Asserting it equals the guarded set means:
 
     - A new content phase wired through ``_run_placement`` but left out of
       ``CONTENT_PLACEMENT_PHASES`` shows up as *run but unguarded* and fails

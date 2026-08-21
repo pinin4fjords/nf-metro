@@ -22,6 +22,8 @@ from nf_metro.layout.phases._common import (
     _grid_group_section_ids,
     _section_fan_trunk_lines,
     _section_lr_port_anchor_y,
+    continuation_track_is_realizable,
+    continuation_track_predecessors,
     grow_section_bbox_max_edge,
     grow_section_bbox_min_edge,
 )
@@ -31,6 +33,29 @@ from nf_metro.layout.phases.planned_fans import (
 )
 from nf_metro.layout.phases.ports import _set_port_y
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
+
+
+def _carry_full_bundle_continuations(graph: MetroGraph) -> None:
+    """Restore sole-successor tracks moved by full-bundle column fanning.
+
+    Fanning a full-bundle column spreads its members off the trunk row.  A
+    station whose only predecessor is one of those members, and which is that
+    member's only target, has no branch to peel off to, so leaving it on its own
+    line's base track paints the in-section V-kink #977 forbids.  This copies
+    the predecessor's settled lane back onto it wherever the target track is
+    free.
+
+    Deliberately outside :func:`~nf_metro.layout.engine._run_placement`: reading
+    a predecessor's *current* coordinate is the whole operation, and a
+    content-placement phase registered in ``CONTENT_PLACEMENT_PHASES`` must
+    derive its answer from frozen anchors and structure alone.  It sits with the
+    other coordinate-inheritance passes of Stage 6.7 (6.7b's symmetric-branch
+    carry, 6.7c/6.7d's port centring), which are bare for the same reason.
+    """
+    for node, predecessor in continuation_track_predecessors(graph).items():
+        if not continuation_track_is_realizable(graph, node, predecessor):
+            continue
+        graph.stations[node].y = graph.stations[predecessor].y
 
 
 def _convergence_source_ys(graph: MetroGraph) -> dict[str, list[str]]:

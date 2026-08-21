@@ -770,6 +770,29 @@ in pipeline order.
   full-bundle columns against the final trunk Y (this fan uses the local
   port Y).
 
+### Stage 4.10a: carry full-bundle continuations (engine.py)
+- **Purpose**: Stage 4.10 fans a full-bundle column off the trunk row. A
+  station whose only predecessor is one of those fanned members, and which is
+  that member's only target, has no branch to peel off to, so leaving it on its
+  own line's base track paints the in-section V-kink #977 forbids. Copy the
+  predecessor's settled lane onto it.
+- **Helper**: `_carry_full_bundle_continuations` (`phases/fan_bundles.py`),
+  called directly rather than through `_run_placement`: reading a predecessor's
+  *current* coordinate is the whole operation, so the purity and anchor-frozen
+  guards of the "Anchor invariant" section cannot apply to it and it is absent
+  from `CONTENT_PLACEMENT_PHASES`.
+- **Precondition**: Stage 4.10 has fanned the full-bundle columns of this pass
+  (against the local port Y).
+- **Postcondition**: In every section whose lanes run along Y, each station the
+  continuation relation names - a visible one-in/one-out chain proven against
+  the whole graph - sits on its predecessor's Y wherever that track is free of
+  another station at the same layer.
+- **Invariants preserved**: Port anchors, section bboxes, stations the relation
+  declines to name, and sections whose lanes run along X.
+- **Related tests**: `test_bundle_terminator_successor_stays_on_trunk`.
+- **Lifecycle:** transient - superseded by Stage 6.7a, which re-runs the same
+  carry once Stage 6.7 has re-fanned those columns against the final trunk Y.
+
 ### Stage 5.1: position junctions
 - **Purpose**: Place each junction station in the inter-section gap
   at the exit port's Y (fan-out) or near the entry port (merge).
@@ -1041,6 +1064,89 @@ in pipeline order.
   straddling partner has moved away.
   *liftable:* no - one-shot, order-dependent (computes against the final
   trunk Y, so a premature run is wrong).
+
+### Stage 6.7a: re-carry full-bundle continuations (engine.py)
+- **Purpose**: Re-run the Stage 4.10a carry over the columns Stage 6.7 has just
+  re-fanned, so a sole successor follows its predecessor onto the final
+  trunk-anchored lane instead of the earlier port-Y guess.
+- **Helper**: `_carry_full_bundle_continuations` (`phases/fan_bundles.py`); the
+  same helper Stage 4.10a calls, bare here for the same reason.
+- **Precondition**: Stage 6.7 has re-centred full-bundle columns against the
+  row's final trunk Y.
+- **Postcondition**: Each station the continuation relation names sits on its
+  predecessor's post-recenter Y wherever that track is free.
+- **Invariants preserved**: Port anchors and the recenter's own symmetry; only
+  continuation stations move.
+- **Related tests**: `test_bundle_terminator_successor_stays_on_trunk`.
+- **Lifecycle:** invariant - a carried continuation shares its predecessor's
+  lane at the final boundary.
+
+### Stage 6.7b: carry symmetric-branch continuations (engine.py)
+- **Purpose**: Under `diamond_style: symmetric` a two-way fork's branch
+  stations are fanned off the trunk; a branch that continues to further
+  stations *inside* the section would leave those successors on the trunk, so
+  the branch humps out and immediately back. Pull the in-section
+  sole-successor chain onto the branch's Y.
+- **Helper**: `_carry_symmetric_branch_continuations` (`phases/fan_bundles.py`),
+  bare for the same reason as Stage 6.7a. No-op unless
+  `diamond_style == "symmetric"`.
+- **Precondition**: Stage 6.7 has fixed the branch Ys the chain aligns to; the
+  section's direction is LR or RL.
+- **Postcondition**: A dead-end branch stays fanned for its whole in-section
+  length. The walk stops where the forward path leaves the branch - a second
+  predecessor, a fork, or a continuation only through an exit port - so a branch
+  that exits the section falls back to the trunk and meets its exit port there.
+- **Invariants preserved**: Planned-fan stations (owned by the fan plan), the
+  branch stations themselves, and every section that is not a symmetric fork.
+- **Related tests**: `test_symmetric_fanout_branch_continuation_stays_fanned`.
+- **Lifecycle:** invariant - a fanned branch's in-section continuation rides
+  the branch track at the final boundary.
+
+### Stage 6.7c: align a symmetric fork to its row feeder (engine.py)
+- **Purpose**: Centring a fork on its entry port can leave that port off the
+  trunk of the same-row section feeding it - the port settled on the fork
+  midline rather than on the horizontal bundle arriving from the flow side.
+  Translate the whole section so its entry port shares a Y with that feeder's
+  exit port.
+- **Helper**: `_align_symfan_section_to_row_feeder` (`phases/fan_bundles.py`),
+  via `shift_section`. No-op unless `diamond_style == "symmetric"`, and it
+  declines a shift under 1px.
+- **Precondition**: Stage 6.7 / 6.7b have settled the fork's branch Ys, and the
+  feeder's exit port Y is final.
+- **Postcondition**: A symmetric-fork section whose entry port has an in-row
+  feeder is translated so the inter-section run into it is level.
+- **Invariants preserved**: The section's internal geometry - content, ports and
+  bbox move together by one delta - and every section with no such feeder.
+- **Related tests**: `test_symmetric_fork_entry_port_stays_on_feeder_trunk`.
+- **Lifecycle:** invariant - the feeder run stays level at the final boundary.
+
+### Stage 6.7d: seat flow-aligned ports on the fork or join (engine.py)
+- **Purpose**: Seat a flow-aligned port on the centreline of the two-way fork it
+  feeds, or of the two-way join that feeds it, so the diamond closes
+  symmetrically and the inter-section run leaves straight. A port fork has no
+  station on the centreline for the join to inherit from, so the join and its
+  linear trunk continuation are seated with it.
+- **Helpers**: `_center_lr_entry_ports_on_fork` and
+  `_center_lr_exit_ports_on_join` (`phases/fan_bundles.py`), the pair also named
+  in the Stage 6.7 entry. Both no-op unless
+  `diamond_style == "symmetric"`, and both leave planned-fan ports to their fan
+  plan.
+- **Precondition**: Stages 6.7 / 6.7b / 6.7c have settled the branch Ys the
+  midpoint is computed from.
+- **Postcondition**: An entry port fanning into branches at exactly two
+  distinct Ys sits at their midpoint, as does a clean in-section join and its
+  trunk continuation; an off-grid midpoint is taken only when the fork
+  reconverges. An exit port is moved only when it is seated outside its two
+  feeders' span - a port already straddled by them would trade a level run for
+  a step down and back up.
+- **Invariants preserved**: The branch stations themselves keep their places,
+  and a port already level with one branch is left there: that is a dead-end
+  fan's legitimate seat, where the branch's track is the trunk the
+  inter-section run continues along.
+- **Related tests**: `test_symmetric_exit_port_join_stays_within_its_feeders_span`
+  and `test_fork_and_join_hub_share_centreline`.
+- **Lifecycle:** invariant - the seated port is on the fork or join centreline
+  at the final boundary.
 
 ### Stage 6.8: re-anchor off-track after recenter (engine.py)
 - **Purpose**: The Stage 6.7 recenter moves consumers to the final
@@ -1387,6 +1493,81 @@ in pipeline order.
   `test_structural_extent_matches_settled_within_tolerance` and
   `_guard_section_top_padding`.
 - **Lifecycle:** invariant - no geometry or bbox phase follows this refit.
+
+## Post-layout offset boundary: late per-line offset phases
+
+`compute_station_offsets` (`layout/routing/offsets.py`) assigns one lane per
+`(station, line)` in numbered phases; its docstring lists every phase in order.
+The two below are recorded here because they move lanes a whole section at a
+time, after each base, station, port, junction and rail-boundary phase has
+settled, and because the planned-fan offsets that follow them own the lanes a
+fan plan states.
+
+### Phase 14b: entry-arrival lane slotting
+
+- **Purpose**: An inter-section run arrives on the lane its upstream carrier
+  draws. Where the receiving section reserves a different slot for that line,
+  the run between the entry port and the first station spends the difference as
+  a sub-radius diagonal - and a port draws no marker, so that step lands in open
+  space just inside the section box. Exchange the arriving line's slot for the
+  one already holding the approach lane.
+- **Helpers**: `_slot_entry_arrivals_on_their_approach_lane` walks each
+  lane-stacked section's flow-side entry ports; `_slot_one_entry_arrival`
+  decides one line; `_exchange_pair_beyond_exit` carries an exchange that
+  reaches an exit port out along the pair's shared chain.
+- **Precondition**: Non-compact mode, and a section whose lanes run along Y.
+  The port, reconciliation and rail-boundary phases (5 through 14) have settled
+  the upstream lane the exchange reads.
+- **Postcondition**: Where the exchange is provably a permutation of lanes
+  already in use at the first station and provably crossing-free - the approach
+  lane held by exactly one other line, and that line originating at the station,
+  so the two meet only under the station's own marker - the arriving line holds
+  its approach lane, the displaced line holds the slot the arrival vacated, and
+  the swap propagates along the section's horizontal runs. Outside the section
+  the exchange continues until the pair stops travelling together, so the
+  bundle's lead-in order at the divergence junction and its peel order at the
+  destination agree. Every station keeps one lane per line it carries.
+- **Invariants preserved**: Station, port and junction coordinates; the number
+  of lanes each station spreads; the order of every line outside the exchanged
+  pair. The approach lane is read as a stored lane offset, which names the same
+  lane at the consumer only while the feeder's trunk is level with it, so a
+  stepped seam is declined rather than converted through screen coordinates.
+- **Related tests**:
+  `test_entry_arrival_permutes_lanes_rather_than_sharing_one`.
+- **Lifecycle:** invariant - the arriving line holds its approach lane in the
+  published offset map: phase 14c can only relabel a whole section's levels
+  rigidly, which preserves the exchange.
+
+### Phase 14c: section free-lane closure
+
+- **Purpose**: A station whose bundle skips a lane level draws a marker tall
+  enough to span it. That reservation earns its space when a section-mate rides
+  the level; a level *no* line of the section rides reserves nothing, so every
+  lane above it drops one step.
+- **Helpers**: `_close_section_dead_lanes`, admitting a section's shift only
+  when `_dead_lane_squeeze_keeps_runs` confirms it.
+- **Precondition**: Non-compact mode; phase 14b has run, being the last phase
+  that can vacate a level. Rail-laid sections are skipped: their geometry is
+  drawn from absolute rail coordinates, so their lane levels are not a bundle to
+  tighten.
+- **Postcondition**: No section reserves a lane level none of its lines ride,
+  except where closing one would tilt a run. The drop is a rigid,
+  order-preserving relabelling applied to every station and port of the section
+  at once, and it is applied only when no edge carrying a shifted line ends with
+  a larger lane difference across it - so a run that was level inside the
+  section or across one of its seams stays level, and a hop that already stepped
+  never steps further. A squeeze that fails that test is declined whole and the
+  section keeps its dead level: the level costs a taller marker, a tilted run
+  costs a kink. No fixture in the corpus needs that escape, which is why
+  `tests/test_section_lane_reservations.py` can assert the unconditional form
+  over every laid-out `.mmd`.
+- **Invariants preserved**: Bundle order, one lane per line at every station,
+  compact-mode and rail-section offsets, and the lanes a fan plan states: the
+  planned-fan offsets run after this and have the last word on them.
+- **Related tests**: `tests/test_section_lane_reservations.py`.
+- **Lifecycle:** invariant - the published offset map holds no lane level
+  reserved for a line its section never carries, save one a declined squeeze
+  left behind.
 
 ## Post-layout routing boundary: exit-turn planning
 
@@ -2038,6 +2219,43 @@ They are design evidence, not part of this specification.
   `assert_reservations_are_settled` in `layout/phases/guards.py`.
 - **Lifecycle:** invariant - the settled geometry satisfies every reservation
   settlement owns, and re-running it changes nothing.
+
+### The settlement stage trace
+
+`SettlementStage` (`layout/route_plan.py`) is the vocabulary a render uses to
+say how far settlement has got. Its declaration order *is* the settlement
+order, which `SETTLEMENT_STAGE_ORDER` reads off it: `DISCOVERY`,
+`GENERAL_SETTLEMENT`, `COHORT_INTENT`, `APERTURE_SETTLEMENT`, `FINAL_SOLVE`,
+`TYPED_MATERIALIZATION`, `COHORT_FINAL`, `VALIDATION`.
+`register_settlement_stage` appends one `SettlementStageObservation` to the
+append-only `SettlementStageTrace` a published `RoutePlan` carries, and refuses
+an observation that breaks the protocol: a trace begins at `DISCOVERY`, its
+stage rank never decreases, `GENERAL_SETTLEMENT` is the only stage that may
+repeat, and every observation names a non-empty geometry fingerprint.
+`route_observation_rank` numbers the observations of the two stages that *are* a
+route observation - `DISCOVERY` and `GENERAL_SETTLEMENT`, named by
+`ROUTE_OBSERVATION_STAGES` - in the order they were taken, and is `None` for
+every other stage. The stage decides it, so no caller can disagree with it.
+
+The render path (`_settle_render_geometry` and the publish step in
+`render/svg.py`) records `DISCOVERY` for the first route observation and
+`GENERAL_SETTLEMENT` for each re-observation a carried port, a header-collision
+reconcile, or an envelope-settlement translation forces. `COHORT_INTENT`,
+`APERTURE_SETTLEMENT`, `FINAL_SOLVE` and `TYPED_MATERIALIZATION` are positions
+the vocabulary reserves between them and the closing pair; no render records
+one, which `tests/test_corridor_cohort_integration.py` asserts alongside the
+frozen order.
+
+`COHORT_FINAL` sits *after* both closing acts, not between them: the final
+canvas geometry is published first (`_FinalPublishedGeometry` - canvas width and
+height, header keepouts, route polylines and radii, labels, legend and logo
+boxes), then `realise_route_reservations` realises the reservation ledger
+against that canvas, and only then is `COHORT_FINAL` recorded, fingerprinting
+the realised state. `VALIDATION` re-reads the same published state and is
+refused unless a `COHORT_FINAL` record exists with an identical fingerprint, so
+nothing may move the geometry between the two - the trace is what makes "the
+published geometry is read twice and read the same" a checked claim rather than
+a convention.
 
 ### A port travels with the box edge it is anchored to
 

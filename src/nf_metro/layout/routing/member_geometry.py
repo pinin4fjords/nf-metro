@@ -16,12 +16,17 @@ from nf_metro.layout.constants import (
     EDGE_TO_BUNDLE_CLEARANCE,
     MIN_CORRIDOR_Y_OVERLAP,
 )
-from nf_metro.layout.geometry import cotravelling_lane_clearance, spans_share_corridor
+from nf_metro.layout.geometry import (
+    cotravelling_lane_clearance,
+    measured_distance,
+    spans_share_corridor,
+)
 from nf_metro.layout.route_plan import (
     ConvergenceDisposition,
     ConvergencePlan,
     EmissionMemberId,
     EmissionRole,
+    ExitTurnAssignment,
     ExitTurnAxisId,
     ExitTurnPlanId,
     FanPlanId,
@@ -35,12 +40,20 @@ from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     RoutedPath,
+    SourceTurnout,
+    _points_coincide,
     column_gap_edges,
     convergence_owns_segment_boundary,
+    feasible_same_destination_approach_proposals,
+    iter_plannable_short_same_destination_bundles,
+    same_destination_approach_slots,
     segment_direction,
 )
 from nf_metro.layout.routing.context import SettledExitTurn, _RoutingCtx
-from nf_metro.layout.routing.corners import concentric_corner_radius_at
+from nf_metro.layout.routing.corners import (
+    concentric_corner_radius_at,
+    resolve_curve_radius_at,
+)
 from nf_metro.layout.routing.families import RouteFamilyId
 from nf_metro.layout.routing.inter_section_handlers import (
     _build_inter_facts,
@@ -54,10 +67,11 @@ from nf_metro.layout.routing.normalize import (
     _coincide_same_line_fanout_traverses,
     _coincide_same_line_tracks,
     _hold_runs_in_corridor_clearance,
-    _locate_slot_channel,
+    _locate_slot_channel_with_slot,
     _materialize_gap_slots,
     _materialize_trunk_slots,
     _reconcile_port_peeloff_risers,
+    _rederive_semantic_end_corners,
     _reseat_concentric_flanking,
     _route_endpoint_section_ids,
     _segment_claim_band,
@@ -65,7 +79,9 @@ from nf_metro.layout.routing.normalize import (
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
     _settle_entry_wrap_leadouts,
+    _settle_same_destination_approach_bundles,
     _stagger_convergent_distinct_lines,
+    _unify_coincident_corner_radii,
     _VChannel,
 )
 from nf_metro.layout.routing.orientation import direction_axis, lateral_order_sign
@@ -75,7 +91,11 @@ from nf_metro.layout.routing.reserved_bands import (
     corridor_clearance_band,
     resolved_band,
 )
-from nf_metro.parser.model import Edge, MetroGraph
+from nf_metro.layout.settlement_demand import (
+    BoundaryClearanceRequirement,
+    SettlementAxis,
+)
+from nf_metro.parser.model import Edge, MetroGraph, PortSide
 from nf_metro.parser.route_topology import (
     ConnectorId,
     EndpointGroupId,
@@ -150,6 +170,15 @@ class _ChannelBounds:
     band: ReservedBand | None
 
 
+@dataclass(frozen=True, slots=True)
+class _SourceTurnoutCandidate:
+    route: RoutedPath
+    incoming: RoutedPath
+    continuing: RoutedPath | None
+    incoming_direction: Direction
+    outgoing_direction: Direction
+
+
 def _eligible_preliminary_gap_claims(
     claims: tuple[PreliminaryGapChannelClaim, ...],
     failure_reasons: Mapping[RouteSystemId, str],
@@ -166,6 +195,15 @@ class MemberGeometryExecution:
     settled_exit_turns: Mapping[tuple[str, str, str], SettledExitTurn] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    _semantic_corner_templates: Mapping[
+        ResolvedEdge,
+        tuple[
+            tuple[float, ...] | None,
+            tuple[tuple[int, tuple[float | None, float | None]], ...],
+            tuple[tuple[int, tuple[float | None, float | None]], ...],
+        ],
+    ] = field(default_factory=lambda: MappingProxyType({}))
+    clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
 
     def plan_for_edge(
         self, edge: Edge | ResolvedEdge
@@ -187,6 +225,17 @@ class MemberGeometryExecution:
             if plan.edge not in excluding
             for channel in plan.gap_channels
         )
+
+    def apply_semantic_corner_template(self, route: RoutedPath) -> None:
+        """Apply the pre-publication corner cohort decision for *route*."""
+        resolved = ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+        template = self._semantic_corner_templates.get(resolved)
+        if template is None:
+            return
+        radii, offsets, bases = template
+        route.curve_radii = None if radii is None else list(radii)
+        route.concentric_corner_offsets_by_segment = dict(offsets)
+        route.concentric_corner_bases_by_segment = dict(bases)
 
 
 def empty_member_geometry_execution() -> MemberGeometryExecution:
@@ -368,8 +417,9 @@ def _ladder_origin(
 
     Members whose seated axes already read as one ladder state the origin
     between them, and it travels only far enough to give the deepest corner its
-    radius.  Members whose axes disagree describe no single ladder, so the
-    origin is the furthest of what any of them holds or requires.
+    radius -- or, on a lone member, the runway that member declares.  Members
+    whose axes disagree describe no single ladder, so the origin is the furthest
+    of what any of them holds or requires.
     """
     run_sign = ladder.heading.run_direction.sign
     actual_origins = [
@@ -406,6 +456,19 @@ def _ladder_origin(
         ),
         default=0.0,
     )
+    # A member declares its own minimum runway, but one origin serves the whole
+    # ladder: raising it to one member's minimum carries every mate past theirs.
+    # The concentric radius their mutual displacement implies is the demand the
+    # ladder states jointly, so a declared minimum joins it only on a lone
+    # member, and only when short by a coordinate this frame can express.
+    if len(candidates) == 1:
+        (solo,) = candidates
+        shortfall = (
+            solo.required_runway
+            - (solo.axis_coordinate - solo.launch_coordinate) * run_sign
+        )
+        if shortfall > COORD_TOLERANCE:
+            radius_deficit = max(radius_deficit, shortfall)
     return actual_origins[0] + run_sign * max(0.0, radius_deficit)
 
 
@@ -735,6 +798,21 @@ def _complete_concentric_corner_description(
     return offsets, bases
 
 
+def _semantic_corner_template(
+    route: RoutedPath,
+) -> tuple[
+    tuple[float, ...] | None,
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+    tuple[tuple[int, tuple[float | None, float | None]], ...],
+]:
+    offsets, bases = _complete_concentric_corner_description(route)
+    return (
+        None if route.curve_radii is None else tuple(route.curve_radii),
+        tuple(sorted(offsets.items())),
+        tuple(sorted(bases.items())),
+    )
+
+
 def _freeze_plan(
     scaffold: RouteSemanticScaffold,
     candidate: _MemberCandidate,
@@ -750,11 +828,24 @@ def _freeze_plan(
     member_id = scaffold.member_id_by_edge[resolved]
     channels: list[RouteMemberGapChannel] = []
     channel_claims: set[tuple[int, int, int | None, Direction]] = set()
+    localized_slots: list[GapSlot] = []
     for slot in route.gap_slots:
-        channel = _locate_slot_channel(route, slot, ctx.graph)
-        if channel is None:
+        located = _locate_slot_channel_with_slot(
+            route,
+            slot,
+            ctx.graph,
+        )
+        if located is None:
+            localized_slots.append(slot)
             continue
-        claim = (channel.idx, slot.gap_lo_col, slot.row, slot.direction)
+        channel, localized_slot = located
+        localized_slots.append(localized_slot)
+        claim = (
+            channel.idx,
+            localized_slot.gap_lo_col,
+            localized_slot.row,
+            localized_slot.direction,
+        )
         if claim in channel_claims:
             continue
         channel_claims.add(claim)
@@ -763,9 +854,9 @@ def _freeze_plan(
                 channel.idx,
                 route.points[channel.idx],
                 route.points[channel.idx + 1],
-                slot.gap_lo_col,
-                slot.row,
-                slot.direction,
+                localized_slot.gap_lo_col,
+                localized_slot.row,
+                localized_slot.direction,
             )
         )
     plan_id = RouteMemberGeometryPlanId(
@@ -785,7 +876,7 @@ def _freeze_plan(
         None if route.curve_radii is None else tuple(route.curve_radii),
         route.offset_regime,
         route.normalize_exempt,
-        tuple(route.gap_slots),
+        tuple(localized_slots),
         route.trunk_slot,
         tuple(channels),
         tuple(sorted(corner_offsets.items())),
@@ -798,6 +889,7 @@ def _freeze_plan(
         exit_lane_transition_plan_id=_typed_id(
             ExitTurnPlanId, route.exit_lane_transition_plan_id
         ),
+        source_turnout=route.source_turnout,
         fan_plan_id=_typed_id(FanPlanId, route.fan_plan_id),
         fan_route_emitter=route.fan_route_emitter,
         consumed_reservation_ids=reservation_ids_by_member.get(member_id, ()),
@@ -808,12 +900,29 @@ def _freeze_plan(
 def _materialized_channels(
     candidates: Iterable[_MemberCandidate], ctx: _RoutingCtx
 ) -> tuple[_MaterializedChannel, ...]:
+    """Every declared member channel, keyed to the row its geometry sits in.
+
+    A slot's declared row is where the leg lands, which can be a row whose
+    inter-column gap holds no section on the far side and so measures zero
+    width.  Such a leg occupies the physical corridor and owes its neighbours
+    their clearance, so its collapsed row is re-keyed to the row the routed
+    geometry classifies into; dropping it would seat the corridor's other
+    members without it.
+    """
     return tuple(
-        _MaterializedChannel(candidate, channel, slot)
+        _MaterializedChannel(candidate, channel, localized_slot)
         for candidate in candidates
         for slot in candidate.route.gap_slots
-        if (channel := _locate_slot_channel(candidate.route, slot, ctx.graph))
+        if (
+            located := _locate_slot_channel_with_slot(
+                candidate.route,
+                slot,
+                ctx.graph,
+                reclassify_collapsed=True,
+            )
+        )
         is not None
+        for channel, localized_slot in (located,)
     )
 
 
@@ -1365,9 +1474,11 @@ def _allocate_member_gap_channels(
             )
         ),
     ]
-    for bundle in _channel_bundles(materialized, movable_exit_plan_ids):
-        _allocate_bundle_around_claims(tuple(bundle), obstacles, ctx)
-        obstacles.extend(_claim_for_materialized_channel(item) for item in bundle)
+    for channel_bundle in _channel_bundles(materialized, movable_exit_plan_ids):
+        _allocate_bundle_around_claims(tuple(channel_bundle), obstacles, ctx)
+        obstacles.extend(
+            _claim_for_materialized_channel(item) for item in channel_bundle
+        )
 
 
 def _carry_seated_run(
@@ -1498,6 +1609,370 @@ def _allocate_preliminary_gap_claims(
                 _allocate_bundle_around_claims(tuple(movable_run), obstacles, ctx)
 
 
+def _short_destination_clearance_requirement(
+    graph: MetroGraph,
+    port_id: str,
+    owner_id: RouteSystemId,
+    shortfall: float,
+) -> BoundaryClearanceRequirement | None:
+    target = graph.section_for_port(graph.ports[port_id])
+    boundary = target.grid_row
+    if boundary < 1:
+        return None
+    negative = tuple(
+        section
+        for section in graph.sections.values()
+        if section.grid_row + section.grid_row_span <= boundary
+    )
+    if not negative:
+        return None
+    negative_edge = max(section.bbox_y + section.bbox_h for section in negative)
+    blockers = tuple(
+        sorted(
+            section.id
+            for section in negative
+            if abs(section.bbox_y + section.bbox_h - negative_edge) <= COORD_TOLERANCE
+        )
+    )
+    current = measured_distance(negative_edge, target.bbox_y)
+    return BoundaryClearanceRequirement(
+        SettlementAxis.ROW,
+        boundary,
+        str(owner_id),
+        current + shortfall,
+        blockers,
+        (target.id,),
+        f"route system {owner_id} same-destination corner runway",
+    )
+
+
+_BoundaryRequirementKey = tuple[
+    int,
+    str,
+    tuple[str, ...],
+    tuple[str, ...],
+]
+
+
+def _record_boundary_clearance_requirement(
+    requirements: dict[_BoundaryRequirementKey, BoundaryClearanceRequirement],
+    requirement: BoundaryClearanceRequirement,
+) -> None:
+    """Keep section-pair demands independent and coalesce exact duplicates."""
+    key = (
+        requirement.boundary,
+        requirement.owner_id,
+        requirement.negative_section_ids,
+        requirement.positive_section_ids,
+    )
+    current = requirements.setdefault(key, requirement)
+    requirements[key] = replace(
+        current,
+        required=max(current.required, requirement.required),
+    )
+
+
+def _plan_source_turnouts(
+    routes: Sequence[RoutedPath],
+    graph: MetroGraph,
+    curve_radius: float,
+) -> None:
+    """Freeze cross-member source curves for vertical arms of hidden forks."""
+    incoming_by_line_target: defaultdict[tuple[str, str], list[RoutedPath]] = (
+        defaultdict(list)
+    )
+    outgoing_by_line_source: defaultdict[tuple[str, str], list[RoutedPath]] = (
+        defaultdict(list)
+    )
+    routes_by_source: defaultdict[str, list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        incoming_by_line_target[route.line_id, route.edge.target].append(route)
+        outgoing_by_line_source[route.line_id, route.edge.source].append(route)
+        routes_by_source[route.edge.source].append(route)
+
+    candidates: list[_SourceTurnoutCandidate] = []
+    for route in routes:
+        if not route.is_inter_section or len(route.points) < 2:
+            continue
+        source = graph.stations.get(route.edge.source)
+        target_port = graph.ports.get(route.edge.target)
+        outgoing_direction = segment_direction(route.points[0], route.points[1])
+        if (
+            source is None
+            or route.edge.source not in graph.junction_ids
+            or not source.is_port
+            or bool(source.label)
+            or target_port is None
+            or not target_port.is_entry
+            or target_port.side not in (PortSide.TOP, PortSide.BOTTOM)
+            or outgoing_direction not in (Direction.U, Direction.D)
+        ):
+            continue
+        incoming = tuple(
+            candidate
+            for candidate in incoming_by_line_target[route.line_id, route.edge.source]
+            if len(candidate.points) >= 2
+            and _points_coincide(candidate.points[-1], route.points[0])
+            and segment_direction(candidate.points[-2], candidate.points[-1])
+            in (Direction.R, Direction.L)
+        )
+        if len(incoming) != 1:
+            continue
+        incoming_direction = segment_direction(
+            incoming[0].points[-2], incoming[0].points[-1]
+        )
+        assert incoming_direction in (Direction.R, Direction.L)
+        horizontal_siblings = tuple(
+            candidate
+            for candidate in outgoing_by_line_source[route.line_id, route.edge.source]
+            if candidate is not route
+            and len(candidate.points) >= 2
+            and _points_coincide(candidate.points[0], route.points[0])
+            and segment_direction(candidate.points[0], candidate.points[1])
+            in (Direction.R, Direction.L)
+        )
+        continuing = tuple(
+            candidate
+            for candidate in horizontal_siblings
+            if segment_direction(candidate.points[0], candidate.points[1])
+            is incoming_direction
+        )
+        if horizontal_siblings and not continuing:
+            continue
+        selected = (
+            min(continuing, key=lambda candidate: candidate.edge.target)
+            if continuing
+            else None
+        )
+        candidates.append(
+            _SourceTurnoutCandidate(
+                route,
+                incoming[0],
+                selected,
+                incoming_direction,
+                outgoing_direction,
+            )
+        )
+
+    grouped: defaultdict[
+        tuple[str, Direction, Direction], list[_SourceTurnoutCandidate]
+    ] = defaultdict(list)
+    for candidate in candidates:
+        grouped[
+            (
+                candidate.route.edge.source,
+                candidate.incoming_direction,
+                candidate.outgoing_direction,
+            )
+        ].append(candidate)
+
+    direction_vectors = {
+        Direction.R: (1.0, 0.0),
+        Direction.L: (-1.0, 0.0),
+        Direction.U: (0.0, -1.0),
+        Direction.D: (0.0, 1.0),
+    }
+    for members in grouped.values():
+        incoming_vector = direction_vectors[members[0].incoming_direction]
+        outgoing_vector = direction_vectors[members[0].outgoing_direction]
+        radius_axis = (
+            incoming_vector[0] - outgoing_vector[0],
+            incoming_vector[1] - outgoing_vector[1],
+        )
+        peer_projections = [
+            (route.points[0][0] * radius_axis[0])
+            + (route.points[0][1] * radius_axis[1])
+            for route in routes_by_source[members[0].route.edge.source]
+            if len(route.points) >= 2
+            and segment_direction(route.points[0], route.points[1])
+            is members[0].outgoing_direction
+            and any(
+                len(incoming.points) >= 2
+                and _points_coincide(incoming.points[-1], route.points[0])
+                and segment_direction(incoming.points[-2], incoming.points[-1])
+                is members[0].incoming_direction
+                for incoming in incoming_by_line_target[
+                    route.line_id, route.edge.source
+                ]
+            )
+        ]
+        projections = [
+            (member.route.points[0][0] * radius_axis[0])
+            + (member.route.points[0][1] * radius_axis[1])
+            for member in members
+        ]
+        minimum = min(peer_projections)
+        radii = [
+            curve_radius + (projection - minimum) / 2.0 for projection in projections
+        ]
+        centres = [
+            (
+                member.route.points[0][0] - radius * radius_axis[0],
+                member.route.points[0][1] - radius * radius_axis[1],
+            )
+            for member, radius in zip(members, radii, strict=True)
+        ]
+        if any(not _points_coincide(centre, centres[0]) for centre in centres[1:]):
+            continue
+        maximum_radius = max(radii)
+        if any(
+            member.continuing is not None
+            and math.dist(member.continuing.points[0], member.continuing.points[1])
+            < maximum_radius
+            for member in members
+        ):
+            continue
+        if any(
+            math.dist(member.incoming.points[-2], member.incoming.points[-1]) < radius
+            or math.dist(member.route.points[0], member.route.points[1]) < radius
+            for member, radius in zip(members, radii, strict=True)
+        ):
+            continue
+        for member, radius in zip(members, radii, strict=True):
+            member.route.source_turnout = SourceTurnout(
+                member.incoming.edge.source,
+                (
+                    member.continuing.edge.target
+                    if member.continuing is not None
+                    else None
+                ),
+                member.incoming_direction,
+                member.outgoing_direction,
+                radius,
+            )
+
+
+def _settle_plannable_short_destination_cohorts(
+    routes: list[RoutedPath],
+    graph: MetroGraph,
+    ctx: _RoutingCtx,
+    scaffold: RouteSemanticScaffold,
+    *,
+    allow_clearance_requirements: bool,
+    granted_clearance_owner_ids: frozenset[str],
+) -> tuple[
+    Mapping[tuple[str, str, str], SettledExitTurn],
+    tuple[BoundaryClearanceRequirement, ...],
+]:
+    """Seat complete short-run cohorts and publish their row demand."""
+    settled_turns: dict[tuple[str, str, str], SettledExitTurn] = {}
+
+    def settled_turn(
+        route: RoutedPath,
+        assignment: ExitTurnAssignment,
+        points: Sequence[tuple[float, float]],
+    ) -> SettledExitTurn:
+        assert assignment.run_direction is not None
+        assert assignment.turn_direction is not None
+        assert assignment.minimum_runway is not None
+        rank = len(points) - 3
+        return SettledExitTurn(
+            assignment.run_direction,
+            assignment.turn_direction,
+            points[rank - 1][0],
+            assignment.minimum_runway,
+            points[rank][0],
+            route.concentric_corner_offsets_by_segment.get(rank, (None, None)),
+            False,
+        )
+
+    requirements: dict[_BoundaryRequirementKey, BoundaryClearanceRequirement] = {}
+    for bundle in iter_plannable_short_same_destination_bundles(
+        routes,
+        graph,
+        ctx.offset_step,
+        ctx.curve_radius,
+        require_short_overlap=False,
+    ):
+        resolved = tuple(
+            ResolvedEdge(route.edge.source, route.edge.target, route.line_id)
+            for route, _tail in bundle.entries
+        )
+        system_ids = {scaffold.system_for_edge(edge) for edge in resolved}
+        if len(system_ids) != 1:
+            continue
+        system_id = next(iter(system_ids))
+        slots = same_destination_approach_slots(bundle, graph, ctx.offset_step)
+        cohort_member_ids = {scaffold.member_id_by_edge[edge] for edge in resolved}
+        replannable_plan_ids: set[str] = set()
+        memberships = {}
+        if ctx.exit_turns is not None:
+            for route, _tail in bundle.entries:
+                membership = ctx.exit_turns.membership_for_edge(route.edge)
+                if membership is None or membership.axis is None:
+                    continue
+                assignment = membership.assignment
+                if (
+                    assignment is not None
+                    and membership.axis.claimant_member_ids == (membership.member_id,)
+                    and membership.member_id in cohort_member_ids
+                    and assignment.run_direction in {Direction.R, Direction.L}
+                    and assignment.turn_direction in {Direction.U, Direction.D}
+                    and route.exit_turn_segment_rank == len(route.points) - 3
+                ):
+                    replannable_plan_ids.add(str(membership.plan.id))
+                    memberships[id(route)] = membership
+        clearance_granted = str(system_id) in granted_clearance_owner_ids
+        if not allow_clearance_requirements and not clearance_granted:
+            continue
+        proposals = feasible_same_destination_approach_proposals(
+            graph,
+            routes,
+            bundle,
+            slots,
+            movable_route_ids=frozenset(id(route) for route, _tail in bundle.entries),
+            replannable_exit_turn_plan_ids=frozenset(replannable_plan_ids),
+        )
+        if proposals is None:
+            continue
+
+        vertical_lo = max(
+            min(tail.trunk_y, tail.port_y) for tail in bundle.per_line.values()
+        )
+        vertical_hi = min(
+            max(tail.trunk_y, tail.port_y) for tail in bundle.per_line.values()
+        )
+        shortfall = 2 * ctx.curve_radius - (vertical_hi - vertical_lo)
+        requirement = (
+            _short_destination_clearance_requirement(
+                graph, bundle.port_id, system_id, shortfall
+            )
+            if allow_clearance_requirements and shortfall > COORD_TOLERANCE
+            else None
+        )
+        if requirement is not None:
+            _record_boundary_clearance_requirement(requirements, requirement)
+            for proposal in proposals:
+                route = proposal.route
+                membership = memberships.get(id(route))
+                if membership is None or membership.assignment is None:
+                    continue
+                settled_turns[(route.edge.source, route.edge.target, route.line_id)] = (
+                    settled_turn(route, membership.assignment, route.points)
+                )
+            continue
+        if allow_clearance_requirements or shortfall > COORD_TOLERANCE:
+            continue
+
+        for proposal in proposals:
+            route = proposal.route
+            membership = memberships.get(id(route))
+            rank = len(proposal.points) - 3
+            if (
+                membership is not None
+                and membership.assignment is not None
+                and route.points[rank][0] != proposal.points[rank][0]
+            ):
+                settled_turns[(route.edge.source, route.edge.target, route.line_id)] = (
+                    settled_turn(route, membership.assignment, proposal.points)
+                )
+            route.points = list(proposal.points)
+            route.gap_slots = list(proposal.gap_slots)
+    return MappingProxyType(settled_turns), tuple(
+        requirements[key] for key in sorted(requirements)
+    )
+
+
 def build_member_geometry_execution(
     graph: MetroGraph,
     ctx: _RoutingCtx,
@@ -1510,8 +1985,14 @@ def build_member_geometry_execution(
     reservation_ids_by_member: Mapping[EmissionMemberId, tuple[str, ...]] | None = None,
     pending_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
     settled_exit_turn_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
+    allow_clearance_requirements: bool = False,
+    granted_clearance_owner_ids: frozenset[str] = frozenset(),
 ) -> MemberGeometryExecution:
     """Freeze each eligible non-convergence member's sole production template."""
+    cohort_settled_turns: Mapping[tuple[str, str, str], SettledExitTurn] = (
+        MappingProxyType({})
+    )
+    clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
     convergence_edges = frozenset(
         edge
         for plan in convergence_plans
@@ -1670,19 +2151,30 @@ def build_member_geometry_execution(
             ctx,
             movable_route_ids=complete_path_route_ids,
         )
-        _hold_runs_in_corridor_clearance(
-            normalization_population,
-            ctx,
-            fixed_segment_keys=settled_tail_segments,
-        )
-        _coincide_same_line_tracks(complete_path_population, ctx)
-        _stagger_convergent_distinct_lines(
+
+        settled_approach_segments = _settle_same_destination_approach_bundles(
             normalization_population,
             ctx,
             movable_route_ids=complete_path_route_ids,
         )
+        _hold_runs_in_corridor_clearance(
+            normalization_population,
+            ctx,
+            fixed_segment_keys=settled_tail_segments | settled_approach_segments,
+        )
+        _coincide_same_line_tracks(complete_path_population, ctx)
+        cohort_settled_turns, clearance_requirements = (
+            _settle_plannable_short_destination_cohorts(
+                normalization_population,
+                graph,
+                ctx,
+                scaffold,
+                allow_clearance_requirements=allow_clearance_requirements,
+                granted_clearance_owner_ids=granted_clearance_owner_ids,
+            )
+        )
         if pending_exit_turn_plan_ids:
-            settled_exit_turns = _settled_exit_turns(
+            allocated_turns = _settled_exit_turns(
                 allocation_population,
                 ctx,
                 pending_exit_turn_plan_ids,
@@ -1696,7 +2188,10 @@ def build_member_geometry_execution(
         else:
             if reservation_ids_by_member is not None:
                 _seat_claimed_segments_before_freeze(tuple(candidates), ctx)
-            settled_exit_turns = MappingProxyType({})
+            allocated_turns = MappingProxyType({})
+        settled_exit_turns = MappingProxyType(
+            {**allocated_turns, **cohort_settled_turns}
+        )
         _separate_fused_cotravelling_runs(
             normalization_population,
             ctx,
@@ -1708,6 +2203,21 @@ def build_member_geometry_execution(
         for route, axis_id, segment_rank in deferred_exit_turn_ownership:
             route.exit_turn_axis_id = axis_id
             route.exit_turn_segment_rank = segment_rank
+        _rederive_semantic_end_corners(
+            normalization_population,
+            ctx.curve_radius,
+            ctx.station_offsets or {},
+            respect_owned_corners=False,
+        )
+        _plan_source_turnouts(normalization_population, graph, ctx.curve_radius)
+        semantic_corner_templates = {
+            ResolvedEdge(
+                route.edge.source,
+                route.edge.target,
+                route.line_id,
+            ): _semantic_corner_template(route)
+            for route in normalization_population
+        }
         plans = tuple(
             _freeze_plan(
                 scaffold,
@@ -1718,6 +2228,16 @@ def build_member_geometry_execution(
             )
             for candidate in candidates
         )
+        semantic_corner_templates.update(
+            {
+                plan.edge: (
+                    plan.curve_radii,
+                    plan.concentric_corner_offsets_by_segment,
+                    plan.concentric_corner_bases_by_segment,
+                )
+                for plan in plans
+            }
+        )
     finally:
         del ctx.built_routes[built_start:]
 
@@ -1726,7 +2246,128 @@ def build_member_geometry_execution(
         MappingProxyType(failures),
         MappingProxyType({plan.edge: plan for plan in plans}),
         settled_exit_turns,
+        MappingProxyType(semantic_corner_templates),
+        clearance_requirements,
     )
+
+
+def settle_member_geometry_corner_cohorts(
+    execution: MemberGeometryExecution,
+    scaffold: RouteSemanticScaffold,
+    family_by_edge: Mapping[ResolvedEdge, RouteFamilyId],
+    ctx: _RoutingCtx,
+) -> MemberGeometryExecution:
+    """Freeze exact same-line corner cohorts after every geometry owner settles."""
+    routes: list[RoutedPath] = []
+    plan_by_edge = {plan.edge: plan for plan in execution.plans}
+    built_start = len(ctx.built_routes)
+    try:
+        for resolved in scaffold.edge_order:
+            if resolved not in execution._semantic_corner_templates:
+                continue
+            edge = ctx.edge_by_key.get(
+                (resolved.source, resolved.target, resolved.line_id)
+            )
+            family_id = family_by_edge.get(resolved)
+            if edge is None or family_id is None:
+                continue
+            plan = plan_by_edge.get(resolved)
+            route = (
+                fresh_member_route(plan, edge)
+                if plan is not None
+                else _route_template(edge, family_id, ctx)
+            )
+            execution.apply_semantic_corner_template(route)
+            routes.append(route)
+            ctx.built_routes.append(route)
+        _unify_coincident_corner_radii(routes, include_owned=True)
+        _restore_clear_planned_landing_radii(routes, ctx.curve_radius)
+    finally:
+        del ctx.built_routes[built_start:]
+
+    route_by_edge = {
+        ResolvedEdge(route.edge.source, route.edge.target, route.line_id): route
+        for route in routes
+    }
+    plans = tuple(
+        replace(
+            plan,
+            curve_radii=(
+                None
+                if route_by_edge[plan.edge].curve_radii is None
+                else tuple(route_by_edge[plan.edge].curve_radii or ())
+            ),
+            concentric_corner_offsets_by_segment=tuple(
+                sorted(
+                    route_by_edge[
+                        plan.edge
+                    ].concentric_corner_offsets_by_segment.items()
+                )
+            ),
+            concentric_corner_bases_by_segment=tuple(
+                sorted(
+                    route_by_edge[plan.edge].concentric_corner_bases_by_segment.items()
+                )
+            ),
+        )
+        for plan in execution.plans
+    )
+    templates = dict(execution._semantic_corner_templates)
+    templates.update(
+        {
+            resolved: _semantic_corner_template(route)
+            for resolved, route in route_by_edge.items()
+        }
+    )
+    templates.update(
+        {
+            plan.edge: (
+                plan.curve_radii,
+                plan.concentric_corner_offsets_by_segment,
+                plan.concentric_corner_bases_by_segment,
+            )
+            for plan in plans
+        }
+    )
+    return MemberGeometryExecution(
+        plans,
+        execution.failure_reasons,
+        MappingProxyType({plan.edge: plan for plan in plans}),
+        execution.settled_exit_turns,
+        MappingProxyType(templates),
+        execution.clearance_requirements,
+    )
+
+
+def _restore_clear_planned_landing_radii(
+    routes: Sequence[RoutedPath], curve_radius: float
+) -> None:
+    """Give a settled fan landing its standard curve when its runway permits."""
+    by_plan: defaultdict[str, list[RoutedPath]] = defaultdict(list)
+    for route in routes:
+        if route.exit_turn_plan_id is not None:
+            by_plan[route.exit_turn_plan_id].append(route)
+    for members in by_plan.values():
+        if len({route.line_id for route in members}) < 2:
+            continue
+        for route in members:
+            rank = route.exit_turn_segment_rank
+            if (
+                rank is None
+                or route.curve_radii is None
+                or rank >= len(route.curve_radii)
+                or route.curve_radii[rank] >= curve_radius - COORD_TOLERANCE_FINE
+            ):
+                continue
+            desired = list(route.curve_radii)
+            desired[rank] = curve_radius
+            if (
+                resolve_curve_radius_at(route.points, desired, rank)
+                < curve_radius - COORD_TOLERANCE_FINE
+            ):
+                continue
+            route.record_concentric_corner(rank, 0.0, curve_radius)
+            route.curve_radii[rank] = curve_radius
 
 
 def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
@@ -1755,6 +2396,7 @@ def fresh_member_route(plan: RouteMemberGeometryPlan, edge: Edge) -> RoutedPath:
         fan_route_emitter=plan.fan_route_emitter,
         exit_turn_segment_rank=plan.exit_turn_segment_rank,
         exit_lane_transition_plan_id=plan.exit_lane_transition_plan_id,
+        source_turnout=plan.source_turnout,
         member_geometry_plan_id=str(plan.id),
         route_system_owned_segment_ranks=plan.owned_segment_ranks,
     )
@@ -1825,4 +2467,44 @@ def validate_member_geometry_emission(
                         f"member geometry plan {plan.id} corner radius "
                         f"{actual_radius!r} at index {radius_index} differs from "
                         f"its concentric radius {expected_radius!r}"
+                    )
+        planned_offsets = dict(plan.concentric_corner_offsets_by_segment)
+        planned_bases = dict(plan.concentric_corner_bases_by_segment)
+        for radius_index, planned_radius in enumerate(planned_radii):
+            corner_rank = radius_index + 1
+            if not any(
+                owned_rank in plan.owned_segment_ranks
+                for owned_rank in (corner_rank - 1, corner_rank)
+            ):
+                continue
+            if radius_index >= len(radii):
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} lost owned corner radius at "
+                    f"index {radius_index}"
+                )
+            if abs(radii[radius_index] - planned_radius) > COORD_TOLERANCE_FINE:
+                raise RuntimeError(
+                    f"member geometry plan {plan.id} owned corner radius changed "
+                    f"at index {radius_index}"
+                )
+            for segment_rank, tuple_index in (
+                (radius_index, 1),
+                (radius_index + 1, 0),
+            ):
+                expected_offset = planned_offsets.get(segment_rank, (None, None))[
+                    tuple_index
+                ]
+                actual_offset = route.concentric_corner_offsets_by_segment.get(
+                    segment_rank, (None, None)
+                )[tuple_index]
+                expected_base = planned_bases.get(segment_rank, (None, None))[
+                    tuple_index
+                ]
+                actual_base = route.concentric_corner_bases_by_segment.get(
+                    segment_rank, (None, None)
+                )[tuple_index]
+                if actual_offset != expected_offset or actual_base != expected_base:
+                    raise RuntimeError(
+                        f"member geometry plan {plan.id} owned corner inputs changed "
+                        f"at index {radius_index}"
                     )

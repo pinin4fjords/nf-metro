@@ -10,7 +10,11 @@ import re
 import drawsvg as draw
 
 from nf_metro.layout.routing import RoutedPath
-from nf_metro.layout.routing.common import apply_route_offsets, point_on_polyline
+from nf_metro.layout.routing.common import (
+    apply_route_offsets,
+    point_on_polyline,
+    segment_direction,
+)
 from nf_metro.layout.routing.corners import curve_tangents, resolve_curve_radii
 from nf_metro.parser.model import Edge, MetroGraph
 from nf_metro.render.constants import (
@@ -20,6 +24,7 @@ from nf_metro.render.constants import (
     MIN_ANIMATION_DURATION,
 )
 from nf_metro.render.ns import ns
+from nf_metro.render.path_geometry import materialize_source_turnout
 from nf_metro.render.style import Theme
 
 # A line whose travel fraction is within this of a full cycle gets a plain
@@ -183,6 +188,16 @@ def _build_line_motion_paths(
         line_polylines = [
             pts for key, pts in route_polylines.items() if key[2] == line_id
         ]
+        line_turnouts = tuple(
+            (
+                route_polylines[(route.edge.source, route.edge.target, route.line_id)][
+                    0
+                ],
+                route.source_turnout,
+            )
+            for route in routes
+            if route.line_id == line_id and route.source_turnout is not None
+        )
 
         for path_edges in all_paths:
             chunks = _chain_edge_points(
@@ -193,7 +208,34 @@ def _build_line_motion_paths(
             for chunk in chunks:
                 if len(chunk) < 2:
                     continue
-                d_attr = _points_to_svg_path(chunk, curve_radius)
+                radii = None
+                for corner, turnout in line_turnouts:
+                    corner_index = next(
+                        (
+                            index
+                            for index in range(1, len(chunk) - 1)
+                            if _points_match(chunk[index], corner)
+                            and segment_direction(chunk[index - 1], chunk[index])
+                            is turnout.incoming_direction
+                            and segment_direction(chunk[index], chunk[index + 1])
+                            is turnout.outgoing_direction
+                        ),
+                        None,
+                    )
+                    if corner_index is None:
+                        continue
+                    chunk, radii, _shift = materialize_source_turnout(
+                        chunk,
+                        radii,
+                        turnout,
+                        corner_index=corner_index,
+                        default_radius=curve_radius,
+                    )
+                d_attr = _points_to_svg_path(
+                    chunk,
+                    curve_radius,
+                    route_curve_radii=radii,
+                )
                 if d_attr:
                     result.append((line_id, d_attr))
 

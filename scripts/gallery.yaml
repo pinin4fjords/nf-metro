@@ -463,6 +463,31 @@ gallery:
       dogleg around an intervening section and an exempt continuation into a
       reverse-flow target; both routes must leave through one ordered fan frame
       without crossing.
+  - id: recompacted_fanout_exit
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      A three-line fan-out whose active exit lanes close the gaps left by
+      unrelated lines. The exit port, divergence junction, and horizontal
+      hand-off stubs must share the same compact 4 px frame.
+  - id: same_destination_short_overlap
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      Two same-direction routes converge on one side-entry port, but their
+      vertical approaches overlap by less than two curve radii. Settlement
+      must preserve the valid independently routed channels.
+  - id: same_destination_vertical_convergence
+    source_dir: examples/topologies
+    category: Fan-out and Fan-in
+    description:
+      "The reproducer published in #1764. Two same-direction routes converge on one
+      side-entry destination across several rows, their final approaches settling into
+      adjacent lanes while the outgoing diagonal's label keeps its clearance. The same
+      map also carries the #1746 settlement work: a planned multi-row riser crosses the
+      natural approach corridor, so settlement atomically refuses the natural off-slot
+      proposal that would cross the planned exempt riser and retains the existing
+      geometry."
   - id: plan_owned_distinct_lane_separation
     source_dir: examples/topologies
     category: Inter-section Routing
@@ -644,6 +669,14 @@ gallery:
       Three lines share a section with a fourth line that terminates locally. The active lines
       close the empty lane at the exit, while an aligned branch leaves the feeder without imposing
       a conflicting turn order on the straight bundle.
+
+  - id: exit_lane_swap_shared_exit_port
+    source_dir: examples/topologies
+    category: Multi-line Bundles
+    description:
+      A locally-born line leaves through the same exit port as an arriving wrap line, so the lane
+      the swap holder claims is the one the wrap line is already leaving by. Settling the exit
+      frame has to exchange the two lanes in place rather than reorder the bundle around them.
 
   - id: external_owner_exit_lane_frame
     source_dir: examples/topologies
@@ -2123,7 +2156,6 @@ gallery:
       "A vertical section's perpendicular exit reaching back to a section in the
       row behind it, the seam shape with the fewest corpus instances. Fully
       explicit for the orientation-equivalence oracle."
-
 pipelines:
   - id: rnaseq_auto
     title: nf-core/rnaseq
@@ -2185,6 +2217,16 @@ render_only:
   nextflow_conversions:
     - { id: variant_calling, output: nf_variant_calling_tuned }
     - { id: variant_calling_tuned, output: nf_variant_calling_tuned_icons }
+  # Registered fixtures whose render is a known abort, mapped to the guard that
+  # raises. Each is a named reproducer kept registered so its render-diff entry
+  # appears as soon as the abort is fixed; naming the guard is what keeps the
+  # build log from reporting a settled reproducer as a fresh failure.
+  # tests/test_corridor_cohort_integration.py holds this map to what the
+  # fixtures actually do.
+  expected_aborts:
+    hash_seed_determinism/seed_15: nf_metro.layout.routing.invariants.CurveInvariantError
+    hash_seed_determinism/seed_41: nf_metro.layout.routing.invariants.CurveInvariantError
+    hash_seed_determinism/seed_77: nf_metro.layout.routing.invariants.CurveInvariantError
   # Stems from tests/fixtures/ rendered into the "Test Fixtures" render-diff section.
   test_fixtures:
     - multiline_labels
@@ -2193,3 +2235,7 @@ render_only:
     - target_entry_runway_bypass
     - tb_exit_terminal_on_carrier
     - group_band_over_row_corridor
+    - hash_seed_determinism/seed_15
+    - hash_seed_determinism/seed_41
+    - hash_seed_determinism/seed_72
+    - hash_seed_determinism/seed_77

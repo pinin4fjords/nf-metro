@@ -172,6 +172,8 @@ class RenderPlan:
     station_offsets: FrozenMap
     routes: tuple[FrozenRecord, ...]
     route_polylines: tuple[tuple[tuple[float, float], ...], ...]
+    route_curve_radii: tuple[tuple[float, ...] | None, ...]
+    route_segment_shifts: tuple[int, ...]
     edge_route_indices: tuple[int, ...]
     bridge_breaks: tuple[tuple[FrozenRecord, ...], ...]
     labels: tuple[FrozenRecord, ...]

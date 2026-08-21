@@ -799,15 +799,21 @@ def cotravelling_lanes_fuse(
 
 
 def cotravelling_lane_clearance(
-    *, same_line: bool, counter_running: bool, curve_radius: float
+    *,
+    same_line: bool,
+    counter_running: bool,
+    curve_radius: float,
+    offset_step: float = OFFSET_STEP,
 ) -> float:
     """The separation two lanes sharing one corridor need to draw as two strokes.
 
     Two tracks of one line travelling the same way are fused deliberately, so
-    they ask for nothing.  Distinct lines nest one ``OFFSET_STEP`` apart, the
-    width at which both colours read as separate strokes.  Counter-running lanes
-    are separate bundles: one line's own return leg has to clear the turn it came
-    out of, so it needs the turn's radius, and two distinct lines take the full
+    they ask for nothing.  Distinct lines nest one *offset_step* apart, the width
+    at which both colours read as separate strokes -- the pitch the lanes being
+    measured were laid out on, which a graph's ``track_gap``/``stroke_scale`` can
+    put either side of :data:`OFFSET_STEP`.  Counter-running lanes are separate
+    bundles: one line's own return leg has to clear the turn it came out of, so
+    it needs the turn's radius, and two distinct lines take the full
     bundle-to-bundle clearance.
 
     Stated once here because two places have to agree on it: the router
@@ -815,5 +821,5 @@ def cotravelling_lane_clearance(
     how much room a boundary carrying several corridors has to be given.
     """
     if not counter_running:
-        return 0.0 if same_line else OFFSET_STEP
+        return 0.0 if same_line else offset_step
     return curve_radius + COORD_TOLERANCE if same_line else BUNDLE_TO_BUNDLE_CLEARANCE

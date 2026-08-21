@@ -46,8 +46,10 @@ _SCANNED_PACKAGES = ("layout", "parser", "render")
 # The accessors' own definitions, not a use of them.
 _EXEMPT = frozenset({"layout/geometry.py"})
 
-# Lower these (never raise them) when a call site migrates onto AxisFrame.
-_LITERAL_BASELINE = 60
+# Exact counts, not slack: ``test_direction_predicate_baselines_are_current``
+# asserts equality, so a site migrating onto AxisFrame has to lower the number
+# here in the same change.  Never raise them.
+_LITERAL_BASELINE = 59
 _NAMED_BASELINE = 266
 
 _FLOWS = frozenset(FLOW_DIRECTIONS)

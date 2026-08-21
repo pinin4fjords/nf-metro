@@ -60,6 +60,7 @@ from nf_metro.layout.route_topology import (
 from nf_metro.layout.routing.common import (
     CorridorLane,
     Direction,
+    HTrunkSeg,
     OffsetRegime,
     RoutedPath,
     _vert_horiz_cross,
@@ -67,6 +68,7 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    feasible_same_destination_approach_proposals,
     gap_lo_for_x,
     gap_lookup_geometry,
     horizontal_direction,
@@ -76,6 +78,7 @@ from nf_metro.layout.routing.common import (
     iter_horizontal_trunks,
     iter_opposing_entry_confluences,
     iter_port_peeloff_bundles,
+    iter_same_destination_approach_bundles,
     iter_vertical_segments,
     merge_fanout_pivot_reference,
     opening_horizontal_vertical,
@@ -83,8 +86,10 @@ from nf_metro.layout.routing.common import (
     peeloff_target_slots,
     perp_entry_consumer,
     resolve_section,
+    same_destination_approach_slots,
+    segments_properly_cross,
     tail_on_slot,
-    trunk_segments_cross,
+    trunk_segment_crossings,
     vertical_direction,
     vertical_flow_sections,
 )
@@ -796,6 +801,23 @@ class FanoutTailGap:
         )
 
 
+@dataclass(frozen=True)
+class FanoutLaneDiscontinuity:
+    """A collinear fan-out handoff that swaps a line onto another lane."""
+
+    junction_id: str
+    line_id: str
+    upstream_end: tuple[float, float]
+    downstream_start: tuple[float, float]
+
+    def message(self) -> str:
+        return (
+            f"fan-out junction {self.junction_id!r} line {self.line_id!r}: "
+            f"incoming lane ends at {self.upstream_end} but its horizontal "
+            f"continuation starts at {self.downstream_start}"
+        )
+
+
 def fanout_junctions(graph) -> dict[str, str]:  # noqa: ANN001 - MetroGraph (avoid cycle)
     """Map resolved divergence junction ids to their upstream exit ports."""
     return divergence_junction_sources(graph)
@@ -901,6 +923,33 @@ def check_fanout_tail_join(
                 )
             )
     return gaps
+
+
+def check_fanout_lane_continuity(
+    routes: list[RoutedPath],
+    graph,  # noqa: ANN001 - MetroGraph (avoid import cycle)
+) -> list[FanoutLaneDiscontinuity]:
+    """Return same-line horizontal fan-out handoffs that change lane."""
+    fanouts = fanout_junctions(graph)
+    upstream, downstream = _fanout_route_maps(routes, fanouts, graph)
+    discontinuities: list[FanoutLaneDiscontinuity] = []
+    for key, up in upstream.items():
+        down = downstream.get(key)
+        if down is None or len(up.points) < 2 or len(down.points) < 2:
+            continue
+        up_start, up_end = up.points[-2:]
+        down_start, down_end = down.points[:2]
+        if (
+            abs(up_start[1] - up_end[1]) <= COORD_TOLERANCE
+            and abs(down_start[1] - down_end[1]) <= COORD_TOLERANCE
+            and (up_end[0] - up_start[0]) * (down_end[0] - down_start[0]) > 0.0
+            and abs(up_end[0] - down_start[0]) <= COORD_TOLERANCE
+            and abs(up_end[1] - down_start[1]) > COORD_TOLERANCE
+        ):
+            discontinuities.append(
+                FanoutLaneDiscontinuity(key[0], key[1], up_end, down_start)
+            )
+    return discontinuities
 
 
 # Minimum effective radius an orthogonal inter-section turn must reach unless it
@@ -2196,8 +2245,12 @@ def check_partial_branch_offset_gaps(
     Only meaningful under ``compact_offsets``: that mode promises to
     tighten bundle spacing, so a partial-line branch should sit on
     consecutive slots rather than reserve a gap for lines it does not
-    carry.  In non-compact mode lines keep globally reserved slots by
-    design, so the check is a no-op there.
+    carry.  A non-compact branch keeps a slot for any line a station of
+    its own section rides, which is what holds a bundle's order steady
+    across the section, so its interior gaps are deliberate and this
+    check stays a no-op there.  The narrower non-compact rule -- no slot
+    reserved for a line the section does not carry at all -- is settled
+    in ``offsets._close_section_dead_lanes`` rather than reported here.
     """
     if not graph.compact_offsets:
         return []
@@ -3105,20 +3158,7 @@ def _segments_properly_cross(
     the common station is never mistaken for a crossing.
     """
 
-    Point = tuple[float, float]
-
-    def ccw(a: Point, b: Point, c: Point) -> float:
-        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-    d1, d2 = ccw(p3, p4, p1), ccw(p3, p4, p2)
-    d3, d4 = ccw(p1, p2, p3), ccw(p1, p2, p4)
-    if (d1 > 0) == (d2 > 0) or (d3 > 0) == (d4 > 0):
-        return None
-    denom = (p1[0] - p2[0]) * (p3[1] - p4[1]) - (p1[1] - p2[1]) * (p3[0] - p4[0])
-    if abs(denom) <= COORD_TOLERANCE:
-        return None
-    t = ((p1[0] - p3[0]) * (p3[1] - p4[1]) - (p1[1] - p3[1]) * (p3[0] - p4[0])) / denom
-    return (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
+    return segments_properly_cross(p1, p2, p3, p4, reject_collinear_touch=False)
 
 
 def _routes_crossings(
@@ -3518,10 +3558,10 @@ def check_no_dogleg_crosses_exempt_trunk(
     legitimate bundle a full gap apart never flags.
     """
     exempt = [
-        (rp, seg)
+        (rp, rank, seg)
         for rp in routes
         if rp.is_inter_section and rp.normalize_exempt
-        for _k, seg in iter_horizontal_trunks(rp)
+        for rank, seg in iter_horizontal_trunks(rp)
     ]
     if not exempt:
         return []
@@ -3529,28 +3569,161 @@ def check_no_dogleg_crosses_exempt_trunk(
     for rp in routes:
         if not rp.is_inter_section or rp.normalize_exempt:
             continue
-        for _k, seg in iter_horizontal_trunks(rp):
-            for erp, eseg in exempt:
+        for rank, seg in iter_horizontal_trunks(rp):
+            for erp, exempt_rank, eseg in exempt:
                 if erp.line_id == rp.line_id:
                     continue
                 if abs(seg.y - eseg.y) >= 2 * OFFSET_STEP:
                     continue
                 if seg.x_lo >= eseg.x_hi or eseg.x_lo >= seg.x_hi:
                     continue
-                pt = trunk_segments_cross(seg, eseg)
-                if pt is None:
-                    continue
-                violations.append(
-                    DoglegCrossesExemptTrunk(
-                        line_id=rp.line_id,
-                        exempt_line=erp.line_id,
-                        edge=(rp.edge.source, rp.edge.target),
-                        exempt_edge=(erp.edge.source, erp.edge.target),
-                        x=pt[0],
-                        y=pt[1],
+                for pt in trunk_segment_crossings(seg, eseg):
+                    if _same_source_corner_axis_contact(
+                        rp,
+                        rank,
+                        seg,
+                        erp,
+                        exempt_rank,
+                        eseg,
+                        pt,
+                    ):
+                        continue
+                    violations.append(
+                        DoglegCrossesExemptTrunk(
+                            line_id=rp.line_id,
+                            exempt_line=erp.line_id,
+                            edge=(rp.edge.source, rp.edge.target),
+                            exempt_edge=(erp.edge.source, erp.edge.target),
+                            x=pt[0],
+                            y=pt[1],
+                        )
                     )
-                )
     return violations
+
+
+class _ResolvedCornerArc(NamedTuple):
+    envelope: tuple[float, float, float, float]
+    horizontal_ray: int
+    vertical_ray: int
+
+
+def _resolved_trunk_corner_arc(
+    route: RoutedPath, trunk_rank: int, end_rank: int
+) -> _ResolvedCornerArc | None:
+    """Resolve one trunk-end corner into its rounded tangent envelope."""
+    from nf_metro.layout.routing.corners import resolve_curve_radii
+
+    corner_rank = trunk_rank + end_rank
+    radius_rank = corner_rank - 1
+    if not 0 < corner_rank < len(route.points) - 1:
+        return None
+    radii = resolve_curve_radii(route.points, route.curve_radii)
+    if radius_rank < 0 or radius_rank >= len(radii):
+        return None
+    radius = radii[radius_rank]
+    if radius <= COORD_TOLERANCE_FINE:
+        return None
+
+    previous = route.points[corner_rank - 1]
+    corner = route.points[corner_rank]
+    following = route.points[corner_rank + 1]
+    adjacent = (previous, following)
+    horizontal = [
+        point
+        for point in adjacent
+        if abs(point[1] - corner[1]) <= COORD_TOLERANCE
+        and abs(point[0] - corner[0]) > COORD_TOLERANCE
+    ]
+    vertical = [
+        point
+        for point in adjacent
+        if abs(point[0] - corner[0]) <= COORD_TOLERANCE
+        and abs(point[1] - corner[1]) > COORD_TOLERANCE
+    ]
+    if len(horizontal) != 1 or len(vertical) != 1:
+        return None
+    horizontal_point = horizontal[0]
+    vertical_point = vertical[0]
+    horizontal_ray = 1 if horizontal_point[0] > corner[0] else -1
+    vertical_ray = 1 if vertical_point[1] > corner[1] else -1
+    tangent_x = corner[0] + horizontal_ray * radius
+    tangent_y = corner[1] + vertical_ray * radius
+    return _ResolvedCornerArc(
+        (
+            min(corner[0], tangent_x),
+            min(corner[1], tangent_y),
+            max(corner[0], tangent_x),
+            max(corner[1], tangent_y),
+        ),
+        horizontal_ray,
+        vertical_ray,
+    )
+
+
+def _point_in_corner_arc_envelope(
+    point: tuple[float, float], arc: _ResolvedCornerArc
+) -> bool:
+    x, y = point
+    x_lo, y_lo, x_hi, y_hi = arc.envelope
+    return (
+        x_lo - COORD_TOLERANCE_FINE <= x <= x_hi + COORD_TOLERANCE_FINE
+        and y_lo - COORD_TOLERANCE_FINE <= y <= y_hi + COORD_TOLERANCE_FINE
+    )
+
+
+def _same_source_corner_axis_contact(
+    route: RoutedPath,
+    trunk_rank: int,
+    segment: HTrunkSeg,
+    exempt_route: RoutedPath,
+    exempt_trunk_rank: int,
+    exempt_segment: HTrunkSeg,
+    crossing: tuple[float, float],
+) -> bool:
+    """Whether rounded same-source corners remove a raw axis intersection.
+
+    Both effective arcs must cover the raw intersection and turn away from one
+    another from the same horizontal approach. Proximity without those resolved
+    corner facts is a real crossing, not an exemption.
+    """
+    if route.edge.source != exempt_route.edge.source:
+        return False
+
+    x, y = crossing
+    for end_rank, (route_x, exempt_x) in enumerate(
+        (
+            (segment.xa, exempt_segment.xa),
+            (segment.xb, exempt_segment.xb),
+        )
+    ):
+        raw_contacts = (
+            (exempt_x, segment.y),
+            (route_x, exempt_segment.y),
+        )
+        if not any(
+            abs(x - contact_x) < COORD_TOLERANCE
+            and abs(y - contact_y) < COORD_TOLERANCE
+            for contact_x, contact_y in raw_contacts
+        ):
+            continue
+        if abs(route_x - exempt_x) >= 2 * OFFSET_STEP:
+            continue
+        route_arc = _resolved_trunk_corner_arc(route, trunk_rank, end_rank)
+        exempt_arc = _resolved_trunk_corner_arc(
+            exempt_route, exempt_trunk_rank, end_rank
+        )
+        if route_arc is None or exempt_arc is None:
+            continue
+        if (
+            route_arc.horizontal_ray != exempt_arc.horizontal_ray
+            or route_arc.vertical_ray != -exempt_arc.vertical_ray
+        ):
+            continue
+        if _point_in_corner_arc_envelope(
+            crossing, route_arc
+        ) and _point_in_corner_arc_envelope(crossing, exempt_arc):
+            return True
+    return False
 
 
 def _merge_spans(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -6270,6 +6443,53 @@ def check_port_corner_within_bbox(
     return out
 
 
+@dataclass(frozen=True)
+class LooseSameDestinationFinalVertical:
+    """One final port approach outside its destination bundle slot."""
+
+    port_id: str
+    line_id: str
+    actual_x: float
+    expected_x: float
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        return (
+            f"line {self.line_id!r} enters port {self.port_id!r} on "
+            f"x={self.actual_x:.1f}, expected destination bundle slot "
+            f"x={self.expected_x:.1f}"
+        )
+
+
+def check_same_destination_approach_bundle(
+    graph: MetroGraph,
+    routes: list[RoutedPath],
+) -> list[LooseSameDestinationFinalVertical]:
+    """Return eligible H-V-H approaches outside their tight destination slots."""
+    out: list[LooseSameDestinationFinalVertical] = []
+    step = graph_offset_step(graph)
+    for bundle in iter_same_destination_approach_bundles(routes, graph, step):
+        slots = same_destination_approach_slots(bundle, graph, step)
+        if (
+            feasible_same_destination_approach_proposals(graph, routes, bundle, slots)
+            is None
+        ):
+            continue
+        for route, tail in bundle.entries:
+            expected_x = slots[route.line_id].peel_x
+            if abs(tail.peel_x - expected_x) <= COORD_TOLERANCE:
+                continue
+            out.append(
+                LooseSameDestinationFinalVertical(
+                    bundle.port_id,
+                    route.line_id,
+                    tail.peel_x,
+                    expected_x,
+                )
+            )
+    return out
+
+
 class CurveInvariantError(RuntimeError):
     """A rendered route contains a bundle-curve defect.
 
@@ -6406,6 +6626,10 @@ def assert_render_curve_invariants(
             "opposing feeder confluence changes lane order",
             check_opposing_entry_confluence_order(graph, routes),
         ),
+        (
+            "same-destination final vertical bundle",
+            check_same_destination_approach_bundle(graph, routes),
+        ),
         ("fan opening geometry", check_fan_opening_geometry(graph, routes, offsets)),
         (
             "planned fan landing curve compressed despite clear runway",
@@ -6529,6 +6753,17 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     _check_spec(check_trunks_declared, "A"),
     _check_spec(check_peeloff_concentric, "A"),
     _check_spec(check_opposing_entry_confluence_order, "A"),
+    _check_spec(
+        check_same_destination_approach_bundle,
+        "A",
+        issue_pin=("#1746",),
+        narrow_reason=(
+            "Restricted to complete side-entry groups with one route per line, "
+            "one direction triple, a common destination suffix and vertical "
+            "run, and nearby channels in one column gap. Planned, obstructed, "
+            "rail, partial and counter-running groups remain outside the guard."
+        ),
+    ),
     _check_spec(check_fan_opening_geometry, "A"),
     _check_spec(check_planned_fan_landing_radius, "A"),
     _check_spec(check_orthogonal_turns_form_curves, "A"),
@@ -6549,6 +6784,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     _check_spec(check_fan_merge_no_partition_crossing, "B"),
     _check_spec(check_fanout_tail_join, "B"),
+    _check_spec(check_fanout_lane_continuity, "B"),
     _check_spec(check_merge_port_approach_side, "B"),
     _check_spec(check_convergence_shallow_feeder_concentric, "B"),
     _check_spec(
@@ -6650,6 +6886,7 @@ __all__ = [
     "FanOpeningFailure",
     "FanOpeningGeometryViolation",
     "FanoutTailGap",
+    "FanoutLaneDiscontinuity",
     "FusedCotravellingLanes",
     "HangingRoute",
     "MergeBranchHang",
@@ -6657,6 +6894,7 @@ __all__ = [
     "MergePortApproachViolation",
     "NonConcentricCornerViolation",
     "LooseDestinationTail",
+    "LooseSameDestinationFinalVertical",
     "OpposingGapChannelCrowding",
     "OpposingEntryConfluenceOrderViolation",
     "PlannedFanLandingRadiusViolation",
@@ -6683,6 +6921,7 @@ __all__ = [
     "check_gap_channels_materialized",
     "check_opposing_gap_channel_clearance",
     "check_opposing_entry_confluence_order",
+    "check_same_destination_approach_bundle",
     "check_trunks_declared",
     "check_concentric_bundle_corners",
     "check_standard_source_bundle_corner_inputs",
@@ -6690,6 +6929,7 @@ __all__ = [
     "check_deferred_offsets_apply_laterally",
     "check_diamond_fan_in_diverges_together",
     "check_fanout_tail_join",
+    "check_fanout_lane_continuity",
     "check_fan_opening_geometry",
     "check_planned_fan_landing_radius",
     "check_no_distinct_line_fanout_crossing",

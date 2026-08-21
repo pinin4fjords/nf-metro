@@ -256,6 +256,10 @@ def test_every_curve_radius_traces_to_a_corners_helper() -> None:
     total = sum(len(slots) for slots in per_file.values())
 
     # Guard against the finder silently matching nothing (e.g. modules moved).
+    # A write routed through a local alias (``radii = route.curve_radii`` then
+    # ``radii[i] = ...``) is invisible to ``_is_curve_radii_slot``, so a falling
+    # count means lost sweep coverage, not simplified code: de-alias the write
+    # rather than lowering this floor.
     assert total >= 5, (
         f"expected to find many curve_radii sites, found {total} - "
         "the finder may be broken or the routing modules restructured"
