@@ -39,8 +39,8 @@ standing consent. A clean render-diff verdict is not consent either.
   up-to-date policy blocks it, stop and return that blocker. Do not escalate to
   `--admin`.
 - **"Admin merge"** explicitly authorises `gh pr merge <N> --admin --merge`. If
-  CI is not green, first assign a fresh `fix-issue-merge-assessor` (HIGH, read-only) to
-  use `pinin4fjords:eco-merge` and determine whether the sole unverified delta is
+  CI is not green, first assign a fresh `fix-issue-merge-assessor` (HIGH, read-only), which
+  carries the safelist inline and no tool that can merge and determine whether the sole unverified delta is
   CI-irrelevant. The coordinator may run the admin merge only with both explicit
   user admin-merge authority and that worker's pass verdict. Otherwise return the
   blocker. Do not update the branch or start fresh CI merely to satisfy

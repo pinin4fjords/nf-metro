@@ -1,6 +1,6 @@
 ---
 name: fix-issue
-description: Coordinator-led workflow for fixing GitHub issues on nf-metro: diagnostic-first, invariant-test-first, delegated to tiered workers. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Handles autonomous / net-negative requests. Trigger on "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. For shepherding a chain of existing PRs back to main, see `pr-chain-vet` instead.
+description: Coordinator-led workflow for fixing GitHub issues on nf-metro: diagnostic-first, invariant-test-first, delegated to tiered workers. Use when the user references a GitHub issue (by number, URL, or description) and wants it fixed. Handles autonomous / net-negative requests. Trigger on "fix issue #N", "address #N", "work on issue N", or any request to fix a bug or implement a feature that references an issue. Use this whenever the work starts from a filed issue, including layout and routing bugs. For a bad render you are looking at with no issue filed, see `nf-metro-layout-fix`; for shepherding a chain of existing PRs back to main, see `pr-chain-vet`.
 ---
 
 # Fix Issue
@@ -22,34 +22,35 @@ simply" or for "less words", cut - don't re-expand.
 - micromamba: `/opt/homebrew/bin/micromamba` (macOS Apple Silicon codesign
   workaround). On other platforms, just `micromamba` if it's on PATH.
 
-## Reference files
+## Reference files: load only what you own
 
-Load the one you are on. Be honest about what this saves: `worker-contract`,
-`procedure`, `diagnosis`, `tests-and-validators`, `visual-review`, `environment`
-and `merge-and-cleanup` are all needed on a normal run, so deferral is the
-saving, not elimination. Only `gate-ratchet`,
-`regression-locks`, `agent-types` and `autonomous-mode` are genuinely
-conditional.
+**The coordinator reads only the four files marked `coord`.** The rest are
+worker-facing: name the file in the worker's brief and let the worker read it in
+its own context, which is discarded at handoff. Reading a worker's reference "to
+check its work" is what the independent gates are for, and it puts those bytes in
+the context that is re-read on every later turn.
 
-| File | Load when |
-| --- | --- |
-| [`worker-contract.md`](references/worker-contract.md) | every brief points workers here; read it yourself once |
-| [`procedure.md`](references/procedure.md) | Steps 1, 2, 6, 7, 10, 11, 12 in full |
-| [`diagnosis.md`](references/diagnosis.md) | Step 3: pinning the defect, classification, tooling |
-| [`tests-and-validators.md`](references/tests-and-validators.md) | Steps 4 and 5: the failing test, then the guard |
-| [`visual-review.md`](references/visual-review.md) | Steps 8 and 9: fetching renders, verdict gating, narrowing |
-| [`environment.md`](references/environment.md) | env, hooks, the verifier command block, local renders |
-| [`gate-ratchet.md`](references/gate-ratchet.md) | the diff touched `layout/routing/`, or added a topology fixture |
-| [`regression-locks.md`](references/regression-locks.md) | the Step 4 grep found a lock, or you want to add an xfail |
-| [`merge-and-cleanup.md`](references/merge-and-cleanup.md) | the PR body, pushing, merging, cleanup |
-| [`agent-types.md`](references/agent-types.md) | you are considering `Explore` in place of a role type |
-| [`autonomous-mode.md`](references/autonomous-mode.md) | the user signalled autonomous / net-negative work |
+| File | Owner | Load when |
+| --- | --- | --- |
+| [`coordinator.md`](references/coordinator.md) | **coord** | always: briefing the issue, worktree setup, the push, origin check, pre-ready gate, cleanup |
+| [`agent-types.md`](references/agent-types.md) | **coord** | choosing an agent type, or checking the model resolution order |
+| [`scope-discipline.md`](references/scope-discipline.md) | **coord** | fallout appears and you are tempted to defer it |
+| [`merge-and-cleanup.md`](references/merge-and-cleanup.md) | **coord** | the PR body, pushing, merging, cleanup |
+| [`autonomous-mode.md`](references/autonomous-mode.md) | coord | the user signalled autonomous / net-negative work |
+| [`worker-contract.md`](references/worker-contract.md) | worker | every brief names it |
+| [`diagnosis.md`](references/diagnosis.md) | diagnostician | its brief names it |
+| [`tests-and-validators.md`](references/tests-and-validators.md) | writer | its brief names it |
+| [`writer-steps.md`](references/writer-steps.md) | writer | its brief names it |
+| [`regression-locks.md`](references/regression-locks.md) | writer | the Step 4 grep found a lock, or an xfail is proposed |
+| [`gate-ratchet.md`](references/gate-ratchet.md) | gate specialist | `layout/routing/` changed, or a fixture was added |
+| [`environment.md`](references/environment.md) | any worker running commands | its brief names it |
+| [`visual-review.md`](references/visual-review.md) | visual reviewer | its brief names it |
 
 **After an auto-compaction, re-invoke this skill.** Claude Code re-attaches only
 the first 5,000 tokens of each skill, sharing a 25,000-token budget across all of
-them, so a long run can silently lose the back half of this file or drop it
-entirely once other skills are invoked. The ordering below puts the procedure and
-the tier contract first for that reason; do not move the rationale above them.
+them, so a long run can lose the back half of this file or drop it entirely once
+other skills are invoked. The ordering below puts the procedure and the tier
+contract first for that reason; do not move the rationale above them.
 
 ## The twelve steps
 
@@ -59,11 +60,10 @@ because its detail is not inline.
 1. **Understand the issue.** A LIGHT investigator reads it and returns problem
    statement, scope, unknowns, and a proposed diagnostic brief. The issue body
    stays in the worker. Wait for user confirmation unless autonomous work is
-   pre-authorised. [`procedure.md`](references/procedure.md)
+   pre-authorised. [`coordinator.md`](references/coordinator.md)
 2. **Worktree and environment.** Coordinator creates the worktree off latest
    `origin/main`, records the base SHA, assigns one writer.
-   [`procedure.md`](references/procedure.md),
-   [`environment.md`](references/environment.md)
+   [`coordinator.md`](references/coordinator.md)
 3. **Diagnose before fixing.** No fix proposed from a hypothesis. The defect
    becomes a numeric claim (geometry) or named call sites (structural), or the
    verdict is "not a bug" held to the same standard. Then the mandatory
@@ -77,11 +77,10 @@ because its detail is not inline.
    [`tests-and-validators.md`](references/tests-and-validators.md)
 6. **`/simplify` pass**, run by default; skipping needs all four triviality
    conditions and must be declared.
-   [`procedure.md`](references/procedure.md)
+   [`writer-steps.md`](references/writer-steps.md)
 7. **Lint and tests.** Writer runs the mutating commands and commits; a LIGHT
    verifier re-runs the fixed block against the frozen SHA. CI owns the full
-   suite. [`procedure.md`](references/procedure.md),
-   [`environment.md`](references/environment.md),
+   suite. [`writer-steps.md`](references/writer-steps.md),
    [`gate-ratchet.md`](references/gate-ratchet.md)
 8. **Visual review via the CI render preview.** The coordinator's single push
    and draft-PR creation happens here. Any delta at all gets HIGH eyes on every
@@ -91,11 +90,11 @@ because its detail is not inline.
    [`visual-review.md`](references/visual-review.md)
 10. **Accept the candidate, verify origin.** `HEAD` equals the accepted SHA, the
     tree is clean, and the pushed ref matches local. Query the ref, not the PR
-    API, which lags. [`procedure.md`](references/procedure.md),
+    API, which lags. [`coordinator.md`](references/coordinator.md),
     [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
 11. **The pre-ready gate**, then `gh pr ready`. One HIGH reviewer covering code
     review and aggregate progress together.
-    [`procedure.md`](references/procedure.md)
+    [`coordinator.md`](references/coordinator.md)
 12. **Post-merge cleanup**, only with authority, children retargeted first.
     [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
 
@@ -106,32 +105,25 @@ single issue fix, see `pr-chain-vet`.
 
 ### Worker tiers are explicit, never inherited
 
-**Every worker launch must name its capability tier.** Never omit the
-model/capability parameter and let the child inherit the session default. An
-unset parameter is not "no decision was made", it is "the session's top tier
-got picked because nobody decided". Choose the tier *before* spawning and state
-it in one line.
+**Every worker launch names its tier explicitly.** Decide it before spawning and
+say so in one line. Omitting the parameter is not a decision, it is a default
+nobody chose - and where it lands depends on the resolution order in
+[`agent-types.md`](references/agent-types.md), including one environment variable
+that overrides every tier in this table. Never leave it to that.
 
-If a worker is found running on an inherited default, that is a mistake to
-correct - restart it on the intended tier - not a choice to defend. Do not
-rationalise keeping the higher tier because the task turned out to suit harder
-judgment in hindsight; that call has to happen at spawn time, explicitly, or
-not at all.
+The tier is the contract, not the model name: `haiku`/`sonnet`/`opus` on Claude
+Code, `luna`/`terra`/`sol` on Codex, three tiers whatever the harness calls them.
 
-The tier is the contract, not the model name. On Claude Code that is
-`haiku`/`sonnet`/`opus`; on Codex, `luna`/`terra`/`sol`. Substitute local
-equivalents elsewhere and keep the three-tier shape; if a harness exposes no such
-parameter, say so in one line and proceed.
-
-Role tiers are fixed by this table and do not drift upward because a task felt
-hard. A role **re-briefed** later in the run (the writer applying `/simplify`
-findings, or narrowing a delta) keeps the tier it was spawned at.
+Tiers come from the table below and do not drift upward because a task felt hard.
+A re-briefed role keeps the tier it was spawned at. If you find a worker running
+on an inherited default, restart it on the intended tier rather than justifying
+the one it got: that call belongs at spawn time or not at all.
 
 | Step | Role | Tier |
 | --- | --- | --- |
 | 1 | issue investigator | LIGHT |
 | 3 | diagnostic worker | HIGH; MID when the issue already names its own single-site cause and the brief is confirm-or-refute |
-| 4-7 | sole writer | HIGH when the diff changes geometry-affecting logic in `layout/`, `routing/`, or `parser/`; MID for a class (c) structural change in those dirs that alters no geometry, or for anything outside them. Highest tier wins on a mixed diff |
+| 4-7 | sole writer | HIGH when the diff changes geometry-affecting logic in `src/nf_metro/layout/` (including its `routing/` package) or `src/nf_metro/parser/`; MID for a class (c) structural change in those dirs that alters no geometry, or for anything outside them. Highest tier wins on a mixed diff |
 | 6 | `/simplify` worker | MID |
 | 7 | lint/test verifier | LIGHT |
 | 7 | routing gate specialist | MID |
@@ -172,7 +164,7 @@ treat that as a backstop and not a guarantee; the instruction is what enforces
 read-only. The structural lever, and why `permissionMode` is not it, is in
 [`agent-types.md`](references/agent-types.md).
 
-`Explore`/`Plan` skip both CLAUDE.md files (~5k tokens a spawn) but discard the
+`Explore`/`Plan` skip both CLAUDE.md files (4,455 tokens a spawn, measured) but discard the
 role definition and cannot be re-briefed: see
 [`agent-types.md`](references/agent-types.md) before substituting one.
 
@@ -238,14 +230,11 @@ or snapshot, never a live worktree during an active writer assignment. User
 authority determines whether the coordinator acts; it never transfers that
 ownership to a worker.
 
-The writer is **one continuing worker**, not a fresh spawn per step. Continue it
-with `SendMessage` addressed to its agent ID; a fresh `Agent` call creates a new
-instance and re-pays the largest read cost in the run. A per-invocation `model`
-still applies on resume. Steps 6, 7
-and 9 re-brief the same agent so it keeps the large layout modules it already
-read in working context; re-spawning it would re-pay the largest read cost in
-the run. Readers, by contrast, are fresh each time so their judgment stays
-independent.
+The writer is **one continuing worker**, not a fresh spawn per step. Steps 6, 7
+and 9 re-brief the same agent with `SendMessage` to its agent ID, so it keeps the
+large layout modules it already read; a fresh `Agent` call re-pays the largest
+read cost in the run. A per-invocation `model` still applies on resume. Readers,
+by contrast, are fresh each time so their judgment stays independent.
 
 Use one candidate sequence throughout: the sole writer makes local candidate
 commit(s), runs mutation-capable hooks or generators, and hands off the exact

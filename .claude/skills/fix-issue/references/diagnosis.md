@@ -3,7 +3,8 @@
 Step 3 in full. Read before briefing the diagnostic worker.
 
 
-Assign a read-only diagnostic worker, at the tier the two forms below name, before the writer changes code. **Do not
+Assign a read-only `fix-issue-diagnostician` at HIGH (or MID for a stated
+single-site cause, see below) before the writer changes code. **Do not
 propose fixes from hypotheses.** The worker must reproduce the symptom as a
 falsifiable claim, in one of two forms.
 
@@ -134,4 +135,4 @@ conveniences, not requirements - any way you pin the bug to numbers is fine.
 If the issue happens to have been filed by the `nf-metro-stress-render` skill,
 it carries a correct-by-construction repro `.mmd` in a `<details>` fold in the
 issue body - start from that rather than re-deriving one. Most issues won't have
-this; otherwise assign the diagnostic worker to build a faithful reproducer.
+this; otherwise the same HIGH diagnostician builds a faithful reproducer.

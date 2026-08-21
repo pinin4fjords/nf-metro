@@ -5,8 +5,9 @@ Read before substituting `Explore` for a named role type.
 ## When to use `Explore` instead
 
 `Explore` and `Plan` are the only agent types that skip both CLAUDE.md files and
-the git-status snapshot, worth about 5k tokens per spawn here (project 10.9KB +
-user 9.7KB). There is no frontmatter field that exempts a custom type, so this is
+the git-status snapshot. Measured with tiktoken on the actual files, that is
+**4,455 tokens per spawn** here (project CLAUDE.md 2,246 + user 2,209), so on a
+ten-spawn run routing just the investigator and verifier through it saves ~8.9k. There is no frontmatter field that exempts a custom type, so this is
 the only lever. `Explore` is read-only - `Write` and `Edit` are denied - and it
 is one-shot: it returns no agent ID and cannot be resumed or re-briefed.
 

@@ -1,7 +1,9 @@
-# Procedure detail
+# Coordinator actions
 
-The steps whose detail does not live in a more specific reference. Read the one
-you are on; the spine in SKILL.md says when each applies.
+The steps the coordinator executes itself. Everything else it briefs a worker to
+do; do not read the worker references to "check their work" - that is what the
+independent gates are for, and reading them puts worker-facing bytes in the
+context that is re-read every turn.
 
 ## Step 1: Understand the Issue
 
@@ -48,85 +50,6 @@ coordinator serializes the next assignment.
 Env, `PYTHONPATH`, and commit-hook mechanics:
 [`environment.md`](environment.md). Reuse the one
 long-lived `nf-metro-dev` env; never create one per issue.
-
-## Step 6: /simplify Pass
-
-**Run this by default.** `/simplify` is worthwhile on anything beyond the
-trivial, and "the diff is small" is not by itself a reason to skip it. Skip only
-when **every** one of these holds, and say in one line that you did:
-
-- the production diff adds no new function, class, branch, or code path;
-- it does not touch a shared helper, a dispatch table, or anything with more
-  than one caller;
-- it is under roughly 20 lines of non-test production code;
-- no later step (narrowing, lint, review) has added production code since.
-
-A five-line change that introduces a branch, or threads an argument through
-three call sites, is not trivial. If you are weighing whether it qualifies, it
-does not: run the pass.
-
-After the fix and tests are passing, assign a fresh MID read-only worker to
-invoke the `pinin4fjords:simplify` skill on the changed code. It returns findings, proposed
-edits, and a pass/fail verdict without writing. Re-brief the worktree's sole
-writer to apply accepted suggestions and record them in a **separate** local
-candidate commit:
-
-```
-refactor: tighten <area> after fix for #<N>
-```
-
-Keeping `fix:` and `refactor:` commits separate makes the fix itself easy
-to review and easy to revert in isolation if regressions surface.
-The writer then hands off the exact candidate SHA, and an independent verifier
-checks that SHA before it can be accepted.
-
-**Re-running it later:** `/simplify` is expensive, so don't assign it after
-every follow-up commit. Only re-run it on the final aggregate diff if later
-steps (narrowing a regression, lint/mypy fixes) added a **substantial** chunk
-of new production code the first pass never saw. A couple of small,
-already-clean follow-up edits don't warrant a second pass.
-
-## Step 7: Lint and Tests
-
-The sole writer runs all mutation-capable formatting, fixing, regeneration,
-and hook commands, resolves their changes, then creates the candidate commit.
-Never skip hooks with `--no-verify`.
-
-Assign a LIGHT independent read-only verifier the exact candidate SHA. It runs
-the fixed command block in
-[`environment.md`](environment.md) against a frozen
-checkout, requires a clean tree before and after, keeps every cache and log in
-the external artifact directory, and returns the command, exit status, concise
-failure excerpt, and verdict. Route failures back to the writer, then verify the
-new SHA.
-
-**CI owns the full suite.** Targeted local tests plus the CI matrix is the
-default, not a compromise: CI already runs the complete suite across the
-supported matrix on every push, and duplicating it locally per branch or per
-worker buys no signal. Run a local full suite only when it earns its cost:
-
-- shared orchestration, parser model, dispatch table, or widely used helper
-  changed;
-- a targeted pass cannot cover a concrete wider-regression risk;
-- explicit admin-merge preparation needs local full-suite confidence.
-
-One exception is genuinely full-corpus by construction: a new topology
-fixture's guard-trace golden, under "Generated-artifact gates" below.
-
-### Generated-artifact gates
-
-Two distinct triggers, and the path is literal. The gate-coverage ratchet
-scans `src/nf_metro/layout/routing/` **only** (`ROUTING_DIR` in
-`scripts/routing_gate_coverage.py`, with branch coverage scoped to it), so it
-trips on an `if`/`while` change inside that nested package, or on a new fixture
-that closes a gap. A change elsewhere under `layout/` - `engine.py`, a phase
-module, `ordering.py` - cannot trip it, so do not spend a worker checking
-defensively. The guard-trace golden is separate and trips on any **new** fixture
-under `examples/topologies/`. When either fires, each failure names a specific
-reconciliation you owe in this same PR. Do not hand-edit baselines to silence
-them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
-[`gate-ratchet.md`](gate-ratchet.md).
-
 
 ## Step 10: accept candidate, verify origin
 
@@ -176,4 +99,3 @@ that order, and only with user authority. Full procedure and the reconciliation
 checks that gate it: [`merge-and-cleanup.md`](merge-and-cleanup.md).
 
 For shepherding a whole stacked chain of PRs back into `main` (rather
-than a single issue fix), see `pr-chain-vet`.

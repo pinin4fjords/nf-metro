@@ -1,6 +1,6 @@
 ---
 name: nf-metro-layout-fix
-description: Drive code-level fixes to nf-metro when a real pipeline render exposes a layout bug that isn't a mmd mistake, without regressing pipelines that already ship metro maps. Use when working in nf-metro's src/ (layout engine, routing, parser) to fix kinks, station overlaps, breeze-past, asymmetric fans, bypass routing, or bbox overflow on a real pipeline diagram. Covers the savepoint tag pattern, the invariant-test-first-then-fix-then-runtime-validator loop, gallery regression vetting with build_gallery and build_render_diff, converting global fixes to conditional ones so other renders aren't pushed around, and the additive-commits-only PR chain workflow. For authoring the mmd content itself (deciding lines, stations, sections), see the `pipeline-metro-diagram` skill. For routine gallery regression testing of nf-metro, see `render-topologies`.
+description: Drive code-level fixes to nf-metro when a real pipeline render exposes a layout bug that isn't a mmd mistake, without regressing pipelines that already ship metro maps. Use when working in nf-metro's src/ (layout engine, routing, parser) to fix kinks, station overlaps, breeze-past, asymmetric fans, bypass routing, or bbox overflow on a real pipeline diagram. Covers the savepoint tag pattern, the invariant-test-first-then-fix-then-runtime-validator loop, gallery regression vetting with build_gallery and build_render_diff, converting global fixes to conditional ones so other renders aren't pushed around, and the additive-commits-only PR chain workflow. If the work starts from a filed GitHub issue, use `fix-issue` instead: it covers this same invariant-test-first and gallery-vetting loop, and adds the diagnostic gates, worker tiering, and PR discipline. Use this skill for a bad render with no issue behind it. For authoring the mmd content itself (deciding lines, stations, sections), see the `pipeline-metro-diagram` skill. For routine gallery regression testing of nf-metro, see `render-topologies`.
 ---
 
 # Fixing nf-metro Layout Bugs Surfaced by a Real Pipeline Render
@@ -26,7 +26,7 @@ Trigger when:
   routing through a non-consumer, asymmetric fans, bbox overflow) **and**
   you've already verified the mmd is correct.
 - You're about to modify code in `src/nf_metro/layout/engine.py`,
-  `src/nf_metro/routing/`, or `src/nf_metro/parser/` to fix a layout case
+  `src/nf_metro/layout/routing/`, or `src/nf_metro/parser/` to fix a layout case
   surfaced by a real pipeline diagram.
 - You're managing a stack of PRs against nf-metro `main` from a single
   pipeline-integration session and want the chain rules in one place.
