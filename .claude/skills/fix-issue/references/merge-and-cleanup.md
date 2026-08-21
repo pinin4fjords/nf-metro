@@ -1,5 +1,21 @@
 # Push hygiene, merge authority, cleanup
 
+## When CI runs
+
+- **Default `[skip ci]` on work-in-progress pushes** (WIP snapshots, refactor
+  passes). Let CI run on the final pre-review push - which this repo needs
+  anyway, because the render-diff *is* the visual review. (A commit that fixes a
+  known CI failure must re-run CI: no `[skip ci]` on those.)
+- **One CI-triggering push per round.** A push runs the full test matrix *and*
+  renders the whole gallery twice, on the PR branch and the base. It is the most
+  expensive action in this workflow. Batch accepted fixes into one push instead
+  of pushing each one as it lands.
+
+A `[skip ci]` push is not free. It leaves the render preview built from an older
+tree, so the Step 8 provenance check fails and the fallback is to enumerate the
+corpus and render both sides locally. Use it for genuine throwaway snapshots;
+never on the commit you intend to review.
+
 Read this at the push/merge/cleanup end of a run.
 
 ## Additive only - no force-push, ever

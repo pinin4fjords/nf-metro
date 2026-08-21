@@ -164,9 +164,9 @@ treat that as a backstop and not a guarantee; the instruction is what enforces
 read-only. The structural lever, and why `permissionMode` is not it, is in
 [`agent-types.md`](references/agent-types.md).
 
-`Explore`/`Plan` skip both CLAUDE.md files (4,455 tokens a spawn, measured) but discard the
-role definition and cannot be re-briefed: see
-[`agent-types.md`](references/agent-types.md) before substituting one.
+Substituting `Explore`/`Plan` skips both CLAUDE.md files but discards the role
+definition and blocks re-briefing; measured at ~$0.24 a run, so it is a curiosity
+rather than a lever. See [`agent-types.md`](references/agent-types.md).
 
 ### Worker brief template
 
@@ -230,11 +230,20 @@ or snapshot, never a live worktree during an active writer assignment. User
 authority determines whether the coordinator acts; it never transfers that
 ownership to a worker.
 
-The writer is **one continuing worker**, not a fresh spawn per step. Steps 6, 7
-and 9 re-brief the same agent with `SendMessage` to its agent ID, so it keeps the
-large layout modules it already read; a fresh `Agent` call re-pays the largest
-read cost in the run. A per-invocation `model` still applies on resume. Readers,
-by contrast, are fresh each time so their judgment stays independent.
+The writer is **one continuing worker up to a point**. Steps 6, 7 and 9 re-brief
+the same agent with `SendMessage` to its agent ID, so it keeps the large layout
+modules it already read rather than re-paying for them. A per-invocation `model`
+still applies on resume. Readers, by contrast, are fresh each time so their
+judgment stays independent.
+
+**But hand off at roughly 150 turns.** Measured across 45 real runs of this
+workflow, a top-tier worker's cost grows as turns^1.28: spawns in the 150-300
+range averaged $25, and the 46 spawns that ran past 300 averaged $62. Retained
+context stops paying for itself once every turn re-reads all of it. So when the
+writer approaches ~150 turns, have it hand off a candidate SHA plus a short
+state note and start a fresh writer from that SHA. One extra preamble costs
+cents; the superlinear tail costs tens of dollars. This is the single largest
+cost lever in the workflow - larger than tiering by roughly 8x.
 
 Use one candidate sequence throughout: the sole writer makes local candidate
 commit(s), runs mutation-capable hooks or generators, and hands off the exact
@@ -261,8 +270,8 @@ Two separate levers, do not confuse them:
   expensive thing in this workflow.
 
 The coordinator does not read `src/` at all: `engine.py`, `ordering.py`,
-`fan_bundles.py` and `routing/*` belong only in a worker's context. Reading them
-"just to orient" is the largest avoidable cost in the run.
+`fan_bundles.py` and `routing/*` belong only in a worker's context. This is
+hygiene, not a headline saving - measured, it is worth under 1% of a run.
 
 It may run trivial deterministic assertions itself - `git rev-parse`, a hash or
 OID comparison, `git status --porcelain`, an exit code, handoff-schema
@@ -282,7 +291,10 @@ one item that grows every turn and is re-read on all of them.
 
 Layout iteration is where sessions burn tokens and compute. Keep it tight:
 
-- **Name a tier on every spawn** (above). This is the single largest lever.
+- **Name a tier on every spawn** (above). Measured at 5.7% of spend across 45
+  runs - real, but note that most of the per-spawn gap between tiers is *turns*
+  (216 vs 65), not price per token, so the tier table gets some credit that
+  belongs to task selection. The writer's turn count is the bigger lever.
 - **Lean on CI for the full suite.** Locally, run targeted tests: the new
   invariant test, the affected module, `--lf`, `-q --no-header -x`, Python 3.11
   for the routing/TB ratchets. CI runs the complete matrix on push and that is
@@ -296,10 +308,14 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   render -> cairosvg PNG -> open -> image-into-context cycle is far heavier and
   only earns its cost for a genuine *visual* check. "Is station X on the trunk?"
   is a coordinate read, not a screenshot.
-- **Poll CI once, in the background.** A single background watch
-  (`until gh pr checks <N> ...; done`) pulls you back when checks resolve;
-  re-running `gh pr checks` by hand each turn just dumps status into context
-  repeatedly.
+- **Do not hold a large context idle across a CI run.** Waiting is where the
+  second-largest cost lives: measured over 45 runs, 468 turns (1.8% of all
+  turns) accounted for 9.8% of total spend, each a full re-encode averaging
+  358k tokens at the 1-hour cache premium, caused by idle gaps busting the
+  cache. End the turn after the push and pick the run up fresh, or collapse the
+  ledger to its live slice before waiting. When you do watch, watch once in the
+  background (`until gh pr checks <N> ...; done`) rather than re-running
+  `gh pr checks` each turn, which dumps status into context repeatedly.
 - **Lean on the CI render-diff for regression review; don't rebuild the gallery
   locally in a loop.** The CI preview (Step 8) is the authoritative whole-corpus
   diff. A local `build_gallery` / render-diff sweep repeated many times just
@@ -308,14 +324,8 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   oriented.** Re-fetching `engine.py` / `fan_bundles.py` / `ordering.py` /
   `routing/*` twenty times over a session is the single largest cache-read cost.
   Read the region once, generously, and keep it in working context.
-- **Default `[skip ci]` on work-in-progress pushes** (WIP snapshots, refactor
-  passes). Let CI run on the final pre-review push - which this repo needs
-  anyway, because the render-diff *is* the visual review. (A commit that fixes a
-  known CI failure must re-run CI: no `[skip ci]` on those.)
-- **One CI-triggering push per round.** A push runs the full test matrix *and*
-  renders the whole gallery twice, on the PR branch and the base. It is the most
-  expensive action in this workflow. Batch accepted fixes into one push instead
-  of pushing each one as it lands.
+- **Push policy is governance, not economy**, and it lives with the push:
+  [`merge-and-cleanup.md`](references/merge-and-cleanup.md).
 
 ## Scope discipline
 
