@@ -96,7 +96,7 @@ hard:
 | --- | --- | --- |
 | 1 | issue investigator | LIGHT |
 | 3 | diagnostic worker | HIGH |
-| 4-7 | sole writer | HIGH for `layout/`, `routing/`, `parser/`; MID elsewhere |
+| 4-7 | sole writer | HIGH if the diff touches `layout/`, `routing/`, or `parser/` anywhere; MID otherwise. Highest tier wins on a diff spanning both |
 | 6 | `/simplify` worker | MID |
 | 7 | lint/test verifier | LIGHT |
 | 7 | routing gate specialist | MID |
@@ -164,8 +164,8 @@ Independent review is load-bearing, but a reviewer that re-reads raw evidence is
 the most expensive spawn in the run. Two mandatory gates, both HIGH:
 
 1. **Post-diagnosis gate.** One reviewer that both challenges the domain
-   classification (Step 3: authoring mistake or engine bug, and the numeric
-   claim behind it) and reviews aggregate progress. A wrong classification
+   classification (Step 3: authoring mistake, engine bug, or input-independent
+   structural defect, and the numeric or structural claim behind it) and reviews aggregate progress. A wrong classification
    wastes the whole run, so this gate pays for itself; a second separate
    challenger does not.
 2. **Pre-ready gate.** One reviewer combining the Step 11 code review and the
@@ -285,20 +285,41 @@ long-lived `nf-metro-dev` env; never create one per issue.
 
 ## Step 3: Diagnostic Before Fix
 
-Assign a HIGH read-only diagnostic worker before the writer changes code. **Do
-not propose fixes from hypotheses.** Require the worker to reproduce the symptom
-in numbers:
+Assign a read-only diagnostic worker, at the tier the two forms below name, before the writer changes code. **Do not
+propose fixes from hypotheses.** The worker must reproduce the symptom as a
+falsifiable claim, in one of two forms.
+
+**Geometry defects** (a bad render: overlap, kink, asymmetry, breeze-past,
+bbox overflow). Tier HIGH:
 
 1. Render the affected example(s) on the current `main` (the before-state).
 2. Inspect the rendered SVG and actual coordinates or element attributes.
 3. Restate the bug as "element X has property P=<observed>, expected
-   P=<target>" - a concrete numeric or structural claim. Return blocked if the
-   worker cannot state it yet; diagnosis must continue before implementation.
+   P=<target>" - a concrete numeric claim.
 
-Only after the symptom is pinned down to specific numbers may the diagnostic
-worker reason about which layout pass or function produced them. The
-post-diagnosis review gate challenges the resulting classification before
-implementation starts.
+**Non-geometry defects** (a plumbing, contract, API-surface, or exception-path
+bug with no rendered symptom, possibly latent by the issue's own admission).
+Tier HIGH, or MID when the issue already names the cause - see below:
+
+1. Name every call site on the path from the caller to the defect.
+2. Produce a failing observation that does not depend on geometry - a focused
+   test, a monkeypatched upcall, an asserted argument value.
+3. Restate the bug as "call site X receives/passes V=<observed>, expected
+   V=<target>" - a concrete structural claim.
+
+Either way, return blocked if the worker cannot state the claim yet; diagnosis
+must continue before implementation. Only after the claim is pinned down may the
+worker reason about which pass or function produced it. The post-diagnosis gate
+challenges the resulting classification and the claim behind it, in whichever
+of the two forms applies.
+
+**When the issue already states its own root cause** (it names the function,
+the call site, and the acceptance bar), do not re-derive it from scratch at HIGH
+cost. Brief a MID worker to *confirm or refute that specific claim* against
+current `origin/main` and produce the failing observation. Independent
+confirmation is still mandatory - taking the issue's word for it is not
+diagnosis - but confirming a stated cause is bounded work, not open-ended
+judgment.
 
 ### Check your premise against current `origin/main` first
 
@@ -313,9 +334,9 @@ coordinator may then serialize a base-merge assignment to that sole writer. Keep
 conflicts and required edits with the writer. Assign re-diagnosis on the
 resulting candidate SHA.
 
-### Classify: authoring mistake or engine bug?
+### Classify: authoring mistake, engine bug, or structural defect?
 
-Require the diagnostic worker to decide which of two things it is looking at:
+Require the diagnostic worker to decide which of three things it is looking at:
 
 - **(a) An mmd authoring mistake** - the `.mmd` misdescribes the pipeline
   (wrong line on a station, a missing edge, a bad directive). The fix *is* to
@@ -325,8 +346,14 @@ Require the diagnostic worker to decide which of two things it is looking at:
 - **(b) An engine bug on correct mmd** - the input faithfully describes the
   pipeline and the *engine* lays it out badly. The fix goes in `src/`
   (layout / routing / parser). The reproducing `.mmd` stays untouched.
+- **(c) A structural defect independent of any input** - a plumbing, contract,
+  API-surface, or exception-path bug where the `.mmd` is irrelevant and no
+  render is wrong yet. The fix goes in `src/` at the named call sites. There is
+  no reproducer to freeze and no geometry to classify; do not force this into
+  (a) or (b), and do not manufacture a numeric claim for it.
 
-Record which one it is, in numbers, before briefing the writer.
+Record which one it is - in numbers for (a) and (b), in named call sites for
+(c) - before briefing the writer.
 
 ### Once it's an engine bug, the reproducer is frozen evidence
 
@@ -387,7 +414,7 @@ Brief the single writer to do the following before any production code change:
    invariants suite.
 2. **Parametrise the test over multiple fixtures**, not a single `.mmd`.
    The existing `test_layout_invariants.py` historically over-relies on
-   `da_pipeline.mmd`; new invariants should be exercised against several
+   `tests/fixtures/da_pipeline.mmd`; new invariants should be exercised against several
    gallery fixtures so they generalise.
 3. Run the test and capture that it **fails on `main`**. If it passes, rewrite
    it because it does not encode the bug.
@@ -399,9 +426,13 @@ meaningful (the test now passes because of the fix, not coincidence).
 
 ## Step 5: Add a Runtime Validator
 
-Where the invariant is about layout properties that could regress silently
-(overlap, off-grid placement, asymmetry, etc.), require the writer to add a
-`_guard_*` function and wire it into `compute_layout`'s validate block.
+**This step is conditional.** Where the invariant is about layout properties
+that could regress silently (overlap, off-grid placement, asymmetry, etc.),
+require the writer to add a `_guard_*` function and wire it into
+`compute_layout`'s validate block. Where there is no layout property to guard -
+a class (c) structural defect, a CLI or docs change - **skip it outright**: the
+Step 4 test is the regression lock, and a validator with nothing geometric to
+assert is noise. Say in one line that you skipped it and why.
 
 Validators must **fail loudly** - raise with a clear, contextual error
 message. Silent warnings or `print()`s are not acceptable; they get
@@ -456,12 +487,18 @@ worker buys no signal. Run a local full suite only when it earns its cost:
 - explicit admin-merge preparation needs local full-suite confidence.
 
 One exception is genuinely full-corpus by construction: a new topology
-fixture's guard-trace golden (see below).
+fixture's guard-trace golden, under "Generated-artifact gates" below.
 
 ### Generated-artifact gates
 
-If the change touched `layout/routing/` or added a topology fixture, three
-ratchet tests and a guard-trace golden may red, each naming a specific
+Two distinct triggers, and the path is literal. The gate-coverage ratchet
+scans `src/nf_metro/layout/routing/` **only** (`ROUTING_DIR` in
+`scripts/routing_gate_coverage.py`, with branch coverage scoped to it), so it
+trips on an `if`/`while` change inside that nested package, or on a new fixture
+that closes a gap. A change elsewhere under `layout/` - `engine.py`, a phase
+module, `ordering.py` - cannot trip it, so do not spend a worker checking
+defensively. The guard-trace golden is separate and trips on any **new** fixture
+under `examples/topologies/`. When either fires, each failure names a specific
 reconciliation you owe in this same PR. Do not hand-edit baselines to silence
 them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
 [`references/gate-ratchet.md`](references/gate-ratchet.md).
@@ -482,10 +519,14 @@ https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 
 ### Render-preview verdict gating
 
-Assign a fresh HIGH read-only visual reviewer the preview, target before/after
-evidence, and acceptance criteria. Require it to inspect every changed example,
-classify deltas I/N/D, identify uncertainty, and return an acceptance verdict.
-Do not seed it with the writer's preferred interpretation.
+Read the sticky comment's verdict line first, then size the review to it. A
+LIGHT worker may report a literal "No visual changes detected" verdict, since
+there is nothing to judge. **The moment any delta exists, a fresh HIGH read-only
+visual reviewer inspects every changed example**, classifies deltas I/N/D,
+identifies uncertainty, and returns an acceptance verdict. Do not seed it with
+the writer's preferred interpretation, and do not downgrade this because the
+issue predicted no visual change - a delta nobody expected is the most important
+kind. Every changed render gets HIGH eyes.
 
 The sticky comment ends in a verdict line. Gate the next step on it:
 
