@@ -16,7 +16,7 @@ import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
-from nf_metro.layout.routing.normalize import _v_segment_crosses_other_section
+from nf_metro.layout.routing.common import _v_segment_crosses_other_section
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 FIXTURE = "examples/topologies/shared_sink_parallel.mmd"

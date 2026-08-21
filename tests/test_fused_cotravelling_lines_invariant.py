@@ -78,13 +78,20 @@ REPORTED = {
 }
 
 FUSED_WITHOUT_THE_PASS = {
-    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
-        {("l1", "l2", "X")}
-    ),
     CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
         {("bam", "other", "Y"), ("bam", "snvvcf", "Y")}
     ),
     REGRESSIONS / "entry_trunk_row_bow.mmd": frozenset({("l1", "l2", "Y")}),
+}
+
+# Pairs whose owner seats them on the pitch outright, so the separation stages
+# have nothing left to repair.  Held as a ledger of its own rather than dropped:
+# a pair that stops being correct by construction and starts depending on the
+# repair again is a regression, and only a positive lock catches it.
+SEATED_WITHOUT_THE_PASS = {
+    EXAMPLE_TOPOLOGIES / "packed_multiline_serpentine_grid.mmd": frozenset(
+        {("l1", "l2", "X")}
+    ),
     THROUGH_SECTION / "riboseq_packed_lr.mmd": frozenset({("riboseq", "rnaseq", "X")}),
 }
 
@@ -328,6 +335,17 @@ def test_seed_41_plan_owned_trunks_keep_the_nesting_step() -> None:
     assert separations[("l0", "l2", "Y")] >= graph_offset_step(graph)
 
 
+def test_seed_15_preserves_its_stable_render_exception() -> None:
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    path = FROZEN_FUZZ / "seed_15.mmd"
+    graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+
+    with pytest.raises(invariants.CurveInvariantError, match="bundle order"):
+        build_observed_render_plan(graph, resolve_theme(None, graph))
+
+
 @pytest.mark.parametrize(
     "path",
     tuple(sorted(FROZEN_FUZZ.glob("seed_*.mmd"))),
@@ -545,6 +563,21 @@ def test_reported_corridors_keep_the_nesting_step(
     for pair in REPORTED[path]:
         assert pair in separations, f"{pair} no longer shares a corridor"
         assert separations[pair] >= graph_offset_step(graph)
+
+
+@pytest.mark.parametrize("path", SEATED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
+def test_seated_pairs_hold_the_pitch_without_the_separation_stages(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """These pairs hold the nesting pitch with both separation stages disabled."""
+    _disable_separation_stages(monkeypatch)
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    step = graph_offset_step(graph)
+    separations = _pair_separations(routes, offsets)
+    for pair in SEATED_WITHOUT_THE_PASS[path]:
+        assert pair in separations, f"{pair} no longer shares a corridor"
+        assert separations[pair] >= step
+        assert separations[pair] % step == pytest.approx(0.0, abs=1e-6)
 
 
 @pytest.mark.parametrize("path", FUSED_WITHOUT_THE_PASS, ids=lambda p: p.stem)

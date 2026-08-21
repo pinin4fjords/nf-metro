@@ -162,8 +162,15 @@ def test_same_destination_port_tail_keeps_three_axis_order(port_id: str) -> None
 
 
 def test_destination_tail_runtime_guard_is_not_vacuous(monkeypatch) -> None:
-    """The guard reports loose tails when eager trunk seating is disabled."""
-    from nf_metro.layout.routing import normalize
+    """The guard reports loose tails once the passes that settle them are off.
+
+    Disabled here: normalize's own same-destination tail bundling, and the
+    convergent-line stagger at both of its live call sites (``core`` runs it
+    over the whole population, ``member_geometry`` over a planned one).
+    Member-geometry's own tail bundling still runs, so the tails this leaves
+    loose are the ones normalize would otherwise have settled.
+    """
+    from nf_metro.layout.routing import core, member_geometry, normalize
 
     graph = parse_metro_mermaid(FIXTURE.read_text())
     compute_layout(graph)
@@ -171,6 +178,16 @@ def test_destination_tail_runtime_guard_is_not_vacuous(monkeypatch) -> None:
     monkeypatch.setattr(
         normalize,
         "_bundle_same_destination_tails",
+        lambda routes, ctx: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "_stagger_convergent_distinct_lines",
+        lambda routes, ctx: None,
+    )
+    monkeypatch.setattr(
+        member_geometry,
+        "_stagger_convergent_distinct_lines",
         lambda routes, ctx: None,
     )
     routes = route_edges(graph, station_offsets=offsets)

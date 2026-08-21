@@ -49,6 +49,7 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import concentric_corner_radius_at
+from nf_metro.layout.routing.member_geometry import MemberGeometryExecution
 from nf_metro.layout.routing.normalize import (
     _fan_opening_reference_radii,
     _restack_channel,
@@ -112,12 +113,41 @@ def _touched_corner_mismatches(
     Only corners on the *final* routes are checked. A planned member is frozen
     from its mutable seed into a fresh route, so a touched route that is not
     itself the emitted final for its edge cannot report a mismatch.
+
+    A corner the semantic corner template *overrides* is excluded: the handler
+    seats it during emission and the template then replaces the radius with the
+    plan's own, so no displacement applied to this route produced the stored
+    value and the seating call's arguments are not its derivation inputs.  Such a
+    corner answers to the plan instead -- radius equality with the plan is
+    checked by ``validate_member_geometry_emission`` and concentricity with its
+    cohort by ``check_concentric_bundle_corners``.  The exclusion is measured,
+    not assumed: only an index whose radius the stamp actually changed is
+    dropped, so a hand-picked radius that the plan carries as well still reports.
+
     Returns any disagreement between the stored radius and the central derivation
     as ``(line_id, radius_index, stored, expected)``.
     """
     # (id(route), radius_index) -> (route, offset, reference radius); the last
     # reseat wins, so these are the inputs that produced the final radius.
     touched: dict[tuple[int, int], tuple[RoutedPath, float, float]] = {}
+    # (id(route), radius_index) whose radius the semantic corner template
+    # replaced, making the plan rather than any displacement its author.
+    template_overridden: set[tuple[int, int]] = set()
+
+    prod_apply = MemberGeometryExecution.apply_semantic_corner_template
+
+    def apply_spy(self: MemberGeometryExecution, route: RoutedPath) -> None:
+        before = list(route.curve_radii or ())
+        prod_apply(self, route)
+        for radius_index, (seated, stamped) in enumerate(
+            zip(before, route.curve_radii or ())
+        ):
+            if abs(seated - stamped) > _RADIUS_TOLERANCE:
+                template_overridden.add((id(route), radius_index))
+
+    monkeypatch.setattr(
+        MemberGeometryExecution, "apply_semantic_corner_template", apply_spy
+    )
 
     def vspy(
         ch: _VChannel,
@@ -215,6 +245,8 @@ def _touched_corner_mismatches(
         vertex = pts[radius_idx + 1]
         if (rp.line_id, round(vertex[0]), round(vertex[1])) in shared:
             continue  # owned by the coincident-corner unification pass
+        if (id(rp), radius_idx) in template_overridden:
+            continue  # authored by the plan's semantic corner template
         expected = concentric_corner_radius_at(
             pts[radius_idx],
             pts[radius_idx + 1],

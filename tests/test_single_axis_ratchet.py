@@ -52,6 +52,12 @@ _EXEMPTIONS = {
     "routing/inter_section_handlers.py::_section_left_edge": (
         "left edge has a paired right edge primitive"
     ),
+    "routing/member_geometry.py::_short_destination_clearance_requirement": (
+        "common.py::iter_plannable_short_same_destination_bundles admits a cohort "
+        "only as a RIGHT-exit to LEFT-entry run whose approach peels vertically off "
+        "a horizontal trunk, and the shortfall reported here is the gap between "
+        "that trunk's Y and the port's Y, so no column boundary can supply it"
+    ),
     "section_placement.py::_effective_section_width": (
         "the helper computes an explicitly horizontal extent"
     ),
