@@ -114,8 +114,16 @@ nobody chose - and where it lands depends on the resolution order in
 [`agent-types.md`](references/agent-types.md), including one environment variable
 that overrides every tier in this table. Never leave it to that.
 
-The tier is the contract, not the model name: `haiku`/`sonnet`/`opus` on Claude
-Code, `luna`/`terra`/`sol` on Codex, three tiers whatever the harness calls them.
+The tier is the contract, not the model name. On Claude Code that is
+`haiku`/`sonnet`/`opus`.
+
+**This skill is Claude Code specific and does not run elsewhere as written.** It
+leans on agent definitions, `Explore`/`Plan`, `effort`, `SendMessage` resumption,
+the `CLAUDE_CODE_SUBAGENT_MODEL` precedence and the post-compaction re-attachment
+cap, none of which port. The doctrine here does port - the two levers, the tiers,
+one writer with independent readers, the gates, diagnose-before-fix - but porting
+it means re-implementing the enforcement for that harness (on Codex the tiers map
+to `luna`/`terra`/`sol`), not reading these files as-is.
 
 Tiers come from the table below and do not drift upward because a task felt hard.
 A re-briefed role keeps the tier it was spawned at. If you find a worker running
@@ -168,12 +176,8 @@ Spawn by role name **and** pass the model. Both, deliberately: the per-invocatio
 model is verified to beat the definition, and the definition catches a spawn
 where it was forgotten.
 
-**On a harness with no agent definitions**, the role-to-tier table above is still
-the whole contract: name the role from it and pass that tier's model explicitly.
-The definitions are a Claude Code optimisation that makes the tier structural
-rather than remembered; they are not what the rule depends on. Everything in
-[`agent-types.md`](references/agent-types.md) is Claude Code specific and does
-not port. Every definition carries an explicit `tools` allowlist: without one a subagent
+The definitions make the tier structural rather than remembered; the table is
+what the rule depends on. Every definition carries an explicit `tools` allowlist: without one a subagent
 inherits every tool the main conversation has, including all MCP servers and
 `Agent`, which would let a worker spawn untiered children.
 
@@ -292,9 +296,6 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   largest cost lever in the workflow. Two specific cases the skill already
   names - never re-run `gh pr checks` each turn, never paste test logs - are
   instances of it, not the whole rule.
-- **Read the region, not the file** - but never starve a worker to save pennies:
-  reading costs ~$0.05 a spawn against ~$50 for a wrong fix. Detail:
-  [`worker-contract.md`](references/worker-contract.md).
 - **Push policy is governance, not economy**, and it lives with the push:
   [`merge-and-cleanup.md`](references/merge-and-cleanup.md).
 
