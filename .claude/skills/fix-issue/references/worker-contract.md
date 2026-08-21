@@ -32,7 +32,11 @@ Your brief names your authority as either **read-only** or **sole writer in
    cite the path. The one figure that carries the verdict belongs inline; the
    material behind it does not;
 5. risks and blockers;
-6. acceptance verdict: pass, fail, or blocked with the precise escalation.
+6. acceptance verdict: pass, fail, or blocked with the precise escalation;
+7. **turns used**, if you are the writer - on every handoff. Past roughly 200
+   turns say so, and offer to hand your candidate SHA plus a short state note to
+   a fresh writer: your per-turn cost climbs with context size and nobody else
+   can see your turn count.
 
 Returning **blocked** against this schema is a valid, useful outcome. It is
 better than guessing, better than an unbounded loop, and better than silently

@@ -36,6 +36,20 @@ ROLE_TIER = {
     "fix-issue-merge-assessor": "HIGH",
 }
 
+# Tools each role cannot do its briefed job without.
+REQUIRED_TOOLS = {
+    "fix-issue-investigator": {"Bash"},
+    "fix-issue-verifier": {"Bash"},
+    "fix-issue-renderer": {"Bash", "Skill"},
+    "fix-issue-diagnostician": {"Bash", "Read"},
+    "fix-issue-writer": {"Read", "Edit", "Write", "Bash"},
+    "fix-issue-simplifier": {"Skill"},
+    "fix-issue-gate-specialist": {"Bash"},
+    "fix-issue-visual-reviewer": {"Bash", "Read"},
+    "fix-issue-reviewer": {"Bash", "Read"},
+    "fix-issue-merge-assessor": {"Bash"},
+}
+
 ALWAYS_COORD = {"coordinator.md", "agent-types.md", "scope-discipline.md", "merge-and-cleanup.md"}
 COORD_REFS = ALWAYS_COORD | {"autonomous-mode.md"}
 
@@ -84,9 +98,15 @@ def check_tiers_named() -> None:
             # missing tier slipped through before.
             nouns = (r"worker|reviewer|verifier|specialist|investigator|assessor"
                      r"|diagnostician|writer|renderer|simplifier|diagnostic")
-            if not (re.search(rf"\b[Aa]ssign\b.*\b({nouns})\b", line)
-                    or re.search(r"\b[Aa]ssign\b.*`fix-issue-[a-z-]+`", line)):
+            verbs = r"[Aa]ssign|[Ss]pawn|[Ll]aunch|[Bb]rief|[Rr]oute to"
+            new_spawn = rf"\b({verbs})\b\s+(a|an|one)\s+(fresh\s+)?"
+            if not re.search(new_spawn, line):
                 continue
+            if not (re.search(rf"{new_spawn}.*\b({nouns})\b", line)
+                    or re.search(rf"{new_spawn}.*`fix-issue-[a-z-]+`", line)):
+                continue
+            if re.search(r"`fix-issue-[a-z-]+`", line):
+                continue   # the agent type carries its tier; checked against the table
             ctx = " ".join(lines[max(0, i - 2) : i + 2])
             if not any(t in ctx for t in tiers) and "sole writer" not in ctx:
                 fail(f"{f.name}:{i} assigns a worker without naming a tier")
@@ -115,6 +135,12 @@ def check_agent_definitions() -> None:
             fail(f"{a.name} name '{fields.get('name')}' != filename")
         if fields.get("model") not in tier_model.values():
             fail(f"{a.name} model '{fields.get('model')}' is not a tier model")
+        if fields.get("effort") not in {"low", "medium", "high", "xhigh", "max"}:
+            fail(f"{a.name} effort '{fields.get('effort')}' is not a documented value")
+        needs = REQUIRED_TOOLS.get(a.stem, set())
+        have = {t.strip() for t in fields.get("tools", "").split(",")}
+        for tool in needs - {h.split("(")[0] for h in have}:
+            fail(f"{a.name} cannot do its job without `{tool}` in tools")
         expected = ROLE_TIER.get(a.stem)
         if expected is None:
             fail(f"{a.name} has no entry in ROLE_TIER; add it so drift is detectable")
@@ -138,9 +164,32 @@ def check_no_dangling_names() -> None:
     linked = set()
     for f in md_files():
         linked |= {t.split("#")[0].split("/")[-1] for _, t in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", f.read_text())}
+    rows = "\n".join(l for l in (SKILL / "SKILL.md").read_text().splitlines()
+                      if l.startswith("|") and "references/" in l)
     for ref in (SKILL / "references").glob("*.md"):
         if ref.name not in linked:
             fail(f"references/{ref.name} is orphaned: nothing links to it")
+        if ref.name not in rows:
+            fail(f"references/{ref.name} is missing from SKILL.md's owner table")
+
+
+def check_prose_tool_claims() -> None:
+    """Prose in a coord-owned file that names an agent and a backticked tool must
+    agree with that agent's definition. This is how a removed `Skill` grant kept
+    being described as present."""
+    tools = {}
+    for a in AGENTS.glob("fix-issue-*.md"):
+        head = a.read_text().split("---")[1]
+        m = re.search(r"^tools:\s*(.+)$", head, re.M)
+        tools[a.stem] = {t.strip().split("(")[0] for t in (m.group(1) if m else "").split(",")}
+    for f in md_files():
+        for line in f.read_text().splitlines():
+            for agent in re.findall(r"`(fix-issue-[a-z-]+)`", line):
+                if agent not in tools:
+                    continue
+                for claimed in re.findall(r"`(Skill|Agent|Write|Edit)`", line):
+                    if claimed not in tools[agent] and "no " not in line.lower():
+                        fail(f"{f.name}: says `{agent}` has `{claimed}`, but it does not")
 
 
 def check_repo_paths() -> None:
@@ -153,6 +202,18 @@ def check_repo_paths() -> None:
                     continue
                 if not Path(path).exists():
                     fail(f"{f.name}: command references missing path {path}")
+
+
+def check_prose_paths() -> None:
+    """A fabricated path in prose misdirects just as effectively as one in a
+    command; both have happened."""
+    for f in md_files():
+        body = re.sub(r"```.*?```", "", f.read_text(), flags=re.S)
+        for path in re.findall(r"`((?:scripts|tests|src|examples)/[\w./-]+)`", body):
+            if "<" in path or path.endswith("/"):
+                continue
+            if not Path(path).exists():
+                fail(f"{f.name}: prose references missing path {path}")
 
 
 def check_owner_split() -> None:
@@ -209,14 +270,20 @@ def check_recurring_defect_classes() -> None:
         for m in re.finditer(r"```bash\n(.*?)```", f.read_text(), re.S):
             block = m.group(1)
             for line in logical_lines(block):
-                if re.search(r"\b(python -m nf_metro|probe_layout\.py|inspect_layout\.py|routing_gate_coverage\.py|test_guard_registry_golden\.py)", line):
-                    joined = block.replace("\\\n", " ")
-                    if "PYTHONPATH" not in joined:
+                if re.search(r"\b(python -m nf_metro|python -m pytest|probe_layout\.py|inspect_layout\.py|routing_gate_coverage\.py|test_guard_registry_golden\.py)", line):
+                    exported = re.search(r"^\s*export PYTHONPATH=", block, re.M)
+                    if "PYTHONPATH" not in line and not exported:
                         fail(f"{f.name}: `{line.strip()[:50]}` runs without PYTHONPATH")
                 if re.search(r"\bcurl\b", line) and not re.search(r"-[a-zA-Z]*f", line):
                     fail(f"{f.name}: curl without -f will exit 0 on a 404: {line.strip()[:50]}")
                 if "worktree add" in line and "-b " in line and "--no-track" not in line:
                     fail(f"{f.name}: `worktree add -b` without --no-track sets upstream to main")
+            for m2 in re.finditer(r"^\s*if \[.*?\]; then\s*$", block, re.M):
+                tail = block[m2.end():m2.end() + 200]
+                if not re.search(r"\b(exit|die|return)\b", tail.split("fi")[0]):
+                    fail(f"{f.name}: `if [ ... ]` guard whose body never exits is decorative")
+            if re.search(r"\$ART/", block) and "mkdir -p" not in block:
+                fail(f"{f.name}: block writes into $ART without creating it")
             if "die " in block and "die() {" not in block:
                 fail(f"{f.name}: block calls `die` without defining it; the guard is decorative")
 
@@ -250,6 +317,8 @@ def main() -> int:
         check_owner_split,
         check_no_dangling_names,
         check_repo_paths,
+        check_prose_tool_claims,
+        check_prose_paths,
         check_shell_blocks,
         check_guards_self_fail,
         check_recurring_defect_classes,

@@ -41,7 +41,7 @@ early, `pr-renders.yml` sets `has_changes=false`, and every deploy step in
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>-$$; mkdir -p "$ART" || die "artifact dir"
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
 run=$(gh run list --workflow pr-renders.yml --branch <HEAD_BRANCH> --limit 1 \
         --json databaseId,headSha,conclusion) || die "gh run list"
 built=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['headSha'])")
@@ -49,8 +49,11 @@ runid=$(echo "$run" | python -c "import json,sys;print(json.load(sys.stdin)[0]['
 # Normalise both sides: gh returns 40 chars, a hand-copied candidate may be short.
 test "$(git rev-parse "$built")" = "$(git rev-parse <CANDIDATE_SHA>)" \
   || die "renders were built from $built, not the candidate"
+# `last | .body`, not `| tail -1`: the body is multi-line and its last LINE is
+# the sticky HTML marker, so a line-wise tail makes every grep below miss.
 gh pr view <PR_NUMBER> --json comments \
-  -q '.comments[] | select(.body | contains("Render preview")) | .body' | tail -1 > "$ART/sticky.txt"
+  -q '[.comments[] | select(.body | contains("Render preview"))] | last | .body' \
+  > "$ART/sticky.txt" || die "could not read the sticky comment"
 grep -q "no visual changes detected" "$ART/sticky.txt" && { echo "VERDICT: no visual changes"; exit 0; }
 grep -qE "rendering in progress|still publishing" "$ART/sticky.txt" && die "not ready yet, wait"
 ```
@@ -68,7 +71,7 @@ discriminator - `build_render_diff.py` writes
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }   # each block is self-contained
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>-$$
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
 curl -fsS "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html" \
   || die "page absent though the comment reported deltas; Pages may still be publishing"
 marker=$(grep -o 'nf-metro-render-run" content="[0-9]*"' "$ART/index.html" \
@@ -90,9 +93,12 @@ about is exactly the part an old preview cannot show.
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
+# render_only mixes list-of-str (guide_examples, test_fixtures) with list-of-dict
+# (nextflow_conversions), so handle both or this raises TypeError.
 python -c "import yaml;c=yaml.safe_load(open('scripts/gallery.yaml'));\
 ids=[e['id'] for e in c.get('gallery',[])]+[e['id'] for e in c.get('pipelines',[])];\
-ids+=[e['id'] for g in c.get('render_only',{}).values() for e in (g or [])];\
+ids+=[e if isinstance(e,str) else e['id'] for g in c.get('render_only',{}).values() for e in (g or [])];\
 print('\n'.join(sorted(set(ids))))" > "$ART/stems.txt" || die "could not enumerate gallery.yaml"
 wc -l < "$ART/stems.txt"   # the whole corpus, not just the changed subset
 ```
@@ -111,7 +117,7 @@ calls, so it re-exports `ART` rather than relying on the block above.
 
 ```bash
 die() { echo "VISUAL FAILED: $*" >&2; exit 1; }
-export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>
+export ART=/tmp/nf-metro-visual-<CANDIDATE_SHA>; mkdir -p "$ART" || die "artifact dir"
 test -s "$ART/stems.txt" || die "run the provenance block first"
 source ~/.local/bin/mm-activate nf-metro-dev || die "env"
 for side in base cand; do
@@ -248,6 +254,11 @@ For each detrimental delta, assign a HIGH diagnostic worker to find the
 the regressing case (where it hurts). Re-brief the sole writer to gate the fix
 on that precondition (e.g. a topology predicate, a config flag, a layout
 property test). Assign fresh re-rendering and re-verification before merging.
+
+Each D-delta round costs a HIGH diagnostician, a writer re-brief, a fresh render
+and another CI cycle - roughly $25-35. After two rounds stop and report rather
+than looping: a fix needing a third narrowing is usually the wrong shape, and
+whether to keep paying is the user's call.
 
 A fix with an unaddressed D-delta is not PR-ready. Reroute it or return the
 structured blocker that prevents correction or classification.

@@ -131,6 +131,11 @@ the one it got: that call belongs at spawn time or not at all.
 | 8 | admin-merge gate | `fix-issue-merge-assessor` | HIGH - it gates shipping code CI has not verified |
 | 8, 9 | visual judgment and D-delta narrowing | `fix-issue-visual-reviewer` | HIGH |
 
+**Never use the `fork` subagent type.** A fork inherits the parent's entire
+conversation and always runs on the parent's model - the `model` parameter is
+ignored - so every tier rule here is void. Measured on this machine, six fork
+spawns averaged $220 each. Use the named role types.
+
 A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
 starting high.
@@ -163,7 +168,7 @@ read-only. The structural lever, and why `permissionMode` is not it, is in
 [`agent-types.md`](references/agent-types.md).
 
 Substituting `Explore`/`Plan` skips both CLAUDE.md files but discards the role
-definition and blocks re-briefing; measured at ~$0.24 a run, so it is a curiosity
+definition and blocks re-briefing; measured at a few dollars a run once its resident re-reads are counted, so it is a curiosity
 rather than a lever. See [`agent-types.md`](references/agent-types.md).
 
 ### Worker brief template
@@ -220,8 +225,8 @@ Two separate levers, do not confuse them:
   expensive thing in this workflow.
 
 The coordinator does not read `src/` at all: `routing/inter_section_handlers.py`,
-`routing/invariants.py`, `phases/guards.py` and `engine.py` - the largest files
-in the tree - belong only in a worker's context. This is
+`routing/invariants.py` and `phases/guards.py` - the three largest modules -
+belong only in a worker's context. This is
 hygiene, not a headline saving - measured, it is worth under 1% of a run.
 
 It may run trivial deterministic assertions itself - `git rev-parse`, a hash or
@@ -259,20 +264,24 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   only earns its cost for a genuine *visual* check. "Is station X on the trunk?"
   is a coordinate read, not a screenshot.
 - **Do not hold a large context idle across a CI run.** Waiting is where the
-  second-largest cost lives: in the same one-off measurement, 468 turns (1.8%
-  of all turns) were 9.8% of spend, each a full re-encode averaging 358k tokens
-  at the 1-hour cache premium, caused by idle gaps busting the cache. End the turn after the push and pick the run up fresh, or collapse the
-  ledger to its live slice before waiting. When you do watch, watch once in the
-  background (`until gh pr checks <N> ...; done`) rather than re-running
+  second-largest cost lives: in the same one-off measurement, a few hundred turns - under 1% of all
+  turns - were ~10% of spend, each a full re-encode averaging ~490k tokens, most
+  at the 5-minute cache premium rather than the 1-hour one, caused by idle gaps busting the cache. Collapsing the ledger does not touch this: it trims kilobytes off a
+  ~490k re-encode. What works is not parking a large context at all - finish the
+  session at the push and start a fresh one for the CI verdict, or compact
+  before the wait. When you do watch, watch once in the background (`until gh pr checks <N> ...; done`) rather than re-running
   `gh pr checks` each turn, which dumps status into context repeatedly.
 - **Lean on the CI render-diff for regression review; don't rebuild the gallery
   locally in a loop.** The CI preview (Step 8) is the authoritative whole-corpus
   diff. A local `build_gallery` / render-diff sweep repeated many times just
   duplicates it. Local rendering is for a *single* file's quick sanity check.
-- **Brief workers to read the big layout files in wide slices and stay
-  oriented.** Re-fetching `routing/inter_section_handlers.py` (7.4k lines),
-  `routing/invariants.py` (6.7k) or `phases/guards.py` (6.6k) twenty times over a session is the single largest cache-read cost.
-  Read the region once, generously, and keep it in working context.
+- **Read the region, not the file.** `routing/inter_section_handlers.py` (7.4k
+  lines), `routing/invariants.py` (6.7k) and `phases/guards.py` (6.6k) are 205k
+  tokens together; held resident they cost roughly $30 in cache reads over a
+  300-turn top-tier spawn, because 68% of spend is re-reading accumulated
+  context. Re-fetching repeatedly is worse, since each fetch appends another
+  copy. Do neither: grep to the function, read 10-25k around it, and re-grep
+  instead of re-reading the file. This is the largest cost lever here.
 - **Push policy is governance, not economy**, and it lives with the push:
   [`merge-and-cleanup.md`](references/merge-and-cleanup.md).
 

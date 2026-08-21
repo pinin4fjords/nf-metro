@@ -53,6 +53,12 @@ a class (c) structural defect, a CLI or docs change - **skip it outright**: the
 Step 4 test is the regression lock, and a validator with nothing geometric to
 assert is noise. Say in one line that you skipped it and why.
 
+**Know what a validator protects.** `engine.py` sets `_VALIDATE_DEFAULT = False`,
+so `compute_layout` skips the validate block in an ordinary render: the guard
+fires under tests and explicit `validate=True`, not for a user rendering a map.
+It is a test-time invariant, not a runtime abort, and the Step 4 test is what
+holds the line.
+
 Validators must **fail loudly** - raise with a clear, contextual error
 message. Silent warnings or `print()`s are not acceptable; they get
 ignored. The runtime check protects future changes; the unit test pins the

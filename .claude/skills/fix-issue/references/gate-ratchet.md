@@ -51,13 +51,17 @@ The verifier reruns
 `PYTHONPATH=src python -m pytest tests/test_routing_gate_coverage.py -p no:cacheprovider` on the
 candidate SHA and confirms the worktree remains unchanged.
 
-## New topology fixture: regenerate the guard-trace golden
+## New fixture: regenerate the guard-trace golden
 
-Every fixture under `examples/topologies/` carries a committed guard-trace golden
-at `tests/data/guard_golden/examples/topologies/<stem>.json` (the ordered list of
-which guard fired at which stage). A **new** fixture has no golden yet, so
-`tests/test_guard_registry_golden.py` reds with "`<stem>.mmd` absent from the
-golden baseline". This is a **full-corpus** gate: targeted fix tests do not cover
+Every fixture under any root `_discover_fixtures` walks - `tests/fixtures`,
+`tests/fixtures/topologies`, `examples`, `examples/topologies`, `examples/guide`
+(see `tests/test_engine_guards_perf.py`) - carries a committed guard-trace golden
+mirroring its path under `tests/data/guard_golden/` (the ordered list of which
+guard fired at which stage). **A fixture added under `tests/` reds this gate too**,
+which matters because Step 4 tells the writer to put its test there. A new
+fixture has no golden yet, so `tests/test_guard_registry_golden.py` reds with
+either "absent from the golden baseline" or "guard golden baseline is out of sync
+with the fixture corpus". This is a **full-corpus** gate: targeted fix tests do not cover
 it, so it is one of the few cases where a local full-corpus run earns its cost.
 The sole writer regenerates and commits the golden:
 

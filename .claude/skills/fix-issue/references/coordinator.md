@@ -107,7 +107,8 @@ Retarget child PRs first, then delete remote branch, worktree, local branch, in
 that order, and only with user authority. Full procedure and the reconciliation
 checks that gate it: [`merge-and-cleanup.md`](merge-and-cleanup.md).
 
-For shepherding a whole stacked chain of PRs back into `main` (rather
+For shepherding a whole stacked chain of PRs back into `main` rather than a
+single issue fix, see `pr-chain-vet`.
 
 ## Review gates: two mandatory, the rest on trigger
 
@@ -147,15 +148,24 @@ modules it already read rather than re-paying for them. A per-invocation `model`
 still applies on resume. Readers, by contrast, are fresh each time so their
 judgment stays independent.
 
-**But hand off at roughly 150 turns.** Measured once, over 45 historical runs of this
-workflow on one machine (not reproducible from this tree): cost grew as
-turns^1.28, spawns in the 150-300 range averaged $25, and the 46 that ran past
-300 averaged $62. Retained
-context stops paying for itself once every turn re-reads all of it. So when the
-writer approaches ~150 turns, have it hand off a candidate SHA plus a short
-state note and start a fresh writer from that SHA. One extra preamble costs
-cents; the superlinear tail costs tens of dollars. This is the single largest
-cost lever in the workflow - larger than tiering by roughly 8x.
+**But hand off at roughly 200 turns.** Measured once, over historical runs of
+this workflow on one machine (not reproducible from this tree): top-tier spawns
+in the 150-300 band averaged about $26 while those past 300 averaged about $69,
+fitting an exponent near 1.25. Retained context stops paying for itself once
+every turn re-reads all of it. So when the writer approaches ~200 turns, have it
+hand off a candidate SHA plus a short state note and start a fresh writer from
+that SHA.
+
+Two honest caveats. A handoff costs $1.50 to $3.00 - re-establishing context is
+not free - so break-even sits near 180 turns, and 150 would lose money on a
+writer that finishes at 160. And the superlinearity is partly a model-mix
+artifact: mid-tier spawns are close to linear, so this bites the top-tier writer
+specifically. Worth about $28 a run, the same order as tiering rather than
+multiples of it.
+
+The writer is the only party that can see its own turn count, so
+[`worker-contract.md`](worker-contract.md) requires it to report turns on every
+handoff and to offer the split itself.
 
 Use one candidate sequence throughout: the sole writer makes local candidate
 commit(s), runs mutation-capable hooks or generators, and hands off the exact
