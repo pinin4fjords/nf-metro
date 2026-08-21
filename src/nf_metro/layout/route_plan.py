@@ -27,6 +27,7 @@ from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     OffsetRegime,
+    SourceTurnout,
     TrunkSlot,
     right_normal_axis_sign,
 )
@@ -135,6 +136,94 @@ class CoordinateRegime(str, Enum):
     RELATIVE_FRAME = "relative-frame"
 
 
+class SettlementStage(str, Enum):
+    """Stable vocabulary for observing settlement progress."""
+
+    DISCOVERY = "discovery"
+    GENERAL_SETTLEMENT = "general-settlement"
+    COHORT_INTENT = "cohort-intent"
+    APERTURE_SETTLEMENT = "aperture-settlement"
+    FINAL_SOLVE = "final-solve"
+    TYPED_MATERIALIZATION = "typed-materialization"
+    COHORT_FINAL = "cohort-final"
+    VALIDATION = "validation"
+
+
+SETTLEMENT_STAGE_ORDER = tuple(SettlementStage)
+"""The stages in settlement order, which is the enum's declaration order."""
+
+ROUTE_OBSERVATION_STAGES = frozenset(
+    {SettlementStage.DISCOVERY, SettlementStage.GENERAL_SETTLEMENT}
+)
+"""The stages that are themselves a route observation, so carry a rank."""
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementStageObservation:
+    """One immutable observation of settlement progress."""
+
+    stage: SettlementStage
+    geometry_fingerprint: str
+    route_observation_rank: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementStageTrace:
+    """Append-only settlement observations attached to a published route plan."""
+
+    records: tuple[SettlementStageObservation, ...] = ()
+
+
+def register_settlement_stage(
+    trace: SettlementStageTrace,
+    stage: SettlementStage,
+    *,
+    geometry_fingerprint: str,
+) -> SettlementStageTrace:
+    """Append one stage after checking order and the final geometry freeze."""
+    if not geometry_fingerprint:
+        raise ValueError("settlement stage requires a geometry fingerprint")
+
+    stage_rank = SETTLEMENT_STAGE_ORDER.index(stage)
+    if trace.records:
+        previous = trace.records[-1].stage
+        previous_rank = SETTLEMENT_STAGE_ORDER.index(previous)
+        repeatable = stage is SettlementStage.GENERAL_SETTLEMENT
+        if stage_rank < previous_rank or (
+            stage_rank == previous_rank and not repeatable
+        ):
+            raise ValueError(
+                f"settlement stage order cannot append {stage.value} after "
+                f"{previous.value}"
+            )
+    elif stage is not SettlementStage.DISCOVERY:
+        raise ValueError("settlement stage order must begin with discovery")
+
+    if stage is SettlementStage.VALIDATION:
+        cohort_final = next(
+            (
+                record
+                for record in reversed(trace.records)
+                if record.stage is SettlementStage.COHORT_FINAL
+            ),
+            None,
+        )
+        if cohort_final is None:
+            raise ValueError("validation requires a cohort-final observation")
+        if cohort_final.geometry_fingerprint != geometry_fingerprint:
+            raise ValueError("geometry changed after cohort-final settlement")
+
+    observation_rank = (
+        sum(record.route_observation_rank is not None for record in trace.records)
+        if stage in ROUTE_OBSERVATION_STAGES
+        else None
+    )
+    return SettlementStageTrace(
+        trace.records
+        + (SettlementStageObservation(stage, geometry_fingerprint, observation_rank),)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RouteMemberGapChannel:
     """One immutable inter-column leg owned by a member geometry plan."""
@@ -198,6 +287,7 @@ class RouteMemberGeometryPlan:
     exit_turn_axis_id: ExitTurnAxisId | None = None
     exit_turn_segment_rank: int | None = None
     exit_lane_transition_plan_id: ExitTurnPlanId | None = None
+    source_turnout: SourceTurnout | None = None
     fan_plan_id: FanPlanId | None = None
     fan_route_emitter: str | None = None
     consumed_reservation_ids: tuple[str, ...] = ()
@@ -2331,6 +2421,9 @@ class RoutePlan:
     settlement re-route replays the frozen decision instead of re-deriving one
     from moved geometry."""
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
+    boundary_clearance_owner_ids: tuple[str, ...] = ()
+    """Systems whose member geometry owns a settled boundary-clearance cohort."""
+    settlement_trace: SettlementStageTrace = SettlementStageTrace()
 
 
 @dataclass(slots=True)
@@ -2580,6 +2673,7 @@ class RoutePlanObserver:
     convergence_demands: tuple[SymbolicDemand, ...] = ()
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = ()
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = ()
+    boundary_clearance_owner_ids: frozenset[str] = frozenset()
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = ()
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = ()
     _family_by_edge: dict[_EdgeKey, RouteFamilyId] = field(default_factory=dict)
@@ -2630,6 +2724,7 @@ def build_route_plan_observer(
     convergence_demands: tuple[SymbolicDemand, ...] = (),
     convergence_diagnostics: tuple[RoutePlanDiagnostic, ...] = (),
     boundary_clearance_requirements: tuple[BoundaryClearanceRequirement, ...] = (),
+    boundary_clearance_owner_ids: frozenset[str] = frozenset(),
     member_geometry_plans: tuple[RouteMemberGeometryPlan, ...] = (),
     exit_turn_dispositions: tuple[tuple[ExitTurnPlanId, str | None], ...] = (),
 ) -> RoutePlanObserver:
@@ -2648,6 +2743,7 @@ def build_route_plan_observer(
         convergence_demands=convergence_demands,
         convergence_diagnostics=convergence_diagnostics,
         boundary_clearance_requirements=boundary_clearance_requirements,
+        boundary_clearance_owner_ids=boundary_clearance_owner_ids,
         member_geometry_plans=member_geometry_plans,
         exit_turn_dispositions=exit_turn_dispositions,
     )
@@ -3422,6 +3518,9 @@ def _build_route_plan(
             + observer.convergence_diagnostics
         ),
         boundary_clearance_requirements=observer.boundary_clearance_requirements,
+        boundary_clearance_owner_ids=tuple(
+            sorted(observer.boundary_clearance_owner_ids)
+        ),
     )
     from nf_metro.layout.route_reservations import attach_route_reservations
 

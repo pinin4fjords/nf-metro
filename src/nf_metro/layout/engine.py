@@ -41,7 +41,7 @@ from nf_metro.layout.constants import (
     Y_SPACING,
     graph_offset_step,
 )
-from nf_metro.layout.geometry import perpendicular_port_sides
+from nf_metro.layout.geometry import lanes_run_along_x, perpendicular_port_sides
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
 from nf_metro.layout.phases._common import (  # noqa: F401
@@ -62,6 +62,7 @@ from nf_metro.layout.phases._common import (  # noqa: F401
     _section_trunk_y,
     _snapshot_placement_refs,
     _station_marker_bbox,
+    continuation_track_predecessors,
     first_vertical_leg_x,
     is_loop_side_branch_station,
 )
@@ -107,6 +108,7 @@ from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _align_symfan_section_to_row_feeder,
     _apply_half_grid_2branch_symfan,
     _apply_half_grid_symmetric_diamonds,
+    _carry_full_bundle_continuations,
     _carry_symmetric_branch_continuations,
     _center_lr_entry_ports_on_fork,
     _center_lr_exit_ports_on_join,
@@ -939,6 +941,43 @@ def _off_track_output_producers(graph: MetroGraph) -> set[str]:
     }
 
 
+def _strike_growable_target(
+    graph: MetroGraph, station_id: str
+) -> tuple[Section, int] | None:
+    """The section and layer a strike at *station_id* can grow, if any."""
+    station = graph.stations.get(station_id)
+    if station is None or not station.section_id:
+        return None
+    section = graph.sections.get(station.section_id)
+    if (
+        section is None
+        or lanes_run_along_x(section.direction)
+        or graph.is_rail_section(section.id)
+    ):
+        return None
+    return section, station.layer
+
+
+def _label_strike_levers(
+    graph: MetroGraph,
+    station_id: str,
+    off_track_output_producers: set[str],
+) -> set[tuple[str, str, int | str]]:
+    """Return spacing levers that can relocate a strike at one station."""
+    target = _strike_growable_target(graph, station_id)
+    if target is None:
+        return set()
+    section, layer = target
+    levers: set[tuple[str, str, int | str]] = {
+        ("entry", section.id, 0),
+        ("exit", section.id, 0),
+        ("gap", section.id, layer),
+    }
+    if station_id in off_track_output_producers:
+        levers.add(("off_lead", section.id, station_id))
+    return levers
+
+
 def _apply_label_strike_clearance(
     graph: MetroGraph,
     *,
@@ -957,13 +996,12 @@ def _apply_label_strike_clearance(
     A fan-in/fan-out, convergence, or descent diagonal that rakes a station's
     name label is cleared by lengthening the flat run at that station by whole
     grid columns (the pitch stays fixed), seating the transition outside the
-    label.  Three grid-quantized levers, each a ``(kind, section, layer)``
-    triple: the section's entry-side runway, its exit-side runway, and a
-    per-column gap before the struck station's layer.  Need-driven: only
-    stations the renderer would draw a strike through grow, so a clean layout
-    (every gallery render at its default pitch) is left untouched.  Independent
-    of pinned vs auto pitch: the room is local, not the global pitch, so it
-    applies even when the caller fixed x_spacing.
+    label.  Grid-quantized levers cover the section's entry-side runway, its
+    exit-side runway, and per-column gaps on either side of the struck station's
+    layer.  Need-driven: only stations the renderer would draw a strike through
+    grow, so a clean layout (every gallery render at its default pitch) is left
+    untouched.  Independent of pinned vs auto pitch: the room is local, not the
+    global pitch, so it applies even when the caller fixed x_spacing.
 
     A grow step bumps every lever at each struck station (which one relocates a
     given strike is hard to know in advance), then a minimization pass strips
@@ -997,30 +1035,9 @@ def _apply_label_strike_clearance(
         _relay()
         graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
 
-    def _growable_target(station_id: str) -> tuple[Section, int] | None:
-        st = graph.stations.get(station_id)
-        if st is None or not st.section_id:
-            return None
-        sec = graph.sections.get(st.section_id)
-        if sec is None or sec.direction not in ("LR", "RL"):
-            return None
-        if graph.is_rail_section(sec.id):
-            return None
-        return sec, st.layer
-
+    _growable_target = partial(_strike_growable_target, graph)
     _adjust = partial(_adjust_strike_lever, graph)
     _lever_value = partial(_strike_lever_value, graph)
-
-    # A station a bypass V diverges from is the diagonal's source, so its strike
-    # is relocated by lengthening the run *after* it: a gap before the next
-    # layer pushes the bypassed node a grid column further out.  Fan-in and
-    # convergence strikes land on the diagonal's target, cleared by the gap
-    # before the struck station's own layer.
-    bypass_divergence_sources = {
-        edge.source
-        for edge in graph.edges
-        if is_bypass_v(edge.target) and not is_bypass_v(edge.source)
-    }
 
     off_track_output_producers = _off_track_output_producers(graph)
 
@@ -1030,22 +1047,7 @@ def _apply_label_strike_clearance(
         return struck_, collinear_, flat_levers_
 
     def _levers_for_struck(sid: str) -> set[tuple[str, str, int | str]]:
-        # Every lever that could relocate a strike at ``sid``; the minimization
-        # pass later strips whichever turn out not to be load-bearing.
-        target = _growable_target(sid)
-        if target is None:
-            return set()
-        sec, layer = target
-        levers: set[tuple[str, str, int | str]] = {
-            ("entry", sec.id, 0),
-            ("exit", sec.id, 0),
-            ("gap", sec.id, layer),
-        }
-        if sid in bypass_divergence_sources:
-            levers.add(("gap", sec.id, layer + 1))
-        if sid in off_track_output_producers:
-            levers.add(("off_lead", sec.id, sid))
-        return levers
+        return _label_strike_levers(graph, sid, off_track_output_producers)
 
     _clear_bypass_label_rakes(
         graph,
@@ -1074,7 +1076,24 @@ def _apply_label_strike_clearance(
             for lever in levers:
                 _adjust(lever, -1)
             _relay()
-            break
+            fallback_levers = set(levers)
+            for sid in struck:
+                target = _growable_target(sid)
+                if target is not None:
+                    section, layer = target
+                    fallback_levers.add(("gap", section.id, layer + 1))
+            if fallback_levers == levers:
+                break
+            for lever in fallback_levers:
+                _adjust(lever, 1)
+            _relay()
+            after, collinear, after_flats = _issues()
+            after_count = len(after) + len(after_flats)
+            if collinear or after_count >= count:
+                for lever in fallback_levers:
+                    _adjust(lever, -1)
+                _relay()
+                break
         struck, flat_levers, count = after, after_flats, after_count
 
     # Minimization: shrink each grown lever column by column, keeping a drop only
@@ -1274,13 +1293,19 @@ def _compute_flat_layout(
 
 # Names of the content-placement phases observed running through
 # :func:`_run_placement` on the most recent ``_compute_section_layout`` pass.
-# ``_run_placement`` is the single chokepoint every content phase flows through
-# (directly or via :func:`_run_placement_per_row`), so this set is the ground
-# truth for "which phases were actually placed".  The completeness meta-test
+# ``_run_placement`` is the chokepoint for phases that place content *purely*
+# -- from frozen anchors plus structure -- whether called directly or via
+# :func:`_run_placement_per_row`, so this set is the ground truth for "which
+# pure placement phases actually ran".  The completeness meta-test
 # (``test_content_placement_phases_complete``) asserts it equals the guarded
 # ``CONTENT_PLACEMENT_PHASES`` set, so a new phase wired through the wrapper but
 # left unregistered -- hence outside the purity / anchor-frozen guards -- fails
 # CI.  See CONTRACT.md (anchor invariant) and #503.
+#
+# Coordinate-inheritance passes (Stage 6.7a's ``_carry_full_bundle_continuations``
+# and its 6.7b/6.7c/6.7d siblings) copy or centre on a coordinate an earlier
+# phase settled, so purity cannot hold for them by construction; they are called
+# directly and CONTRACT.md documents each one's stage instead.
 _PLACEMENT_PHASES_RUN: set[str] = set()
 
 
@@ -1396,6 +1421,7 @@ def _compute_section_layout(
     from nf_metro.layout.labels import diagonal_label_pitch_by_section
 
     section_pitch_map = diagonal_label_pitch_by_section(graph, x_spacing)
+    continuation_predecessors = continuation_track_predecessors(graph)
     section_subgraphs: dict[str, MetroGraph] = {}
     for sec_id, section in graph.sections.items():
         sub = _layout_single_section(
@@ -1405,6 +1431,7 @@ def _compute_section_layout(
             y_spacing,
             section_x_padding,
             section_y_padding,
+            continuation_predecessors,
         )
         if sub is not None:
             section_subgraphs[sec_id] = sub
@@ -1655,6 +1682,9 @@ def _compute_section_layout(
     _run_placement(
         graph, validate, "4.10", _redistribute_full_bundle_columns, y_spacing
     )
+    # Stage 4.10a: carry each fanned column's sole successor back onto its
+    # predecessor's lane, which the fan just moved out from under it.
+    _carry_full_bundle_continuations(graph)
     _snap(graph, "4.10")
 
     _settle_pass_c(
@@ -1879,6 +1909,9 @@ def _place_pass_c_content(
             _recenter_full_bundle_columns,
             y_spacing,
         )
+        # Stage 6.7a: re-carry the sole successors of the columns the recenter
+        # just re-fanned; the Stage 4.10a carry ran against the earlier guess.
+        _carry_full_bundle_continuations(graph)
         # Stage 6.7b: carry each symmetric fork's dead-end continuation onto its
         # branch track.  Stage 6.7c/6.7d then pin the section, its entry port and
         # the reconvergence spine that port feeds to the incoming bundle -- all

@@ -108,6 +108,7 @@ from nf_metro.layout.routing.normalize import (  # noqa: F401
     _separate_fused_cotravelling_runs,
     _separate_opposing_inter_row_trunks,
     _set_vchannel_x,
+    _settle_same_destination_approach_bundles,
     _stagger_convergent_distinct_lines,
     _suboptimal_trunk_bands,
     _unify_coincident_corner_radii,
@@ -138,6 +139,7 @@ from nf_metro.layout.routing.tb_handlers import (  # noqa: F401
     _route_tb_lr_exit,
     _route_tb_section,
 )
+from nf_metro.layout.settlement_demand import BoundaryClearanceRequirement
 from nf_metro.parser.model import (
     Edge,
     LineSpread,
@@ -152,6 +154,17 @@ if TYPE_CHECKING:
         RoutePlanObserver,
     )
     from nf_metro.layout.route_reservations import ReservationCoordinateTranslation
+
+
+def _published_boundary_clearance_owner_ids(
+    inherited_owner_ids: frozenset[str],
+    planned_system_ids: frozenset[RouteSystemId],
+    requirements: tuple[BoundaryClearanceRequirement, ...],
+) -> frozenset[str]:
+    """Publish granted owners that survive this planning generation."""
+    planned_owner_ids = frozenset(str(system_id) for system_id in planned_system_ids)
+    new_owner_ids = frozenset(requirement.owner_id for requirement in requirements)
+    return (inherited_owner_ids & planned_owner_ids) | new_owner_ids
 
 
 def _route_classified_edge(
@@ -319,6 +332,11 @@ def _route_edges(  # noqa: C901
         if reservations is None
         else reservation_ids_by_claimant_member(reservations.reservations)
     )
+    boundary_clearance_owner_ids = (
+        frozenset()
+        if reservations is None
+        else frozenset(reservations.boundary_clearance_owner_ids)
+    )
     planning = prepare_route_system_planning(
         graph,
         ctx,
@@ -327,6 +345,7 @@ def _route_edges(  # noqa: C901
         allow_convergence_clearance_requirements=(
             allow_convergence_clearance_requirements
         ),
+        granted_clearance_owner_ids=boundary_clearance_owner_ids,
     )
     execution = planning.exit_turns
     member_geometry = planning.member_geometry
@@ -335,10 +354,23 @@ def _route_edges(  # noqa: C901
     planned_system_ids = planning.planned_system_ids
     observer = None
     if observe_plan:
+        planned_owner_ids = frozenset(
+            str(system_id) for system_id in planned_system_ids
+        )
         published_member_geometry = tuple(
             plan
             for plan in member_geometry.plans
             if plan.system_id in planned_system_ids
+        )
+        published_member_requirements = tuple(
+            requirement
+            for requirement in member_geometry.clearance_requirements
+            if requirement.owner_id in planned_owner_ids
+        )
+        published_owner_ids = _published_boundary_clearance_owner_ids(
+            boundary_clearance_owner_ids,
+            planned_system_ids,
+            published_member_requirements,
         )
         observer = build_route_plan_observer(
             graph,
@@ -361,8 +393,10 @@ def _route_edges(  # noqa: C901
             ),
             convergence_diagnostics=convergence_execution.diagnostics,
             boundary_clearance_requirements=(
-                convergence_execution.clearance_requirements
+                *convergence_execution.clearance_requirements,
+                *published_member_requirements,
             ),
+            boundary_clearance_owner_ids=published_owner_ids,
             member_geometry_plans=published_member_geometry,
             exit_turn_dispositions=planning.exit_turn_dispositions,
         )
@@ -423,6 +457,7 @@ def _route_edges(  # noqa: C901
             observer.record_dispatch(edge_key, geometry_plan.family_id)
 
         if result is not None:
+            member_geometry.apply_semantic_corner_template(result)
             if system_execution is not None:
                 system_execution.attribute_route(result)
             routes.append(result)
@@ -562,16 +597,21 @@ def _route_edges(  # noqa: C901
     # final reservation geometry.
     _separate_fused_cotravelling_runs(routes, ctx, station_offsets=ctx.station_offsets)
     assert_exit_turn_snapshot(routes, planned_segments, "co-travelling separation")
-    # Same-line legs a coincidence pass fused onto one channel each kept their
-    # handler's corner radius; unify every turn they share so the fused stroke
-    # draws one arc rather than concentric duplicates.
+    # Planned same-line corner cohorts are immutable here.  This final pass is
+    # limited to wholly unowned legacy cohorts.
     # Every pass above sizes a channel from the grid edges it has to hand, which
     # over-states the obstruction wherever a section spans a boundary or sits
     # outside the corridor's run.  Close that difference last, against the
     # blockers the corridor actually has, so the geometry this pass leaves is
     # what the reservation raised over it measures.
-    _hold_runs_in_corridor_clearance(routes, ctx)
+    settled_approach_segments = _settle_same_destination_approach_bundles(routes, ctx)
+    _hold_runs_in_corridor_clearance(
+        routes, ctx, fixed_segment_keys=settled_approach_segments
+    )
     assert_exit_turn_snapshot(routes, planned_segments, "corridor clearance holding")
+    assert_exit_turn_snapshot(
+        routes, planned_segments, "same-destination approach settlement"
+    )
     _unify_coincident_corner_radii(routes)
     assert_exit_turn_snapshot(routes, planned_segments, "corner-radius unification")
     _rederive_semantic_end_corners(routes, ctx.curve_radius, ctx.station_offsets or {})

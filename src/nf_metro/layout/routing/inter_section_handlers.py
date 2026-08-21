@@ -61,6 +61,7 @@ from nf_metro.layout.routing.common import (
     RoutedPath,
     _center_inter_row_channel,
     _inter_row_band_fits,
+    _v_segment_crosses_other_section,
     bundle_width,
     bypass_bottom_y,
     centre_inter_column_channel,
@@ -116,7 +117,6 @@ from nf_metro.layout.routing.normalize import (
     _gap_channel_base,
     _h_segment_crosses_other_section,
     _restack_channel,
-    _v_segment_crosses_other_section,
     _VChannel,
 )
 from nf_metro.layout.routing.perp import (

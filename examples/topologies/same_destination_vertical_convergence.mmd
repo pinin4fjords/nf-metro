@@ -1,0 +1,93 @@
+%%metro title: Same-destination vertical convergence
+%%metro line: lower | Lower route | #8453d7
+%%metro line: feeder | Feeder | #6ef362
+%%metro line: return | Return | #a66d13
+%%metro line: scaffold | Scaffold | #dde6c4
+%%metro line: obstacle | Obstacle | #156075
+%%metro line: obstacle_feed | Obstacle feed | #4cda26
+%%metro line: upper | Upper route | #3779b1
+%%metro grid: s0 | 0,0
+%%metro grid: s1 | 1,0
+%%metro grid: s2 | 1,1
+%%metro grid: s3 | 1,2
+%%metro grid: target | 2,0
+%%metro grid: s5 | 2,1
+%%metro grid: s7 | 1,3
+%%metro grid: s8 | 0,3
+
+graph LR
+    subgraph s0 [Source]
+        n0_0[Source input]
+        n0_1[Source split]
+        n0_0 -->|scaffold| n0_1
+    end
+
+    subgraph s1 [Upper obstacle]
+        n1_0[Obstacle input]
+        n1_1[Obstacle middle]
+        n1_0 -->|obstacle| n1_1
+        n1_2[Obstacle output]
+        n1_1 -->|upper| n1_2
+    end
+
+    subgraph s2 [Middle feeder]
+        n2_0[Middle input]
+        n2_1[Middle step]
+        n2_0 -->|scaffold| n2_1
+        n2_2[Middle output]
+        n2_1 -->|feeder| n2_2
+    end
+
+    subgraph s3 [Lower feeder]
+        n3_0[Lower input]
+        n3_1[Lower step]
+        n3_0 -->|lower| n3_1
+        n3_2[Lower output]
+        n3_1 -->|upper| n3_2
+    end
+
+    subgraph target [Shared target]
+        %%metro entry: left | upper, lower
+        target_in[Target input]
+        target_out[Target output]
+        target_in -->|upper,lower| target_out
+    end
+
+    subgraph s7 [Lower sink]
+        %%metro direction: RL
+        n7_0[Sink input]
+        n7_1[Sink middle]
+        n7_0 -->|lower| n7_1
+        n7_2[Sink step]
+        n7_1 -->|return| n7_2
+        n7_3[Sink output]
+        n7_2 -->|scaffold| n7_3
+    end
+
+    subgraph s5 [Middle sink]
+        n5_0[Middle sink input]
+        n5_1[Middle sink step]
+        n5_0 -->|scaffold| n5_1
+        n5_2[Middle sink output]
+        n5_1 -->|obstacle| n5_2
+    end
+
+    subgraph s8 [Return target]
+        %%metro direction: RL
+        n8_0[Return target input]
+        n8_1[Return target output]
+        n8_0 -->|return| n8_1
+    end
+
+    n0_1 -->|obstacle_feed| n1_0
+    n0_1 -->|scaffold| n2_0
+    n0_1 -->|scaffold| n3_0
+    n0_1 -->|upper| target_in
+    n0_1 -->|lower| n7_0
+    n2_2 -->|upper| n7_0
+    n2_2 -->|lower| n5_0
+    n2_2 -->|scaffold| n5_0
+    n5_2 -->|feeder| n7_0
+    n7_3 -->|return| n8_0
+    n7_3 -->|upper| n8_0
+    n3_2 -->|lower| target_in

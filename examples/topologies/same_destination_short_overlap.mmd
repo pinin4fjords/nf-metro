@@ -1,0 +1,51 @@
+%%metro title: Same-destination short vertical overlap
+%%metro line: assembly | Assembly | #24B064
+%%metro line: reads | Read support | #FA6863
+%%metro line: audit | Audit | #8453d7
+%%metro grid: source | 2,0,2
+%%metro grid: scaffolding | 2,2,4
+%%metro grid: target | 6,4,4
+%%metro compact_offsets: true
+%%metro y_spacing: 125.591
+
+graph LR
+    subgraph source [Source]
+        source_reads[Reads]
+        source_build[Build]
+        source_reads -->|assembly,reads,audit| source_build
+    end
+
+    subgraph scaffolding [Scaffolding]
+        %%metro entry: left | assembly
+        %%metro entry: bottom | reads
+        %%metro exit: right | assembly
+        align_primary[A1]
+        align_secondary[A2]
+        scaffold[Scaffold]
+        map_view[Map view]
+        contact_view[Contact view]
+        summary_view[Summary view]
+        align_primary -->|assembly,reads| scaffold
+        align_secondary -->|assembly,reads| scaffold
+        scaffold -->|assembly,reads| map_view
+        map_view -->|assembly,reads| contact_view
+        contact_view -->|assembly,reads| summary_view
+    end
+
+    subgraph target [Shared target]
+        %%metro entry: left | assembly, audit
+        target_in[Target input]
+        target_primary[Primary report]
+        target_secondary[Secondary report]
+        target_summary[Summary report]
+        target_in -->|assembly,audit| target_primary
+        target_in -->|assembly,audit| target_secondary
+        target_in -->|assembly,audit| target_summary
+    end
+
+    source_build -->|reads| align_primary
+    source_build -->|reads| align_secondary
+    source_build -->|assembly| align_primary
+    source_build -->|assembly| align_secondary
+    source_build -->|assembly| target_in
+    scaffold -->|audit| target_in

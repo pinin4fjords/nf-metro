@@ -8,7 +8,7 @@ from types import MappingProxyType, SimpleNamespace
 import pytest
 
 import nf_metro.layout.routing.member_geometry as member_geometry
-from nf_metro.api import prepare_graph
+from nf_metro.api import RenderConfig, prepare_graph, render_graph, resolve_theme
 from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN, OFFSET_STEP
 from nf_metro.layout.route_plan import (
     BindingKind,
@@ -30,7 +30,7 @@ from nf_metro.layout.routing.corners import (
     concentric_corner_radius_at,
 )
 from nf_metro.layout.routing.families import RouteFamilyId
-from nf_metro.layout.routing.normalize import _VChannel
+from nf_metro.layout.routing.normalize import _rederive_semantic_end_corners, _VChannel
 from nf_metro.layout.routing.offsets import compute_station_offsets
 from nf_metro.layout.routing.planning import _allocation_eligible_system_ids
 from nf_metro.layout.routing.reserved_bands import (
@@ -42,6 +42,14 @@ from nf_metro.parser.model import Edge
 from nf_metro.parser.route_topology import ConnectorId, ResolvedEdge
 
 ROOT = Path(__file__).parents[1]
+
+OWNED_CORNER_RENDER_FIXTURES = (
+    "examples/topologies/convergent_offrow_exit_climb.mmd",
+    "examples/topologies/same_line_fan_distinct_descent.mmd",
+    "examples/genomic_pipeline.mmd",
+    "examples/topologies/packed_cell_right_exit_left_entry_wrap.mmd",
+    "examples/topologies/plan_owned_distinct_lane_separation.mmd",
+)
 
 
 @pytest.mark.parametrize(
@@ -631,6 +639,170 @@ def test_member_plans_persist_exact_connector_ownership() -> None:
     assert encoded == {
         plan.id: plan.connector_ids for plan in observation.plan.member_geometry_plans
     }
+
+
+def test_reportho_owned_lead_is_frozen_at_its_concentric_radius() -> None:
+    path = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
+    graph, observation = _observe(path)
+    plan = next(
+        item
+        for item in observation.plan.member_geometry_plans
+        if item.edge.source == "__junction_12" and item.edge.line_id == "main"
+    )
+    route = _route_for_plan(observation, plan)
+    fresh = member_geometry.fresh_member_route(
+        plan,
+        Edge(plan.edge.source, plan.edge.target, plan.edge.line_id),
+    )
+
+    assert route.curve_radii is not None
+    assert (
+        tuple(route.curve_radii) == plan.curve_radii == tuple(fresh.curve_radii or ())
+    )
+    assert route.curve_radii[0] == 14.0
+    assert route.concentric_corner_offsets_by_segment == dict(
+        plan.concentric_corner_offsets_by_segment
+    )
+    assert route.concentric_corner_bases_by_segment == dict(
+        plan.concentric_corner_bases_by_segment
+    )
+    before = (
+        tuple(route.curve_radii),
+        dict(route.concentric_corner_offsets_by_segment),
+        dict(route.concentric_corner_bases_by_segment),
+    )
+    _rederive_semantic_end_corners(
+        observation.routes,
+        CURVE_RADIUS,
+        compute_station_offsets(graph),
+    )
+    assert (
+        tuple(route.curve_radii),
+        route.concentric_corner_offsets_by_segment,
+        route.concentric_corner_bases_by_segment,
+    ) == before
+
+
+def test_owned_coincident_terminal_corners_match_their_frozen_plans() -> None:
+    _graph, observation = _observe(ROOT / "examples" / "genomic_pipeline.mmd")
+    plans = [
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge.source == "annotation__exit_right_3"
+        and plan.edge.target == "reporting__entry_left_7"
+    ]
+
+    assert {plan.edge.line_id for plan in plans} == {
+        "germline",
+        "somatic",
+        "tumor_only",
+    }
+    for plan in plans:
+        route = _route_for_plan(observation, plan)
+        assert tuple(route.curve_radii or ()) == plan.curve_radii
+        assert route.concentric_corner_offsets_by_segment == dict(
+            plan.concentric_corner_offsets_by_segment
+        )
+        assert route.concentric_corner_bases_by_segment == dict(
+            plan.concentric_corner_bases_by_segment
+        )
+
+
+@pytest.mark.parametrize("relative_path", OWNED_CORNER_RENDER_FIXTURES)
+def test_owned_corner_preview_regressions_match_plans_and_render(
+    relative_path: str,
+) -> None:
+    path = ROOT / relative_path
+    graph, observation = _observe(path)
+
+    assert observation.plan.member_geometry_plans
+    for plan in observation.plan.member_geometry_plans:
+        route = _route_for_plan(observation, plan)
+        assert (
+            None if route.curve_radii is None else tuple(route.curve_radii)
+        ) == plan.curve_radii
+        assert route.concentric_corner_offsets_by_segment == dict(
+            plan.concentric_corner_offsets_by_segment
+        )
+        assert route.concentric_corner_bases_by_segment == dict(
+            plan.concentric_corner_bases_by_segment
+        )
+
+    assert (
+        render_graph(
+            graph,
+            resolve_theme(None, graph),
+            RenderConfig(chrome_css=False),
+        ).find("<svg ")
+        > 0
+    )
+
+
+def test_blocked_riser_members_publish_their_frozen_corner_templates() -> None:
+    _graph, observation = _observe(
+        ROOT / "examples" / "topologies" / "same_destination_vertical_convergence.mmd"
+    )
+
+    assert observation.plan.member_geometry_plans
+    for plan in observation.plan.member_geometry_plans:
+        route = _route_for_plan(observation, plan)
+        assert (
+            None if route.curve_radii is None else tuple(route.curve_radii)
+        ) == plan.curve_radii
+        assert route.concentric_corner_offsets_by_segment == dict(
+            plan.concentric_corner_offsets_by_segment
+        )
+        assert route.concentric_corner_bases_by_segment == dict(
+            plan.concentric_corner_bases_by_segment
+        )
+
+    blocker = next(
+        plan
+        for plan in observation.plan.member_geometry_plans
+        if plan.edge.source == "__junction_12"
+        and plan.edge.target == "s7__entry_right_9"
+        and plan.edge.line_id == "lower"
+    )
+    assert blocker.family_id is member_geometry.RouteFamilyId.RIGHT_ENTRY_WRAP
+    assert blocker.owns_complete_path
+    assert blocker.gap_channels == ()
+
+
+@pytest.mark.parametrize("corruption", ("radius", "map"))
+def test_member_geometry_validator_rejects_owned_corner_plan_drift(
+    corruption: str,
+) -> None:
+    path = ROOT / "tests" / "fixtures" / "route_reservations" / "reportho.metro"
+    _graph, observation = _observe(path)
+    plan = next(
+        item
+        for item in observation.plan.member_geometry_plans
+        if item.edge.source == "__junction_12" and item.edge.line_id == "main"
+    )
+    route = member_geometry.fresh_member_route(
+        plan,
+        Edge(plan.edge.source, plan.edge.target, plan.edge.line_id),
+    )
+    execution = member_geometry.MemberGeometryExecution(
+        (plan,), MappingProxyType({}), MappingProxyType({plan.edge: plan})
+    )
+    if corruption == "radius":
+        assert route.curve_radii is not None
+        route.curve_radii[0] += 1.0
+        bases = list(route.concentric_corner_bases_by_segment[1])
+        assert bases[0] is not None
+        bases[0] += 1.0
+        route.concentric_corner_bases_by_segment[1] = tuple(bases)
+        match = "owned corner radius changed"
+    else:
+        offsets = list(route.concentric_corner_offsets_by_segment[2])
+        assert offsets[0] is not None
+        offsets[0] += 1.0
+        route.concentric_corner_offsets_by_segment[2] = tuple(offsets)
+        match = "owned corner inputs changed"
+
+    with pytest.raises(RuntimeError, match=match):
+        member_geometry.validate_member_geometry_emission([route], execution)
 
 
 def test_trunk_slot_settles_before_adjacent_gap_channels_freeze() -> None:

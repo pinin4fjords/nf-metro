@@ -56,6 +56,7 @@ from nf_metro.layout.phases._common import (
     _section_lr_port_anchor_y,
     _side_entered_vertical_feeder_pairs,
     _station_marker_bbox,
+    continuation_track_is_realizable,
     first_vertical_leg_sign,
     first_vertical_leg_x,
     flow_exit_carrier_anchor,
@@ -1656,6 +1657,8 @@ def _guard_entry_port_not_opposite_targets(graph: MetroGraph, phase: str) -> Non
 def _guard_post_convergence_trunk_continues(graph: MetroGraph, phase: str) -> None:
     """An in-section linear continuation stays on one secondary track."""
     for section_id, pred, node in iter_sole_trunk_continuations(graph):
+        if not continuation_track_is_realizable(graph, node, pred):
+            continue
         section = graph.sections[section_id]
         frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
         pred_secondary = frame.secondary.get(graph.stations[pred])
@@ -5718,9 +5721,14 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "B",
         issue_pin=("#946", "#977"),
         narrow_reason=(
-            "Scoped to a membership-changing in-section chain whose predecessor "
-            "has one complete forward target. Sibling paths and lines that bypass "
-            "an intermediate carrier retain separate tracks."
+            "Scoped to an in-section chain of horizontal (LR/RL) sections whose "
+            "node has one visible predecessor and whose predecessor has that "
+            "node as its one complete forward target -- membership-changing or "
+            "membership-preserving, since equal-line closure extends the same "
+            "proof along a chain. Sibling paths, lines that bypass an "
+            "intermediate carrier, vertical sections, and file-icon stations "
+            "stay out; each keeps its own track for a reason the relation's "
+            "docstring records."
         ),
     ),
     GuardSpec(_guard_perp_entry_feed_not_collinear, "B"),

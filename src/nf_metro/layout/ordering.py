@@ -33,7 +33,7 @@ def assign_tracks(
     line_gap: float = LINE_GAP,
     *,
     entry_top: bool = False,
-    continuation_nodes: frozenset[str] = frozenset(),
+    continuation_predecessors: dict[str, str] | None = None,
     terminal_nodes: frozenset[str] = frozenset(),
     exit_reaching: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
@@ -45,12 +45,9 @@ def assign_tracks(
         line_gap: Fixed gap (in track units) between line base tracks.
         entry_top: When True, use asymmetric (downward) fan-out at the
             entry layer so the entry-connected station stays at the top.
-        continuation_nodes: Stations that are the clean sole continuation of
-            a line-shedding predecessor (whose only forward path is this
-            node), which must hold the predecessor's track rather than drop
-            to a line base. Computed with full-graph awareness by the caller,
-            since this graph is a section subgraph blind to a predecessor's
-            section-exit edges.
+        continuation_predecessors: Full-graph-proven continuation predecessor
+            for each station that inherits a track. The section subgraph omits
+            external edges, so the caller computes this relation once.
         terminal_nodes: Stations carrying only lines that do not leave the
             section, so their chain ends inside it (a terminal spur). Supplied
             by the caller because the section subgraph omits the exit-port
@@ -71,6 +68,8 @@ def assign_tracks(
     for sid in graph.stations:
         if sid not in G:
             G.add_node(sid)
+
+    continuation_predecessors = continuation_predecessors or {}
 
     line_order = list(graph.lines.keys())
     line_priority = {lid: i for i, lid in enumerate(line_order)}
@@ -152,7 +151,7 @@ def assign_tracks(
                     layers,
                     diamond_members=diamond_members,
                     layer_occupancy=layer_occupancy,
-                    continuation_nodes=continuation_nodes,
+                    continuation_predecessors=continuation_predecessors,
                     line_base=line_base,
                     terminal_nodes=terminal_nodes,
                 )
@@ -334,7 +333,7 @@ def _place_single_node(
     *,
     diamond_members: set[str] | None = None,
     layer_occupancy: dict[int, dict[str, float]] | None = None,
-    continuation_nodes: frozenset[str] = frozenset(),
+    continuation_predecessors: dict[str, str] | None = None,
     line_base: dict[str, float] | None = None,
     terminal_nodes: frozenset[str] = frozenset(),
 ) -> float:
@@ -350,28 +349,29 @@ def _place_single_node(
     pred_avg = _predecessor_avg(node, G, tracks)
     if pred_avg is None:
         return base
-    if node in continuation_nodes:
-        return pred_avg
+
+    node_layer = layers.get(node, 0) if layers else 0
+
+    def _track_is_inheritable(track: float) -> bool:
+        return layer_occupancy is None or not _is_track_occupied_at_layer(
+            track, node_layer, layer_occupancy, node
+        )
+
+    inherited_predecessor = (continuation_predecessors or {}).get(node)
+    if inherited_predecessor in tracks and _track_is_inheritable(
+        tracks[inherited_predecessor]
+    ):
+        return tracks[inherited_predecessor]
 
     # Detect divergence: predecessor has more lines than this node
     if graph is not None:
         preds = list(G.predecessors(node))
-        node_layer = layers.get(node, 0) if layers else 0
         node_lines = set(graph.station_lines(node))
         pred_lines: set[str] = set()
         for p in preds:
             pred_lines.update(graph.station_lines(p))
         if len(pred_lines) > len(node_lines):
-            # Linear trunk continuation: this node carries fewer lines because
-            # some of its predecessor's lines ended at the predecessor, not
-            # because it is a branch peeling off a fork.  When the predecessor's
-            # only forward path is this node, there is no sibling branch to fan
-            # toward, so continue the predecessor's track and keep the chain
-            # flat instead of dropping onto a line base track.  Either the
-            # predecessor is itself an in-section merge (#946) or full-graph
-            # analysis flagged it as a clean sole continuation (#977); the
-            # latter is needed because this subgraph cannot see a predecessor's
-            # section-exit edge that would route a line around this node.
+            # An in-section merge carries its only successor on the merged track.
             if len(preds) == 1 and list(G.successors(preds[0])) == [node]:
                 if G.in_degree(preds[0]) > 1:
                     return pred_avg
@@ -480,7 +480,11 @@ def _place_single_node(
         if graph is not None:
             pred_line_set = set(graph.station_lines(pred))
             node_line_set = set(graph.station_lines(node))
-            if pred_line_set and pred_line_set == node_line_set:
+            if (
+                pred_line_set
+                and pred_line_set == node_line_set
+                and _track_is_inheritable(tracks[pred])
+            ):
                 return tracks[pred]
 
     distance = abs(base - pred_avg)

@@ -400,7 +400,94 @@ def test_merge_feeder_does_not_compress_a_terminal_landing_curve() -> None:
     )
 
 
+_LEFTWARD_UPTURN = """%%metro title: Leftward upturn lane order
+%%metro line: alpha | Alpha | #3779b1
+%%metro line: beta | Beta | #6ef362
+%%metro line: gamma | Gamma | #a66d13
+%%metro grid: target | 0,0
+%%metro grid: source | 1,1
+
+graph LR
+    subgraph target [Target]
+        %%metro direction: RL
+        target_in[Target in]
+        target_out[Target out]
+        target_in -->|alpha| target_out
+    end
+    subgraph source [Source]
+        %%metro direction: RL
+        source_in[Source in]
+        split[Split]
+        source_in -->|alpha,beta,gamma| split
+    end
+    split -->|alpha| target_in
+    split -->|beta| target_in
+    split -->|gamma| target_in
+"""
+
+
 def test_leftward_upturn_preserves_source_lane_order() -> None:
+    """A leftward bundle turning up turns in the order its lanes arrive.
+
+    The lane arriving lowest is the outermost of an up-turn, so it must take the
+    axis furthest along the run; each lane inboard of it turns one step later.
+    Ordering the axes against the lane order instead crosses the arms through
+    the bend.
+    """
+    graph = prepare_graph(_LEFTWARD_UPTURN, source_dir="")
+    offsets = compute_station_offsets(graph)
+    observation = observe_route_edges(graph, station_offsets=offsets)
+
+    planning_graph = prepare_graph(_LEFTWARD_UPTURN, source_dir="")
+    planning_offsets = compute_station_offsets(planning_graph)
+    ctx = _build_routing_context(
+        planning_graph, DIAGONAL_RUN, CURVE_RADIUS, planning_offsets
+    )
+    execution = exit_turns.build_exit_turn_execution(planning_graph, ctx)
+    plan = next(
+        item for item in execution.plans if item.source_id == "source__exit_left_0"
+    )
+    system = next(
+        item for item in observation.plan.systems if item.id == plan.system_id
+    )
+
+    assert plan.disposition is ExitTurnDisposition.PLANNED
+    assert system.disposition is RouteSystemDisposition.PLANNED
+    assert not system.compatibility_reasons
+    assert all(
+        assignment.run_direction is Direction.L
+        and assignment.turn_direction is Direction.U
+        and assignment.planned_family_id is RouteFamilyId.STANDARD_L_SHAPE
+        for assignment in plan.assignments
+    )
+
+    lane_order = tuple(lane.line_id for lane in plan.source_lanes)
+    assert lane_order == ("gamma", "beta", "alpha")
+    axes = {axis.line_id: axis.coordinate for axis in plan.axes}
+    axis_order = [axes[line_id] for line_id in lane_order]
+    assert all(
+        later - earlier == pytest.approx(OFFSET_STEP)
+        for earlier, later in zip(axis_order, axis_order[1:])
+    )
+
+    routes = {
+        route.line_id: route
+        for route in observation.routes
+        if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
+    }
+    assert sorted(routes) == sorted(lane_order)
+    assert all(route.route_system_disposition == "planned" for route in routes.values())
+    drawn = {
+        line_id: apply_route_offsets(route, offsets)
+        for line_id, route in routes.items()
+    }
+    assert [drawn[line_id][1][0] for line_id in lane_order] == axis_order
+    launch_y = [drawn[line_id][0][1] for line_id in lane_order]
+    assert all(later < earlier for earlier, later in zip(launch_y, launch_y[1:]))
+    validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
+
+
+def test_seed_72_leftward_straight_preserves_source_lane_order() -> None:
     graph, offsets, observation = _observe(FROZEN / "seed_72.mmd")
     _raw_graph, _raw_offsets, _original_offsets, execution = _build_execution(
         FROZEN / "seed_72.mmd"
@@ -414,19 +501,26 @@ def test_leftward_upturn_preserves_source_lane_order() -> None:
     assert system.disposition is RouteSystemDisposition.PLANNED
     assert not system.compatibility_reasons
     assert tuple(lane.line_id for lane in plan.source_lanes) == ("l6", "l2")
-    axes = {axis.line_id: axis.coordinate for axis in plan.axes}
-    assert axes["l6"] < axes["l2"]
+    assert all(
+        assignment.run_direction is Direction.L
+        and assignment.turn_direction is None
+        and assignment.planned_family_id is RouteFamilyId.SAME_Y_STRAIGHT
+        for assignment in plan.assignments
+    )
+    assert not plan.axes
     routes = {
         route.line_id: route
         for route in observation.routes
-        if route.edge.source == plan.source_id and route.exit_turn_axis_id is not None
+        if route.edge.source == plan.source_id
     }
     assert all(route.route_system_disposition == "planned" for route in routes.values())
-    turn_x = {
-        line_id: apply_route_offsets(route, offsets)[1][0]
+    assert {
+        line_id: apply_route_offsets(route, offsets)
         for line_id, route in routes.items()
+    } == {
+        "l2": [(250.0, 664.0), (190.0, 664.0)],
+        "l6": [(250.0, 668.0), (190.0, 668.0)],
     }
-    assert turn_x["l6"] < turn_x["l2"]
     validate_exit_turn_plans(graph, observation.routes, observation.plan, offsets)
 
 
@@ -836,12 +930,12 @@ def test_terminated_source_lane_does_not_leave_a_phantom_slot() -> None:
     plan = _plan_for_source(observation, "__junction_37")
 
     assert plan.disposition is ExitTurnDisposition.PLANNED
-    assert tuple(lane.line_id for lane in plan.source_lanes) == ("l0", "l1", "l4")
+    assert tuple(lane.line_id for lane in plan.source_lanes) == ("l4", "l1", "l0")
     assert tuple(lane.input_offset for lane in plan.source_lanes) == (0.0, 4.0, 12.0)
     assert tuple(lane.planned_offset for lane in plan.source_lanes) == (0.0, 4.0, 8.0)
-    assert offsets[("s2__exit_right_2", "l4")] == pytest.approx(8.0)
-    assert offsets[("__junction_37", "l4")] == pytest.approx(8.0)
-    assert offsets[("n2_1", "l4")] == pytest.approx(8.0)
+    assert offsets[("s2__exit_right_2", "l4")] == pytest.approx(0.0)
+    assert offsets[("__junction_37", "l4")] == pytest.approx(0.0)
+    assert offsets[("n2_1", "l4")] == pytest.approx(0.0)
     assert all(
         transition.edge.target != "s2__exit_right_2" or transition.edge.line_id != "l4"
         for transition in plan.lane_transitions
@@ -2061,7 +2155,7 @@ def test_unsupported_family_after_tentative_compaction_uses_whole_group_legacy(
         family = real_classify(edge, src, tgt, ctx)
         if (
             edge.source == "__junction_37"
-            and edge.line_id == "l4"
+            and edge.line_id == "l0"
             and ctx.station_offsets is not None
             and ctx.station_offsets[(edge.source, edge.line_id)] == pytest.approx(8.0)
         ):
@@ -2305,7 +2399,7 @@ def test_post_pass_snapshot_owns_family_direction_and_endpoints() -> None:
         ),
     ),
 )
-def test_post_pass_snapshot_leaves_corner_radius_to_unifier(
+def test_post_pass_snapshot_preserves_owned_corner_radius(
     path: Path,
     family_id: str,
 ) -> None:
@@ -2345,7 +2439,10 @@ def test_post_pass_snapshot_leaves_corner_radius_to_unifier(
 
     normalize._unify_coincident_corner_radii(routes)
 
-    assert route.curve_radii[radius_index] >= wide_radius
+    assert narrow_radius == pytest.approx(6.0)
+    assert wide_radius == pytest.approx(14.0)
+    assert route.curve_radii[radius_index] == pytest.approx(6.0)
+    assert coincident_peer.curve_radii[radius_index] == pytest.approx(14.0)
     assert_exit_turn_snapshot(routes, snapshot, "corner-radius unification")
 
 

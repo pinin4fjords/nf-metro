@@ -60,6 +60,11 @@ TWO_SECTION_TEXT = (
 # in _compute_section_layout (the set guarded by _guard_anchors_frozen). Shared so
 # the anchor-frozen test and the idempotence test enumerate the same set and a new
 # phase can't be added to one without the other.
+# Content-placement phases: each derives the Y it assigns from the frozen
+# anchors plus structure alone, which is what lets the purity and anchor-frozen
+# guards apply to all of them without exception.  A pass that copies or centres
+# on a coordinate an earlier phase settled (Stage 6.7a-6.7d) cannot satisfy that
+# and is deliberately absent -- see CONTRACT.md for those stages.
 CONTENT_PLACEMENT_PHASES = (
     "_apply_planned_fan_geometry",  # Stages 4.9 and 6.17
     "_redistribute_fanout_siblings",  # Stage 4.9

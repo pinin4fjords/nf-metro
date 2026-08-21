@@ -45,13 +45,14 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import networkx as nx
 
 from nf_metro.graph_views import line_graphs
+from nf_metro.layout.routing.corners import resolve_curve_radii
 from nf_metro.parser.model import Edge, MetroGraph
 
 if TYPE_CHECKING:
@@ -210,6 +211,7 @@ def compute_bridges(
     polylines: list[list[Point]],
     *,
     curve_radius: float,
+    curve_radii: Sequence[Sequence[float] | None] | None = None,
 ) -> dict[int, list[BridgeBreak]]:
     """Find non-merging crossings and report per-under-route gap spans.
 
@@ -217,6 +219,14 @@ def compute_bridges(
     offset-applied geometry actually drawn for ``routes[i]``.  Returns a map
     from ``id(route)`` of each under-route to the gaps to break on it.
     """
+    drawable_radii: Sequence[Sequence[float] | None]
+    if curve_radii is None:
+        drawable_radii = [route.curve_radii for route in routes]
+    else:
+        if len(curve_radii) != len(routes):
+            raise ValueError("routes and curve_radii must be aligned")
+        drawable_radii = curve_radii
+
     node_pos = {s.id: (s.x, s.y) for s in graph.stations.values()}
     node_xy = list(node_pos.values())
     station_xy = {
@@ -231,8 +241,6 @@ def compute_bridges(
     clusters = _cluster_crossings(crossings)
 
     line_priority = {lid: i for i, lid in enumerate(graph.lines)}
-    corner_clear = curve_radius + BRIDGE_CORNER_CLEARANCE
-
     by_line: dict[str, list[int]] = defaultdict(list)
     for idx, r in enumerate(routes):
         by_line[r.line_id].append(idx)
@@ -257,14 +265,24 @@ def compute_bridges(
 
     for cluster in clusters:
         for route_idx, seg, span in _cluster_gaps(
-            cluster, routes, polylines, line_priority, corner_clear
+            cluster,
+            routes,
+            polylines,
+            drawable_radii,
+            line_priority,
+            curve_radius,
         ):
             # Break every collinear route of this line through the span, not
             # just the one that crossed - sibling routes (same line, same
             # corridor) would otherwise fill the gap and hide the break.
             line_id = routes[route_idx].line_id
             for sib in by_line[line_id]:
-                sib_seg = _segment_containing(polylines[sib], span, corner_clear)
+                sib_seg = _segment_containing(
+                    polylines[sib],
+                    span,
+                    curve_radius,
+                    drawable_radii[sib],
+                )
                 if sib_seg is not None:
                     add(sib, sib_seg, span)
 
@@ -449,8 +467,9 @@ def _cluster_gaps(
     cluster: list[_Crossing],
     routes: list[RoutedPath],
     polylines: list[list[Point]],
+    curve_radii: Sequence[Sequence[float] | None],
     line_priority: dict[str, int],
-    corner_clear: float,
+    curve_radius: float,
 ) -> list[tuple[int, int, Gap]]:
     """For one cluster, return (route_index, seg_index, gap) for every line of
     the under bundle.  The gap is the same span (in the shared crossing
@@ -495,15 +514,23 @@ def _cluster_gaps(
     ]
     if not cross_pts:
         return []
-    return _uniform_gaps(sorted(under), seg_of, polylines, cross_pts, corner_clear)
+    return _uniform_gaps(
+        sorted(under),
+        seg_of,
+        polylines,
+        curve_radii,
+        cross_pts,
+        curve_radius,
+    )
 
 
 def _uniform_gaps(
     under: list[int],
     seg_of: dict[int, int],
     polylines: list[list[Point]],
+    curve_radii: Sequence[Sequence[float] | None],
     cross_pts: list[Point],
-    corner_clear: float,
+    curve_radius: float,
 ) -> list[tuple[int, int, Gap]]:
     """Break every under-line at the same gap, centred on the over bundle.
 
@@ -523,18 +550,30 @@ def _uniform_gaps(
     sym_half = over_half + BRIDGE_GAP_HALF
     for ri in under:
         seg = seg_of[ri]
-        a, b = polylines[ri][seg], polylines[ri][seg + 1]
+        poly = polylines[ri]
+        a, b = poly[seg], poly[seg + 1]
         seg_len = math.hypot(b[0] - a[0], b[1] - a[1])
         if seg_len == 0:
             continue
         a_u = a[0] * ux + a[1] * uy
+        run_lo, run_hi = _run_projection_limits(
+            poly, curve_radii[ri], seg, ux, uy, curve_radius
+        )
         sym_half = min(
             sym_half,
-            centre - (a_u + corner_clear),
-            a_u + seg_len - corner_clear - centre,
+            centre - run_lo,
+            run_hi - centre,
         )
         geom.append(
-            (ri, seg, a, (b[0] - a[0]) / seg_len, (b[1] - a[1]) / seg_len, a_u, seg_len)
+            (
+                ri,
+                a,
+                (b[0] - a[0]) / seg_len,
+                (b[1] - a[1]) / seg_len,
+                a_u,
+                run_lo,
+                run_hi,
+            )
         )
 
     # Prefer a gap centred on the over bundle (symmetric, identical across the
@@ -543,23 +582,27 @@ def _uniform_gaps(
     symmetric = sym_half >= over_half and sym_half > 0
 
     out: list[tuple[int, int, Gap]] = []
-    for ri, seg, a, sux, suy, a_u, seg_len in geom:
+    for ri, a, sux, suy, a_u, run_lo, run_hi in geom:
         if symmetric:
             lo_s = centre - sym_half - a_u
             hi_s = centre + sym_half - a_u
         else:
-            lo_s = max(corner_clear, cmin - a_u - BRIDGE_GAP_HALF)
-            hi_s = min(seg_len - corner_clear, cmax - a_u + BRIDGE_GAP_HALF)
+            lo_s = max(run_lo - a_u, cmin - a_u - BRIDGE_GAP_HALF)
+            hi_s = min(run_hi - a_u, cmax - a_u + BRIDGE_GAP_HALF)
             if lo_s >= hi_s:
                 continue
+        span = (
+            (a[0] + sux * lo_s, a[1] + suy * lo_s),
+            (a[0] + sux * hi_s, a[1] + suy * hi_s),
+        )
+        member_seg = _member_segment_containing(polylines[ri], span)
+        if member_seg is None:
+            continue
         out.append(
             (
                 ri,
-                seg,
-                (
-                    (a[0] + sux * lo_s, a[1] + suy * lo_s),
-                    (a[0] + sux * hi_s, a[1] + suy * hi_s),
-                ),
+                member_seg,
+                span,
             )
         )
     return out
@@ -615,19 +658,113 @@ def _unit(a: Point, b: Point) -> Point:
     return (dx / length, dy / length) if length else (1.0, 0.0)
 
 
-def _segment_containing(
-    poly: list[Point], span: tuple[Point, Point], corner_clear: float
-) -> int | None:
-    """Index of the segment of ``poly`` that contains the gap ``span``
-    collinearly and clear of its corners, or None."""
+def _segments_continue_straight(a: Point, b: Point, c: Point) -> bool:
+    ab = (b[0] - a[0], b[1] - a[1])
+    bc = (c[0] - b[0], c[1] - b[1])
+    return (
+        math.hypot(*ab) > 1e-9
+        and math.hypot(*bc) > 1e-9
+        and abs(ab[0] * bc[1] - ab[1] * bc[0]) <= 1e-6
+        and ab[0] * bc[0] + ab[1] * bc[1] > 0.0
+    )
+
+
+def _maximal_collinear_run(poly: list[Point], seg: int) -> tuple[int, int]:
+    start = seg
+    while start > 0 and _segments_continue_straight(
+        poly[start - 1], poly[start], poly[start + 1]
+    ):
+        start -= 1
+    end = seg + 1
+    while end < len(poly) - 1 and _segments_continue_straight(
+        poly[end - 1], poly[end], poly[end + 1]
+    ):
+        end += 1
+    return start, end
+
+
+def _rounded_corner_clearances(
+    poly: list[Point],
+    curve_radii: Sequence[float] | None,
+    start: int,
+    end: int,
+    curve_radius: float,
+) -> tuple[float, float]:
+    resolved = resolve_curve_radii(
+        poly,
+        None if curve_radii is None else list(curve_radii),
+        default_radius=curve_radius,
+    )
+
+    def clearance(point_idx: int) -> float:
+        if point_idx <= 0 or point_idx >= len(poly) - 1:
+            return 0.0
+        incoming = (
+            poly[point_idx][0] - poly[point_idx - 1][0],
+            poly[point_idx][1] - poly[point_idx - 1][1],
+        )
+        outgoing = (
+            poly[point_idx + 1][0] - poly[point_idx][0],
+            poly[point_idx + 1][1] - poly[point_idx][1],
+        )
+        if abs(incoming[0] * outgoing[1] - incoming[1] * outgoing[0]) <= 1e-9:
+            return 0.0
+        radius = resolved[point_idx - 1]
+        if radius <= 1e-9:
+            return 0.0
+        return radius + BRIDGE_CORNER_CLEARANCE
+
+    return clearance(start), clearance(end)
+
+
+def _run_projection_limits(
+    poly: list[Point],
+    curve_radii: Sequence[float] | None,
+    seg: int,
+    ux: float,
+    uy: float,
+    curve_radius: float,
+) -> tuple[float, float]:
+    start, end = _maximal_collinear_run(poly, seg)
+    start_u = poly[start][0] * ux + poly[start][1] * uy
+    end_u = poly[end][0] * ux + poly[end][1] * uy
+    start_clear, end_clear = _rounded_corner_clearances(
+        poly, curve_radii, start, end, curve_radius
+    )
+    if start_u <= end_u:
+        return start_u + start_clear, end_u - end_clear
+    return end_u + end_clear, start_u - start_clear
+
+
+def _member_segment_containing(poly: list[Point], span: Gap) -> int | None:
     a, b = span
     for i in range(len(poly) - 1):
-        p, q = poly[i], poly[i + 1]
-        if _point_on_segment(a, p, q, corner_clear) and _point_on_segment(
-            b, p, q, corner_clear
+        if _point_on_segment(a, poly[i], poly[i + 1], 0.0) and _point_on_segment(
+            b, poly[i], poly[i + 1], 0.0
         ):
             return i
     return None
+
+
+def _segment_containing(
+    poly: list[Point],
+    span: tuple[Point, Point],
+    curve_radius: float,
+    curve_radii: Sequence[float] | None = None,
+) -> int | None:
+    """Index of the segment of ``poly`` that contains the gap ``span``
+    collinearly and clear of its corners, or None."""
+    seg = _member_segment_containing(poly, span)
+    if seg is None:
+        return None
+    ux, uy = _unit(poly[seg], poly[seg + 1])
+    run_lo, run_hi = _run_projection_limits(
+        poly, curve_radii, seg, ux, uy, curve_radius
+    )
+    span_projections = [point[0] * ux + point[1] * uy for point in span]
+    if min(span_projections) < run_lo or max(span_projections) > run_hi:
+        return None
+    return seg
 
 
 def _point_on_segment(pt: Point, p: Point, q: Point, corner_clear: float) -> bool:

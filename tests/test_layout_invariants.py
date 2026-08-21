@@ -18,6 +18,7 @@ import json
 import warnings
 from collections import defaultdict
 from collections.abc import Iterator
+from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -27,13 +28,16 @@ from layout_validator import check_route_segment_crossings, check_station_as_elb
 
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import (
+    COLLISION_MULTIPLIER,
     CURVE_RADIUS,
+    DESCENDER_CLEARANCE,
     DIAGONAL_SLOPE_RATIO,
     EDGE_TO_BUNDLE_CLEARANCE,
     GUARD_TOLERANCE,
     ICON_CAPTION_FONT_HEIGHT,
     INTER_ROW_EDGE_CLEARANCE,
     JUNCTION_MARGIN,
+    LABEL_OFFSET,
     MIN_STATION_FLAT_LENGTH,
     ROW_BAND_SLACK,
     SAME_COORD_TOLERANCE,
@@ -56,6 +60,8 @@ from nf_metro.layout.engine import (
 )
 from nf_metro.layout.geometry import (
     AxisFrame,
+    flow_port_sides,
+    lanes_run_along_x,
     lanes_run_along_y,
     perpendicular_port_sides,
     segment_intersects_bbox,
@@ -63,8 +69,11 @@ from nf_metro.layout.geometry import (
 from nf_metro.layout.labels import (
     LabelOverlap,
     LabelPlacement,
+    _build_label_ctx,
     _choose_wrap_offender,
+    _has_collision,
     _label_bbox,
+    _pill_offsets,
     find_wrapped_label_trunk_strikes,
     place_labels,
     segment_strikes_label,
@@ -73,6 +82,7 @@ from nf_metro.layout.pass_metrics import font_scale_context
 from nf_metro.layout.phases._common import (
     _is_side_entered_vertical_section,
     _row_contiguous_column_groups,
+    continuation_track_predecessors,
     flow_axis_exit_ports,
     flow_exit_carrier_anchor,
     iter_corridor_fed_solo_entries,
@@ -110,6 +120,10 @@ from nf_metro.layout.phases.off_track import (
     _reanchor_off_track_to_consumer,
     _section_distinct_trunk_cross_coords,
 )
+from nf_metro.layout.phases.ports import (
+    _reconcile_flow_exit_carrier_anchors,
+    _set_port_y,
+)
 from nf_metro.layout.phases.row_align import _packed_row_header_groups
 from nf_metro.layout.routing import (
     OffsetRegime,
@@ -125,6 +139,7 @@ from nf_metro.layout.routing.invariants import (
     check_collinear_distinct_lines,
     check_merge_fanout_pivots_shared,
 )
+from nf_metro.layout.routing.offsets import _sole_in_section_consumer
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import (
     BYPASS_V_PREFIX,
@@ -847,6 +862,13 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
     fork to peel off to.  Dropping it onto its own line's base track instead
     of the predecessor's row paints an in-section V-kink (flat run, dip down,
     climb back to the exit) on what is a simple chain (#977).
+
+    Its subject comes from the production relation, so it can only check pairs
+    that relation names.  Chains the relation declines -- vertical sections and
+    file-icon stations -- are locked by
+    :func:`test_vertical_passthrough_chain_holds_one_lane_column` and
+    :func:`test_file_icon_sole_continuation_holds_its_producer_track`, whose
+    subjects come from the section's own edges instead.
     """
     graph = _layout(fixture)
     for section_id, pred, node in iter_sole_trunk_continuations(graph):
@@ -860,13 +882,30 @@ def test_bundle_terminator_successor_stays_on_trunk(fixture):
         )
 
 
-@pytest.mark.parametrize("direction", ("RL", "BT"))
+_DECLARATION_ORDER_GRIDS = {
+    "LR": ("0,0", "1,0", "2,0"),
+    "RL": ("2,0", "1,0", "0,0"),
+    "TB": ("0,0", "0,1", "0,2"),
+    "BT": ("0,2", "0,1", "0,0"),
+}
+
+
+@pytest.mark.parametrize("direction", tuple(_DECLARATION_ORDER_GRIDS))
 def test_sole_continuation_is_independent_of_station_declaration_order(
     direction: str,
 ) -> None:
-    axis = "2,0" if direction == "RL" else "0,2"
-    target = "1,0" if direction == "RL" else "0,1"
-    sink = "0,0"
+    """The relation reads the same whichever order the stations are declared in.
+
+    All four flows are covered because declaration order is a parser-level
+    accident in every one of them.  The relation is scoped to horizontal (LR/RL)
+    sections, so a vertical flow's answer is the empty set -- and that answer has
+    to be order-independent too, or the scope holds only for some inputs.  See
+    :func:`~nf_metro.layout.phases._common.continuation_track_predecessors` for
+    why the scope is drawn there, and
+    :func:`test_vertical_passthrough_chain_holds_one_lane_column` for the
+    guarantee that stands in its place on a vertical section.
+    """
+    axis, target, sink = _DECLARATION_ORDER_GRIDS[direction]
 
     def continuations(declarations: str) -> set[tuple[str, str, str]]:
         graph = prepare_graph(
@@ -900,8 +939,127 @@ graph LR
     declared_in_flow_order = continuations("pred[Pred]\n        node[Node]")
     declared_in_reverse_order = continuations("node[Node]\n        pred[Pred]")
 
-    assert ("target", "pred", "node") in declared_in_flow_order
-    assert declared_in_reverse_order == declared_in_flow_order
+    expected = {("target", "pred", "node")} if direction in ("LR", "RL") else set()
+    assert declared_in_flow_order == expected
+    assert declared_in_reverse_order == expected
+
+
+# ---------------------------------------------------------------------------
+# Sole continuations the production relation declines to name
+# ---------------------------------------------------------------------------
+
+
+_FIXTURES_WITH_VERTICAL_PASSTHROUGH = _FEATURE_MANIFEST["vertical_passthrough"]
+_FIXTURES_WITH_ICON_SOLE_CONTINUATION = _FEATURE_MANIFEST["icon_sole_continuation"]
+
+
+def _edge_derived_sole_continuations(
+    graph: MetroGraph, section: Section
+) -> Iterator[tuple[str, str]]:
+    """Yield ``(pred, node)`` chain links read from *section*'s own edges.
+
+    A link is a station whose only inbound edge comes from a station whose only
+    outbound edge goes back to it, both drawn on-track inside the section.  That
+    is the raw shape of a chain, taken from the parsed graph rather than from
+    :func:`~nf_metro.layout.phases._common.continuation_track_predecessors`, so
+    a change in what that relation names cannot change what these tests check.
+    """
+    members = set(section.station_ids)
+
+    def on_track(station_id: str) -> bool:
+        station = graph.stations.get(station_id)
+        return (
+            station is not None
+            and not station.is_port
+            and not station.is_hidden
+            and not station.off_track
+        )
+
+    for station_id in section.station_ids:
+        if not on_track(station_id):
+            continue
+        inbound = {edge.source for edge in graph.edges_to(station_id)}
+        in_section = {source for source in inbound if source in members}
+        if len(in_section) != 1:
+            continue
+        pred = next(iter(in_section))
+        if not on_track(pred) or inbound != {pred}:
+            continue
+        if {edge.target for edge in graph.edges_from(pred)} != {station_id}:
+            continue
+        yield pred, station_id
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_VERTICAL_PASSTHROUGH)
+def test_vertical_passthrough_chain_holds_one_lane_column(fixture: str) -> None:
+    """A vertical chain that changes no line keeps one lane column unaided.
+
+    This is the guarantee that lets
+    :func:`~nf_metro.layout.phases._common.continuation_track_predecessors` stay
+    scoped to horizontal sections: on a vertical (TB/BT) section the ordinary
+    layout already settles a sole successor on its predecessor's lane column, so
+    the relation has nothing to add there.  Both halves are asserted -- the
+    geometry, and that the relation indeed names none of these links -- so a
+    change that broke the geometry or that started emitting vertical relations
+    reds this rather than passing quietly.
+    """
+    graph = _layout(fixture)
+    named = continuation_track_predecessors(graph)
+    checked = 0
+    for section in graph.sections.values():
+        if not lanes_run_along_x(section.direction):
+            continue
+        frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
+        for pred, node in _edge_derived_sole_continuations(graph, section):
+            if set(graph.station_lines(pred)) != set(graph.station_lines(node)):
+                continue
+            checked += 1
+            assert named.get(node) != pred, (
+                f"{fixture}: section {section.id} link {pred}->{node} is now "
+                "named by the horizontal-only continuation relation"
+            )
+            pred_lane = frame.secondary.get(graph.stations[pred])
+            node_lane = frame.secondary.get(graph.stations[node])
+            assert abs(node_lane - pred_lane) <= _Y_TOL, (
+                f"{fixture}: section {section.id} link {pred}->{node} steps "
+                f"{abs(node_lane - pred_lane):.0f}px off its predecessor's lane "
+                "column, so the chain no longer holds it unaided"
+            )
+    assert checked, f"{fixture}: no vertical line-preserving chain link found"
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES_WITH_ICON_SOLE_CONTINUATION)
+def test_file_icon_sole_continuation_holds_its_producer_track(fixture: str) -> None:
+    """A file-icon station and its sole chain partner share one track.
+
+    A blank-terminus station is drawn as an icon at the line convergence rather
+    than a labelled pill, and
+    :func:`~nf_metro.layout.phases._common.continuation_track_predecessors`
+    leaves such a station out of its proof: an icon carries no label to strike
+    and the router seats it against the producer it hangs off, so the relation
+    would only re-assert a placement it does not own.  The shared track still
+    has to hold -- an icon that drops to its own line's base track paints the
+    same V-kink a labelled station would -- so it is asserted here from the
+    section's edges instead.
+    """
+    graph = _layout(fixture)
+    checked = 0
+    for section in graph.sections.values():
+        if lanes_run_along_x(section.direction):
+            continue
+        frame = AxisFrame.for_direction(section.direction, 1.0, 1.0)
+        for pred, node in _edge_derived_sole_continuations(graph, section):
+            stations = (graph.stations[pred], graph.stations[node])
+            if not any(station.is_blank_terminus for station in stations):
+                continue
+            checked += 1
+            pred_track, node_track = (frame.secondary.get(st) for st in stations)
+            assert abs(node_track - pred_track) <= _Y_TOL, (
+                f"{fixture}: section {section.id} link {pred}->{node} puts the "
+                f"file icon {abs(node_track - pred_track):.0f}px off its chain "
+                "partner's track"
+            )
+    assert checked, f"{fixture}: no file-icon chain link found"
 
 
 # ---------------------------------------------------------------------------
@@ -1157,7 +1315,16 @@ def test_flow_exit_port_anchors_to_carrying_station(fixture):
 
 
 def test_seed_72_flow_exit_reconciles_to_carrier_without_moving_consumer_entry():
-    """A carrier-anchored exit keeps its downstream entry on the consumer row."""
+    """Carrier reconciliation owns the exit port and moves nothing else.
+
+    The exit anchors to its carrier row and the downstream entry stays pinned to
+    its consumer row, but on this fixture those two rows coincide, so comparing
+    coordinates cannot tell an entry that held its own row from one the pass
+    dragged along with the exit.  Replaying the pass over a settled graph whose
+    exit has been pulled off its carrier separates the two: it must put the exit
+    back and leave every other station and port -- the downstream entry above
+    all -- exactly where it found them.
+    """
     graph = _layout("hash_seed_determinism/seed_72.mmd", center_ports=False)
 
     exit_port = graph.stations["s7__exit_left_5"]
@@ -1167,7 +1334,29 @@ def test_seed_72_flow_exit_reconciles_to_carrier_without_moving_consumer_entry()
 
     assert abs(exit_port.y - carrier.y) <= _Y_TOL
     assert abs(entry_port.y - consumer.y) <= _Y_TOL
-    assert abs(entry_port.y - carrier.y) > _Y_TOL
+    assert abs(carrier.y - consumer.y) <= _Y_TOL, (
+        "carrier and consumer rows are apart, so a coordinate comparison would "
+        "separate a held entry from a dragged one; the replay below is the wrong "
+        "witness for that geometry"
+    )
+
+    # Both anchors are displaced, so the replayed pass has to tell the exit it
+    # owns from the entry it does not; with the two rows coincident, an entry
+    # left on the carrier row is otherwise indistinguishable from one held.
+    _set_port_y(graph, "s7__exit_left_5", carrier.y - 40.0)
+    _set_port_y(graph, "s8__entry_right_13", consumer.y - 24.0)
+    displaced_ys = {sid: station.y for sid, station in graph.stations.items()}
+    _reconcile_flow_exit_carrier_anchors(graph)
+
+    assert {
+        sid
+        for sid, y in displaced_ys.items()
+        if abs(graph.stations[sid].y - y) > _Y_TOL
+    } == {"s7__exit_left_5"}
+    assert abs(graph.stations["s7__exit_left_5"].y - carrier.y) <= _Y_TOL
+    assert abs(graph.ports["s7__exit_left_5"].y - carrier.y) <= _Y_TOL
+    assert graph.stations["s8__entry_right_13"].y == pytest.approx(consumer.y - 24.0)
+    assert graph.ports["s8__entry_right_13"].y == pytest.approx(consumer.y - 24.0)
 
 
 @pytest.mark.parametrize(
@@ -4900,6 +5089,197 @@ def test_no_kink_at_section_boundary(fixture):
                         f"Row {row}: exit port {pid} cy={exit_cy} != "
                         f"entry port {npid} cy={entry_cy}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# A flow entry's run into its trunk-row consumer holds one lane
+# ---------------------------------------------------------------------------
+
+
+def _flow_entry_lane_steps(graph: MetroGraph) -> list[str]:
+    """Rendered lane steps between a flow entry port and its first consumer.
+
+    A port draws no marker, so a lane change on the run from it to the consumer
+    it feeds has nothing to absorb it and renders as a bare sub-radius diagonal
+    just inside the section box.  Only a run that should be flat is examined:
+    the consumer is the port's sole in-section station on that line, shares the
+    port's row, and has no station between the two.  A fan-out to consumers on
+    other rows is a real branch, and a consumer deeper than the stations it
+    passes gets a deliberate runway diagonal instead.
+    """
+    offsets = compute_station_offsets(graph)
+    steps: list[str] = []
+    for route in route_edges(graph, station_offsets=offsets):
+        port = graph.ports.get(route.edge.source)
+        if port is None or not port.is_entry:
+            continue
+        section = graph.sections.get(port.section_id or "")
+        if section is None or section.direction not in ("LR", "RL"):
+            continue
+        if port.side is not flow_port_sides(section.direction)[0]:
+            continue
+        port_station = graph.stations[route.edge.source]
+        consumer = graph.stations[route.edge.target]
+        if consumer.is_port or consumer.section_id != section.id:
+            continue
+        if abs(port_station.y - consumer.y) > _Y_TOL:
+            continue
+        sole_consumer = _sole_in_section_consumer(
+            graph, route.edge.source, section.id, (route.line_id,)
+        )
+        if sole_consumer != route.edge.target:
+            continue
+        lo, hi = sorted((port_station.x, consumer.x))
+        if any(
+            station_id not in (route.edge.source, route.edge.target)
+            and station.section_id == section.id
+            and not station.is_port
+            and not station.is_hidden
+            and lo < station.x < hi
+            for station_id, station in graph.stations.items()
+        ):
+            continue
+        lanes = sorted({round(y, 2) for _x, y in apply_route_offsets(route, offsets)})
+        if len(lanes) > 1:
+            steps.append(
+                f"{route.line_id} {route.edge.source}->{route.edge.target} "
+                f"crosses lanes {lanes}"
+            )
+    return steps
+
+
+def _assert_flow_entry_lanes_held(fixture: str, **kwargs) -> None:
+    steps = _flow_entry_lane_steps(_layout(fixture, **kwargs))
+    assert not steps, (
+        f"{fixture}: lane steps just inside a section boundary draw an "
+        f"unabsorbed diagonal: {steps}"
+    )
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_flow_entry_run_into_trunk_consumer_holds_one_lane(fixture):
+    """No lane step on the run from a flow entry port to its first consumer."""
+    _assert_flow_entry_lanes_held(fixture)
+
+
+# Every frozen recovery seed, including the three sections whose arriving line
+# carries on out through a flow exit: the slot exchange follows the pair out
+# through the junction and into the section they arrive at, so the lane they
+# leave on is the lane the bundle outside holds.
+@pytest.mark.parametrize(
+    "fixture",
+    (
+        "hash_seed_determinism/seed_15.mmd",
+        "hash_seed_determinism/seed_41.mmd",
+        "hash_seed_determinism/seed_72.mmd",
+        "hash_seed_determinism/seed_77.mmd",
+    ),
+)
+def test_hash_seed_flow_entry_run_holds_one_lane(fixture):
+    """Every seed listed enters its sections on the lane its run arrives on."""
+    _assert_flow_entry_lanes_held(fixture, center_ports=False)
+
+
+def test_middle_sink_labels_above_one_trunk_row_share_a_baseline():
+    """``same_destination_vertical_convergence``'s s5 row hangs both names level.
+
+    ``Middle sink step`` and ``Middle sink output`` label stations that share
+    s5's trunk Y and sit on the same side of it, so they belong at one height.
+    Both wrap to three lines, and before the relax pass the wider of the two
+    kept the both-sides-collision push-out its unwrapped width earned - a
+    line-height (10.2px) further from the pill than its row-mate.
+    """
+    graph = _layout("topologies/same_destination_vertical_convergence.mmd")
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    placement = {
+        item.station_id: item
+        for item in place_labels(
+            graph,
+            station_offsets=offsets,
+            routes=routes,
+            label_angle=graph.label_angle or 0.0,
+        )
+    }
+    assert graph.stations["n5_1"].y == graph.stations["n5_2"].y
+    assert placement["n5_1"].above and placement["n5_2"].above
+    assert placement["n5_1"].y == pytest.approx(placement["n5_2"].y)
+    assert not placement["n5_0"].above
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_no_label_keeps_a_push_out_its_wrapped_block_has_outgrown(fixture):
+    """No label sits at the collision push-out when the plain anchor is clear.
+
+    A label colliding on both sides is pushed ``COLLISION_MULTIPLIER`` offsets
+    clear of its pill while every label is still one line wide.  Wrapping then
+    narrows the crowded labels, and a push whose collision the narrowing
+    removed leaves the name stranded further from its station than its
+    row-mates for no remaining reason.
+    """
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    placements = place_labels(
+        graph,
+        station_offsets=offsets,
+        routes=routes,
+        label_angle=graph.label_angle or 0.0,
+    )
+    safe_offsets = _build_label_ctx(graph, LABEL_OFFSET, offsets, None, 0.0)[
+        0
+    ].safe_offsets
+    stranded = []
+    for placement in placements:
+        station = graph.stations.get(placement.station_id)
+        if station is None or placement.angle or placement.dominant_baseline:
+            continue
+        min_off, max_off = _pill_offsets(graph, station, offsets)
+        safe_above, safe_below = safe_offsets.get(
+            placement.station_id, (LABEL_OFFSET, LABEL_OFFSET)
+        )
+        if placement.above:
+            pushed = station.y + min_off - safe_above * COLLISION_MULTIPLIER
+            plain = station.y + min_off - safe_above - DESCENDER_CLEARANCE
+        else:
+            pushed = station.y + max_off + safe_below * COLLISION_MULTIPLIER
+            plain = station.y + max_off + safe_below
+        if abs(placement.y - pushed) > _Y_TOL:
+            continue
+        relaxed = replace(placement, y=plain)
+        others = [item for item in placements if item is not placement]
+        if not _has_collision(relaxed, others):
+            stranded.append(
+                f"{placement.station_id} at y={placement.y:.1f} clears at y={plain:.1f}"
+            )
+    assert not stranded, (
+        f"{fixture}: labels keep a push-out their wrapped block no longer "
+        f"needs: {stranded}"
+    )
+
+
+def test_entry_arrival_permutes_lanes_rather_than_sharing_one():
+    """The arriving line reaches its approach lane by exchange, not by sharing.
+
+    ``same_destination_vertical_convergence`` reserves ``s1``'s second slot for the
+    line entering the section, which arrives on the lane the trunk draws.  The
+    run in is flat because that line traded slots with the one originating at
+    the first station, so both stations still spread as many lanes as they carry
+    lines; collapsing the two onto one lane would draw the same flat run and is
+    what this rules out.
+    """
+    graph = _layout("topologies/same_destination_vertical_convergence.mmd")
+    offsets = compute_station_offsets(graph)
+    route_edges(graph, station_offsets=offsets)
+
+    arrival = offsets[("s1__entry_left_5", "obstacle_feed")]
+    assert offsets[("n1_0", "obstacle_feed")] == pytest.approx(arrival)
+    for station_id in ("n1_0", "n1_1"):
+        lines = graph.station_lines(station_id)
+        lanes = {round(offsets[(station_id, line_id)], 2) for line_id in lines}
+        assert len(lanes) == len(lines), (
+            f"{station_id}: {len(lines)} lines share {len(lanes)} lane(s) {lanes}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -9469,6 +9849,18 @@ def _layout_feature_names(graph: MetroGraph, fixture: str) -> set[str]:
             features.add("linear_off_track_consumer")
     if next(iter_sole_trunk_continuations(graph), None) is not None:
         features.add("sole_continuation")
+    for section in graph.sections.values():
+        vertical = lanes_run_along_x(section.direction)
+        for pred, node in _edge_derived_sole_continuations(graph, section):
+            same_lines = set(graph.station_lines(pred)) == set(
+                graph.station_lines(node)
+            )
+            if vertical and same_lines:
+                features.add("vertical_passthrough")
+            if not vertical and any(
+                graph.stations[sid].is_blank_terminus for sid in (pred, node)
+            ):
+                features.add("icon_sole_continuation")
     if next(iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE), None) is not None:
         features.add("corridor_solo")
     if any(
