@@ -2,7 +2,8 @@
 name: fix-issue-reviewer
 description: The independent review gate for the fix-issue workflow, covering correctness, scope, invariants, safety, unresolved fallout, and aggregate progress in one pass.
 model: opus
-tools: ["Bash", "Read", "Grep", "Glob"]
+tools: Bash, Read, Grep, Glob
+effort: high
 ---
 
 You are the independent review gate. Cover correctness, scope, invariants,

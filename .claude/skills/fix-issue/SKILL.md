@@ -22,7 +22,13 @@ simply" or for "less words", cut - don't re-expand.
 - micromamba: `/opt/homebrew/bin/micromamba` (macOS Apple Silicon codesign
   workaround). On other platforms, just `micromamba` if it's on PATH.
 
-## Reference files - load only the one you need
+## Reference files
+
+Load the one you are on. Be honest about what this saves: `worker-contract`,
+`procedure`, `diagnosis`, `tests-and-validators`, `visual-review`, `environment`
+and `merge-and-cleanup` are all needed on a normal run, so deferral is the
+saving, not elimination. Only `gate-ratchet`, `regression-locks` and
+`autonomous-mode` are genuinely conditional.
 
 | File | Load when |
 | --- | --- |
@@ -30,48 +36,71 @@ simply" or for "less words", cut - don't re-expand.
 | [`procedure.md`](references/procedure.md) | Steps 1, 2, 6, 7, 10, 11, 12 in full |
 | [`diagnosis.md`](references/diagnosis.md) | Step 3: pinning the defect, classification, tooling |
 | [`tests-and-validators.md`](references/tests-and-validators.md) | Steps 4 and 5: the failing test, then the guard |
-| [`visual-review.md`](references/visual-review.md) | Steps 8 and 9: verdict gating, evidence rules, narrowing |
+| [`visual-review.md`](references/visual-review.md) | Steps 8 and 9: fetching renders, verdict gating, narrowing |
 | [`environment.md`](references/environment.md) | env, hooks, the verifier command block, local renders |
 | [`gate-ratchet.md`](references/gate-ratchet.md) | the diff touched `layout/routing/`, or added a topology fixture |
 | [`regression-locks.md`](references/regression-locks.md) | the Step 4 grep found a lock, or you want to add an xfail |
 | [`merge-and-cleanup.md`](references/merge-and-cleanup.md) | the PR body, pushing, merging, cleanup |
 | [`autonomous-mode.md`](references/autonomous-mode.md) | the user signalled autonomous / net-negative work |
 
-## Primary invariant: coordinate, delegate, verify independently
+**After an auto-compaction, re-invoke this skill.** Claude Code re-attaches only
+the first 5,000 tokens of each skill, sharing a 25,000-token budget across all of
+them, so a long run can silently lose the back half of this file or drop it
+entirely once other skills are invoked. The ordering below puts the procedure and
+the tier contract first for that reason; do not move the rationale above them.
 
-The coordinator owns user communication and authority, a compact ledger, worker
-routing, integration gates, Git integration and remote mutations, and final
-reporting. It does **not** do substantive diagnosis, implementation, domain
-assessment, visual judgment, `/simplify`, gate interpretation, or code review.
+## The twelve steps
 
-Two separate levers, do not confuse them:
+Each step's detail is in the reference named beside it. Do not skip a step
+because its detail is not inline.
 
-- **Delegate to protect coordinator context.** Anything producing bulk output -
-  issue bodies, test logs, render analysis, file sweeps - goes to a worker even
-  when it is mechanically simple, because bytes that land in the coordinator are
-  re-read on every subsequent turn while a worker's are discarded at handoff.
-  Delegating a cheap task is cheaper than absorbing it.
-- **Choose the tier to protect cost.** Delegation decides *where* work runs; the
-  tier decides what it costs. A mechanical worker on the top tier is the most
-  expensive thing in this workflow.
+1. **Understand the issue.** A LIGHT investigator reads it and returns problem
+   statement, scope, unknowns, and a proposed diagnostic brief. The issue body
+   stays in the worker. Wait for user confirmation unless autonomous work is
+   pre-authorised. [`procedure.md`](references/procedure.md)
+2. **Worktree and environment.** Coordinator creates the worktree off latest
+   `origin/main`, records the base SHA, assigns one writer.
+   [`procedure.md`](references/procedure.md),
+   [`environment.md`](references/environment.md)
+3. **Diagnose before fixing.** No fix proposed from a hypothesis. The defect
+   becomes a numeric claim (geometry) or named call sites (structural), or the
+   verdict is "not a bug" held to the same standard. Then the mandatory
+   post-diagnosis gate. [`diagnosis.md`](references/diagnosis.md)
+4. **Write the failing invariant test first**, and confirm it fails on `main`
+   before any production change.
+   [`tests-and-validators.md`](references/tests-and-validators.md),
+   [`regression-locks.md`](references/regression-locks.md)
+5. **Add a runtime validator** where a layout property could regress silently.
+   Conditional: skip it outright for a class (c) structural defect, and say so.
+   [`tests-and-validators.md`](references/tests-and-validators.md)
+6. **`/simplify` pass**, run by default; skipping needs all four triviality
+   conditions and must be declared.
+   [`procedure.md`](references/procedure.md)
+7. **Lint and tests.** Writer runs the mutating commands and commits; a LIGHT
+   verifier re-runs the fixed block against the frozen SHA. CI owns the full
+   suite. [`procedure.md`](references/procedure.md),
+   [`environment.md`](references/environment.md),
+   [`gate-ratchet.md`](references/gate-ratchet.md)
+8. **Visual review via the CI render preview.** The coordinator's single push
+   and draft-PR creation happens here. Any delta at all gets HIGH eyes on every
+   changed render. [`visual-review.md`](references/visual-review.md)
+9. **Narrow an over-applying fix.** Every D-delta gets a precondition that
+   separates the helped case from the hurt one.
+   [`visual-review.md`](references/visual-review.md)
+10. **Accept the candidate, verify origin.** `HEAD` equals the accepted SHA, the
+    tree is clean, and the pushed ref matches local. Query the ref, not the PR
+    API, which lags. [`procedure.md`](references/procedure.md),
+    [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
+11. **The pre-ready gate**, then `gh pr ready`. One HIGH reviewer covering code
+    review and aggregate progress together.
+    [`procedure.md`](references/procedure.md)
+12. **Post-merge cleanup**, only with authority, children retargeted first.
+    [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
 
-The coordinator does not read `src/` at all. `engine.py`, `ordering.py`,
-`fan_bundles.py`, and `routing/*` should only ever occupy a worker's context.
-Reading them "just to orient" is the largest avoidable context cost in the run.
+For shepherding a whole stacked chain of PRs back into `main` rather than a
+single issue fix, see `pr-chain-vet`.
 
-It may still run trivial deterministic assertions itself - `git rev-parse`, a
-hash or OID comparison, `git status --porcelain`, an exit code, handoff-schema
-completeness - because those are a few bytes and spawning for them buys nothing.
-It must not substitute its own *substantive* review.
-
-The ledger tracks: issue and authority state; worktree, branch, base, writer;
-current hypothesis and evidence links; worker assignments, tiers and verdicts;
-changed files and commits; commands and outcomes; I/N/D classifications;
-fallout; blockers; CI/PR state; next gate. Hold only the **live slice** in
-context - current gate, open blockers, accepted SHA, active assignments. Append settled rows to a ledger file outside the
-worktree and cite it. Keep deep context, long test output, render analysis, and
-review detail in worker handoffs or artifacts. Without this the ledger is the
-one item that grows every turn and is re-read on all of them.
+## Worker tiers, briefs, and gates
 
 ### Worker tiers are explicit, never inherited
 
@@ -87,17 +116,10 @@ rationalise keeping the higher tier because the task turned out to suit harder
 judgment in hindsight; that call has to happen at spawn time, explicitly, or
 not at all.
 
-The tier is the contract, not the model name. Map it to whatever your harness
-exposes:
-
-| Tier | Character of the work | Claude Code | Codex |
-| --- | --- | --- | --- |
-| **LIGHT** | fixed command blocks, exit codes, greps, mechanical reads and reports, no judgment | `haiku` | `luna` |
-| **MID** | bounded reasoning against a stated bar: verification, `/simplify`, gate classification, summarising | `sonnet` | `terra` |
-| **HIGH** | open-ended judgment where being wrong wastes the run: diagnosis, visual assessment, final review | `opus` | `sol` |
-
-If a harness exposes no such parameter, say so in one line and proceed.
-Substitute local equivalents if the names differ; keep the three-tier shape.
+The tier is the contract, not the model name. On Claude Code that is
+`haiku`/`sonnet`/`opus`; on Codex, `luna`/`terra`/`sol`. Substitute local
+equivalents elsewhere and keep the three-tier shape; if a harness exposes no such
+parameter, say so in one line and proceed.
 
 Role tiers are fixed by this table and do not drift upward because a task felt
 hard. A role **re-briefed** later in the run (the writer applying `/simplify`
@@ -106,14 +128,14 @@ findings, or narrowing a delta) keeps the tier it was spawned at.
 | Step | Role | Tier |
 | --- | --- | --- |
 | 1 | issue investigator | LIGHT |
-| 3 | diagnostic worker | HIGH |
+| 3 | diagnostic worker | HIGH; MID when the issue already names its own single-site cause and the brief is confirm-or-refute |
 | 4-7 | sole writer | HIGH when the diff changes geometry-affecting logic in `layout/`, `routing/`, or `parser/`; MID for a class (c) structural change in those dirs that alters no geometry, or for anything outside them. Highest tier wins on a mixed diff |
 | 6 | `/simplify` worker | MID |
 | 7 | lint/test verifier | LIGHT |
 | 7 | routing gate specialist | MID |
 | 8 | local render / before-after sweep | LIGHT |
+| 8 | eco-merge assessor | HIGH - it gates shipping code CI has not verified |
 | 8 | visual reviewer | HIGH |
-| 8 | eco-merge assessor | MID |
 | 9 | per-D-delta diagnostic | HIGH |
 | 11 | combined code + aggregate reviewer | HIGH |
 
@@ -121,30 +143,53 @@ A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
 starting high.
 
+**Tier is not the only dial.** Agent definitions also take `effort`
+(`low`/`medium`/`high`/`xhigh`/`max`). This matters most for the writer, which
+persists across Steps 6, 7 and 9 so it keeps the layout modules it already read
+- meaning a top-tier model would otherwise regenerate goldens, apply lint fixes,
+and type commit messages. Re-brief it at `effort: low` for mechanical work and
+raise it again for real implementation. Same agent, same context, fraction of
+the cost.
+
+### The model resolution order
+
+Highest wins:
+
+1. the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable;
+2. the per-invocation `model` parameter;
+3. the agent definition's `model` frontmatter;
+4. the main conversation's model.
+
+If `CLAUDE_CODE_SUBAGENT_MODEL` is set it overrides **every** tier decision in
+this skill, so check it once at session start. An organisation `availableModels`
+allowlist can also substitute a model at any of these levels.
+
 ### Prefer the named agent types
 
-`.claude/agents/` defines one type per role with its tier and tool set already
-set: `fix-issue-investigator`, `fix-issue-diagnostician`, `fix-issue-writer`,
+`.claude/agents/` defines one type per role, tier and tool set already set:
+`fix-issue-investigator`, `fix-issue-diagnostician`, `fix-issue-writer`,
 `fix-issue-simplifier`, `fix-issue-verifier`, `fix-issue-gate-specialist`,
-`fix-issue-visual-reviewer`, `fix-issue-reviewer`.
+`fix-issue-visual-reviewer`, `fix-issue-reviewer`, `fix-issue-renderer`,
+`fix-issue-merge-assessor`.
 
-Spawn by role name **and** pass the tier's model explicitly. Belt and braces,
-deliberately: the explicit model is the guarantee, since a spawn-time model is
-verified to take precedence over the definition. The definition's model is only
-a safety net - documentation says omitting the parameter falls back to it rather
-than to the session's model, but that direction is **not verified here**, so
-never rely on it alone. The read-only roles carry no `Edit`/`Write` tool, which
-makes read-only structural rather than advisory (`Bash` can still write, so the
-instruction still matters).
+Spawn by role name **and** pass the model. Both, deliberately: the per-invocation
+model is verified to beat the definition, and the definition catches a spawn
+where it was forgotten. Every definition carries an explicit `tools` allowlist,
+which matters because a subagent with no allowlist inherits every tool the main
+conversation has - including all MCP servers, and including `Agent`, which would
+let a worker spawn untiered children of its own.
 
-Two roles need no repo architecture context: the investigator reading an issue,
-and the verifier running a fixed command block. Those may use the built-in
-`Explore` type with an explicit model instead - the only type that loads
-**neither** CLAUDE.md, saving roughly 5k tokens per spawn (verified: `Explore`
-sees no project and no user CLAUDE.md, and holds only `Bash`, `Read`, `Skill`,
-`ToolSearch`). Never route the diagnostician, writer, visual reviewer, or
-reviewer through it: they need the architecture map and the station-as-elbow
-constraint.
+The read-only roles carry no `Edit` or `Write`. Treat that as a backstop, not a
+guarantee: they all hold `Bash`, and none sets `permissionMode`, so a worker that
+ignores its brief can still write. The instruction is what enforces read-only;
+the missing tools only make casual violation harder.
+
+### Substituting `Explore`
+
+`Explore` and `Plan` are the only types that skip both CLAUDE.md files, worth
+about 5k tokens a spawn. It is viable for the investigator and the verifier and
+wrong for every judgment role, and it costs you the role definition and any
+re-brief. Read [`agent-types.md`](references/agent-types.md) before using it.
 
 ### Worker brief template
 
@@ -195,6 +240,66 @@ material scope growth, conflicting worker verdicts, a changed acceptance bar, or
 multiple active worktrees. Send it the compact ledger and *links* to evidence,
 not the evidence inline. Record every review verdict and revise later briefs,
 scope, or gates from its findings.
+
+### One writer, independent readers
+
+Allow exactly one writer in each worktree. Give concurrent writers separate
+worktrees and non-overlapping write scopes; otherwise serialize them. Keep
+diagnostic, verifier, visual-review, and code-review roles read-only and
+independent of the writer. Read-only workers never persist tracked, untracked,
+or ignored worktree changes; place their logs, caches, and generated evidence
+outside the worktree. Readers run concurrently only against a frozen commit SHA
+or snapshot, never a live worktree during an active writer assignment. The
+coordinator categorically owns pushes, issue and PR edits, merges, retargeting,
+and cleanup. User authority determines whether the coordinator acts; it never
+transfers that ownership to a worker.
+
+The writer is **one continuing worker**, not a fresh spawn per step. Steps 6, 7
+and 9 re-brief the same agent so it keeps the large layout modules it already
+read in working context; re-spawning it would re-pay the largest read cost in
+the run. Readers, by contrast, are fresh each time so their judgment stays
+independent.
+
+Use one candidate sequence throughout: the sole writer makes local candidate
+commit(s), runs mutation-capable hooks or generators, and hands off the exact
+SHA. Independent read-only workers verify and review that SHA without changing
+it. If fixes are required, serialize them back to the writer and verify the new
+SHA. Only the coordinator pushes the accepted SHA and performs remote changes.
+
+## Primary invariant: coordinate, delegate, verify independently
+
+The coordinator owns user communication and authority, a compact ledger, worker
+routing, integration gates, Git integration and remote mutations, and final
+reporting. It does **not** do substantive diagnosis, implementation, domain
+assessment, visual judgment, `/simplify`, gate interpretation, or code review.
+
+Two separate levers, do not confuse them:
+
+- **Delegate to protect coordinator context.** Bulk output - issue bodies, test
+  logs, render analysis, file sweeps - goes to a worker even when the task is
+  mechanically trivial: coordinator bytes are re-read every turn, a worker's are
+  discarded at handoff. Delegating a cheap task is cheaper than absorbing it.
+- **Choose the tier to protect cost.** Delegation decides *where* work runs; the
+  tier decides what it costs. A mechanical worker on the top tier is the most
+  expensive thing in this workflow.
+
+The coordinator does not read `src/` at all: `engine.py`, `ordering.py`,
+`fan_bundles.py` and `routing/*` belong only in a worker's context. Reading them
+"just to orient" is the largest avoidable cost in the run.
+
+It may run trivial deterministic assertions itself - `git rev-parse`, a hash or
+OID comparison, `git status --porcelain`, an exit code, handoff-schema
+completeness - since spawning for a few bytes buys nothing. It must not
+substitute its own *substantive* review.
+
+The ledger tracks: issue and authority state; worktree, branch, base, writer;
+current hypothesis and evidence links; worker assignments, tiers and verdicts;
+changed files and commits; commands and outcomes; I/N/D classifications;
+fallout; blockers; CI/PR state; next gate. Hold only the **live slice** in
+context - current gate, open blockers, accepted SHA, active assignments. Append settled rows to a ledger file outside the
+worktree and cite it. Keep deep context, long test output, render analysis, and
+review detail in worker handoffs or artifacts. Without this the ledger is the
+one item that grows every turn and is re-read on all of them.
 
 ## Cost discipline (applies throughout)
 
@@ -258,54 +363,3 @@ lint, review, or CI in the current run. Filing and deferring is the exception.
 
 This applies equally to second findings, gate-coverage gaps, `/simplify`, and
 review findings.
-
-## The twelve steps
-
-Each step's detail is in the reference named beside it. Do not skip a step
-because its detail is not inline.
-
-1. **Understand the issue.** A LIGHT investigator reads it and returns problem
-   statement, scope, unknowns, and a proposed diagnostic brief. The issue body
-   stays in the worker. Wait for user confirmation unless autonomous work is
-   pre-authorised. [`procedure.md`](references/procedure.md)
-2. **Worktree and environment.** Coordinator creates the worktree off latest
-   `origin/main`, records the base SHA, assigns one writer.
-   [`procedure.md`](references/procedure.md),
-   [`environment.md`](references/environment.md)
-3. **Diagnose before fixing.** No fix proposed from a hypothesis. The defect
-   becomes a numeric claim (geometry) or named call sites (structural), or the
-   verdict is "not a bug" held to the same standard. Then the mandatory
-   post-diagnosis gate. [`diagnosis.md`](references/diagnosis.md)
-4. **Write the failing invariant test first**, and confirm it fails on `main`
-   before any production change.
-   [`tests-and-validators.md`](references/tests-and-validators.md),
-   [`regression-locks.md`](references/regression-locks.md)
-5. **Add a runtime validator** where a layout property could regress silently.
-   Conditional: skip it outright for a class (c) structural defect, and say so.
-   [`tests-and-validators.md`](references/tests-and-validators.md)
-6. **`/simplify` pass**, run by default; skipping needs all four triviality
-   conditions and must be declared.
-   [`procedure.md`](references/procedure.md)
-7. **Lint and tests.** Writer runs the mutating commands and commits; a LIGHT
-   verifier re-runs the fixed block against the frozen SHA. CI owns the full
-   suite. [`procedure.md`](references/procedure.md),
-   [`environment.md`](references/environment.md),
-   [`gate-ratchet.md`](references/gate-ratchet.md)
-8. **Visual review via the CI render preview.** The coordinator's single push
-   and draft-PR creation happens here. Any delta at all gets HIGH eyes on every
-   changed render. [`visual-review.md`](references/visual-review.md)
-9. **Narrow an over-applying fix.** Every D-delta gets a precondition that
-   separates the helped case from the hurt one.
-   [`visual-review.md`](references/visual-review.md)
-10. **Accept the candidate, verify origin.** `HEAD` equals the accepted SHA, the
-    tree is clean, and the pushed ref matches local. Query the ref, not the PR
-    API, which lags. [`procedure.md`](references/procedure.md),
-    [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
-11. **The pre-ready gate**, then `gh pr ready`. One HIGH reviewer covering code
-    review and aggregate progress together.
-    [`procedure.md`](references/procedure.md)
-12. **Post-merge cleanup**, only with authority, children retargeted first.
-    [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
-
-For shepherding a whole stacked chain of PRs back into `main` rather than a
-single issue fix, see `pr-chain-vet`.

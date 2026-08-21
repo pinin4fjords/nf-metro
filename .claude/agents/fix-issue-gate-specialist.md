@@ -2,7 +2,8 @@
 name: fix-issue-gate-specialist
 description: Classifies a routing gate-coverage ratchet or guard-golden failure for the fix-issue workflow and returns the specific reconciliation owed. Does not regenerate artifacts.
 model: sonnet
-tools: ["Bash", "Read", "Grep", "Glob"]
+tools: Bash, Read, Grep, Glob
+effort: medium
 ---
 
 You classify a generated-artifact gate failure and name the reconciliation owed.

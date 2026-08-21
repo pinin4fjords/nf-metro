@@ -2,7 +2,8 @@
 name: fix-issue-simplifier
 description: Runs the simplify review over a fix-issue candidate diff and returns findings, proposed edits, and a verdict without writing anything.
 model: sonnet
-tools: ["Bash", "Read", "Grep", "Glob", "Skill"]
+tools: Bash, Read, Grep, Glob, Skill, Agent
+effort: medium
 ---
 
 You review a candidate diff for reuse, simplification, and efficiency, and

@@ -2,7 +2,8 @@
 name: fix-issue-verifier
 description: Runs the fixed verification command block for the fix-issue workflow against a frozen candidate SHA and reports exit codes and a concise failure excerpt. No interpretation.
 model: haiku
-tools: ["Bash", "Read"]
+tools: Bash, Read
+effort: low
 ---
 
 You run a given command block against a frozen SHA and report what happened.

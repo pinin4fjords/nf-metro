@@ -23,7 +23,7 @@ command - **do not** `pip install -e` the worktree into this env:
 source ~/.local/bin/mm-activate nf-metro-dev
 cd /tmp/nf-metro-fix-<N>
 export PYTHONPATH=/tmp/nf-metro-fix-<N>/src
-python -m nf_metro render <file.mmd> -o /tmp/out.svg    # runs THIS worktree
+python -m nf_metro render <file.mmd> -o /tmp/out.svg --no-chrome-css
 python -m pytest -k <selector>
 ```
 
@@ -54,8 +54,12 @@ Never skip hooks with `--no-verify`. Run hooks on the changed files, which is
 what the commit itself does anyway:
 
 ```bash
-micromamba run -n nf-core prek run --files $(git diff --cached --name-only)
+source ~/.local/bin/mm-activate nf-core && prek run --files $(git diff --cached --name-only)
 ```
+
+Activate rather than `micromamba run`: the `micromamba-env` skill explains why
+`run` must be avoided on this machine. `prek`'s `mypy` hook is
+`language: system`, so it needs the env that carries stub-complete `mypy`.
 
 `prek run --all-files` sweeps the entire repo, including a cold `mypy` over all
 of `src/`. Reserve it for a change to the hook config itself or to a
@@ -69,6 +73,11 @@ worktree and it can prove the tree is unchanged:
 ```bash
 export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>
 mkdir -p "$VERIFY_ARTIFACT_DIR/tmp"
+# The frozen checkout. Nothing else creates it, and reading the writer's live
+# worktree is forbidden, so make one here and remove it at the end.
+export VERIFY_ROOT="$VERIFY_ARTIFACT_DIR/src"
+git -C ~/projects/nf-metro worktree add --detach "$VERIFY_ROOT" <CANDIDATE_SHA>
+cd "$VERIFY_ROOT"
 export PYTHONDONTWRITEBYTECODE=1
 export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
 export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
@@ -82,7 +91,11 @@ mypy --cache-dir=/tmp/nf-metro-verify-mypy-cache   # persistent, outside the wor
 PYTHONPATH=src python -m pytest tests/test_layout_invariants.py -k "<fixture-or-invariant>" -q --no-header -p no:cacheprovider --basetemp="$VERIFY_ARTIFACT_DIR/pytest-tmp"
 git diff --exit-code <CANDIDATE_SHA>
 test -z "$(git status --porcelain)"
+cd ~ && git -C ~/projects/nf-metro worktree remove --force "$VERIFY_ROOT"
 ```
+
+`mypy` needs no target: `pyproject.toml` sets `files = ["src"]`. Run it exactly
+as written rather than adding a path.
 
 ## Local renders
 
@@ -90,12 +103,15 @@ Both of these belong in a LIGHT read-only worker that returns the verdict and
 the artifact path, not the imagery, unless a genuine visual question needs the
 picture in front of a HIGH reviewer. Neither replaces the CI gallery review.
 
+`--no-chrome-css` is required on anything you intend to rasterise: without it
+cairosvg aborts on the `var()` chrome custom properties.
+
 Fast sanity check of one specific `.mmd` before pushing:
 
 ```bash
 source ~/.local/bin/mm-activate nf-metro-dev
 export PYTHONPATH=/tmp/nf-metro-fix-<N>/src
-cd /tmp/nf-metro-fix-<N> && python -m nf_metro render <file.mmd> -o /tmp/<name>.svg
+cd /tmp/nf-metro-fix-<N> && python -m nf_metro render <file.mmd> -o /tmp/<name>.svg --no-chrome-css
 python -c "import cairosvg; cairosvg.svg2png(url='/tmp/<name>.svg', write_to='/tmp/<name>.png', scale=2)"
 open /tmp/<name>.png
 ```

@@ -50,29 +50,3 @@ Use the environment block and command sequence in
 [environment.md](environment.md) verbatim, including the clean-tree assertions
 before and after. Report exit codes and a concise failure excerpt, not full
 output.
-
-## One writer, independent readers (coordinator-facing)
-
-
-Allow exactly one writer in each worktree. Give concurrent writers separate
-worktrees and non-overlapping write scopes; otherwise serialize them. Keep
-diagnostic, verifier, visual-review, and code-review roles read-only and
-independent of the writer. Read-only workers never persist tracked, untracked,
-or ignored worktree changes; place their logs, caches, and generated evidence
-outside the worktree. Readers run concurrently only against a frozen commit SHA
-or snapshot, never a live worktree during an active writer assignment. The
-coordinator categorically owns pushes, issue and PR edits, merges, retargeting,
-and cleanup. User authority determines whether the coordinator acts; it never
-transfers that ownership to a worker.
-
-The writer is **one continuing worker**, not a fresh spawn per step. Steps 6, 7
-and 9 re-brief the same agent so it keeps the large layout modules it already
-read in working context; re-spawning it would re-pay the largest read cost in
-the run. Readers, by contrast, are fresh each time so their judgment stays
-independent.
-
-Use one candidate sequence throughout: the sole writer makes local candidate
-commit(s), runs mutation-capable hooks or generators, and hands off the exact
-SHA. Independent read-only workers verify and review that SHA without changing
-it. If fixes are required, serialize them back to the writer and verify the new
-SHA. Only the coordinator pushes the accepted SHA and performs remote changes.

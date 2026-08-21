@@ -25,6 +25,29 @@ diff page, and posts a sticky comment on the PR with the preview link:
 https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 ```
 
+### Getting the renders in front of the reviewer
+
+`Read` takes filesystem paths and the preview embeds SVG, which `Read` cannot
+display, so the reviewer must fetch and rasterise before it can judge anything.
+`Bash` covers all of this; do not reach for `WebFetch`, which returns markdown
+and is useless for a render.
+
+```bash
+export ART=/tmp/nf-metro-visual-<PR_NUMBER>; mkdir -p "$ART"
+BASE=https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>
+curl -sL "$BASE/" -o "$ART/index.html"
+grep -oE '[A-Za-z0-9_./-]+\.svg' "$ART/index.html" | sort -u > "$ART/changed.txt"
+while read -r f; do curl -sL "$BASE/$f" -o "$ART/$(basename "$f")"; done < "$ART/changed.txt"
+source ~/.local/bin/mm-activate nf-metro-dev
+for s in "$ART"/*.svg; do
+  python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$s"
+done
+```
+
+Then `Read` each `.png`. If a render was produced without `--no-chrome-css` the
+rasterise step aborts on `var()` chrome properties; re-render that one locally
+with the flag rather than skipping the example.
+
 ### Render-preview verdict gating
 
 Read the sticky comment's verdict line first, then size the review to it. A

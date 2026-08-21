@@ -66,7 +66,7 @@ three call sites, is not trivial. If you are weighing whether it qualifies, it
 does not: run the pass.
 
 After the fix and tests are passing, assign a fresh MID read-only worker to
-invoke the `simplify` skill on the changed code. It returns findings, proposed
+invoke the `pinin4fjords:simplify` skill on the changed code. It returns findings, proposed
 edits, and a pass/fail verdict without writing. Re-brief the worktree's sole
 writer to apply accepted suggestions and record them in a **separate** local
 candidate commit:
@@ -128,19 +128,16 @@ them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
 [`gate-ratchet.md`](gate-ratchet.md).
 
 
-## Step 10: Accept Candidate, Push, Verify Origin
+## Step 10: accept candidate, verify origin
 
 After the writer hands off candidate commit SHA(s) and independent gates pass,
 the coordinator confirms `HEAD` equals the accepted SHA and the tree is clean.
 Only the coordinator pushes, creates or edits the PR, and performs later remote
-mutations. If Step 8 has not already pushed and opened the draft PR, do it now,
-once, with this body; if it has, **do not re-push or re-create** - edit the
-existing PR body instead (`gh pr edit`) and go straight to the origin check
-below:
+mutations. Step 8 has normally already pushed and opened the draft PR: **do not
+re-push or re-create it**, edit the existing body (`gh pr edit`) and go straight
+to the origin check. The body template is in
+[merge-and-cleanup.md](merge-and-cleanup.md).
 
-```bash
-cd /tmp/nf-metro-fix-<N>
-gh pr create --draft --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
 ## Step 11: Drive End-to-End
 
 Before declaring readiness, run the **pre-ready gate**: one fresh HIGH read-only

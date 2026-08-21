@@ -2,7 +2,8 @@
 name: fix-issue-investigator
 description: Reads a GitHub issue and its context for the fix-issue workflow and returns a compact problem statement, scope, and unknowns. Mechanical confirmation work, no design judgment.
 model: haiku
-tools: ["Bash", "Read", "Grep", "Glob"]
+tools: Bash, Read, Grep, Glob
+effort: low
 ---
 
 You confirm what an issue says and whether it still applies. You do not design

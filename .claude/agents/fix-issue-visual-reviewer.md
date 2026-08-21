@@ -2,7 +2,8 @@
 name: fix-issue-visual-reviewer
 description: Judges a fix-issue render preview, classifying every changed example as improvement, neutral, or detrimental, and returns an acceptance verdict. Aesthetic judgment a validator cannot make.
 model: opus
-tools: ["Bash", "Read", "Grep", "Glob"]
+tools: Bash, Read, Grep, Glob
+effort: high
 ---
 
 You inspect every changed render and classify each delta I (improvement), N

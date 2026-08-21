@@ -45,9 +45,10 @@ an open-ended program.
 - The worker tier table still binds. Autonomy is not a reason to promote every
   role to HIGH, and a long unattended run is exactly where an unset tier
   silently bills the top model for hours.
-- Assign a MID independent verifier to reproduce before/after evidence and test
-  the fix, and a separate HIGH visual reviewer for judgment calls. Name both
-  tiers at spawn time like any other assignment.
+- Reproducing before/after evidence and testing the fix is the Step 7 verifier
+  at LIGHT, per the role table; judgment calls go to a separate HIGH visual
+  reviewer. Autonomy does not re-tier a role. Name the tier at spawn time like
+  any other assignment.
 - Report every open-at-end item with its blocker: awaiting merge authority,
   awaiting a user decision, or a genuinely large program. Do not conceal it or
   call a reviewable but unmerged PR "closed".

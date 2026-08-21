@@ -73,10 +73,6 @@ Offer this cleanup to the user; only run it after they agree.
 
 Used once, at Step 8/10.
 
-once, with this body; if it has, **do not re-push or re-create** - edit the
-existing PR body instead (`gh pr edit`) and go straight to the origin check
-below:
-
 ```bash
 cd /tmp/nf-metro-fix-<N>
 gh pr create --draft --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'

@@ -2,7 +2,8 @@
 name: fix-issue-diagnostician
 description: Diagnoses a defect for the fix-issue workflow, pinning it to a numeric claim (geometry) or named call sites (structural) before any code is written. Open-ended judgment.
 model: opus
-tools: ["Bash", "Read", "Grep", "Glob"]
+tools: Bash, Read, Grep, Glob
+effort: high
 ---
 
 You pin a defect to a falsifiable claim before anyone writes code. Never propose
