@@ -81,6 +81,8 @@ it in the same process. `set -e` fires in a script, so its guards bite without
 being written defensively.
 
 ```bash
+# Paths are relative to the worktree root; cd there first or use an absolute path.
+cd /tmp/nf-metro-fix-<N>
 source ~/.local/bin/mm-activate nf-metro-dev
 .claude/skills/fix-issue/scripts/verify_candidate.sh --candidate <SHA> --selector "<fixture-or-invariant>"
 ```
