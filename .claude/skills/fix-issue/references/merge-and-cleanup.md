@@ -39,7 +39,7 @@ standing consent. A clean render-diff verdict is not consent either.
   up-to-date policy blocks it, stop and return that blocker. Do not escalate to
   `--admin`.
 - **"Admin merge"** explicitly authorises `gh pr merge <N> --admin --merge`. If
-  CI is not green, first assign a fresh, independent MID-tier read-only worker to
+  CI is not green, first assign a fresh `fix-issue-merge-assessor` (HIGH, read-only) to
   use `pinin4fjords:eco-merge` and determine whether the sole unverified delta is
   CI-irrelevant. The coordinator may run the admin merge only with both explicit
   user admin-merge authority and that worker's pass verdict. Otherwise return the
@@ -71,7 +71,9 @@ Offer this cleanup to the user; only run it after they agree.
 
 ## Draft PR body template
 
-Used once, at Step 8/10.
+Used once, at Step 8/10. The preview link needs the PR number, which does not
+exist until the PR does: create the body with the placeholder, then fill it in
+with `gh pr edit` at Step 10.
 
 ```bash
 cd /tmp/nf-metro-fix-<N>
@@ -103,6 +105,4 @@ do not skip this check. Query the ref, not `gh pr view --json headRefOid`: the
 PR API lags a push by seconds and will report the previous SHA, which reads as
 a lost commit when nothing is wrong. If they genuinely differ, re-query the ref
 once before treating it as a failure.
-
-No force-push, ever, and no narrative comments on the PR - both in
 `merge-and-cleanup.md`.

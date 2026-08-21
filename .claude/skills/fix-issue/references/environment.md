@@ -12,7 +12,10 @@ code per-command:
 # One-time, reused across all issues (skip if it already exists):
 ulimit -n 1000000 && export CONDA_OVERRIDE_OSX=15.0 && /opt/homebrew/bin/micromamba create -n nf-metro-dev python=3.11 cairo -y
 source ~/.local/bin/mm-activate nf-metro-dev
-pip install "drawsvg" "networkx" "pillow" "cairosvg" "pytest" "pytest-xdist" "ruff" "mypy" "types-networkx" "click"
+cd ~/projects/nf-metro && pip install "cairosvg" ".[dev,docs]"
+# Install from pyproject, never a hand-listed set: `lark` is a hard runtime
+# dependency and `coverage` is needed by the gate ratchet, and a hand-written
+# list drifts silently. Non-editable on purpose - PYTHONPATH shadows it below.
 # Refresh this env only when pyproject deps actually change.
 ```
 
@@ -26,6 +29,11 @@ export PYTHONPATH=/tmp/nf-metro-fix-<N>/src
 python -m nf_metro render <file.mmd> -o /tmp/out.svg --no-chrome-css
 python -m pytest -k <selector>
 ```
+
+CLAUDE.md documents a separate `nf-metro` env with the project installed
+editable. Leave it alone; fix-issue work uses `nf-metro-dev`. Note that the
+`render-topologies` skill brings its own per-issue editable env, so a renderer
+briefed to use it is a deliberate exception to the rule below.
 
 **Why per-command `PYTHONPATH`, not editable install:** an editable install binds
 one env's `site-packages` to exactly one worktree path, so it collides the moment
@@ -54,7 +62,8 @@ Never skip hooks with `--no-verify`. Run hooks on the changed files, which is
 what the commit itself does anyway:
 
 ```bash
-source ~/.local/bin/mm-activate nf-core && prek run --files $(git diff --cached --name-only)
+source ~/.local/bin/mm-activate nf-metro-dev && cd <worktree> && \
+  git diff --cached --name-only -z | xargs -0 -r prek run --files
 ```
 
 Activate rather than `micromamba run`: the `micromamba-env` skill explains why
@@ -71,6 +80,8 @@ Give every read-only verifier this block so its caches and logs land outside the
 worktree and it can prove the tree is unchanged:
 
 ```bash
+set -euo pipefail                      # without this the guards below cannot fail the run
+source ~/.local/bin/mm-activate nf-metro-dev   # ruff/mypy/pytest are only on PATH from the env
 export VERIFY_ARTIFACT_DIR=/tmp/nf-metro-verify-<N>-<CANDIDATE_SHA>
 mkdir -p "$VERIFY_ARTIFACT_DIR/tmp"
 # The frozen checkout. Nothing else creates it, and reading the writer's live
@@ -83,7 +94,7 @@ export TMPDIR="$VERIFY_ARTIFACT_DIR/tmp"
 export XDG_CACHE_HOME="$VERIFY_ARTIFACT_DIR/xdg-cache"
 # mypy's cache is deliberately NOT per-SHA: a fresh cache per candidate makes
 # every verifier run cold. Keep it outside the worktree and reuse it.
-test "$(git rev-parse HEAD)" = <CANDIDATE_SHA>
+test "$(git rev-parse HEAD)" = "$(git rev-parse <CANDIDATE_SHA>)"
 test -z "$(git status --porcelain)"
 ruff check --no-cache src/ tests/
 ruff format --check --no-cache src/ tests/

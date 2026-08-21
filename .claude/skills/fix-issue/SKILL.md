@@ -27,8 +27,9 @@ simply" or for "less words", cut - don't re-expand.
 Load the one you are on. Be honest about what this saves: `worker-contract`,
 `procedure`, `diagnosis`, `tests-and-validators`, `visual-review`, `environment`
 and `merge-and-cleanup` are all needed on a normal run, so deferral is the
-saving, not elimination. Only `gate-ratchet`, `regression-locks` and
-`autonomous-mode` are genuinely conditional.
+saving, not elimination. Only `gate-ratchet`,
+`regression-locks`, `agent-types` and `autonomous-mode` are genuinely
+conditional.
 
 | File | Load when |
 | --- | --- |
@@ -41,6 +42,7 @@ saving, not elimination. Only `gate-ratchet`, `regression-locks` and
 | [`gate-ratchet.md`](references/gate-ratchet.md) | the diff touched `layout/routing/`, or added a topology fixture |
 | [`regression-locks.md`](references/regression-locks.md) | the Step 4 grep found a lock, or you want to add an xfail |
 | [`merge-and-cleanup.md`](references/merge-and-cleanup.md) | the PR body, pushing, merging, cleanup |
+| [`agent-types.md`](references/agent-types.md) | you are considering `Explore` in place of a role type |
 | [`autonomous-mode.md`](references/autonomous-mode.md) | the user signalled autonomous / net-negative work |
 
 **After an auto-compaction, re-invoke this skill.** Claude Code re-attaches only
@@ -143,13 +145,13 @@ A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
 starting high.
 
-**Tier is not the only dial.** Agent definitions also take `effort`
-(`low`/`medium`/`high`/`xhigh`/`max`). This matters most for the writer, which
-persists across Steps 6, 7 and 9 so it keeps the layout modules it already read
-- meaning a top-tier model would otherwise regenerate goldens, apply lint fixes,
-and type commit messages. Re-brief it at `effort: low` for mechanical work and
-raise it again for real implementation. Same agent, same context, fraction of
-the cost.
+**`effort` is a second dial, but a fixed one.** Definitions take `effort`
+(`low`/`medium`/`high`/`xhigh`/`max`) and it is set for the life of the
+definition: there is no per-invocation `effort`, only a per-invocation `model`.
+So the LIGHT roles run `low` and the judgment roles run `high`, and the
+persistent writer cannot be dialled down for its mechanical re-briefs. Accept
+that: the retained context is worth more than the thinking tokens, which is all
+`effort` moves.
 
 ### The model resolution order
 
@@ -180,16 +182,18 @@ conversation has - including all MCP servers, and including `Agent`, which would
 let a worker spawn untiered children of its own.
 
 The read-only roles carry no `Edit` or `Write`. Treat that as a backstop, not a
-guarantee: they all hold `Bash`, and none sets `permissionMode`, so a worker that
-ignores its brief can still write. The instruction is what enforces read-only;
-the missing tools only make casual violation harder.
+guarantee: they all hold `Bash`, so a worker that ignores its brief can still
+write, and `permissionMode` will not save you - under the parent's auto mode a
+subagent's `permissionMode` is ignored. The instruction is what enforces
+read-only. If you want it enforced structurally, the lever is the per-subagent
+`hooks` field: a `PreToolUse` matcher on `Bash` rejecting `git push`,
+`gh pr merge` and `gh pr edit`. That matters most for
+`fix-issue-merge-assessor`, whose `Skill` grant points at a procedure ending in
+`gh pr merge --admin`.
 
-### Substituting `Explore`
-
-`Explore` and `Plan` are the only types that skip both CLAUDE.md files, worth
-about 5k tokens a spawn. It is viable for the investigator and the verifier and
-wrong for every judgment role, and it costs you the role definition and any
-re-brief. Read [`agent-types.md`](references/agent-types.md) before using it.
+`Explore`/`Plan` skip both CLAUDE.md files (~5k tokens a spawn) but discard the
+role definition and cannot be re-briefed: see
+[`agent-types.md`](references/agent-types.md) before substituting one.
 
 ### Worker brief template
 
@@ -226,11 +230,11 @@ work exceeds its briefed tier.
 Independent review is load-bearing, but a reviewer that re-reads raw evidence is
 the most expensive spawn in the run. Two mandatory gates, both HIGH:
 
-1. **Post-diagnosis gate.** One reviewer that both challenges the domain
-   classification (Step 3: authoring mistake, engine bug, or input-independent
-   structural defect, and the numeric or structural claim behind it) and reviews aggregate progress. A wrong classification
-   wastes the whole run, so this gate pays for itself; a second separate
-   challenger does not.
+1. **Post-diagnosis gate.** One reviewer that challenges the domain
+   classification (Step 3: authoring mistake, engine bug, input-independent
+   structural defect, or no defect at all, and the claim behind whichever came
+   back). A wrong classification wastes the whole run, so this gate pays for
+   itself; a second separate challenger does not.
 2. **Pre-ready gate.** One reviewer combining the Step 11 code review and the
    final aggregate-progress review. These ask nearly the same question against
    the same diff; run them as one brief.
@@ -249,12 +253,14 @@ diagnostic, verifier, visual-review, and code-review roles read-only and
 independent of the writer. Read-only workers never persist tracked, untracked,
 or ignored worktree changes; place their logs, caches, and generated evidence
 outside the worktree. Readers run concurrently only against a frozen commit SHA
-or snapshot, never a live worktree during an active writer assignment. The
-coordinator categorically owns pushes, issue and PR edits, merges, retargeting,
-and cleanup. User authority determines whether the coordinator acts; it never
-transfers that ownership to a worker.
+or snapshot, never a live worktree during an active writer assignment. User
+authority determines whether the coordinator acts; it never transfers that
+ownership to a worker.
 
-The writer is **one continuing worker**, not a fresh spawn per step. Steps 6, 7
+The writer is **one continuing worker**, not a fresh spawn per step. Continue it
+with `SendMessage` addressed to its agent ID; a fresh `Agent` call creates a new
+instance and re-pays the largest read cost in the run. A per-invocation `model`
+still applies on resume. Steps 6, 7
 and 9 re-brief the same agent so it keeps the large layout modules it already
 read in working context; re-spawning it would re-pay the largest read cost in
 the run. Readers, by contrast, are fresh each time so their judgment stays
@@ -264,14 +270,15 @@ Use one candidate sequence throughout: the sole writer makes local candidate
 commit(s), runs mutation-capable hooks or generators, and hands off the exact
 SHA. Independent read-only workers verify and review that SHA without changing
 it. If fixes are required, serialize them back to the writer and verify the new
-SHA. Only the coordinator pushes the accepted SHA and performs remote changes.
+SHA.
 
 ## Primary invariant: coordinate, delegate, verify independently
 
-The coordinator owns user communication and authority, a compact ledger, worker
-routing, integration gates, Git integration and remote mutations, and final
-reporting. It does **not** do substantive diagnosis, implementation, domain
-assessment, visual judgment, `/simplify`, gate interpretation, or code review.
+The coordinator owns user communication and authority, the ledger, worker
+routing, integration gates, and final reporting. It **alone** pushes, creates or
+edits issues and PRs, merges, retargets, and cleans up. It does **not** do
+substantive diagnosis, implementation, domain assessment, visual judgment,
+`/simplify`, gate interpretation, or code review.
 
 Two separate levers, do not confuse them:
 
@@ -340,26 +347,10 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
   expensive action in this workflow. Batch accepted fixes into one push instead
   of pushing each one as it lands.
 
-## Scope discipline: fix the fallout, don't defer it
+## Scope discipline
 
-Resolve bounded fallout surfaced by diagnosis, implementation, `/simplify`,
-lint, review, or CI in the current run. Filing and deferring is the exception.
-
-- A different subsystem, separate worktree, or unfamiliar code is not by itself
-  a reason to defer.
-- Route each fallout item through the same worker protocol and tier table as the
-  primary fix. Run independent read-only tasks concurrently. Give any fallout
-  writer its own worktree unless the primary writer has finished and the
-  assignment is explicitly serialized in the primary worktree.
-- Keep a coherent fallout fix in the primary PR; use a sibling PR when that is
-  more reviewable. Only the coordinator creates or edits the sibling PR.
-- Reroute bounded blocks. Return a structured blocker when completion requires
-  missing authority, unavailable capability, external-state change, a material
-  user decision, or a genuinely multi-session program. Do not disguise the
-  blocker with an xfail or child issue.
-- This is not licence for scope creep into features the user didn't ask
-  about - it's about not walking away from problems the *current* work
-  surfaced.
-
-This applies equally to second findings, gate-coverage gaps, `/simplify`, and
-review findings.
+Resolve bounded fallout surfaced by diagnosis, implementation, `/simplify`, lint,
+review, or CI **in the current run**. Filing and deferring is the exception, and
+a different subsystem is not by itself a reason to defer. Full rules, including
+when a sibling PR is the right home and what a legitimate blocker looks like:
+[`scope-discipline.md`](references/scope-discipline.md).

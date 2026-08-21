@@ -27,26 +27,44 @@ https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/
 
 ### Getting the renders in front of the reviewer
 
-`Read` takes filesystem paths and the preview embeds SVG, which `Read` cannot
-display, so the reviewer must fetch and rasterise before it can judge anything.
-`Bash` covers all of this; do not reach for `WebFetch`, which returns markdown
-and is useless for a render.
+The preview publishes **one** file, `index.html`, with every render inlined by
+`_inline_svg` in `scripts/build_render_diff.py`. There are no fetchable `.svg`
+files, the page is multi-megabyte, and the inlined markup is full of `var()` and
+`light-dark()` that cairosvg cannot parse. So: never `Read` the preview page, and
+do not try to download renders from it.
+
+Use the page only to learn *which* examples changed, then render those locally.
 
 ```bash
+set -euo pipefail
 export ART=/tmp/nf-metro-visual-<PR_NUMBER>; mkdir -p "$ART"
-BASE=https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>
-curl -sL "$BASE/" -o "$ART/index.html"
-grep -oE '[A-Za-z0-9_./-]+\.svg' "$ART/index.html" | sort -u > "$ART/changed.txt"
-while read -r f; do curl -sL "$BASE/$f" -o "$ART/$(basename "$f")"; done < "$ART/changed.txt"
+curl -sL "https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/" -o "$ART/index.html"
+# Each changed example is a diff-entry div keyed by fixture stem.
+grep -oE '<div class="diff-entry" id="[^"]+"' "$ART/index.html"   | sed -E 's/.*id="([^"]+)".*/\1/' | sort -u > "$ART/stems.txt"
+wc -l < "$ART/stems.txt"     # how many examples the reviewer owes a verdict on
+```
+
+Then, for each stem, render it at the base SHA and at the candidate SHA and
+rasterise both, so the comparison is like-for-like:
+
+```bash
 source ~/.local/bin/mm-activate nf-metro-dev
-for s in "$ART"/*.svg; do
-  python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$s"
+for side in base cand; do
+  case $side in base) SHA=<BASE_SHA>;; cand) SHA=<CANDIDATE_SHA>;; esac
+  W="$ART/$side"; git -C ~/projects/nf-metro worktree add --detach "$W" "$SHA"
+  while read -r stem; do
+    f=$(cd "$W" && ls examples/**/"$stem".mmd examples/"$stem".mmd 2>/dev/null | head -1)
+    [ -n "$f" ] || continue
+    PYTHONPATH="$W/src" python -m nf_metro render "$W/$f"       -o "$ART/$side-$stem.svg" --no-chrome-css
+    python -c "import cairosvg,sys; cairosvg.svg2png(url=sys.argv[1], write_to=sys.argv[1][:-4]+'.png', scale=2)" "$ART/$side-$stem.svg"
+  done < "$ART/stems.txt"
+  git -C ~/projects/nf-metro worktree remove --force "$W"
 done
 ```
 
-Then `Read` each `.png`. If a render was produced without `--no-chrome-css` the
-rasterise step aborts on `var()` chrome properties; re-render that one locally
-with the flag rather than skipping the example.
+`Read` the `base-<stem>.png` / `cand-<stem>.png` pairs. Every stem in
+`stems.txt` owes an I/N/D verdict; if you could not produce an image for one,
+say which and why rather than passing over it silently.
 
 ### Render-preview verdict gating
 

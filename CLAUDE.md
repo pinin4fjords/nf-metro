@@ -143,7 +143,7 @@ python -c "import cairosvg; cairosvg.svg2png(url='/tmp/rnaseq_sections.svg', wri
 open /tmp/rnaseq_sections.png
 ```
 
-The `nf-metro` micromamba environment has the project installed in editable mode along with cairosvg for PNG conversion.
+Any env with the project importable and `cairosvg` available works. Prefer pointing `PYTHONPATH` at the worktree you mean to test rather than an editable install, which binds one env to one worktree path and breaks when that worktree is pruned.
 
 ## Test Fixtures & Topology Stress Tests
 
