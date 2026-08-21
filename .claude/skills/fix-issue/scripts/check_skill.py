@@ -400,10 +400,11 @@ def check_token_budget() -> None:
     try:
         import tiktoken
     except ImportError:
-        # The skill-selfcheck CI job installs the skill-checks extra, so this
-        # path means a local run without it. Warn on a byte estimate rather than
-        # skipping silently or failing on a figure too imprecise to gate: 4.1
-        # bytes/token measured on this file. CI is the enforcing gate.
+        # Local run without the skill-checks extra. Warn on a byte estimate
+        # rather than skipping silently, but do not gate on it: bytes/token
+        # measures 3.37 on the shell scripts and 4.31 on prose, so a fixed
+        # constant cannot track a change in content shape and would under-count a
+        # code-heavier file by ~20%. CI, which has tiktoken, is the gate.
         body = (SKILL / "SKILL.md").read_text()
         approx = len(body) / 4.1
         note = (f"  note: tiktoken absent; SKILL.md ~{approx:.0f} tokens by byte estimate "
@@ -413,17 +414,24 @@ def check_token_budget() -> None:
         if approx > REATTACH_CAP:
             fail(f"SKILL.md is ~{approx:.0f} tokens by byte estimate, over the {REATTACH_CAP} cap")
         return
+    # o200k is OpenAI's encoding, not Claude's. It is used because it tracks
+    # content shape - the thing a bytes/token constant cannot do - and because the
+    # correct instrument, the Anthropic count_tokens endpoint, needs network and
+    # credentials that a hermetic CI gate should not require. The absolute figure
+    # therefore carries an unknown bias, reportedly up to ~10% denser on markdown
+    # this heavy in backticks and pipe tables. The 10% margin below exists to
+    # absorb exactly that bias; it is not arbitrary padding, and cutting it means
+    # trusting a foreign tokenizer against a hard cap.
     enc = tiktoken.get_encoding("o200k_base")
     count = lambda p: len(enc.encode(p.read_text()))
     body = count(SKILL / "SKILL.md")
-    # o200k is a proxy for Claude's tokenizer, so hold a real margin rather than
-    # sitting on the cap and trusting a foreign encoding.
     margin = REATTACH_CAP - body
     if margin < REATTACH_CAP * 0.10:
-        fail(f"SKILL.md is {body} tokens: {margin} headroom is under the 10% margin "
-             f"({int(REATTACH_CAP * 0.10)}) the proxy tokenizer requires")
+        fail(f"SKILL.md is ~{body} tokens by o200k proxy: {margin} headroom is under "
+             f"the {int(REATTACH_CAP * 0.10)} margin that covers the encoding bias")
     coord = body + sum(count(SKILL / "references" / n) for n in sorted(ALWAYS_COORD))
-    print(f"  SKILL.md {body} tokens ({REATTACH_CAP - body} headroom); coordinator-resident {coord}")
+    print(f"  SKILL.md ~{body} tokens by o200k proxy ({REATTACH_CAP - body} headroom "
+          f"against a {REATTACH_CAP} Claude-token cap); coordinator-resident ~{coord}")
 
 
 def main() -> int:
