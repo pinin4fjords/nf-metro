@@ -589,12 +589,15 @@ EOF
 After every `git push`, **verify origin HEAD matches local**:
 
 ```bash
-gh pr view <PR_NUMBER> --json headRefOid -q .headRefOid
+git ls-remote origin <branch> | cut -f1
 git rev-parse HEAD
 ```
 
-The two must match. Prior sessions have lost commits to silent push
-failures; do not skip this check.
+The two must match. Prior sessions have lost commits to silent push failures;
+do not skip this check. Query the ref, not `gh pr view --json headRefOid`: the
+PR API lags a push by seconds and will report the previous SHA, which reads as
+a lost commit when nothing is wrong. If they genuinely differ, re-query the ref
+once before treating it as a failure.
 
 No force-push, ever, and no narrative comments on the PR - both in
 [`references/merge-and-cleanup.md`](references/merge-and-cleanup.md).
