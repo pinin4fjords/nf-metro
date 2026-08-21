@@ -6,8 +6,8 @@ Read before substituting `Explore` for a named role type.
 
 `Explore` and `Plan` are the only agent types that skip both CLAUDE.md files and
 the git-status snapshot. Measured with tiktoken on the actual files, that is
-**3,849 tokens per spawn** here (project CLAUDE.md 2,246 + user 1,603). Measured
-over 45 real runs that is worth about $0.24 a run. There is no frontmatter field that exempts a custom type, so this is
+**3,849 tokens per spawn** here (project CLAUDE.md 2,246 + user 1,603). Measured over the historical corpus that is worth about $1.65 a run once the
+resident re-reads are counted, not just the one-off cache write. There is no frontmatter field that exempts a custom type, so this is
 the only lever. `Explore` is read-only - `Write` and `Edit` are denied - and it
 is one-shot: it returns no agent ID and cannot be resumed or re-briefed.
 

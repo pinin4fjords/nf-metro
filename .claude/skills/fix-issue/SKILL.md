@@ -45,6 +45,10 @@ its work" is what the gates are for.
 | [`environment.md`](references/environment.md) | any worker running commands | its brief names it |
 | [`visual-review.md`](references/visual-review.md) | visual reviewer | its brief names it |
 
+The owner split exists so the coordinator does not carry material it is forbidden
+to act on, and so this file survives compaction. It is not a cost saving:
+measured, the resident difference is pennies a session.
+
 **After an auto-compaction, re-invoke this skill.** Claude Code re-attaches only
 the first 5,000 tokens of each skill, sharing a 25,000-token budget across all of
 them, so a long run can lose the back half of this file or drop it entirely once
@@ -133,8 +137,13 @@ the one it got: that call belongs at spawn time or not at all.
 
 **Never use the `fork` subagent type.** A fork inherits the parent's entire
 conversation and always runs on the parent's model - the `model` parameter is
-ignored - so every tier rule here is void. Measured on this machine, six fork
-spawns averaged $220 each. Use the named role types.
+ignored - so every tier rule here is void. Measured, fork spawns cost about 4x a comparable named
+worker. Use the named role types.
+
+**LIGHT is unvalidated.** No historical spawn in this repo ran on the LIGHT
+model, so nothing shows those four roles can do their jobs there. Treat early
+LIGHT spawns as an experiment: if one blocks or returns something wrong, re-route
+it up and say so rather than trusting the table.
 
 A LIGHT worker that returns "blocked, this needs judgment" is a correct
 outcome, not a failure. Re-route it up a tier rather than pre-emptively
@@ -168,7 +177,7 @@ read-only. The structural lever, and why `permissionMode` is not it, is in
 [`agent-types.md`](references/agent-types.md).
 
 Substituting `Explore`/`Plan` skips both CLAUDE.md files but discards the role
-definition and blocks re-briefing; measured at a few dollars a run once its resident re-reads are counted, so it is a curiosity
+definition and blocks re-briefing; measured at about $1.65 a run once its resident re-reads are counted, so it is a curiosity
 rather than a lever. See [`agent-types.md`](references/agent-types.md).
 
 ### Worker brief template
@@ -247,9 +256,9 @@ one item that grows every turn and is re-read on all of them.
 
 Layout iteration is where sessions burn tokens and compute. Keep it tight:
 
-- **Name a tier on every spawn** (above). Measured at 5.7% of spend in that same sample - real, but note that most of the per-spawn gap between tiers is *turns*
-  (216 vs 65), not price per token, so the tier table gets some credit that
-  belongs to task selection. The writer's turn count is the bigger lever.
+- **Name a tier on every spawn** (above). Worth ~3-6% of spend, and most of the
+  per-spawn gap between tiers is *turns*, not price per token, so the table takes
+  some credit that belongs to task selection.
 - **Lean on CI for the full suite.** Locally, run targeted tests: the new
   invariant test, the affected module, `--lf`, `-q --no-header -x`, Python 3.11
   for the routing/TB ratchets. CI runs the complete matrix on push and that is
@@ -258,30 +267,30 @@ Layout iteration is where sessions burn tokens and compute. Keep it tight:
 - **Reuse the persistent env.** Do not `micromamba create` per issue - it
   re-solves the whole dependency set every session for nothing. See
   [`references/environment.md`](references/environment.md).
-- **Read coordinates, not pixels, for non-visual questions.**
-  `inspect_layout.py` / `probe_layout.py` print the geometry as cheap text; a
-  render -> cairosvg PNG -> open -> image-into-context cycle is far heavier and
-  only earns its cost for a genuine *visual* check. "Is station X on the trunk?"
-  is a coordinate read, not a screenshot.
-- **Do not hold a large context idle across a CI run.** Waiting is where the
-  second-largest cost lives: in the same one-off measurement, a few hundred turns - under 1% of all
-  turns - were ~10% of spend, each a full re-encode averaging ~490k tokens, most
-  at the 5-minute cache premium rather than the 1-hour one, caused by idle gaps busting the cache. Collapsing the ledger does not touch this: it trims kilobytes off a
-  ~490k re-encode. What works is not parking a large context at all - finish the
-  session at the push and start a fresh one for the CI verdict, or compact
-  before the wait. When you do watch, watch once in the background (`until gh pr checks <N> ...; done`) rather than re-running
-  `gh pr checks` each turn, which dumps status into context repeatedly.
+- **Read coordinates, not pixels, for non-visual questions.** `inspect_layout.py`
+  and `probe_layout.py` print geometry as cheap text; a render, rasterise and
+  image-into-context cycle only earns its cost for a genuine visual check.
+- **Do not park a large context across a CI wait.** Full re-encodes of a ~476k
+  context are ~10% of spend in the one-off measurement. Finish the session at the
+  push and start fresh for the CI verdict, or compact before waiting; collapsing
+  the ledger trims kilobytes off half a million and is not the fix. Honest limit:
+  only about a third of those re-encodes follow an idle gap, so this reaches
+  roughly $10 of the ~$28 a session. When you do watch, watch once in the
+  background rather than re-running `gh pr checks` each turn.
 - **Lean on the CI render-diff for regression review; don't rebuild the gallery
   locally in a loop.** The CI preview (Step 8) is the authoritative whole-corpus
   diff. A local `build_gallery` / render-diff sweep repeated many times just
   duplicates it. Local rendering is for a *single* file's quick sanity check.
-- **Read the region, not the file.** `routing/inter_section_handlers.py` (7.4k
-  lines), `routing/invariants.py` (6.7k) and `phases/guards.py` (6.6k) are 205k
-  tokens together; held resident they cost roughly $30 in cache reads over a
-  300-turn top-tier spawn, because 68% of spend is re-reading accumulated
-  context. Re-fetching repeatedly is worse, since each fetch appends another
-  copy. Do neither: grep to the function, read 10-25k around it, and re-grep
-  instead of re-reading the file. This is the largest cost lever here.
+- **Keep bulk command output out of every context.** Measured, tool output is
+  **74.5% of all resident-context cost** across 36k worker Bash calls - far more
+  than file reads. So brief every worker: pipe to `tail`, `grep -c` or `wc -l`,
+  redirect full output to the artifact directory, and cite the path. This is the
+  largest cost lever in the workflow. Two specific cases the skill already
+  names - never re-run `gh pr checks` each turn, never paste test logs - are
+  instances of it, not the whole rule.
+- **Read the region, not the file** - but never starve a worker to save pennies:
+  reading costs ~$0.05 a spawn against ~$50 for a wrong fix. Detail:
+  [`worker-contract.md`](references/worker-contract.md).
 - **Push policy is governance, not economy**, and it lives with the push:
   [`merge-and-cleanup.md`](references/merge-and-cleanup.md).
 

@@ -36,11 +36,30 @@ Your brief names your authority as either **read-only** or **sole writer in
 7. **turns used**, if you are the writer - on every handoff. Past roughly 200
    turns say so, and offer to hand your candidate SHA plus a short state note to
    a fresh writer: your per-turn cost climbs with context size and nobody else
-   can see your turn count.
+   can see your turn count. No tool reports it, so this is your estimate - err
+   toward reporting early rather than not at all.
 
 Returning **blocked** against this schema is a valid, useful outcome. It is
 better than guessing, better than an unbounded loop, and better than silently
 narrowing your scope. Say precisely what would unblock you.
+
+## Reading source
+
+Grep to the symbol, then read a window around it rather than the whole file: the
+three biggest layout modules are 205k tokens together and the median function in
+them is 28 lines. A window of 1-3k tokens is normally right.
+
+**But do not under-read.** Reading costs about $0.05 a spawn; a wrong fix costs a
+narrowing round plus a CI cycle, roughly $50. When in doubt read more. Two cases
+where a narrow window is actively dangerous:
+
+- `routing/core.py` is a **first-match dispatcher**, so a handler read in
+  isolation tells you nothing about whether it fires at all. Read
+  `docs/dev/inter_section_dispatch.mdx` for the dispatch order before changing a
+  handler.
+- A guard in `phases/guards.py` or `routing/invariants.py` is registered with a
+  tier that decides its blast radius; the registration matters as much as the
+  body.
 
 ## Judgment above your tier
 

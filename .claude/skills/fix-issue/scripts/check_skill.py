@@ -216,6 +216,20 @@ def check_prose_paths() -> None:
                 fail(f"{f.name}: prose references missing path {path}")
 
 
+def check_numeric_consistency() -> None:
+    """The same measured quantity must carry the same figure everywhere. Two files
+    disagreed on the Explore saving ($0.24 vs "a few dollars") and nothing caught
+    it."""
+    figures: dict[str, set[str]] = {}
+    for f in md_files():
+        for m in re.finditer(r"(Explore|fork|handoff|narrowing round)[^.\n]{0,80}?\$([\d.,]+)",
+                             f.read_text()):
+            figures.setdefault(m.group(1).lower(), set()).add(m.group(2).rstrip("."))
+    for subject, vals in figures.items():
+        if len(vals) > 1:
+            fail(f"conflicting figures for '{subject}': {sorted(vals)}")
+
+
 def check_owner_split() -> None:
     """The coordinator must not be told to read worker-facing references."""
     body = (SKILL / "SKILL.md").read_text()
@@ -315,6 +329,7 @@ def main() -> int:
         check_tiers_named,
         check_agent_definitions,
         check_owner_split,
+        check_numeric_consistency,
         check_no_dangling_names,
         check_repo_paths,
         check_prose_tool_claims,
