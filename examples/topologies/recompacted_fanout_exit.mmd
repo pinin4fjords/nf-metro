@@ -1,0 +1,38 @@
+%%metro title: Recompacted fan-out exit
+%%metro line: upper | Upper | #3779b1
+%%metro line: trunk | Trunk | #6ef362
+%%metro line: bridge | Bridge | #a66d13
+%%metro line: middle | Middle | #dde6c4
+%%metro line: tail | Tail | #156075
+%%metro line: lower | Lower | #8453d7
+
+graph LR
+    subgraph source [Source]
+        start[Start]
+        change[Change]
+        split[Split]
+        start -->|middle| change
+        change -->|trunk| split
+    end
+
+    subgraph paired [Paired target]
+        paired_in[Paired input]
+        paired_step[Paired step]
+        paired_out[Paired output]
+        paired_in -->|middle| paired_step
+        paired_step -->|tail| paired_out
+    end
+
+    subgraph solo [Solo target]
+        solo_in[Solo input]
+        solo_step[Solo step]
+        solo_bridge[Solo bridge]
+        solo_out[Solo output]
+        solo_in -->|upper| solo_step
+        solo_step -->|bridge| solo_bridge
+        solo_bridge -->|middle| solo_out
+    end
+
+    split -->|upper,middle| paired_in
+    split -->|lower| solo_in
+    paired_out -->|trunk| solo_in
