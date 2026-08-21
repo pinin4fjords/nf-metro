@@ -797,19 +797,18 @@ def _packed_cell_mate_obstructs(
     tgt: Station,
     src_row: int | None,
     tgt_row: int | None,
-    y: float,
-) -> bool:
+) -> tuple[bool, bool]:
     """Whether a genuine packed cell-mate of *src*'s or *tgt*'s own section
-    spans *y* between the two endpoints' X range.
+    stands between the two endpoints at *src*'s Y, and at *tgt*'s Y.
 
     :func:`_has_intervening_sections` only sees columns strictly between the
     endpoints' grid columns. A packed cell (``%%metro grid: a, b | col,row``)
     can place more than one section in a boundary column itself, so a
     cell-mate of the route's own endpoint can sit geometrically between the
-    two ports without ever showing up as an "intervening" column. The default
-    L-shape lays a full-width horizontal leg at each endpoint's own Y, so
-    either Y is a candidate for *y* and a mate on one of them is enough to
-    force a bypass.
+    two ports without ever showing up as an "intervening" column. Both Ys are
+    answered because the default L-shape lays a full-width horizontal leg at
+    each endpoint's own Y, and a mate on either one is enough to force a
+    bypass.
 
     Scoped to actual ``graph.cell_packs`` membership (not "any section the
     segment happens to cross"): a same-row section that isn't declared
@@ -819,7 +818,7 @@ def _packed_cell_mate_obstructs(
     into a *different* box on the source-row leg.
     """
     if src_row is None or tgt_row is None or not graph.cell_packs:
-        return False
+        return False, False
     src_sec = resolve_section(graph, src, prefer_upstream=False)
     tgt_sec = resolve_section(graph, tgt, prefer_upstream=False)
     exclude = {sec.id for sec in (src_sec, tgt_sec) if sec is not None}
@@ -831,11 +830,16 @@ def _packed_cell_mate_obstructs(
             if member_id not in exclude:
                 cellmates.add(member_id)
     lo_x, hi_x = (src.x, tgt.x) if src.x <= tgt.x else (tgt.x, src.x)
-    return any(
-        (mate := graph.sections.get(mate_id)) is not None
-        and _h_segment_penetrates_section(lo_x, hi_x, y, mate)
+    mates = [
+        mate
         for mate_id in cellmates
-    )
+        if (mate := graph.sections.get(mate_id)) is not None
+    ]
+
+    def blocked_at(y: float) -> bool:
+        return any(_h_segment_penetrates_section(lo_x, hi_x, y, mate) for mate in mates)
+
+    return blocked_at(src.y), blocked_at(tgt.y)
 
 
 class HopEnd(NamedTuple):
@@ -875,11 +879,8 @@ def _hop_needs_bypass(graph: MetroGraph, src: HopEnd, tgt: HopEnd) -> BypassNeed
     """
     if src.col is None or tgt.col is None:
         return BypassNeed(False, False, False)
-    blocks_source_row = _packed_cell_mate_obstructs(
-        graph, src.station, tgt.station, src.row, tgt.row, src.station.y
-    )
-    blocks_target_row = _packed_cell_mate_obstructs(
-        graph, src.station, tgt.station, src.row, tgt.row, tgt.station.y
+    blocks_source_row, blocks_target_row = _packed_cell_mate_obstructs(
+        graph, src.station, tgt.station, src.row, tgt.row
     )
     intervening = _intervening_section_obstructs(
         graph, src.col, src.row, tgt.col, tgt.row
