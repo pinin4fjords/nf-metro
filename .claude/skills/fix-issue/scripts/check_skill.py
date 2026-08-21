@@ -370,11 +370,30 @@ def check_scripts() -> None:
         if r.returncode:
             fail(f"{sh_file.name} --self-test failed: "
                  f"{(r.stdout + r.stderr).strip().splitlines()[-1][:120]}")
+    # Python helpers get the same treatment. Run them from a foreign cwd with an
+    # explicit repo argument: a positional-argument bug in one of these was
+    # invisible while everything happened to run from the repo root.
+    repo = Path.cwd().resolve()
+    for py_file in sorted((SKILL / "scripts").glob("*.py")):
+        if py_file.name == Path(__file__).name:
+            continue
+        if "--self-test" not in py_file.read_text():
+            fail(f"{py_file.name} has no --self-test; its logic cannot be checked here")
+            continue
+        r = subprocess.run([sys.executable, str(py_file.resolve()), "--self-test", str(repo)],
+                           capture_output=True, text=True, cwd="/")
+        if r.returncode:
+            last = (r.stdout + r.stderr).strip().splitlines()
+            fail(f"{py_file.name} --self-test failed from a foreign cwd: "
+                 f"{last[-1][:120] if last else 'no output'}")
+
     # Every script must be referenced, or it is dead weight nobody will run.
     body = "\n".join(f.read_text() for f in md_files())
-    for sh_file in scripts:
-        if sh_file.name not in body:
-            fail(f"{sh_file.name} is not referenced from any skill file")
+    for script in scripts + sorted((SKILL / "scripts").glob("*.py")):
+        if script.name == Path(__file__).name:
+            continue
+        if script.name not in body:
+            fail(f"{script.name} is not referenced from any skill file")
 
 
 def check_token_budget() -> None:

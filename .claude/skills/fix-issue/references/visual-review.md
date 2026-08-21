@@ -56,6 +56,11 @@ Three outcomes, all of them verdicts:
 .claude/skills/fix-issue/scripts/render_pairs.sh --base <BASE_SHA> --candidate <CANDIDATE_SHA>
 ```
 
+Source paths come from `corpus_map.py` beside these scripts, which reads `gallery.yaml` and
+mirrors `build_gallery.py`'s group semantics: an output name is not always the
+entry id (pipelines carry a `pipeline_` prefix, nextflow conversions declare an
+explicit `output`), so never resolve a stem by searching for a matching basename.
+
 `Read` the `base-<stem>.png` / `cand-<stem>.png` pairs it reports. Never `Read`
 the preview page itself: it is one multi-megabyte inlined `index.html`, and its
 SVG carries `var()` and `light-dark()` that cairosvg cannot parse.

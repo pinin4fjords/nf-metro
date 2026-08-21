@@ -16,8 +16,10 @@ Group semantics mirror scripts/build_gallery.py, which owns them:
   nextflow_conversions -> entry["output"], source examples/<id>.mmd
   test_fixtures        -> id, source dir tests/fixtures/
 
-An entry whose source is absent is skipped by build_gallery.py rather than being
-an error, so it is skipped here too and reported by --self-test.
+build_gallery.py silently skips an entry whose source is absent. This map emits it
+anyway, so render_pairs.sh reports it as UNRESOLVED: for a review gate a missing
+source should be loud, not invisible. --self-test asserts every source exists, so
+the two only diverge when something is genuinely wrong.
 """
 
 from __future__ import annotations
@@ -57,6 +59,13 @@ def self_test(repo: Path) -> int:
             failures.append(label)
 
     check("map is non-empty", len(mapping) > 200)
+    # A single positional argument must be honoured: it was previously read from
+    # argv[1], so `corpus_map.py REPO` silently used the cwd instead.
+    check("positional repo argument is honoured",
+          parse_args(["/somewhere"]) == (False, Path("/somewhere")))
+    check("--self-test takes an optional repo",
+          parse_args(["--self-test", "/somewhere"]) == (True, Path("/somewhere")))
+    check("no arguments falls back to cwd", parse_args([]) == (False, Path.cwd()))
     check("a pipelines entry carries the pipeline_ prefix",
           any(k.startswith("pipeline_") for k in mapping))
     check("a nextflow conversion maps output name, not id",
@@ -70,10 +79,19 @@ def self_test(repo: Path) -> int:
     return 1 if failures else 0
 
 
+def parse_args(argv: list[str]) -> tuple[bool, Path]:
+    """Returns (self_test, repo). Usage:
+    corpus_map.py [REPO]              -> emit the map
+    corpus_map.py --self-test [REPO]  -> run the self-test
+    """
+    if argv and argv[0] == "--self-test":
+        return True, Path(argv[1]) if len(argv) > 1 else Path.cwd()
+    return False, Path(argv[0]) if argv else Path.cwd()
+
+
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    repo = Path(args[1]) if len(args) > 1 else Path.cwd()
-    if args and args[0] == "--self-test":
-        sys.exit(self_test(repo))
-    for name, rel in sorted(corpus_map(repo).items()):
+    want_self_test, repo_root = parse_args(sys.argv[1:])
+    if want_self_test:
+        sys.exit(self_test(repo_root))
+    for name, rel in sorted(corpus_map(repo_root).items()):
         print(f"{name}\t{rel}")
