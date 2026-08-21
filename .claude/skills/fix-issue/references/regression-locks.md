@@ -3,6 +3,10 @@
 Read this when `grep -rn "#<N>" tests/ scripts/build_gallery.py examples/topologies/`
 finds anything, or when you are tempted to add an xfail.
 
+Check what the hits actually reference. A **parent** issue number often appears
+throughout the very files a fix touches, and that is not a lock on your issue.
+Only a marker naming your issue number counts.
+
 ## An issue that arrives with its infra already in place
 
 Most issues arrive bare. But some - notably those filed by the

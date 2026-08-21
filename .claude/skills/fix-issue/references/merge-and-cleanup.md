@@ -68,3 +68,45 @@ Leave the shared `nf-metro-dev` env in place - it is reused across issues, so
 there is nothing per-issue to remove.
 
 Offer this cleanup to the user; only run it after they agree.
+
+## Draft PR body template
+
+Used once, at Step 8/10.
+
+once, with this body; if it has, **do not re-push or re-create** - edit the
+existing PR body instead (`gh pr edit`) and go straight to the origin check
+below:
+
+```bash
+cd /tmp/nf-metro-fix-<N>
+gh pr create --draft --repo seqeralabs/nf-metro --base main --title "<title>" --body "$(cat <<'EOF'
+## Summary
+<bullets describing the aggregate diff against main, no narrative>
+
+Fixes #<N>
+
+## Test plan
+- [ ] Targeted tests pass locally (including new invariant test); CI matrix runs the full suite
+- [ ] ruff check + ruff format clean on whole repo
+- [ ] Runtime validator added (if applicable)
+- [ ] Visual review of [render preview](https://seqeralabs.github.io/nf-metro/_pr/<PR_NUMBER>/)
+- [ ] Render-preview verdict: <No visual changes | deltas classified I/N>
+EOF
+)"
+```
+
+After every `git push`, **verify origin HEAD matches local**:
+
+```bash
+git ls-remote origin <branch> | cut -f1
+git rev-parse HEAD
+```
+
+The two must match. Prior sessions have lost commits to silent push failures;
+do not skip this check. Query the ref, not `gh pr view --json headRefOid`: the
+PR API lags a push by seconds and will report the previous SHA, which reads as
+a lost commit when nothing is wrong. If they genuinely differ, re-query the ref
+once before treating it as a failure.
+
+No force-push, ever, and no narrative comments on the PR - both in
+`merge-and-cleanup.md`.
