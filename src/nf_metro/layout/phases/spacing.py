@@ -266,19 +266,12 @@ def _residual_label_overlaps(graph: MetroGraph) -> list[LabelOverlap]:
     return _overlaps_from(graph, offsets, placements)
 
 
-def _reflowed_label_station_ids(graph: MetroGraph) -> set[str]:
-    """Stations whose one-line name the wrap pass re-flowed onto several lines.
+def _reflowed_from(graph: MetroGraph, placements: list[LabelPlacement]) -> set[str]:
+    """Stations in a probed placement set whose one-line name wrapping re-flowed.
 
-    Probes icon-aware, so the answer is the set the renderer draws: a terminus
-    file icon narrows a label's choice of side and can be what forced the
-    re-flow.  An author-written multi-line name is excluded -- those breaks are
-    the author's, not the layout's, so no amount of pitch would undo them.
-    Returns an empty set if routing/placement raises.
+    An author-written multi-line name is excluded -- those breaks are the
+    author's, not the layout's, so no amount of pitch would undo them.
     """
-    probe = _probe_label_placements(graph, icon_aware=True)
-    if probe is None:
-        return set()
-    _offsets, _routes, placements = probe
     return {
         p.station_id
         for p in placements
@@ -286,6 +279,39 @@ def _reflowed_label_station_ids(graph: MetroGraph) -> set[str]:
         and "\n" not in station.label
         and "\n" in p.text
     }
+
+
+def _reflowed_label_station_ids(graph: MetroGraph) -> set[str]:
+    """Stations whose one-line name the wrap pass re-flowed onto several lines.
+
+    Probes icon-aware, so the answer is the set the renderer draws: a terminus
+    file icon narrows a label's choice of side and can be what forced the
+    re-flow.  Returns an empty set if routing/placement raises.
+    """
+    probe = _probe_label_placements(graph, icon_aware=True)
+    if probe is None:
+        return set()
+    _offsets, _routes, placements = probe
+    return _reflowed_from(graph, placements)
+
+
+def _reflowed_and_residual_overlaps(
+    graph: MetroGraph,
+) -> tuple[set[str], list[LabelOverlap]]:
+    """One probe: the re-flowed label set and the leftover label overlaps.
+
+    Lets a caller weighing a spacing offer judge both halves of it -- the size
+    of the re-flowed set and the presence of leftover overlaps -- off a single
+    route-and-place pass.  Probes icon-aware, matching
+    :func:`_reflowed_label_station_ids` and :func:`_residual_label_overlaps`.
+
+    Returns ``(set(), [])`` if routing/placement raises.
+    """
+    probe = _probe_label_placements(graph, icon_aware=True)
+    if probe is None:
+        return set(), []
+    offsets, _routes, placements = probe
+    return _reflowed_from(graph, placements), _overlaps_from(graph, offsets, placements)
 
 
 def _struck_stations_and_collinear(graph: MetroGraph) -> tuple[set[str], bool]:

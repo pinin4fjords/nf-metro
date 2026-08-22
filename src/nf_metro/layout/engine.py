@@ -329,6 +329,7 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _SPREAD_SLACK,
     _bypass_label_obstacles,
     _label_clearance_issues,
+    _reflowed_and_residual_overlaps,
     _reflowed_label_station_ids,
     _residual_label_overlaps,
     _spread_bump,
@@ -1048,8 +1049,6 @@ def _settle_row_pitch_against_reflow(
     :func:`compute_min_y_spacing` already sizes from label extents, whereas the
     column pitch is fixed structure: widening it to dodge a re-flow is what
     makes a crowded map sprawl sideways.  A caller-pinned pitch is left alone.
-
-    Returns the pitch to carry forward, with the graph laid out at it.
     """
     base = graph._base_y_spacing
     if not auto_y or base is None or y_spacing <= base + 1e-6:
@@ -1082,10 +1081,10 @@ def _settle_row_pitch_against_reflow(
             _relay(trial, offer, validate_layout=False)
         except Exception:
             break
-        fewer = _reflowed_label_station_ids(trial)
-        if len(fewer) >= len(reflowed) or _residual_label_overlaps(trial):
+        next_reflowed, residual = _reflowed_and_residual_overlaps(trial)
+        if len(next_reflowed) >= len(reflowed) or residual:
             break
-        settled, reflowed = offer, fewer
+        settled, reflowed = offer, next_reflowed
         if not reflowed:
             break
 
