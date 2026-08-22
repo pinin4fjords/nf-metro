@@ -19,11 +19,14 @@ A five-line change that introduces a branch, or threads an argument through
 three call sites, is not trivial. If you are weighing whether it qualifies, it
 does not: run the pass.
 
-After the fix and tests are passing, assign a fresh MID read-only worker to
-invoke the `pinin4fjords:simplify` skill on the changed code. It returns findings, proposed
-edits, and a pass/fail verdict without writing. Re-brief the worktree's sole
-writer to apply accepted suggestions and record them in a **separate** local
-candidate commit:
+After the fix and tests are passing, hand off your candidate SHA and report it
+ready for a simplify pass. **Do not try to invoke `/simplify` or spawn a
+reviewer yourself** - the writer role carries no `Agent` tool, so this step
+belongs to the coordinator. The coordinator assigns a fresh MID read-only
+`fix-issue-simplifier` against your SHA; it invokes the `pinin4fjords:simplify`
+skill and returns findings, proposed edits, and a pass/fail verdict without
+writing anything. When the coordinator routes accepted suggestions back to
+you, apply them and record them in a **separate** local candidate commit:
 
 ```
 refactor: tighten <area> after fix for #<N>
@@ -65,11 +68,12 @@ worker buys no signal. Run a local full suite only when it earns its cost:
 - explicit admin-merge preparation needs local full-suite confidence.
 
 One exception is genuinely full-corpus by construction: a new topology
-fixture's guard-trace golden, under "Generated-artifact gates" below.
+fixture's guard-trace golden and any hardcoded corpus-digest test, under
+"Generated-artifact gates" below.
 
 ### Generated-artifact gates
 
-Two distinct triggers, and the path is literal. The gate-coverage ratchet
+Three distinct triggers, and the path is literal. The gate-coverage ratchet
 scans `src/nf_metro/layout/routing/` **only** (`ROUTING_DIR` in
 `scripts/routing_gate_coverage.py`, with branch coverage scoped to it), so it
 trips on an `if`/`while` change inside that nested package, or on a new fixture
@@ -78,7 +82,11 @@ module, `ordering.py` - cannot trip it, so do not spend a worker checking
 defensively. The guard-trace golden is separate and trips on a **new** fixture under any discovered root:
 `tests/fixtures`, `tests/fixtures/topologies`, `examples`, `examples/topologies`,
 `examples/guide` (see `_discover_fixtures` in `tests/test_engine_guards_perf.py`).
-A test fixture placed under `tests/` reds it too. When either fires, each failure names a specific
-reconciliation you owe in this same PR. Do not hand-edit baselines to silence
-them. Procedure, verdicts, and the Python 3.11 pinning gotcha:
-[`gate-ratchet.md`](gate-ratchet.md).
+A test fixture placed under `tests/` reds it too. A third, easy-to-miss trigger
+is any test that hardcodes a corpus-wide digest over the same fixture roots
+(`tests/test_route_topology.py` is one) - it reds with no hint that a new
+fixture, not a real regression, moved the digest, and a targeted selector for
+just the new fixture or the touched module never runs it. When any of the
+three fires, each failure names a specific reconciliation you owe in this same
+PR. Do not hand-edit baselines to silence them. Procedure, verdicts, and the
+Python 3.11 pinning gotcha, plus the corpus-digest check: [`gate-ratchet.md`](gate-ratchet.md).

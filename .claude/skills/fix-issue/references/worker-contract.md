@@ -43,6 +43,15 @@ Returning **blocked** against this schema is a valid, useful outcome. It is
 better than guessing, better than an unbounded loop, and better than silently
 narrowing your scope. Say precisely what would unblock you.
 
+**An anomaly you cannot explain is never a footnote on a pass.** A crash,
+a discrepancy, a result that surprises you, a claim you ran out of time to
+verify - if you cannot account for it, your verdict is **blocked** or **fail**,
+not "pass, pending investigation of X." A pass says the coordinator can act on
+your result without reading further; hedging inside one asks them to read
+further anyway, but under the wrong verdict. Report exactly what is
+unexplained and let the coordinator decide whether to re-route, dispatch a
+follow-up investigation, or accept the residual risk.
+
 ## Reading source
 
 Grep to the symbol, then read a window around it rather than the whole file: the

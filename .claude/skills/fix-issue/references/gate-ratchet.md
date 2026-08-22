@@ -76,6 +76,25 @@ x86_64. The verifier runs the same test without the regeneration environment
 variable against the candidate SHA, inspects the committed diff, and confirms no
 worktree change.
 
+## New fixture: check hardcoded corpus-digest tests too
+
+At least one test hardcodes a single digest over every `.mmd` under `examples/`
+(`tests/test_route_topology.py`, via a module-level `CORPUS` glob constant) and
+asserts the whole corpus parses to byte-identical resolved graphs. A new
+fixture placed anywhere that glob reaches moves that digest, and the test reds
+with no hint that the fixture, not a real regression, is the cause - a #1766
+verify pass shipped past this once because the LIGHT verifier's selector
+covered the touched module and the new fixture's own test, but not this
+corpus-wide one.
+
+Before adding a fixture, grep `tests/` for hardcoded long-hex digests keyed on
+a glob over `examples/**` or `tests/fixtures/**` (as opposed to an explicit,
+hand-written file list) and check each one. Recompute the digest yourself in
+your own worktree - do not copy a value out of a diagnosis writeup without
+re-deriving it - and update the hardcoded value in the same commit. If a
+regeneration script exists for the test, use it; `test_route_topology.py` has
+none, so the fix is a direct edit to the hardcoded literal.
+
 ## Adding or re-tiering a routing check
 
 A new `check_*` in `CHECK_REGISTRY`, or a change to an existing `GuardSpec`'s
@@ -84,6 +103,6 @@ Decide the tier before writing the check, regenerate under 3.11, and inspect the
 diff's shape: hundreds of changed goldens is expected for a broad tier and a
 signal you picked the wrong one for a narrow invariant.
 
-A new topology fixture therefore owes **three** committed artifacts, not one: the
-`.mmd`, its `GALLERY_ENTRIES`/`gallery.yaml` row (so the render-diff sees it),
-and this guard-trace golden.
+A new topology fixture therefore owes **four** committed artifacts, not one:
+the `.mmd`, its `GALLERY_ENTRIES`/`gallery.yaml` row (so the render-diff sees
+it), this guard-trace golden, and any hardcoded corpus-digest test above.
