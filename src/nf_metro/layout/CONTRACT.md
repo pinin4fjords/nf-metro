@@ -368,16 +368,16 @@ in pipeline order.
 ### Stage 1.3: section placement
 - **Purpose**: Place sections on the canvas grid via topological
   layering of the section DAG, then preserve the reversed lane order delivered
-  by a stacked LEFT-to-LEFT half-turn through a split consumer.
+  by a stacked same-side half-turn, on either side, through a split consumer.
 - **Helpers**: `place_sections` and
   `_reflect_stacked_split_consumer_tracks` in `section_placement.py`.
 - **Precondition**: Sections have bboxes from Stage 1.1 and grid
   positions from `auto_layout`. Still all local-coord.
 - **Postcondition**: Every section has `offset_x`, `offset_y` set such
   that `(local + offset)` lands sections on a non-overlapping grid. A direct
-  stacked LEFT-to-LEFT seam feeding distinct branches has those branch tracks
-  reflected within the same local Y extent, so the seam and consumer agree on
-  bundle order.
+  stacked same-side seam feeding distinct branches - LEFT-to-LEFT or
+  RIGHT-to-RIGHT - has those branch tracks reflected within the same local Y
+  extent, so the seam and consumer agree on bundle order.
 - **Column seating**: A column is seated on the edge its members' box
   extents grow away from (`box_growth_sign`, `layout/geometry.py`): the left
   one by default, the right one when a member's extent grows leftward (its

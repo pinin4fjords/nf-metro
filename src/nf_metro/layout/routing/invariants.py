@@ -6777,7 +6777,7 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
         issue_pin=("#1720",),
         narrow_reason=(
             "Scoped to repeated crossings by a distinct-line pair inside a "
-            "horizontal split consumer fed by one direct stacked LEFT-to-LEFT "
+            "horizontal split consumer fed by one direct stacked same-side "
             "half-turn. A single weave can be required elsewhere, but the "
             "second crossing in this topology only restores the original order."
         ),
