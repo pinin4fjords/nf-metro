@@ -2058,12 +2058,13 @@ gallery:
     source_dir: examples/topologies
     category: Inter-section Routing
     description:
-      "A QC section crowded by a two-word `sambamba markdup` label and an `RNA-SeQC`
-      dir-icon branch. The auto column pitch widens until both names sit clear -
-      including the room the drawn icon takes from the label beside it - so neither is
-      narrowed onto extra lines or broken mid-word to fit (issue #1768). The icon then
-      sides `sambamba markdup` above its trunk, and the QC descent's run lengthens by a
-      column so its turn seats ahead of the name rather than through it."
+      "A QC section whose lower row crowds `sambamba markdup` against `RNA-SeQC` and a
+      dir-icon terminus. The two-word name wraps at its space onto `sambamba` /
+      `markdup` rather than splitting mid-word into a hyphen the tool name never carried
+      (issue #1768), while single-token `RNA-SeQC` stays whole on one line. That wrap
+      clears the crowding on its own: the spacing search widens neither the column nor
+      the row pitch, and the QC box is drawn at the depth layout reserved for it, so the
+      sections stacked below it keep their gap without being pushed down."
 
   - id: fanout_intersection_shared_channel
     source_dir: examples/topologies
