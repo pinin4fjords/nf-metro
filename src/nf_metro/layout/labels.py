@@ -656,6 +656,48 @@ def _intrusion(
     return ox, oy
 
 
+def _station_marker_boxes(
+    graph: MetroGraph,
+    station_offsets: dict[tuple[str, str], float] | None,
+) -> dict[str, tuple[float, float, float, float]]:
+    """Rendered pill box per station that draws a marker.
+
+    Reuses the engine's pill geometry, which returns None for ports, hidden
+    stations and junctions -- none of which render a marker to collide with.
+    """
+    from nf_metro.layout.engine import _station_marker_bbox
+
+    return {
+        sid: bbox
+        for sid in graph.stations
+        if (bbox := _station_marker_bbox(graph, sid, station_offsets)) is not None
+    }
+
+
+def _label_clear_of_everything(
+    placement: LabelPlacement,
+    others: list[LabelPlacement],
+    markers: dict[str, tuple[float, float, float, float]],
+    marker_tol: float = LABEL_OVERLAP_TOL,
+) -> bool:
+    """Whether a placement is free of every other label, obstacle and marker.
+
+    Agrees with :func:`find_label_overlaps` on labels and on the ``marker_tol``
+    graze allowance, and additionally rejects the icon obstacles, which carry
+    their box on a placement rather than on a station.
+    """
+    if _has_collision(placement, others):
+        return False
+    box = _label_bbox(placement)
+    for sid, mbox in markers.items():
+        if sid == placement.station_id:
+            continue
+        ox, oy = _intrusion(box, mbox)
+        if ox > marker_tol and oy > marker_tol:
+            return False
+    return True
+
+
 def find_label_overlaps(
     graph: MetroGraph,
     placements: list[LabelPlacement],
@@ -702,15 +744,7 @@ def find_label_overlaps(
                 continue
             overlaps.append(LabelOverlap("label", pa.station_id, pb.station_id, ox, oy))
 
-    # Reuse the engine's pill geometry (returns None for ports, hidden
-    # stations, and junctions, none of which render a marker to collide with).
-    from nf_metro.layout.engine import _station_marker_bbox
-
-    markers = {
-        sid: bbox
-        for sid in graph.stations
-        if (bbox := _station_marker_bbox(graph, sid, station_offsets)) is not None
-    }
+    markers = _station_marker_boxes(graph, station_offsets)
     for p, lb in boxes:
         for sid, mb in markers.items():
             if sid == p.station_id:
@@ -1435,6 +1469,23 @@ def _places_label_beside_pill(graph: MetroGraph, station: Station) -> bool:
     return bool(sec and lanes_run_along_x(sec.direction))
 
 
+def _label_anchor_offsets(ctx: _LabelCtx, station: Station) -> tuple[float, float]:
+    """Offsets a label hangs from: the pill edge, or the band it belongs to.
+
+    Measured from the outermost served line rather than ``station.y``, and
+    widened to the whole rail panel or interchange span when the station
+    belongs to one, so the label clears every marker on that band.
+    """
+    min_off, max_off = _pill_offsets(ctx.graph, station, ctx.station_offsets)
+    rail_panel = _rail_panel_label_offsets(station, ctx.panel_extents)
+    if rail_panel is not None:
+        min_off, max_off = rail_panel
+    ic_span = _interchange_span_label_offsets(station, ctx.interchange_spans)
+    if ic_span is not None:
+        min_off, max_off = ic_span
+    return min_off, max_off
+
+
 def _place_station_label(
     ctx: _LabelCtx,
     station: Station,
@@ -1442,14 +1493,7 @@ def _place_station_label(
 ) -> LabelPlacement:
     """Place one station's label, dispatching by section style."""
     graph = ctx.graph
-    # Offset labels from the pill edge (outermost served line), not station.y.
-    min_off, max_off = _pill_offsets(graph, station, ctx.station_offsets)
-    rail_panel = _rail_panel_label_offsets(station, ctx.panel_extents)
-    if rail_panel is not None:
-        min_off, max_off = rail_panel
-    ic_span = _interchange_span_label_offsets(station, ctx.interchange_spans)
-    if ic_span is not None:
-        min_off, max_off = ic_span
+    min_off, max_off = _label_anchor_offsets(ctx, station)
 
     if _places_label_beside_pill(graph, station):
         return _place_tb_label(ctx, station, placements)
@@ -1803,7 +1847,7 @@ def place_labels(
         _avoid_horizontal_strikethrough(placements, graph, routes, station_offsets)
         _avoid_diagonal_strikethrough(placements, graph, routes, station_offsets)
 
-    _wrap_overlapping_labels(placements, graph, station_offsets)
+    _wrap_overlapping_labels(ctx, placements)
 
     if lift_wrapped_off_trunks:
         _relax_collision_pushed_labels(
@@ -1915,10 +1959,66 @@ def _apply_rail_label_angle(
 _WRAP_MAX_ROUNDS = 200
 
 
-def _wrap_overlapping_labels(
+def _reside_reflowed_label(
+    ctx: _LabelCtx,
+    placement: LabelPlacement,
     placements: list[LabelPlacement],
-    graph: MetroGraph,
-    station_offsets: dict[tuple[str, str], float] | None,
+    markers: dict[str, tuple[float, float, float, float]],
+) -> None:
+    """Re-choose side and anchor for a label whose text has just been re-flowed.
+
+    Re-flowing rewrites text alone, so the placement keeps the side and anchor
+    derived from a single flat line.  A re-flowed block is roughly half as wide
+    and twice as tall as that line, so a side which clears the flat footprint
+    can collide for the block while the opposite side stays free.  Both sides
+    are re-offered to the block, in alternation order, and yield to every other
+    placement rather than only to those placed earlier, because this label is
+    the one moving.
+
+    Only the two pill-centred anchors are offered -- no nudge, no push-out.  A
+    re-flowed block is narrow enough that a clear side accepts it centred, and
+    sliding a narrow block sideways to squeeze past a neighbour butts the two
+    labels into one another and reads as a single run of text.  When neither
+    side is wholly clear the placement stands and the engine's spread loop
+    clears the remainder.
+
+    A label beside its pill is skipped: its two sides are a horizontal flip
+    across the trunk, and narrowing such a label only grows it taller, so
+    neither side is relieved by the re-flow.
+    """
+    station = ctx.graph.stations.get(placement.station_id)
+    if station is None or ctx.label_angle:
+        return
+    if _places_label_beside_pill(ctx.graph, station):
+        return
+    others = [p for p in placements if p is not placement]
+    if _label_clear_of_everything(placement, others, markers):
+        return
+    min_off, max_off = _label_anchor_offsets(ctx, station)
+    safe_above, safe_below = ctx.safe_offsets.get(
+        station.id, (ctx.label_offset, ctx.label_offset)
+    )
+    preferred = _initial_label_side(ctx, station, _rail_label_side(ctx.graph, station))
+    for above in (preferred, not preferred):
+        candidate = _try_place(
+            station,
+            safe_above if above else safe_below,
+            above,
+            others,
+            min_off,
+            max_off,
+            placement.text,
+        )
+        if _label_clear_of_everything(candidate, others, markers):
+            placement.x = candidate.x
+            placement.y = candidate.y
+            placement.above = candidate.above
+            return
+
+
+def _wrap_overlapping_labels(
+    ctx: _LabelCtx,
+    placements: list[LabelPlacement],
 ) -> None:
     """Narrow colliding labels by wrapping them onto multiple lines.
 
@@ -1934,7 +2034,14 @@ def _wrap_overlapping_labels(
     :func:`_wrap_text_to_chars` has no whitespace left to break on and further
     rounds cannot narrow the block.  An overlap that survives to that floor is
     for the engine's spread loop to clear by widening spacing.
+
+    Once the rounds settle, each re-flowed label re-decides its side for the
+    block it has become (:func:`_reside_reflowed_label`).  Deferring that to
+    the end means every side is judged against the settled set of blocks
+    rather than against a neighbour the rounds have yet to finish narrowing.
     """
+    graph = ctx.graph
+    station_offsets = ctx.station_offsets
     by_id = {
         p.station_id: p
         for p in placements
@@ -1967,6 +2074,16 @@ def _wrap_overlapping_labels(
             continue
         budgets[offender] = new_budget
         by_id[offender].text = _wrap_text_to_chars(originals[offender], new_budget)
+
+    reflowed = [
+        p
+        for p in placements
+        if p.station_id in by_id and p.text != originals[p.station_id]
+    ]
+    if reflowed:
+        markers = _station_marker_boxes(graph, station_offsets)
+        for p in reflowed:
+            _reside_reflowed_label(ctx, p, placements, markers)
 
     _expand_sections_for_wrapped_labels(placements, graph)
 
@@ -2526,6 +2643,7 @@ def _try_place(
     existing: list[LabelPlacement],
     min_off: float = 0.0,
     max_off: float = 0.0,
+    text: str | None = None,
 ) -> LabelPlacement:
     """Create a label placement above or below a station.
 
@@ -2536,11 +2654,15 @@ def _try_place(
     (g, p, y ...) don't visually touch the pill.  The SVG renderer
     uses ``dominant-baseline: auto`` which places the alphabetic
     baseline at label.y -- descenders extend below that point.
+
+    ``text`` overrides the station's own label, so a caller re-placing a
+    re-flowed label sizes the trial box by the text it will actually draw.
     """
+    body = station.label if text is None else text
     if above:
         return LabelPlacement(
             station_id=station.id,
-            text=station.label,
+            text=body,
             x=station.x,
             y=station.y + min_off - label_offset - DESCENDER_CLEARANCE,
             above=True,
@@ -2548,7 +2670,7 @@ def _try_place(
     else:
         return LabelPlacement(
             station_id=station.id,
-            text=station.label,
+            text=body,
             x=station.x,
             y=station.y + max_off + label_offset,
             above=False,

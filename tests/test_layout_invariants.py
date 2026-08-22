@@ -4120,7 +4120,7 @@ def test_diagonal_strike_guard_teeth_and_exemptions():
     cleared = _layout("topologies/funcprofiler_upstream.mmd", x_spacing=45)
     _guard_no_diagonal_strikes_horizontal_label(cleared, "test")
 
-    unclearable = _layout("centered_tracks.mmd", x_spacing=45)
+    unclearable = _layout("centered_tracks.mmd", x_spacing=40)
     with pytest.raises(PhaseInvariantError, match="strikes horizontal label"):
         _guard_no_diagonal_strikes_horizontal_label(unclearable, "test")
 

@@ -6,14 +6,26 @@ from pathlib import Path
 
 import pytest
 
+from nf_metro.layout.constants import LABEL_OFFSET
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import segment_intersects_bbox as _segment_intersects_bbox
 from nf_metro.layout.labels import (
     LabelPlacement,
     _avoid_diagonal_routes,
+    _build_label_ctx,
     _compute_port_label_preference,
+    _initial_label_side,
+    _label_anchor_offsets,
+    _label_clear_of_everything,
+    _make_obstacle_placements,
+    _places_label_beside_pill,
+    _rail_label_side,
+    _station_marker_boxes,
+    _try_place,
     _wrap_text_to_chars,
+    place_labels,
 )
+from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.layout.routing.common import OffsetRegime
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import (
@@ -24,8 +36,8 @@ from nf_metro.parser.model import (
     PortSide,
     Station,
 )
-from nf_metro.render.svg import build_render_plan
-from nf_metro.themes import THEMES
+from nf_metro.render.svg import _compute_icon_obstacles, build_render_plan
+from nf_metro.themes import THEMES, resolve_theme
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -356,3 +368,134 @@ class TestPinnedXSpacingWarning:
             warnings.simplefilter("always")
             compute_layout(graph, x_spacing=x_spacing)
         assert not [w for w in caught if "x_spacing" in str(w.message)]
+
+
+def _laid_out(fixture: str, x_spacing: float | None = None) -> MetroGraph:
+    """Parse and lay out a corpus fixture, optionally pinning the column pitch."""
+    graph = parse_metro_mermaid((REPO_ROOT / fixture).read_text())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        compute_layout(graph, x_spacing=x_spacing)
+    return graph
+
+
+def _reflowed_labels_beside_a_free_side(graph: MetroGraph) -> list[str]:
+    """Re-flowed labels that overlap although a side of their own pill is free.
+
+    Re-flowing a label onto several lines changes its footprint, so the side
+    picked for the flat single line has to be re-offered to the block.  A
+    station reported here ships an overlap it could have escaped by hanging its
+    block off the other side of its own pill, which means the engine pays for
+    the collision by widening spacing instead.
+    """
+    offsets = compute_station_offsets(graph)
+    routes = route_edges_centred(graph, station_offsets=offsets)
+    obstacles = _compute_icon_obstacles(graph, resolve_theme(None, graph), offsets)
+    placements = place_labels(
+        graph,
+        station_offsets=offsets,
+        routes=routes,
+        icon_obstacles=obstacles,
+        label_angle=graph.label_angle or 0.0,
+    )
+    ctx, _ = _build_label_ctx(
+        graph, LABEL_OFFSET, offsets, obstacles, graph.label_angle or 0.0
+    )
+    markers = _station_marker_boxes(graph, offsets)
+    obstacle_placements = _make_obstacle_placements(obstacles)
+
+    stranded: list[str] = []
+    for placement in placements:
+        station = graph.stations.get(placement.station_id)
+        if station is None or placement.text == station.label:
+            continue
+        # A beside-pill label's other side is a horizontal flip across the
+        # trunk, which re-flowing never relieves; an angled label hangs on one
+        # side by construction.
+        if ctx.label_angle or _places_label_beside_pill(graph, station):
+            continue
+        others = [p for p in placements if p is not placement] + obstacle_placements
+        if _label_clear_of_everything(placement, others, markers):
+            continue
+        min_off, max_off = _label_anchor_offsets(ctx, station)
+        safe_above, safe_below = ctx.safe_offsets.get(
+            station.id, (LABEL_OFFSET, LABEL_OFFSET)
+        )
+        preferred = _initial_label_side(ctx, station, _rail_label_side(graph, station))
+        if any(
+            _label_clear_of_everything(
+                _try_place(
+                    station,
+                    safe_above if above else safe_below,
+                    above,
+                    others,
+                    min_off,
+                    max_off,
+                    placement.text,
+                ),
+                others,
+                markers,
+            )
+            for above in (preferred, not preferred)
+        ):
+            stranded.append(placement.station_id)
+    return stranded
+
+
+class TestReflowedLabelsAreRePlaced:
+    """A re-flowed label is re-sided for the block it becomes (#1768)."""
+
+    @pytest.mark.parametrize(
+        ("fixture", "x_spacing"),
+        [
+            ("examples/live/pipeline.mmd", 50.0),
+            ("examples/topologies/fold_stacked_branch.mmd", 50.0),
+            ("examples/topologies/reconverge_reversed_fold.mmd", 50.0),
+            ("examples/topologies/render_labelwrap_row_gap.mmd", None),
+            ("examples/topologies/render_labelwrap_row_gap.mmd", 50.0),
+            ("examples/topologies/render_labelwrap_row_gap.mmd", 60.0),
+            ("examples/topologies/straddling_fanout_junction.mmd", None),
+            ("examples/topologies/straddling_fanout_junction.mmd", 50.0),
+            ("examples/topologies/straddling_fanout_junction.mmd", 60.0),
+            ("examples/topologies/wrapped_label_trunk.mmd", 50.0),
+        ],
+    )
+    def test_no_reflowed_label_strands_beside_a_free_side(
+        self, fixture: str, x_spacing: float | None
+    ) -> None:
+        graph = _laid_out(fixture, x_spacing)
+        stranded = _reflowed_labels_beside_a_free_side(graph)
+        assert not stranded, (
+            f"{fixture} @ x_spacing={x_spacing}: re-flowed label(s) "
+            f"{sorted(stranded)} overlap although a side of their own pill is free"
+        )
+
+
+class TestReflowSparesTheColumnWidening:
+    """Wrapping that resolves its own collision costs no extra pitch (#1768).
+
+    ``markdup``'s name is the widest label in a crowded QC section.  It fits on
+    two lines beside its neighbours, so the layout needs neither a mid-word
+    break nor a wider column pitch to place it.
+    """
+
+    FIXTURE = "examples/topologies/render_labelwrap_row_gap.mmd"
+    BASE_PITCH = 60.0
+
+    def test_wide_label_reflows_onto_two_whole_words(self) -> None:
+        graph = _laid_out(self.FIXTURE)
+        assert _drawn_label_texts(graph)["markdup"] == "sambamba\nmarkdup"
+
+    def test_auto_pitch_does_not_widen_past_the_base(self) -> None:
+        auto = _laid_out(self.FIXTURE)
+        pinned = _laid_out(self.FIXTURE, self.BASE_PITCH)
+        assert {sid: (s.x, s.y) for sid, s in auto.stations.items()} == {
+            sid: (s.x, s.y) for sid, s in pinned.stations.items()
+        }
+
+    def test_base_pitch_needs_no_geometry_warning(self) -> None:
+        graph = parse_metro_mermaid((REPO_ROOT / self.FIXTURE).read_text())
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            compute_layout(graph, x_spacing=self.BASE_PITCH, validate=True)
+        assert not [w for w in caught if w.category is LayoutGeometryWarning]
