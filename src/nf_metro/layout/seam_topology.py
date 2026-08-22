@@ -7,8 +7,10 @@ from collections import defaultdict
 from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
+_OUTWARD_COLUMN_SIGN = {PortSide.LEFT: -1, PortSide.RIGHT: 1}
 
-def is_stacked_left_exit_left_entry(
+
+def is_stacked_same_side_half_turn(
     exit_port: Port,
     entry_port: Port,
     feeder: Section,
@@ -16,44 +18,31 @@ def is_stacked_left_exit_left_entry(
     *,
     via_junction: bool,
 ) -> bool:
-    """Whether same-facing LEFT ports form a cross-row outer half-turn."""
-    return (
-        not via_junction
-        and exit_port.side is PortSide.LEFT
-        and entry_port.side is PortSide.LEFT
-        and feeder.grid_row != consumer.grid_row
-        and consumer.grid_col <= feeder.grid_col
-    )
+    """Whether same-facing side ports form a cross-row outer half-turn.
 
-
-def is_cross_row_right_exit_right_entry(
-    exit_port: Port,
-    entry_port: Port,
-    feeder: Section,
-    consumer: Section,
-    *,
-    via_junction: bool,
-) -> bool:
-    """Whether same-facing RIGHT ports form a cross-row outer half-turn.
-
-    Admits any consumer column at or right of the feeder's, which is wider than
-    the same-column drop ``_InterFacts.is_stacked_right_exit_right_entry``
-    routes.
+    The consumer must sit no further back than the feeder's column in the
+    direction the shared side faces, so the run leads out into the outer margin
+    and doubles back into the same-facing port instead of carrying straight on.
     """
+    outward = _OUTWARD_COLUMN_SIGN.get(exit_port.side)
+    if via_junction or outward is None or entry_port.side is not exit_port.side:
+        return False
     return (
-        not via_junction
-        and exit_port.side is PortSide.RIGHT
-        and entry_port.side is PortSide.RIGHT
-        and feeder.grid_row != consumer.grid_row
-        and consumer.grid_col >= feeder.grid_col
+        feeder.grid_row != consumer.grid_row
+        and (consumer.grid_col - feeder.grid_col) * outward >= 0
     )
 
 
-def entry_fan_receives_stacked_left_reversed_bundle(
+def entry_fan_receives_stacked_reversed_bundle(
     graph: MetroGraph,
     section: Section,
 ) -> bool:
-    """Whether one direct stacked half-turn feeds distinct internal branches."""
+    """Whether one direct stacked half-turn feeds distinct internal branches.
+
+    Either same-facing half-turn qualifies: both hand the consumer a bundle
+    whose lane order is mirrored, so the branch tracks it fans into have to be
+    mirrored with it or the branches cross on their way to their stations.
+    """
     if not lanes_run_along_y(section.direction) or len(section.entry_ports) != 1:
         return False
     entry_port_id = section.entry_ports[0]
@@ -92,7 +81,7 @@ def entry_fan_receives_stacked_left_reversed_bundle(
         return False
 
     exit_port = next(iter(exit_ports.values()))
-    return is_stacked_left_exit_left_entry(
+    return is_stacked_same_side_half_turn(
         exit_port,
         entry_port,
         graph.section_for_port(exit_port),

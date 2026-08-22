@@ -8,18 +8,16 @@ from port sides and grid topology (rows, columns, section directions,
 intervening sections, junction mediation) -- no offset or coordinate state.
 
 The verdict is a pure function of the local seam geometry: a straight run or
-staircase preserves order; a U-turn or half-turn reverses it. Seven geometric
+staircase preserves order; a U-turn or half-turn reverses it. Six geometric
 idioms reverse:
 
 * an over-the-top RIGHT entry (a same-row feeder loops over the section top and
   drops in from the right -- a U-turn),
 * an around-below LEFT entry (a far-side LEFT-exit feeder drops below every box
   and rises into the outward side -- a half-turn),
-* a LEFT-exit-to-LEFT-entry drop across rows (the feeder leads into the outer
-  margin and returns through the same-facing target port -- a half-turn),
-* a RIGHT-exit-to-RIGHT-entry drop across rows (the serpentine fold: the feeder
-  leads out to the right, descends and turns back into the same-facing target
-  port -- the mirror half-turn),
+* a same-side drop across rows, on either side (the feeder leads out into the
+  outer margin and returns through the same-facing target port -- a half-turn;
+  the RIGHT-facing case is the serpentine fold),
 * a vertical column continuation (a vertical section's BOTTOM exit feeding a TOP
   entry, whose down-flowing bundle the section already carries reversed),
 * a fold RIGHT entry (a BOTTOM exit turned into a RIGHT entry through a fold
@@ -49,10 +47,7 @@ from enum import Enum
 
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.context import _has_intervening_sections
-from nf_metro.layout.seam_topology import (
-    is_cross_row_right_exit_right_entry,
-    is_stacked_left_exit_left_entry,
-)
+from nf_metro.layout.seam_topology import is_stacked_same_side_half_turn
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
 
@@ -100,16 +95,10 @@ def _reverses(
     # The remaining reversal idioms need the graph walk that resolves whether
     # this exit reaches the entry through a junction.
     via_junction = _seam_via_junction(graph, exit_port, entry_port)
-    if (
-        _is_around_below_left_entry(
-            graph, exit_port, entry_port, feeder, consumer, via_junction
-        )
-        or is_stacked_left_exit_left_entry(
-            exit_port, entry_port, feeder, consumer, via_junction=via_junction
-        )
-        or is_cross_row_right_exit_right_entry(
-            exit_port, entry_port, feeder, consumer, via_junction=via_junction
-        )
+    if _is_around_below_left_entry(
+        graph, exit_port, entry_port, feeder, consumer, via_junction
+    ) or is_stacked_same_side_half_turn(
+        exit_port, entry_port, feeder, consumer, via_junction=via_junction
     ):
         return True
     return _is_fold_right_entry(exit_port, entry_port, via_junction) or (

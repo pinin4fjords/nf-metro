@@ -126,10 +126,13 @@ EXPECTED_CLASSIFIER_ONLY_REVERSALS = frozenset(
         ("right_entry_wrap_no_fan", "source", "target", "R->R"),
         # The multi-line member of that wrap, where the re-nesting is visible.
         ("right_entry_wrap_bundle", "source", "target", "R->R"),
-        # Two single-line feeders, one per row, converge on one stacked RIGHT
-        # entry; each takes the same descend-and-turn half-turn into it.
+        # Two single-line feeders sharing row 0, one per column, converge on one
+        # RIGHT entry in the row below; each takes the same half-turn into it.
         ("stacked_right_ports_coincident", "above", "below", "R->R"),
         ("stacked_right_ports_coincident", "feeder", "below", "R->R"),
+        # The RIGHT-facing mirror of stacked_split_left_entry_drop, whose L->L
+        # seam sits in this same set: the half-turn that feeds an internal split.
+        ("stacked_split_right_entry_drop", "source", "target", "R->R"),
         # The packed-cell serpentine fold: a two-line bundle folding from an LR
         # row into the RL return row stacked beneath it.
         (

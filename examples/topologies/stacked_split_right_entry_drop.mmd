@@ -1,0 +1,29 @@
+%%metro title: Stacked Split Right Drop
+%%metro style: dark
+%%metro line: a | A | #e63946
+%%metro line: b | B | #457b9d
+
+%%metro grid: source | 0,0
+%%metro grid: target | 0,1
+
+graph LR
+    subgraph source [Source]
+        %%metro exit: right | a, b
+        start[Start]
+        split[Split]
+        start -->|a,b| split
+    end
+
+    subgraph target [Target]
+        %%metro direction: RL
+        %%metro entry: right | a
+        %%metro entry: right | b
+        final_a[Final A]
+        final_b[Final B]
+        done[Done]
+        final_a -->|a| done
+        final_b -->|b| done
+    end
+
+    split -->|a| final_a
+    split -->|b| final_b

@@ -419,6 +419,7 @@ python scripts/list_topology_fixtures.py
 | `right_entry_wrap_bundle.mmd`         | The two-line member of that wrap - the half-turn re-nests the bundle, so the lines stay nested rather than swapping at the port (#1767)                  |
 | `rl_entry_runway.mmd`                 | RL-section entry runway - a section in RL direction requiring an extended approach runway; tests runway-length calculation                               |
 | `stacked_left_exit_drop.mmd`          | Stacked sections sharing a LEFT exit drop - tests that multiple stacked sections can share the same exit drop column without overlap                     |
+| `stacked_split_right_entry_drop.mmd`  | RIGHT-facing mirror of the stacked split drop - the half-turn mirrors the bundle, so the split consumer's branch tracks mirror with it (#1767)           |
 
 ### Merge / reconvergence routing
 

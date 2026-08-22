@@ -2941,6 +2941,44 @@ def test_cross_row_right_entry_seam_mirrors_bundle(fixture, exit_port, entry_por
 @pytest.mark.parametrize(
     "fixture",
     [
+        "topologies/stacked_split_left_entry_drop.mmd",
+        "topologies/stacked_split_right_entry_drop.mmd",
+    ],
+)
+def test_stacked_half_turn_split_branches_follow_arrival_lanes(fixture):
+    """A stacked half-turn's split consumer fans out in arrival-lane order.
+
+    The half-turn hands over a mirrored bundle, so the consumer's branch tracks
+    are mirrored with it: the line arriving on the outermost lane must reach the
+    outermost branch station.  Leave the tracks unmirrored and the branches
+    swap sides and cross on the way to their stations - a single crossing, which
+    slips past both the segment-crossing checker and the recrossing guard.
+    """
+    graph = _layout(fixture)
+    section = graph.sections["target"]
+    entry_port = section.entry_ports[0]
+    offsets = compute_station_offsets(graph)
+
+    branch_station = {
+        edge.line_id: edge.target
+        for edge in graph.edges_from(entry_port)
+        if graph.stations[edge.target].section_id == section.id
+    }
+    assert len(branch_station) > 1, "fixture precondition: the entry fans out"
+
+    by_lane = sorted(branch_station, key=lambda lid: offsets[(entry_port, lid)])
+    by_station = sorted(
+        branch_station, key=lambda lid: graph.stations[branch_station[lid]].y
+    )
+    assert by_lane == by_station, (
+        f"{fixture}: lines arrive in lane order {by_lane} but their branch "
+        f"stations are stacked {by_station}, so the branches cross"
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
         "topologies/peeloff_riser_respace.mmd",
         "topologies/peeloff_extra_line_consumer.mmd",
     ],

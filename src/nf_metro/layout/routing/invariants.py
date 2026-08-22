@@ -95,7 +95,7 @@ from nf_metro.layout.routing.common import (
 )
 from nf_metro.layout.routing.context import partial_flat_continuation_lines
 from nf_metro.layout.seam_topology import (
-    entry_fan_receives_stacked_left_reversed_bundle,
+    entry_fan_receives_stacked_reversed_bundle,
 )
 from nf_metro.parser.model import (
     Edge,
@@ -3205,7 +3205,7 @@ def check_stacked_split_no_line_recrossing(
     eligible_sections = {
         section.id
         for section in graph.sections.values()
-        if entry_fan_receives_stacked_left_reversed_bundle(graph, section)
+        if entry_fan_receives_stacked_reversed_bundle(graph, section)
     }
     if not eligible_sections:
         return []

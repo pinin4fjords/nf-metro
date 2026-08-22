@@ -50,7 +50,7 @@ from nf_metro.layout.routing.common import (
     section_exists_above_row,
 )
 from nf_metro.layout.seam_topology import (
-    entry_fan_receives_stacked_left_reversed_bundle,
+    entry_fan_receives_stacked_reversed_bundle,
 )
 from nf_metro.parser.model import (
     Edge,
@@ -70,7 +70,7 @@ def _reflect_stacked_split_consumer_tracks(
     """Reflect a split consumer whose half-turn delivers reversed lane order."""
     for section_id, sub in section_subgraphs.items():
         section = graph.sections[section_id]
-        if not entry_fan_receives_stacked_left_reversed_bundle(graph, section):
+        if not entry_fan_receives_stacked_reversed_bundle(graph, section):
             continue
 
         stations = list(sub.stations.values())

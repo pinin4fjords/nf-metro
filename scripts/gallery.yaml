@@ -2127,6 +2127,15 @@ gallery:
       "A reversed two-line source drops into two branches of one section through
       its LEFT entry. The shared outward channel keeps the bundle clear of both
       boxes before each line continues to its own target station."
+  - id: stacked_split_right_entry_drop
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "The RIGHT-facing mirror of the stacked split drop: an LR source folds
+      into the RIGHT entry of the direction: RL section below it and fans out to
+      two branches. The half-turn mirrors the bundle, so the consumer's branch
+      tracks mirror with it and each line reaches its station without crossing
+      its bundle-mate (issue #1767)."
   - id: offtrack_output_peel_before_successor
     source_dir: examples/topologies
     category: Feature Showcase
