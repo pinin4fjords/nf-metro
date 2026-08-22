@@ -79,7 +79,10 @@ because its detail is not inline.
    Conditional: skip it outright for a class (c) structural defect, and say so.
    [`tests-and-validators.md`](references/tests-and-validators.md)
 6. **`/simplify` pass**, run by default; skipping needs all four triviality
-   conditions and must be declared.
+   conditions and must be declared. Once the fix and tests pass, the
+   coordinator spawns a fresh MID `fix-issue-simplifier` against the writer's
+   candidate SHA - never brief the writer to invoke it itself, since the
+   writer role carries no `Agent` tool and cannot spawn its own reviewer.
    [`writer-steps.md`](references/writer-steps.md)
 7. **Lint and tests.** Writer runs the mutating commands and commits; a LIGHT
    verifier re-runs the fixed block against the frozen SHA. CI owns the full
