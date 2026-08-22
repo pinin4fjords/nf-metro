@@ -63,6 +63,7 @@ Each fixture is tagged with the layout class(es) it primarily exercises. Use thi
 | `funcprofiler_upstream.mmd`                  | dense fan-out + fan-in / known almost-horizontal defect                                                                                                                                                                         |
 | `fold_fan_across.mmd`                        | fan-in/out across fold boundary / rowspan optimization                                                                                                                                                                          |
 | `fold_double.mmd`                            | double-fold serpentine (LR -> RL -> LR)                                                                                                                                                                                         |
+| `serpentine_rl_right_entry_bundle.mmd`       | two-line boustrophedon fold with both rows packed into one grid cell, so the RIGHT exit descends straight into the return row's RIGHT entry; that half-turn re-nests the bundle across the fold (issue #1767)                   |
 | `fold_stacked_branch.mmd`                    | stacked branches feeding through fold                                                                                                                                                                                           |
 | `convergence_sink_fold.mmd`                  | convergence sink folded below stacked branches / feeders route around intervening boxes into the TOP entry (issue #1148)                                                                                                        |
 | `tb_fork_lane_transpose.mmd`                 | TB section trunk station forking to an in-section file terminus and a side exit / bypass helper rides the lane side so the fork legs don't cross (issue #1163)                                                                  |
@@ -415,8 +416,10 @@ python scripts/list_topology_fixtures.py
 | `right_entry_from_above_far.mmd`      | RIGHT-entry from above with the source far to the right - tests the drop-in path when the source is beyond the target's right edge (#889)                |
 | `right_entry_gap_above_empty_row.mmd` | RIGHT-entry with an empty row above the target - tests that the gap-above fallback fires when the drop-in is blocked by an empty row                     |
 | `right_entry_wrap_no_fan.mmd`         | RIGHT-entry wrap with a single line (no fan) - tests the wrap path without fan geometry                                                                  |
+| `right_entry_wrap_bundle.mmd`         | The two-line member of that wrap - the half-turn re-nests the bundle, so the lines stay nested rather than swapping at the port (#1767)                  |
 | `rl_entry_runway.mmd`                 | RL-section entry runway - a section in RL direction requiring an extended approach runway; tests runway-length calculation                               |
 | `stacked_left_exit_drop.mmd`          | Stacked sections sharing a LEFT exit drop - tests that multiple stacked sections can share the same exit drop column without overlap                     |
+| `stacked_split_right_entry_drop.mmd`  | RIGHT-facing mirror of the stacked split drop - the half-turn mirrors the bundle, so the split consumer's branch tracks mirror with it (#1767)           |
 
 ### Merge / reconvergence routing
 

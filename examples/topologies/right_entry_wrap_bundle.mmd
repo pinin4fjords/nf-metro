@@ -1,0 +1,23 @@
+%%metro title: Right Entry Wrap Bundle
+%%metro style: dark
+%%metro line: dna | DNA | #4a90d9
+%%metro line: rna | RNA | #e63946
+%%metro grid: source | 0,0
+%%metro grid: target | 1,1
+
+graph LR
+    subgraph source [Source]
+        s1[Start]
+        s2[Process]
+        s1 -->|dna,rna| s2
+    end
+
+    subgraph target [Target]
+        %%metro direction: RL
+        %%metro entry: right | dna, rna
+        t1[Step One]
+        t2[Step Two]
+        t1 -->|dna,rna| t2
+    end
+
+    s2 -->|dna,rna| t1

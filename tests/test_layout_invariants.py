@@ -2895,6 +2895,88 @@ def test_rl_return_row_convergence_renders_cleanly():
 
 
 @pytest.mark.parametrize(
+    ("fixture", "exit_port", "entry_port"),
+    [
+        (
+            "topologies/serpentine_rl_right_entry_bundle.mmd",
+            "quantification__exit_right_1",
+            "variant_calling__entry_right_4",
+        ),
+        (
+            "topologies/right_entry_wrap_bundle.mmd",
+            "source__exit_right_0",
+            "target__entry_right_1",
+        ),
+    ],
+)
+def test_cross_row_right_entry_seam_mirrors_bundle(fixture, exit_port, entry_port):
+    """A RIGHT exit reaching a RIGHT entry a row away re-nests the bundle (#1767).
+
+    Leaving rightward and arriving rightward is a net half-turn, so the lane a
+    line rides on the way out has to become the opposite lane on the way in.
+    Delivering the departure order verbatim makes every line cross its
+    bundle-mate: on the serpentine fold that trips the render-curve backstop, on
+    the wrap it is a silent crossing no guard names.
+    """
+    graph = _layout(fixture)
+    exit_row = graph.section_for_port(graph.ports[exit_port]).grid_row
+    entry_row = graph.section_for_port(graph.ports[entry_port]).grid_row
+    assert exit_row != entry_row, "fixture precondition: the seam crosses rows"
+
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    # Raises CurveInvariantError naming the offending edge on regression.
+    assert_render_curve_invariants(graph, routes, offsets)
+
+    lines = graph.station_lines(exit_port)
+    assert len(lines) > 1, "fixture precondition: the seam carries a bundle"
+    departing = sorted(lines, key=lambda lid: offsets[(exit_port, lid)])
+    arriving = sorted(lines, key=lambda lid: offsets[(entry_port, lid)])
+    assert arriving == departing[::-1], (
+        f"bundle leaves {exit_port} ordered {departing} and must arrive at "
+        f"{entry_port} mirrored, got {arriving}"
+    )
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "topologies/stacked_split_left_entry_drop.mmd",
+        "topologies/stacked_split_right_entry_drop.mmd",
+    ],
+)
+def test_stacked_half_turn_split_branches_follow_arrival_lanes(fixture):
+    """A stacked half-turn's split consumer fans out in arrival-lane order.
+
+    The half-turn hands over a mirrored bundle, so the consumer's branch tracks
+    are mirrored with it: the line arriving on the outermost lane must reach the
+    outermost branch station.  Leave the tracks unmirrored and the branches
+    swap sides and cross on the way to their stations - a single crossing, which
+    slips past both the segment-crossing checker and the recrossing guard.
+    """
+    graph = _layout(fixture)
+    section = graph.sections["target"]
+    entry_port = section.entry_ports[0]
+    offsets = compute_station_offsets(graph)
+
+    branch_station = {
+        edge.line_id: edge.target
+        for edge in graph.edges_from(entry_port)
+        if graph.stations[edge.target].section_id == section.id
+    }
+    assert len(branch_station) > 1, "fixture precondition: the entry fans out"
+
+    by_lane = sorted(branch_station, key=lambda lid: offsets[(entry_port, lid)])
+    by_station = sorted(
+        branch_station, key=lambda lid: graph.stations[branch_station[lid]].y
+    )
+    assert by_lane == by_station, (
+        f"{fixture}: lines arrive in lane order {by_lane} but their branch "
+        f"stations are stacked {by_station}, so the branches cross"
+    )
+
+
+@pytest.mark.parametrize(
     "fixture",
     [
         "topologies/peeloff_riser_respace.mmd",
