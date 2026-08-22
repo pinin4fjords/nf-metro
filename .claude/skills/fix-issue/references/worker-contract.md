@@ -72,10 +72,16 @@ where a narrow window is actively dangerous:
 - A one-sided predicate (LEFT vs RIGHT, TB vs BT) you're about to **mirror**
   rarely stands alone: grep its name for companions - reflection logic, guard
   eligibility, dispatch entries - that key off it too, and mirror all of them
-  together, not just the one your repro exercises. Check first whether
-  existing axis-generic machinery (`AxisFrame`, `axis_along`, and siblings)
-  already covers both sides; extending that beats adding a predicate you'll
-  need to keep in sync by hand.
+  together, not just the one your repro exercises.
+
+**Default to generalizing an existing one-sided solution, not stacking
+another mirror beside it.** Before writing a new LEFT/RIGHT or TB/BT variant
+of something that already exists for the other side, check whether it can
+instead become axis-generic (`AxisFrame`, `axis_along`, and siblings are the
+existing machinery for this). Write a new one-sided predicate only when
+generalizing is genuinely out of scope for this fix, and say so in one line -
+this project has already paid down this exact debt once, and a fix that
+quietly adds a third or fourth hand-mirrored variant is re-accumulating it.
 
 ## Judgment above your tier
 
