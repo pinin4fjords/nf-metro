@@ -57,6 +57,14 @@ that is open-ended judgment: the worker returns blocked naming the options in
 its `DECIDE` field, and the work re-routes to HIGH. A stated cause bounds
 *where to look*, not necessarily *how much there is to decide*.
 
+A `DECIDE` that is purely about visual magnitude or spacing (a padding value,
+a margin size) should not be resolved by asking the user to pick blind
+between numeric options before any render exists. Implement the
+cheaper-to-reason default, get a render in front of the user, and let
+inspection drive the final magnitude - a number chosen sight-unseen is
+exactly what a later visual-review round overturns, at the cost of another
+full writer round each time.
+
 ### Check your premise against current `origin/main` first
 
 Diagnose against latest remote, not a stale tree. The coordinator fetches
@@ -94,6 +102,15 @@ Require the diagnostic worker to decide which of three things it is looking at:
 
 Record which one it is - in numbers for (a), (b) and (d), in named call sites
 for (c) - before briefing the writer.
+
+For a (b) engine bug that could be fixed either as a plan-time layout
+mechanism or a render-time post-hoc correction, check before briefing the
+writer: does an active architecture programme already cover this class of
+defect, explicitly exclude it, or leave it as unstarted groundwork (grep open
+issues and any stale branches for the relevant theme)? If a plan-time fix
+isn't achievable within this run's scope, say so explicitly rather than
+silently defaulting to the reactive mechanism, and file a tracking issue for
+the gap if nothing already covers it.
 
 ### Once it's an engine bug, the reproducer is frozen evidence
 
