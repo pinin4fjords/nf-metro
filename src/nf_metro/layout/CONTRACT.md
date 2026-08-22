@@ -286,9 +286,11 @@ the registry but carry no runtime check: `graph._struct_height_below_top`
 the 6.13 cascade), `graph._placement_ref_y` /
 `graph._placement_ref_bbox_top` (frozen before 6.1/6.11, read via `_ref_y` /
 `_ref_bbox_top`), `graph._base_y_spacing` (recorded before the spread loop
-when `y_spacing` is auto-resolved), and `graph._resolved_x_spacing` (the
+when `y_spacing` is auto-resolved), `graph._resolved_x_spacing` (the
 resolved column pitch recorded before layout, read as the cross-axis off-track
-step for vertical-flow sections).
+step for vertical-flow sections), and `graph._resolved_y_spacing` (the row
+pitch the spacing search settled on, recorded once that search finishes and
+read by no layout stage).
 
 A further group crosses a subsystem boundary rather than two numbered stages,
 so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,

@@ -691,6 +691,11 @@ class MetroGraph:
     # a horizontal section's is offset by y_spacing.  None until compute_layout
     # records it.
     _resolved_x_spacing: float | None = field(default=None, repr=False)
+    # Settled row pitch: the y_spacing the engine finished its spacing search
+    # on, which is the base content pitch plus whatever the search added for
+    # label crowding.  Distinct from ``_base_y_spacing``, which is the pitch
+    # before that search.  None until compute_layout records it.
+    _resolved_y_spacing: float | None = field(default=None, repr=False)
     # Ordered ids of the layout stages that have completed in the current
     # positioning pass (appended by the engine's per-stage ``_snap`` hook,
     # reset at the start of each pass).  Backs the inter-phase write-before-read

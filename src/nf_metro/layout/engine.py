@@ -17,6 +17,7 @@ __all__ = [
 
 import warnings
 from collections.abc import Callable
+from copy import deepcopy
 from functools import partial
 
 from nf_metro.layout.constants import (
@@ -26,6 +27,7 @@ from nf_metro.layout.constants import (
     ICON_STACK_LABEL_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     LABEL_OFFSET,
+    LABEL_OVERLAP_TOL,
     MIN_Y_SPACING_FLOOR,
     ROW_GAP,
     SAME_COORD_TOLERANCE,
@@ -327,6 +329,7 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _SPREAD_SLACK,
     _bypass_label_obstacles,
     _label_clearance_issues,
+    _reflowed_label_station_ids,
     _residual_label_overlaps,
     _spread_bump,
     _struck_stations_and_collinear,
@@ -730,6 +733,21 @@ def _compute_layout_scaled(
             break  # can't widen the binding axis (e.g. pinned) -- give up
         x_spacing, y_spacing = new_x, new_y
 
+    y_spacing = _settle_row_pitch_against_reflow(
+        graph,
+        x_spacing=x_spacing,
+        y_spacing=y_spacing,
+        auto_y=auto_y,
+        x_offset=x_offset,
+        y_offset=y_offset,
+        section_x_padding=section_x_padding,
+        section_y_padding=section_y_padding,
+        section_x_gap=section_x_gap,
+        section_y_gap=section_y_gap,
+        validate=validate,
+    )
+    graph._resolved_y_spacing = y_spacing
+
     # Assure file-icon leaf sinks off the trunk by construction: a leaf icon
     # the laid-out routes rake a line across is taken off-track and the layout
     # re-run once, so the off-track machinery lifts it clear of the passing
@@ -982,6 +1000,98 @@ def _label_strike_levers(
     if station_id in off_track_output_producers:
         levers.add(("off_lead", section.id, station_id))
     return levers
+
+
+def _settle_row_pitch_against_reflow(
+    graph: MetroGraph,
+    *,
+    x_spacing: float,
+    y_spacing: float,
+    auto_y: bool,
+    x_offset: float,
+    y_offset: float,
+    section_x_padding: float,
+    section_y_padding: float,
+    section_x_gap: float,
+    section_y_gap: float,
+    validate: bool,
+) -> float:
+    """Buy a re-flowed label back onto one line when the row pitch is cheap.
+
+    The spacing search widens only for the crowding wrapping could not clear, so
+    it can settle a hair below the pitch at which a re-flowed label would have
+    stayed on one line: the wrap is taken first and nothing afterwards revisits
+    it.  Re-flowing costs a whole extra line of drawn height and roughly halves
+    the label's width, so it has to earn the pitch it saves.
+
+    Offered only where the search widened past the base content pitch, so what
+    is questioned is an amount already being spent on label crowding.  A wrap
+    that clears everything at the base pitch costs no pitch at all, and pushing
+    past the content minimum purely to unwrap a label would spend room the
+    content never asked for.
+
+    Each round offers one ``LABEL_OVERLAP_TOL`` of extra row pitch -- the
+    intrusion below which the engine does not count label geometry as
+    conflicting at all, so a deficit that small is no real claim on the pitch.
+    A round is kept only when it strictly shrinks the re-flowed set and leaves
+    no residual overlap; the set is finite and falls monotonically, so the
+    search settles.  Any other answer leaves the wrap standing, which is the
+    outcome wherever a re-flow is what spares a much wider pitch.
+
+    Every offer is laid out on a throwaway copy and only the accepted pitch is
+    laid on the caller's graph, so a declined offer leaves nothing behind.  A
+    pass at one pitch does not restore every section's seating when re-laid at
+    another, so measuring an offer on the live graph would move sections in a
+    graph whose answer is "keep the wrap".
+
+    Only the row pitch is offered.  That is the axis
+    :func:`compute_min_y_spacing` already sizes from label extents, whereas the
+    column pitch is fixed structure: widening it to dodge a re-flow is what
+    makes a crowded map sprawl sideways.  A caller-pinned pitch is left alone.
+
+    Returns the pitch to carry forward, with the graph laid out at it.
+    """
+    base = graph._base_y_spacing
+    if not auto_y or base is None or y_spacing <= base + 1e-6:
+        return y_spacing
+    reflowed = _reflowed_label_station_ids(graph)
+    if not reflowed:
+        return y_spacing
+
+    def _relay(target: MetroGraph, pitch: float, *, validate_layout: bool) -> None:
+        _layout_once(
+            target,
+            x_spacing=x_spacing,
+            y_spacing=pitch,
+            x_offset=x_offset,
+            y_offset=y_offset,
+            section_x_padding=section_x_padding,
+            section_y_padding=section_y_padding,
+            section_x_gap=section_x_gap,
+            section_y_gap=section_y_gap,
+            validate=validate_layout,
+        )
+
+    settled = y_spacing
+    for _ in range(_MAX_SPREAD_ITERS):
+        offer = settled + LABEL_OVERLAP_TOL
+        trial = deepcopy(graph)
+        try:
+            # An offer is laid unvalidated: it is a question, not a decision,
+            # and one that fails a stage check is simply declined.
+            _relay(trial, offer, validate_layout=False)
+        except Exception:
+            break
+        fewer = _reflowed_label_station_ids(trial)
+        if len(fewer) >= len(reflowed) or _residual_label_overlaps(trial):
+            break
+        settled, reflowed = offer, fewer
+        if not reflowed:
+            break
+
+    if settled > y_spacing:
+        _relay(graph, settled, validate_layout=validate)
+    return settled
 
 
 def _apply_label_strike_clearance(

@@ -215,6 +215,18 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
             "a None/getattr fallback to X_SPACING when it is unset"
         ),
     ),
+    "_resolved_y_spacing": PhaseFieldSpec(
+        name="_resolved_y_spacing",
+        writer_stage=PRE_LAYOUT,
+        reader_stages=(),
+        enforcement=FieldEnforcement.FALLBACK,
+        why=(
+            "settled row pitch recorded once the spacing search finishes, so the "
+            "pitch that search chose is observable rather than implicit; no layout "
+            "stage reads it, and the rail path returns before the search runs and "
+            "leaves it None"
+        ),
+    ),
     "_cross_column_perp_bridges": PhaseFieldSpec(
         name="_cross_column_perp_bridges",
         writer_stage="3.4",

@@ -266,6 +266,28 @@ def _residual_label_overlaps(graph: MetroGraph) -> list[LabelOverlap]:
     return _overlaps_from(graph, offsets, placements)
 
 
+def _reflowed_label_station_ids(graph: MetroGraph) -> set[str]:
+    """Stations whose one-line name the wrap pass re-flowed onto several lines.
+
+    Probes icon-aware, so the answer is the set the renderer draws: a terminus
+    file icon narrows a label's choice of side and can be what forced the
+    re-flow.  An author-written multi-line name is excluded -- those breaks are
+    the author's, not the layout's, so no amount of pitch would undo them.
+    Returns an empty set if routing/placement raises.
+    """
+    probe = _probe_label_placements(graph, icon_aware=True)
+    if probe is None:
+        return set()
+    _offsets, _routes, placements = probe
+    return {
+        p.station_id
+        for p in placements
+        if (station := graph.stations.get(p.station_id)) is not None
+        and "\n" not in station.label
+        and "\n" in p.text
+    }
+
+
 def _struck_stations_and_collinear(graph: MetroGraph) -> tuple[set[str], bool]:
     """One probe: stations whose label a diagonal crosses, and a collinear flag.
 

@@ -23,6 +23,10 @@ from nf_metro.layout.labels import (
     _wrap_text_to_chars,
     place_labels,
 )
+from nf_metro.layout.phases.spacing import (
+    _reflowed_label_station_ids,
+    _residual_label_overlaps,
+)
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
 from nf_metro.layout.routing.common import OffsetRegime
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -524,3 +528,92 @@ class TestReflowSparesTheColumnWidening:
             warnings.simplefilter("always")
             compute_layout(graph, x_spacing=self.BASE_PITCH, validate=True)
         assert not [w for w in caught if w.category is LayoutGeometryWarning]
+
+
+def _laid_out_at_row_pitch(fixture: str, y_spacing: float) -> MetroGraph:
+    """Parse and lay out a corpus fixture on a pinned row pitch."""
+    graph = parse_metro_mermaid((REPO_ROOT / fixture).read_text())
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        compute_layout(graph, y_spacing=y_spacing)
+    return graph
+
+
+class TestReflowEarnsItsRowPitch:
+    """No layout both widens for label crowding and ships a cheap re-flow (#1768).
+
+    Wrapping is offered before the spacing search widens anything, so a graph
+    can end up paying on both sides of the same trade: a pitch above the base
+    content pitch *and* a label broken onto two lines that a touch more of that
+    pitch would have kept on one.  The invariant binds exactly where the search
+    widened: one ``LABEL_OVERLAP_TOL`` of extra row pitch -- the intrusion below
+    which the engine does not count label geometry as conflicting -- must not
+    buy a smaller re-flowed set with no residual overlap left over.
+
+    A wrap that clears everything at the base content pitch is outside the
+    invariant and stays: it costs no pitch, so there is nothing to buy back and
+    widening past the content minimum would only spend room nothing asked for.
+    """
+
+    WRAPPING_FIXTURES = (
+        "examples/centered_tracks.mmd",
+        "examples/live/pipeline.mmd",
+        "examples/topologies/fanin_join_diff_length_branches.mmd",
+        "examples/topologies/fold_bypass_creep.mmd",
+        "examples/topologies/fold_left_exit_right_entry.mmd",
+        "examples/topologies/foldback_exit_peeloff.mmd",
+        "examples/topologies/manual_rl_row_nonconsumer_bypass.mmd",
+        "examples/topologies/near_edge_exit_corner.mmd",
+        "examples/topologies/packed_cell_cellmate_bypass.mmd",
+        "examples/topologies/render_labelwrap_row_gap.mmd",
+        "examples/topologies/same_destination_vertical_convergence.mmd",
+        "examples/topologies/straddling_fanout_junction.mmd",
+        "examples/topologies/tb_fork_lane_transpose.mmd",
+        "examples/topologies/wide_label_fan.mmd",
+        "examples/topologies/wrapped_label_trunk.mmd",
+        "tests/fixtures/regressions/cross_column_perp_entry_overflow.mmd",
+        "tests/fixtures/through_section/riboseq_packed_lr.mmd",
+    )
+
+    @pytest.mark.parametrize("fixture", WRAPPING_FIXTURES)
+    def test_a_tolerance_of_row_pitch_would_not_have_spared_the_reflow(
+        self, fixture: str
+    ) -> None:
+        settled = _laid_out(fixture)
+        reflowed = _reflowed_label_station_ids(settled)
+        if not reflowed:
+            return
+        pitch, base = settled._resolved_y_spacing, settled._base_y_spacing
+        assert pitch is not None and base is not None, (
+            "auto layout did not record its row pitch"
+        )
+        if pitch <= base:
+            return  # the wrap bought its clearance for free
+
+        wider = _laid_out_at_row_pitch(fixture, pitch + LABEL_OVERLAP_TOL)
+        spared = reflowed - _reflowed_label_station_ids(wider)
+        assert not spared or _residual_label_overlaps(wider), (
+            f"{fixture}: {sorted(spared)} ship re-flowed at row pitch "
+            f"{pitch:.1f}, already widened from a base of {base:.1f}, yet "
+            f"{pitch + LABEL_OVERLAP_TOL:.1f} keeps them on one line with no "
+            f"overlap left over"
+        )
+
+    def test_the_locked_case_is_a_widened_pitch_that_also_wrapped(self) -> None:
+        """The parametrised invariant has a fixture that actually reaches it."""
+        graph = _laid_out("examples/centered_tracks.mmd")
+        assert graph._resolved_y_spacing > graph._base_y_spacing
+
+    def test_short_two_word_names_stay_on_one_line(self) -> None:
+        drawn = _drawn_label_texts(_laid_out("examples/centered_tracks.mmd"))
+        assert [drawn[sid] for sid in ("cnv", "splice", "fusion")] == [
+            "CNV call",
+            "Splice call",
+            "Fusion call",
+        ]
+
+    def test_a_reflow_that_spares_a_wider_pitch_is_kept(self) -> None:
+        fixture = "examples/topologies/render_labelwrap_row_gap.mmd"
+        assert _drawn_label_texts(_laid_out(fixture))["markdup"] == (
+            "sambamba\nmarkdup"
+        )
