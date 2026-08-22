@@ -105,7 +105,9 @@ because its detail is not inline.
     [`merge-and-cleanup.md`](references/merge-and-cleanup.md)
 
 For shepherding a whole stacked chain of PRs back into `main` rather than a
-single issue fix, see `pr-chain-vet`.
+single issue fix, see `pr-chain-vet`. To capture process lessons from a
+finished run into this skill, only when the user explicitly asks, see the
+fix-issue-lessons skill.
 
 ## Worker tiers, briefs, and gates
 
