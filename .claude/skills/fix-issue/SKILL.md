@@ -106,8 +106,8 @@ because its detail is not inline.
 
 For shepherding a whole stacked chain of PRs back into `main` rather than a
 single issue fix, see `pr-chain-vet`. To capture process lessons from a
-finished run into this skill, only when the user explicitly asks, see
-`fix-issue-lessons`.
+finished run into this skill, only when the user explicitly asks, see the
+fix-issue-lessons skill.
 
 ## Worker tiers, briefs, and gates
 

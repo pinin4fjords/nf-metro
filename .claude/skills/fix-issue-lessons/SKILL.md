@@ -20,6 +20,14 @@ ones squeezed hardest by the post-compaction re-attachment cap that
 trying to improve defeats itself. Treat every candidate as a cost you have to
 justify, not a freebie, and default to leaving it out.
 
+**"Nothing worth adding" is the expected outcome, not a failure of this
+pass.** Most runs execute the existing process correctly and surface nothing
+new - that's the process working, not a gap. Err toward that verdict: when a
+candidate is arguable, drop it rather than keep it. If Steps 1-3 leave zero
+survivors, say so plainly and stop - do not open a PR to justify having run,
+and do not stretch a minor or one-off wrinkle into a rule just to have
+something to show.
+
 ## Step 1: Collect candidates from the finished run, not in general
 
 A candidate lesson is:
@@ -77,6 +85,11 @@ For each surviving candidate:
   full list in front of them first - not a bigger auto-drafted PR.
 
 ## Step 4: Ship it as an ordinary reviewed change
+
+**Zero surviving candidates means zero diff.** Report that plainly - which
+candidates you considered and why each was dropped - and stop; there is no
+PR to open. Do not proceed past this line unless at least one candidate
+survived Steps 1-3.
 
 1. Worktree off latest `origin/main`; branch
    `docs/fix-issue-skill-lessons-<N>` (the issue number the originating run
