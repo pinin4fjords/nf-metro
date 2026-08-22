@@ -902,31 +902,24 @@ def _relax_collision_pushed_labels(
 
 
 def _wrap_text_to_chars(text: str, max_chars: int) -> str:
-    """Word-wrap ``text`` so no line exceeds ``max_chars`` characters.
+    """Word-wrap ``text`` on whitespace so no line exceeds ``max_chars``.
 
-    Words longer than the budget are hard-broken with a trailing hyphen as a
-    last resort (so a single long token like "Quantification" can still be
-    narrowed).  ``max_chars`` is floored at ``LABEL_WRAP_MIN_LINE_CHARS``.
+    A word wider than the budget gets a line to itself and overflows it, rather
+    than being split with a hyphen: station names are mostly tool names, where a
+    mid-word break is unreadable and indistinguishable from a hyphen the name
+    really carries.  The sibling section-header and icon-caption wrappers hold
+    the same rule.
     """
-    budget = max(max_chars, LABEL_WRAP_MIN_LINE_CHARS)
     lines: list[str] = []
     cur = ""
     for word in text.split():
-        w = word
-        # Hard-break tokens that can't fit the budget on their own.
-        while len(w) > budget:
-            if cur:
-                lines.append(cur)
-                cur = ""
-            lines.append(w[: budget - 1] + "-")
-            w = w[budget - 1 :]
         if not cur:
-            cur = w
-        elif len(cur) + 1 + len(w) <= budget:
-            cur += " " + w
+            cur = word
+        elif len(cur) + 1 + len(word) <= max_chars:
+            cur += " " + word
         else:
             lines.append(cur)
-            cur = w
+            cur = word
     if cur:
         lines.append(cur)
     return "\n".join(lines)
@@ -1765,7 +1758,6 @@ def place_labels(
     station_offsets: dict[tuple[str, str], float] | None = None,
     icon_obstacles: list[tuple[float, float, float, float]] | None = None,
     routes: list["RoutedPath"] | None = None,
-    allow_hyphenation: bool = True,
     label_angle: float = 0.0,
     lift_wrapped_off_trunks: bool = True,
 ) -> list[LabelPlacement]:
@@ -1811,9 +1803,7 @@ def place_labels(
         _avoid_horizontal_strikethrough(placements, graph, routes, station_offsets)
         _avoid_diagonal_strikethrough(placements, graph, routes, station_offsets)
 
-    _wrap_overlapping_labels(
-        placements, graph, station_offsets, allow_hyphenation=allow_hyphenation
-    )
+    _wrap_overlapping_labels(placements, graph, station_offsets)
 
     if lift_wrapped_off_trunks:
         _relax_collision_pushed_labels(
@@ -1929,7 +1919,6 @@ def _wrap_overlapping_labels(
     placements: list[LabelPlacement],
     graph: MetroGraph,
     station_offsets: dict[tuple[str, str], float] | None,
-    allow_hyphenation: bool = True,
 ) -> None:
     """Narrow colliding labels by wrapping them onto multiple lines.
 
@@ -1937,16 +1926,14 @@ def _wrap_overlapping_labels(
     :func:`find_label_overlaps`) are wrapped, so a clean layout is left
     byte-identical.  Each round picks the widest wrappable offender and
     shrinks its line budget by one character, re-wrapping the *original*
-    label (never the already-wrapped text, which would compound hyphens).
-    The label grows away from its station so the extra height never intrudes
-    on the pill.  Author-specified multi-line labels are left untouched --
-    the author already chose the breaks.
+    label.  The label grows away from its station so the extra height never
+    intrudes on the pill.  Author-specified multi-line labels are left
+    untouched -- the author already chose the breaks.
 
-    When ``allow_hyphenation`` is False the budget stops at the longest word
-    (word-boundary wrapping only), leaving any residual overlap for the
-    engine's spread loop to clear by widening spacing.  When True (the final
-    render, where spacing is settled) a word may be hard-broken with a hyphen
-    down to ``LABEL_WRAP_MIN_LINE_CHARS`` as a last resort.
+    The budget bottoms out at the label's longest word, past which
+    :func:`_wrap_text_to_chars` has no whitespace left to break on and further
+    rounds cannot narrow the block.  An overlap that survives to that floor is
+    for the engine's spread loop to clear by widening spacing.
     """
     by_id = {
         p.station_id: p
@@ -1966,8 +1953,6 @@ def _wrap_overlapping_labels(
     budgets = {sid: len(by_id[sid].text) for sid in wrappable}
 
     def min_budget(sid: str) -> int:
-        if allow_hyphenation:
-            return LABEL_WRAP_MIN_LINE_CHARS
         longest_word = max((len(w) for w in originals[sid].split()), default=1)
         return max(LABEL_WRAP_MIN_LINE_CHARS, longest_word)
 

@@ -355,7 +355,7 @@ def check_label_overlap(graph: MetroGraph) -> list[Violation]:
     allowed; label/marker grazes within ``LABEL_OVERLAP_TOL`` are tolerated.
     """
     violations: list[Violation] = []
-    for ov in _residual_label_overlaps(graph, allow_hyphenation=True):
+    for ov in _residual_label_overlaps(graph):
         target = "label" if ov.kind == "label" else "marker"
         violations.append(
             Violation(

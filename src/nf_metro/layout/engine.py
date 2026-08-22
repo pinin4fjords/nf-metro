@@ -330,6 +330,7 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _residual_label_overlaps,
     _spread_bump,
     _struck_stations_and_collinear,
+    warn_if_pinned_x_spacing_crowds_labels,
 )
 from nf_metro.layout.routing.context import is_far_side_around_below_left_entry
 from nf_metro.parser.model import (
@@ -491,7 +492,9 @@ def compute_layout(
     If an explicit value is below the minimum the content needs, a
     ``UserWarning`` is emitted: the render is honoured at the requested
     pitch, but labels and captioned file-icons may collide.  Omit
-    ``y_spacing`` to let the engine pick a safe value.
+    ``y_spacing`` to let the engine pick a safe value.  An explicit
+    ``x_spacing`` that leaves station labels colliding warns the same way,
+    measured on the settled layout rather than predicted from the content.
 
     When *validate* is True, stage-boundary invariant checks run after
     key phases.  Violations raise ``PhaseInvariantError`` instead of
@@ -717,7 +720,7 @@ def _compute_layout_scaled(
         )
         if attempt == max_iters - 1:
             break
-        residual = _residual_label_overlaps(graph, allow_hyphenation=False)
+        residual = _residual_label_overlaps(graph)
         if not residual:
             break
         new_x, new_y = _spread_bump(
@@ -777,6 +780,9 @@ def _compute_layout_scaled(
     # path, so it is populated independent of ``validate``; computed once the
     # layout has fully settled so the box matches what the renderer draws.
     graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
+
+    if not auto_x:
+        warn_if_pinned_x_spacing_crowds_labels(graph, x_spacing, y_spacing)
 
     _snap(graph, "final")
 

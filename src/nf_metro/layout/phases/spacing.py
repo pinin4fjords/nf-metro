@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import DIAGONAL_SLOPE_RATIO, MIN_STATION_FLAT_LENGTH
 from nf_metro.layout.geometry import lanes_run_along_x, lanes_run_along_y
 from nf_metro.layout.phases._common import _restoring_layout_geometry
-from nf_metro.parser.model import MetroGraph, is_bypass_v
+from nf_metro.parser.model import LayoutGeometryWarning, MetroGraph, is_bypass_v
 
 if TYPE_CHECKING:
     from nf_metro.layout.labels import LabelOverlap, LabelPlacement
@@ -28,8 +29,18 @@ _Probe = tuple[
 ]
 
 
+def _icon_label_obstacles(
+    graph: MetroGraph, offsets: dict[tuple[str, str], float]
+) -> list[tuple[float, float, float, float]]:
+    """Terminus file-icon boxes as the renderer feeds them to label placement."""
+    from nf_metro.render.svg import _compute_icon_obstacles
+    from nf_metro.themes import resolve_theme
+
+    return _compute_icon_obstacles(graph, resolve_theme(None, graph), offsets)
+
+
 def _probe_label_placements(
-    graph: MetroGraph, *, allow_hyphenation: bool
+    graph: MetroGraph, *, icon_aware: bool = False
 ) -> _Probe | None:
     """Run the renderer's offset/route/label pipeline at the current layout.
 
@@ -37,6 +48,13 @@ def _probe_label_placements(
     can inspect the settled geometry and labelling the renderer would draw, or
     ``None`` if routing/placement raises (a transient failure never blocks
     layout).  Snapshots and restores the in-place mutations route/place make.
+
+    ``icon_aware`` feeds terminus file icons in as label obstacles, which is
+    what the renderer does, so a label the renderer sides off an icon is probed
+    where it lands.  A caller measuring *where a label ends up* wants that; a
+    caller measuring *how wide a label reaches* wants the unsided view, since
+    the reach it must clear is the one the label has before an icon narrows its
+    choices.
 
     The render-time wrapped-label trunk lift is held off here so the spacing
     search and the label-overlap guard reason about the unlifted geometry; the
@@ -54,7 +72,9 @@ def _probe_label_placements(
                 graph,
                 station_offsets=offsets,
                 routes=routes,
-                allow_hyphenation=allow_hyphenation,
+                icon_obstacles=(
+                    _icon_label_obstacles(graph, offsets) if icon_aware else None
+                ),
                 label_angle=graph.label_angle or 0.0,
                 lift_wrapped_off_trunks=False,
             )
@@ -160,29 +180,24 @@ def _struck_label_station_ids(
         seg_lists.append((pts, relocatable_for, is_off_output))
 
     # The renderer sides a producer's name label against nearby terminus icons;
-    # this icon-blind probe would miss a strike that only appears once that
-    # siding happens.  So an off-track output sweep is additionally tested
-    # against its producer's icon-aware label; other segment kinds have no
-    # icon-siding interaction and stay icon-blind.
+    # ``placements`` is the unsided view, which would miss a strike that only
+    # appears once that siding happens.  So an off-track output sweep is
+    # additionally tested against its producer's icon-sided label; other segment
+    # kinds have no icon-siding interaction.
     icon_placements: dict[str, LabelPlacement] = {}
     if any_off_track_output:
-        from nf_metro.render.svg import _compute_icon_obstacles
-        from nf_metro.themes import THEMES
-
         # ``place_labels`` grows a section's ``bbox_h`` to seat labels; restore
         # the geometry it touches so this side probe never perturbs the layout.
         with _restoring_layout_geometry(graph):
-            icon_obstacles = _compute_icon_obstacles(graph, THEMES["nfcore"], offsets)
             icon_placements = {
                 ip.station_id: ip
                 for ip in place_labels(
                     graph,
                     station_offsets=offsets,
                     routes=routes,
-                    allow_hyphenation=True,
                     label_angle=graph.label_angle or 0.0,
                     lift_wrapped_off_trunks=False,
-                    icon_obstacles=icon_obstacles,
+                    icon_obstacles=_icon_label_obstacles(graph, offsets),
                 )
                 if ip.station_id
             }
@@ -229,18 +244,16 @@ def _collinear_from(
     )
 
 
-def _residual_label_overlaps(
-    graph: MetroGraph, *, allow_hyphenation: bool
-) -> list[LabelOverlap]:
+def _residual_label_overlaps(graph: MetroGraph) -> list[LabelOverlap]:
     """Place labels at the current layout and report leftover overlaps.
 
-    The spread loop calls this with ``allow_hyphenation=False`` so residual
-    overlaps surface (to be cleared by widening spacing rather than by
-    hard-breaking words); the final guard calls it with True to validate the
-    settled, fully wrapped state the renderer will draw.  Returns an empty list
-    if routing/placement raises.
+    What is reported is what wrapping alone cannot clear, which is exactly what
+    the spread loop widens spacing for and what the final guard validates.
+    Probes icon-aware, so an overlap that only exists once the renderer has
+    sided a label off a terminus icon reaches the search that can widen it away.
+    Returns an empty list if routing/placement raises.
     """
-    probe = _probe_label_placements(graph, allow_hyphenation=allow_hyphenation)
+    probe = _probe_label_placements(graph, icon_aware=True)
     if probe is None:
         return []
     offsets, _routes, placements = probe
@@ -256,13 +269,10 @@ def _struck_stations_and_collinear(graph: MetroGraph) -> tuple[set[str], bool]:
     the same probed routes, so the strike-clearance loop decides growth and
     step-back from a single route+place pass.
 
-    Probes with ``allow_hyphenation=True`` -- the renderer-faithful wrapping --
-    so a strike is judged against the label the renderer draws; the collinear
-    check ignores placements, so the hyphenation flag does not affect it.
     Returns ``(set(), False)`` on probe failure.  See
     :func:`_struck_label_station_ids` and :func:`_collinear_from`.
     """
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return set(), False
     offsets, routes, placements = probe
@@ -364,7 +374,7 @@ def _bypass_v_collapsed_flat_gaps(graph: MetroGraph) -> set[tuple[str, int]]:
     """
     if not any(is_bypass_v(e.source) or is_bypass_v(e.target) for e in graph.edges):
         return set()
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return set()
     _offsets, routes, _placements = probe
@@ -383,7 +393,7 @@ def _label_clearance_issues(
     :func:`_struck_label_station_ids`, :func:`_collinear_from`, and
     :func:`_bypass_v_flat_gaps_from`.
     """
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return set(), False, set()
     offsets, routes, placements = probe
@@ -398,11 +408,9 @@ def _label_clearance_issues(
 def _placed_name_label_station_ids(graph: MetroGraph) -> set[str]:
     """Return station ids that ``place_labels`` emits a name label for.
 
-    Probes with the renderer-faithful ``allow_hyphenation=True`` so the result
-    reflects the settled labelling that will actually be drawn.  Returns an
-    empty set if routing/placement raises.
+    Returns an empty set if routing/placement raises.
     """
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return set()
     _offsets, _routes, placements = probe
@@ -427,12 +435,10 @@ def _spread_bump(
     extra_x = 0.0
     extra_y = 0.0
     for ov in residual:
-        a = graph.stations.get(ov.a)
-        b = graph.stations.get(ov.b)
-        if a is None or b is None:
+        separation = _overlap_separation(graph, ov)
+        if separation is None:
             continue
-        dx = abs(a.x - b.x)
-        dy = abs(a.y - b.y)
+        dx, dy = separation
         if dx >= dy:
             cols = max(round(dx / x_spacing), 1)
             extra_x = max(extra_x, (ov.ox + _SPREAD_SLACK) / cols)
@@ -442,6 +448,52 @@ def _spread_bump(
     new_x = x_spacing + extra_x if auto_x else x_spacing
     new_y = y_spacing + extra_y if auto_y else y_spacing
     return new_x, new_y
+
+
+def _overlap_separation(
+    graph: MetroGraph, ov: LabelOverlap
+) -> tuple[float, float] | None:
+    """``(dx, dy)`` between an overlap's two stations, or None if either is gone."""
+    a = graph.stations.get(ov.a)
+    b = graph.stations.get(ov.b)
+    if a is None or b is None:
+        return None
+    return abs(a.x - b.x), abs(a.y - b.y)
+
+
+def warn_if_pinned_x_spacing_crowds_labels(
+    graph: MetroGraph, x_spacing: float, y_spacing: float
+) -> None:
+    """Warn when a pinned column pitch ships overlapping station labels.
+
+    :func:`_spread_bump` widens only the auto-resolved axes, so a pitch the
+    caller pinned below what the content needs leaves labels colliding with
+    nothing to say so.  This is the X-axis counterpart of ``compute_layout``'s
+    explicit-``y_spacing`` warning: the render is honoured at the requested
+    pitch and the collision is reported rather than hidden.
+
+    Only overlaps separated along X are reported, by the same attribution rule
+    the widening uses -- a pair stacked in rows is not the column pitch's fault.
+    """
+    residual = [
+        ov
+        for ov in _residual_label_overlaps(graph)
+        if (sep := _overlap_separation(graph, ov)) is not None and sep[0] >= sep[1]
+    ]
+    if not residual:
+        return
+    worst = max(residual, key=lambda ov: ov.ox)
+    clearing_x, _ = _spread_bump(graph, residual, x_spacing, y_spacing, True, False)
+    struck = "label" if worst.kind == "label" else "marker"
+    warnings.warn(
+        f"explicit x_spacing={x_spacing!r} is too narrow for this graph's "
+        f"content: station label {worst.a!r} overlaps {struck} {worst.b!r} by "
+        f"({worst.ox:.1f}, {worst.oy:.1f})px in the render "
+        f"({len(residual)} pair(s) total); about {clearing_x:.1f} would clear "
+        f"them. Omit --x-spacing to let the engine pick a safe value.",
+        LayoutGeometryWarning,
+        stacklevel=2,
+    )
 
 
 def _bypass_label_obstacles(
@@ -465,7 +517,7 @@ def _bypass_label_obstacles(
     ]
     if not vs:
         return {}
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return {}
     _offsets, _routes, placements = probe
