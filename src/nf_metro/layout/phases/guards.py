@@ -2768,7 +2768,7 @@ def _guard_no_diagonal_strikes_horizontal_label(
         _struck_label_station_ids,
     )
 
-    probe = _probe_label_placements(graph)
+    probe = _probe_label_placements(graph, icon_aware=True)
     if probe is None:
         return
     offsets, routes, placements = probe

@@ -45,38 +45,6 @@ def _icon_label_obstacles(
     return _compute_icon_obstacles(graph, resolve_theme(None, graph), offsets)
 
 
-def _icon_sided_placements(
-    graph: MetroGraph,
-    offsets: dict[tuple[str, str], float],
-    routes: list[RoutedPath],
-) -> dict[str, LabelPlacement]:
-    """Label placements as the renderer sides them against terminus file icons.
-
-    Empty for a graph that draws no icons, where the sided placement is the
-    unsided one.  ``place_labels`` grows a section's ``bbox_h`` to seat labels,
-    so the geometry it touches is restored and this probe never perturbs the
-    live layout.
-    """
-    from nf_metro.layout.labels import place_labels
-
-    obstacles = _icon_label_obstacles(graph, offsets)
-    if not obstacles:
-        return {}
-    with _restoring_layout_geometry(graph):
-        return {
-            p.station_id: p
-            for p in place_labels(
-                graph,
-                station_offsets=offsets,
-                routes=routes,
-                label_angle=graph.label_angle or 0.0,
-                lift_wrapped_off_trunks=False,
-                icon_obstacles=obstacles,
-            )
-            if p.station_id
-        }
-
-
 def _probe_label_placements(
     graph: MetroGraph, *, icon_aware: bool = False
 ) -> _Probe | None:
@@ -119,6 +87,20 @@ def _probe_label_placements(
             return offsets, routes, placements
         except Exception:
             return None
+
+
+def _unsided_placements(graph: MetroGraph) -> dict[str, LabelPlacement]:
+    """Label placements keyed by station, placed with no icon in the way.
+
+    The reach a label has before a terminus file icon narrows its choices, which
+    is what a clearance lever measured in whole grid columns is sized against.
+    Empty if the probe fails.
+    """
+    probe = _probe_label_placements(graph)
+    if probe is None:
+        return {}
+    _offsets, _routes, placements = probe
+    return {p.station_id: p for p in placements if p.station_id}
 
 
 def _overlaps_from(
@@ -171,11 +153,11 @@ def _struck_label_station_ids(
     that divergence but not the V's fixed-offset crossing of any other label
     (see ``relocatable_for`` below).
 
-    ``placements`` need not be the icon-sided view: every label is additionally
-    tested where the renderer sides it against terminus file icons.  Both views
-    count -- the unsided reach is what a flat-run lever is measured against, the
-    sided placement is what gets drawn -- so a strike present in either is
-    reported whichever view the caller probed.
+    ``placements`` must be the icon-sided view (``icon_aware=True``): a strike is
+    judged on the glyphs the renderer draws, and a terminus file icon can side a
+    name to the far side of its trunk, where a diagonal clear of the unsided
+    placement rakes it.  An off-track output sweep is additionally tested against
+    the unsided reach, which is what its clearance lever is sized against.
     """
     from nf_metro.layout.labels import segment_strikes_label
     from nf_metro.layout.routing.common import apply_route_offsets
@@ -208,19 +190,22 @@ def _struck_label_station_ids(
         return relocatable_for in (ANY_STATION, station_id)
 
     seg_lists = []
+    any_off_track_output = False
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        if _off_track(r.edge.target) and not _off_track(r.edge.source):
+        is_off_output = _off_track(r.edge.target) and not _off_track(r.edge.source)
+        if is_off_output:
             # Off-track output sweep: relocatable for its own producer's label
             # only (via the off-track lead lever), per the docstring.
             relocatable_for = r.edge.source
+            any_off_track_output = True
         elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
         else:
             relocatable_for = _bypass_endpoint(r) or ANY_STATION
-        seg_lists.append((pts, relocatable_for))
+        seg_lists.append((pts, relocatable_for, is_off_output))
 
-    icon_placements = _icon_sided_placements(graph, offsets, routes)
+    unsided = _unsided_placements(graph) if any_off_track_output else {}
 
     def _rakes(pts: list[tuple[float, float]], place: LabelPlacement) -> bool:
         return not place.angle and any(
@@ -234,11 +219,12 @@ def _struck_label_station_ids(
         station = graph.stations.get(p.station_id)
         if station is None or not station.label.strip() or p.angle:
             continue
-        icon_place = icon_placements.get(p.station_id)
-        for pts, relocatable_for in seg_lists:
+        unsided_place = unsided.get(p.station_id)
+        for pts, relocatable_for, is_off_output in seg_lists:
             if not _segment_applies(relocatable_for, p.station_id):
                 continue
-            if _rakes(pts, p) or (icon_place is not None and _rakes(pts, icon_place)):
+            reach = unsided_place if is_off_output else None
+            if _rakes(pts, p) or (reach is not None and _rakes(pts, reach)):
                 struck.add(p.station_id)
                 break
     return struck
@@ -287,12 +273,13 @@ def _struck_stations_and_collinear(graph: MetroGraph) -> tuple[set[str], bool]:
     whose horizontal label a diagonal route rakes, and ``has_collinear`` is
     whether the routes draw two distinct lines on top of each other.  Both read
     the same probed routes, so the strike-clearance loop decides growth and
-    step-back from a single route+place pass.
+    step-back from a single route+place pass.  Probes icon-aware, so a strike is
+    judged on the placement the renderer draws.
 
     Returns ``(set(), False)`` on probe failure.  See
     :func:`_struck_label_station_ids` and :func:`_collinear_from`.
     """
-    probe = _probe_label_placements(graph)
+    probe = _probe_label_placements(graph, icon_aware=True)
     if probe is None:
         return set(), False
     offsets, routes, placements = probe
@@ -409,11 +396,12 @@ def _label_clearance_issues(
     """One probe: struck labels, the collinear flag, and collapsed bypass-V gaps.
 
     The strike-clearance loop reads all three from a single route+place pass, so
-    a step's grow/step-back decision never pays for a redundant probe.  See
+    a step's grow/step-back decision never pays for a redundant probe.  Probes
+    icon-aware, so a strike is judged on the placement the renderer draws.  See
     :func:`_struck_label_station_ids`, :func:`_collinear_from`, and
     :func:`_bypass_v_flat_gaps_from`.
     """
-    probe = _probe_label_placements(graph)
+    probe = _probe_label_placements(graph, icon_aware=True)
     if probe is None:
         return set(), False, set()
     offsets, routes, placements = probe

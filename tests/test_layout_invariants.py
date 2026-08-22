@@ -4029,29 +4029,14 @@ _ICON_SIDED_STRIKE_CASES = [
 def test_no_diagonal_strikes_icon_sided_label(fixture):
     """No diagonal rakes a name label where the renderer sides it off an icon.
 
-    Measured on the placements the renderer draws -- terminus file icons fed in
-    as obstacles -- rather than on the unsided view, so the assertion is about
-    the glyphs a reader sees.  Otherwise as
-    :func:`test_no_diagonal_strikes_label`: the engine's own strike definition,
-    which the clearance loop lengthens flat runs to satisfy.
+    Otherwise as :func:`test_no_diagonal_strikes_label`, whose helper measures
+    the placements the renderer draws: these fixtures are clear in the unsided
+    view, so only the sided one exposes the rake.
     """
-    from nf_metro.layout.phases.spacing import _struck_label_station_ids
-    from nf_metro.themes import resolve_theme
+    from nf_metro.layout.phases.spacing import _struck_stations_and_collinear
 
     graph = _layout(fixture)
-    offsets = compute_station_offsets(graph)
-    routes = route_edges_centred(graph, station_offsets=offsets)
-    placements = place_labels(
-        graph,
-        station_offsets=offsets,
-        routes=routes,
-        icon_obstacles=_compute_icon_obstacles(
-            graph, resolve_theme(None, graph), offsets
-        ),
-        label_angle=graph.label_angle or 0.0,
-        lift_wrapped_off_trunks=False,
-    )
-    struck = _struck_label_station_ids(graph, offsets, routes, placements)
+    struck, _collinear = _struck_stations_and_collinear(graph)
     assert not struck, (
         f"{fixture}: diagonals rake icon-sided label glyph ink: "
         + ", ".join(sorted(graph.stations[s].label for s in struck))
