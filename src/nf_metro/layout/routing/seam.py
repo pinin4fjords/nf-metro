@@ -50,8 +50,8 @@ from enum import Enum
 from nf_metro.layout.geometry import AxisFrame
 from nf_metro.layout.routing.context import _has_intervening_sections
 from nf_metro.layout.seam_topology import (
+    is_cross_row_right_exit_right_entry,
     is_stacked_left_exit_left_entry,
-    is_stacked_right_exit_right_entry,
 )
 from nf_metro.parser.model import MetroGraph, Port, PortSide, Section
 
@@ -107,7 +107,7 @@ def _reverses(
         or is_stacked_left_exit_left_entry(
             exit_port, entry_port, feeder, consumer, via_junction=via_junction
         )
-        or is_stacked_right_exit_right_entry(
+        or is_cross_row_right_exit_right_entry(
             exit_port, entry_port, feeder, consumer, via_junction=via_junction
         )
     ):

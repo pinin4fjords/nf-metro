@@ -26,7 +26,7 @@ def is_stacked_left_exit_left_entry(
     )
 
 
-def is_stacked_right_exit_right_entry(
+def is_cross_row_right_exit_right_entry(
     exit_port: Port,
     entry_port: Port,
     feeder: Section,
@@ -34,7 +34,12 @@ def is_stacked_right_exit_right_entry(
     *,
     via_junction: bool,
 ) -> bool:
-    """Whether same-facing RIGHT ports form a cross-row outer half-turn."""
+    """Whether same-facing RIGHT ports form a cross-row outer half-turn.
+
+    Admits any consumer column at or right of the feeder's, which is wider than
+    the same-column drop ``_InterFacts.is_stacked_right_exit_right_entry``
+    routes.
+    """
     return (
         not via_junction
         and exit_port.side is PortSide.RIGHT
