@@ -546,7 +546,7 @@ def _guard_interchange_label_clears_connector(graph: MetroGraph, phase: str) -> 
     if not spanning:
         return
 
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph)
     if probe is None:
         return
     offsets, _routes, placements = probe
@@ -2768,7 +2768,7 @@ def _guard_no_diagonal_strikes_horizontal_label(
         _struck_label_station_ids,
     )
 
-    probe = _probe_label_placements(graph, allow_hyphenation=True)
+    probe = _probe_label_placements(graph, icon_aware=True)
     if probe is None:
         return
     offsets, routes, placements = probe
@@ -5118,7 +5118,7 @@ def _guard_no_label_overlap(graph: MetroGraph, phase: str) -> None:
     label/marker grazes within ``LABEL_OVERLAP_TOL`` are allowed (see
     :func:`nf_metro.layout.labels.find_label_overlaps`).
     """
-    residual = _residual_label_overlaps(graph, allow_hyphenation=True)
+    residual = _residual_label_overlaps(graph)
     if not residual:
         return
     ov = residual[0]

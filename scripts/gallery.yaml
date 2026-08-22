@@ -2058,11 +2058,13 @@ gallery:
     source_dir: examples/topologies
     category: Inter-section Routing
     description:
-      "A QC section whose station labels only wrap at render time (`sambamba markdup`
-      onto four lines, an `RNA-SeQC` dir-icon branch) grows the section box taller than
-      the layout reserved for it. The section directly below keeps the full inter-section
-      gap: the render reflows the lower rows down to absorb the late growth rather than
-      letting its header badge collide with the grown box."
+      "A QC section whose lower row crowds `sambamba markdup` against `RNA-SeQC` and a
+      dir-icon terminus. The two-word name wraps at its space onto `sambamba` /
+      `markdup` rather than splitting mid-word into a hyphen the tool name never carried
+      (issue #1768), while single-token `RNA-SeQC` stays whole on one line. That wrap
+      clears the crowding on its own: the spacing search widens neither the column nor
+      the row pitch, and the QC box is drawn at the depth layout reserved for it, so the
+      sections stacked below it keep their gap without being pushed down."
 
   - id: fanout_intersection_shared_channel
     source_dir: examples/topologies

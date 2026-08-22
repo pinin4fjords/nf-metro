@@ -4015,6 +4015,34 @@ def test_no_diagonal_strikes_label(fixture, x_spacing):
     assert not collinear, f"{fixture} @ x_spacing={x_spacing}: collinear overlay"
 
 
+# A terminus file icon pushes a producer's name to the far side of its trunk,
+# where a flat run clear of the unsided name can rake it.  Each case rakes an
+# icon-sided label on a layout whose unsided labels are clear, so only the drawn
+# placement exposes it.
+_ICON_SIDED_STRIKE_CASES = [
+    "topologies/render_labelwrap_row_gap.mmd",
+    "differentialabundance.mmd",
+]
+
+
+@pytest.mark.parametrize("fixture", _ICON_SIDED_STRIKE_CASES)
+def test_no_diagonal_strikes_icon_sided_label(fixture):
+    """No diagonal rakes a name label where the renderer sides it off an icon.
+
+    Otherwise as :func:`test_no_diagonal_strikes_label`, whose helper measures
+    the placements the renderer draws: these fixtures are clear in the unsided
+    view, so only the sided one exposes the rake.
+    """
+    from nf_metro.layout.phases.spacing import _struck_stations_and_collinear
+
+    graph = _layout(fixture)
+    struck, _collinear = _struck_stations_and_collinear(graph)
+    assert not struck, (
+        f"{fixture}: diagonals rake icon-sided label glyph ink: "
+        + ", ".join(sorted(graph.stations[s].label for s in struck))
+    )
+
+
 _BYPASS_LABEL_RAKE_CASES = [
     "topologies/bypass_label_rake.mmd",
     "topologies/bypass_label_rake_left.mmd",
@@ -4092,7 +4120,7 @@ def test_diagonal_strike_guard_teeth_and_exemptions():
     cleared = _layout("topologies/funcprofiler_upstream.mmd", x_spacing=45)
     _guard_no_diagonal_strikes_horizontal_label(cleared, "test")
 
-    unclearable = _layout("centered_tracks.mmd", x_spacing=45)
+    unclearable = _layout("centered_tracks.mmd", x_spacing=40)
     with pytest.raises(PhaseInvariantError, match="strikes horizontal label"):
         _guard_no_diagonal_strikes_horizontal_label(unclearable, "test")
 

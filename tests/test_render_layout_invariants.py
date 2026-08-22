@@ -43,7 +43,7 @@ from nf_metro.layout.routing.invariants import (
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph, PermissiveGuardWarning
 from nf_metro.render import render_svg
-from nf_metro.render.svg import _settled_render_graph
+from nf_metro.render.svg import _settled_render_graph, build_render_plan
 from nf_metro.themes import THEMES
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -216,15 +216,36 @@ def test_render_header_clearance_guard_fires_under_strict() -> None:
         assert_render_header_clearance(graph, strict=False)
 
 
-# Non-rail fixtures whose sections stack vertically; the first forces late
-# label wrapping (a two-word ``sambamba markdup`` and an ``RNA-SeQC`` dir-icon
-# branch squeezed together) in a section sitting directly above another
-# (#1461). Rail-mode graphs are exempt (see test_render_does_not_reflow_...).
+# Fixtures with a station label the renderer wraps onto two lines, growing its
+# section box down into the row below (#1461).
+WRAP_GROWN_ROW_GAP_FIXTURES = [
+    "topologies/manual_rl_row_nonconsumer_bypass.mmd",
+    "topologies/packed_cell_cellmate_bypass.mmd",
+    "topologies/packed_cell_cellmate_bypass_adjacent.mmd",
+]
+
+# Non-rail fixtures whose sections stack vertically; the wrap-grown ones put a
+# late label wrap in a section sitting directly above another, the rest cover
+# the same invariant on ordinary gallery topologies. Rail-mode graphs are exempt
+# (see test_render_does_not_reflow_...).
 ROW_GAP_FIXTURES = [
+    *WRAP_GROWN_ROW_GAP_FIXTURES,
     "topologies/render_labelwrap_row_gap.mmd",
     "variant_calling.mmd",
     "rnaseq_auto.mmd",
 ]
+
+
+def _render_time_wrapped_labels(name: str) -> list[str]:
+    """Station ids the renderer wrapped: single-line node label, wrapped drawn."""
+    plan = build_render_plan(_laid_out(name), THEMES["nfcore"])
+    stations = plan.graph.stations
+    return [
+        place.station_id
+        for place in plan.labels
+        if "\n" in place.text and "\n" not in stations[place.station_id].label
+    ]
+
 
 _SECTION_RECT_RE = re.compile(
     r'<rect\b[^>]*\bclass="[^"]*nf-metro-section-box[^"]*"[^>]*'
@@ -291,17 +312,25 @@ def test_rendered_sections_clear_header_after_label_wrap(name: str) -> None:
     )
 
 
-def test_header_collision_reflow_restores_section_y_gap() -> None:
-    """The #1461 fixture's QC labels wrap at render and grow the box into the
-    Quantification header; the reflow restores the full ``section_y_gap``."""
+@pytest.mark.parametrize("name", WRAP_GROWN_ROW_GAP_FIXTURES)
+def test_header_collision_reflow_restores_section_y_gap(name: str) -> None:
+    """A label that wraps at render grows its box into the header of the section
+    below; the reflow restores the full ``section_y_gap`` (#1461).
+
+    The wrap is asserted rather than assumed: a fixture that stopped wrapping
+    would leave nothing for the reflow to undo and pass on an unmoved box.
+    """
     from nf_metro.layout.constants import SAME_COORD_TOLERANCE, SECTION_Y_GAP
 
-    graph = _laid_out("topologies/render_labelwrap_row_gap.mmd")
+    assert _render_time_wrapped_labels(name), f"{name}: no label wrapped at render"
+
+    graph = _laid_out(name)
     rects = _rendered_section_rects(render_svg(graph, THEMES["nfcore"]))
-    qx, qy, qw, qh = rects["qc_sec"]
-    gap = rects["quant_sec"][1] - (qy + qh)
+    gap = _min_rendered_row_gap(graph, rects)
+    assert gap is not None, f"{name}: no column-overlapping adjacent-row pair"
     assert gap >= SECTION_Y_GAP - SAME_COORD_TOLERANCE, (
-        f"qc_sec -> quant_sec gap {gap:.1f}px, expected >= {SECTION_Y_GAP:.1f}px"
+        f"{name}: smallest rendered row gap {gap:.1f}px, "
+        f"expected >= {SECTION_Y_GAP:.1f}px"
     )
 
 

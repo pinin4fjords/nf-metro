@@ -204,7 +204,7 @@ def test_spread_residual_drops_rail_section_overlaps(monkeypatch):
         labels_mod, "find_label_overlaps", lambda *a, **k: [rail_norm, norm_norm]
     )
 
-    residual = _residual_label_overlaps(graph, allow_hyphenation=False)
+    residual = _residual_label_overlaps(graph)
     pairs = {(o.a, o.b) for o in residual}
     assert ("n1", "n2") in pairs, "normal-only overlap must be kept"
     assert ("r1", "n1") not in pairs, "rail-touching overlap must be dropped"

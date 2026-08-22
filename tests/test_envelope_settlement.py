@@ -2023,12 +2023,15 @@ LABEL_WRAP_ROW_GAP = TOPOLOGIES / "render_labelwrap_row_gap.mmd"
 
 # Fixtures whose render-time bbox growth leaves a row boundary short of the
 # clearance it owes, with no corridor reserved there to state the demand.
-CLEARANCE_CORPUS = (
-    LABEL_WRAP_ROW_GAP,
+WRAP_GROWN_CLEARANCE_CORPUS = (
     TOPOLOGIES / "manual_rl_row_nonconsumer_bypass.mmd",
     TOPOLOGIES / "packed_cell_cellmate_bypass.mmd",
     TOPOLOGIES / "packed_cell_cellmate_bypass_adjacent.mmd",
 )
+
+# The clearance postconditions, checked over those plus a fixture whose render
+# raises no clearance demand at all, so they hold on a no-op as well as a payment.
+CLEARANCE_CORPUS = (LABEL_WRAP_ROW_GAP, *WRAP_GROWN_CLEARANCE_CORPUS)
 
 # Rail layouts, whose row pitch is the interchange idiom's rather than the
 # declared section gap's.
@@ -2073,17 +2076,33 @@ def _row_boundary_clearance(graph, boundary: int) -> float:
     )
 
 
-def test_a_boundary_owing_clearance_with_no_corridor_is_still_settled() -> None:
+@pytest.mark.parametrize(
+    "path", WRAP_GROWN_CLEARANCE_CORPUS, ids=lambda item: item.name
+)
+def test_a_boundary_owing_clearance_with_no_corridor_is_still_settled(
+    path: Path,
+) -> None:
     """The demand a reservation ledger cannot state, and settlement pays anyway.
 
-    ``render_labelwrap_row_gap`` wraps three station labels, which grows its QC
-    box downward and leaves the row below it inside the gap that boundary is
-    declared.  No route crosses the boundary, so the ledger holds no row-gap
+    Each fixture wraps a station label at render, which grows the box above row
+    boundary 1 downward and leaves the row below it inside the gap that boundary
+    is declared.  No route crosses the boundary, so the ledger holds no row-gap
     reservation at all and a sweep driven by reservations alone never visits it.
     The clearance demand is what puts the boundary in the sweep, and it is only
     measurable at the render boundary because the growth is the wrapped text's.
+
+    The wrap itself is asserted: without it the box never grows, the boundary
+    owes nothing, and every assertion below would hold vacuously.
     """
-    route_plan = _rendered_plan(LABEL_WRAP_ROW_GAP).route_plan
+    observed = _rendered_plan(path)
+    stations = observed.plan.graph.stations
+    assert [
+        place
+        for place in observed.plan.labels
+        if "\n" in place.text and "\n" not in stations[place.station_id].label
+    ], "no label wrapped at render, so no growth for the boundary to owe"
+
+    route_plan = observed.route_plan
     assert [
         item
         for item in route_plan.reservations
@@ -2099,7 +2118,7 @@ def test_a_boundary_owing_clearance_with_no_corridor_is_still_settled() -> None:
     assert "row boundary 1 widened by" in moves[0].message
     assert "clearance row boundary 1 owes" in moves[0].message
 
-    settled, _plan = _settled(LABEL_WRAP_ROW_GAP)
+    settled, _plan = _settled(path)
     assert measure_row_gap_clearance(settled, SECTION_Y_GAP) == ()
     assert _row_boundary_clearance(settled, 1) >= SECTION_Y_GAP - 0.01
 

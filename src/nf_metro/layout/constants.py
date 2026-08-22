@@ -624,8 +624,9 @@ LABEL_WRAP_MIN_LINE_CHARS: int = 4
 """Floor on the per-line character budget when wrapping a colliding label.
 
 Wrapping narrows a label to clear a collision; this stops it shrinking past
-a legible width.  A single word longer than the budget is hard-broken with a
-hyphen (the last-resort split), but never below this many characters."""
+a legible width.  Wrapping breaks only on whitespace, so a label whose
+longest word is already wider than this budget keeps that word intact and
+takes its width as the floor instead."""
 
 # ---------------------------------------------------------------------------
 # Ordering
