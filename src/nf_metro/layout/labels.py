@@ -2022,14 +2022,16 @@ def _reside_reflowed_label(
     placement: LabelPlacement,
     placements: list[LabelPlacement],
     markers: dict[str, tuple[float, float, float, float]],
-) -> None:
-    """Move a re-flowed label to a clear side of its pill, where one exists."""
+) -> bool:
+    """Move a re-flowed label to a clear side of its pill; whether it moved."""
     others = [p for p in placements if p is not placement]
     candidate = _find_clear_reflow_candidate(ctx, placement, others, markers)
-    if candidate is not None:
-        placement.x = candidate.x
-        placement.y = candidate.y
-        placement.above = candidate.above
+    if candidate is None:
+        return False
+    placement.x = candidate.x
+    placement.y = candidate.y
+    placement.above = candidate.above
+    return True
 
 
 def _wrap_overlapping_labels(
@@ -2055,6 +2057,10 @@ def _wrap_overlapping_labels(
     block it has become (:func:`_reside_reflowed_label`).  Deferring that to
     the end means every side is judged against the settled set of blocks
     rather than against a neighbour the rounds have yet to finish narrowing.
+    Re-siding repeats until no label moves, because a label whose both sides
+    are taken can be freed by a later one vacating a side; a move only ever
+    lands a label wholly clear of the others, so a round can only reduce
+    collisions and the sweep settles.
     """
     graph = ctx.graph
     station_offsets = ctx.station_offsets
@@ -2098,8 +2104,14 @@ def _wrap_overlapping_labels(
     ]
     if reflowed:
         markers = _station_marker_boxes(graph, station_offsets)
-        for p in reflowed:
-            _reside_reflowed_label(ctx, p, placements, markers)
+        for _ in range(len(reflowed)):
+            moved = [
+                p
+                for p in reflowed
+                if _reside_reflowed_label(ctx, p, placements, markers)
+            ]
+            if not moved:
+                break
 
     _expand_sections_for_wrapped_labels(placements, graph)
 

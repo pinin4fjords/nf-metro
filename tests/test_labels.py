@@ -420,6 +420,7 @@ class TestReflowedLabelsAreRePlaced:
     @pytest.mark.parametrize(
         ("fixture", "x_spacing"),
         [
+            ("examples/centered_tracks.mmd", 50.0),
             ("examples/live/pipeline.mmd", 50.0),
             ("examples/topologies/fold_stacked_branch.mmd", 50.0),
             ("examples/topologies/reconverge_reversed_fold.mmd", 50.0),
