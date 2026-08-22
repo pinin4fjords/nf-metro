@@ -2136,6 +2136,16 @@ gallery:
       two branches. The half-turn mirrors the bundle, so the consumer's branch
       tracks mirror with it and each line reaches its station without crossing
       its bundle-mate (issue #1767)."
+  - id: exit_lane_rise_bundle_order
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A section taller than the one it feeds, so its RIGHT exit port sits a lane
+      above its own trunk and the two-line bundle climbs to reach it. One line
+      arrives level from the same row and the other descends from the row above,
+      which fixes the pair's lane order at the entry; the climb carries that
+      order through to the exit rather than crossing the two lines on the rise
+      (issue #1770)."
   - id: offtrack_output_peel_before_successor
     source_dir: examples/topologies
     category: Feature Showcase

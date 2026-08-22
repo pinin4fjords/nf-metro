@@ -1,0 +1,47 @@
+%% Regression fixture for issue #1770.  The `mid` section is taller than the
+%% `dest` section it feeds, and both are top-aligned in the row, so mid's trunk
+%% sits below its own RIGHT exit port: the two-line bundle out of `m_merge`
+%% climbs a lane to reach the port.  `alpha` arrives level from `feed` while
+%% `beta` descends from `upper`, so the entry-port phases re-slot the bundle
+%% after the exit port has already taken its own order; the climb must carry
+%% that re-slot through instead of crossing the pair on the rise.
+%%metro title: Exit-lane rise bundle order
+%%metro style: dark
+%%metro diamond_style: symmetric
+%%metro file: mid_report | HTML | Mid report
+%%metro line: alpha | Alpha | #e6007e
+%%metro line: beta | Beta | #2db572
+%%metro grid: upper | 0,0
+%%metro grid: feed | 0,1
+%%metro grid: mid | 1,1
+%%metro grid: dest | 2,1
+
+graph LR
+    subgraph upper [Upper]
+        u1[U1]
+    end
+
+    subgraph feed [Feed]
+        f1[F1]
+    end
+
+    subgraph mid [Mid]
+        m_prep[Prep]
+        m_a[A]
+        m_b[B]
+        m_merge[Merge]
+
+        m_prep -->|alpha,beta| m_a
+        m_prep -->|alpha,beta| m_b
+        m_a -->|alpha,beta| m_merge
+        m_b -->|alpha,beta| m_merge
+        m_merge -->|alpha,beta| mid_report
+    end
+
+    subgraph dest [Dest]
+        d1[D1]
+    end
+
+    u1 -->|beta| m_prep
+    f1 -->|alpha| m_prep
+    m_merge -->|alpha,beta| d1

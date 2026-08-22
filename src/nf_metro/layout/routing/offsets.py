@@ -3025,31 +3025,45 @@ def _apply_offsets_along_bundle(
     it never sits on the run's row, yet the trunk turns into its drop column
     through one concentric corner that carries the run's order across.  Leaving
     it on the pre-reslot order crosses the bundle at that turn.
+
+    An off-row flow-side exit of the same section carries the re-slot as well,
+    as a rank rather than as literal offsets: the climb up to it is one turn
+    that takes the whole bundle across, but the port anchors its own lane set.
+    The walk re-bases onto that port's row and slots and keeps going, so the
+    crossing does not simply move to the seam beyond it.
     """
     graph = ctx.graph
     for lid, off in new_offs.items():
         ctx.offsets[(start_id, lid)] = off
-    for tgt_id in _bundle_walk_stations(ctx, start_id, sec_id):
+    for tgt_id, offs in _bundle_walk(ctx, start_id, sec_id, new_offs):
         for lid in graph.station_lines(tgt_id):
-            if lid in new_offs:
-                ctx.offsets[(tgt_id, lid)] = new_offs[lid]
+            if lid in offs:
+                ctx.offsets[(tgt_id, lid)] = offs[lid]
 
 
-def _bundle_walk_stations(ctx: _OffsetCtx, start_id: str, sec_id: str) -> list[str]:
-    """Stations downstream of *start_id* that a bundle re-slot carries onto.
+def _bundle_walk(
+    ctx: _OffsetCtx,
+    start_id: str,
+    sec_id: str,
+    new_offs: Mapping[str, float],
+) -> list[tuple[str, dict[str, float]]]:
+    """Stations downstream of *start_id* a bundle re-slot carries onto, paired
+    with the offsets each one takes.
 
-    The reach depends only on the graph and the row *start_id* stands on, so a
+    The reach depends only on the graph and the rows the run stands on, so a
     caller can ask which stations a re-slot would touch before deciding whether
-    to make it.
+    to make it.  The paired offsets are *new_offs* itself everywhere except past
+    an off-row exit port, which re-bases the run onto its own lane set.
     """
     graph = ctx.graph
-    row_y = graph.stations[start_id].y
-    lane_edge_sides = perpendicular_port_sides(graph.sections[sec_id].direction)
-    reached: list[str] = []
+    direction = graph.sections[sec_id].direction
+    lane_edge_sides = perpendicular_port_sides(direction)
+    flow_edge_sides = flow_port_sides(direction)
+    reached: list[tuple[str, dict[str, float]]] = []
     visited = {start_id}
-    queue = deque([start_id])
+    queue = deque([(start_id, graph.stations[start_id].y, dict(new_offs))])
     while queue:
-        cur = queue.popleft()
+        cur, row_y, offs = queue.popleft()
         for edge in graph.edges_from(cur):
             tgt_id = edge.target
             if tgt_id in visited:
@@ -3060,12 +3074,56 @@ def _bundle_walk_stations(ctx: _OffsetCtx, start_id: str, sec_id: str) -> list[s
                 tgt_port is None or tgt_port.side in lane_edge_sides
             )
             on_row = abs(tgt.y - row_y) <= _SAME_Y_TOLERANCE
+            tgt_row, tgt_offs = row_y, offs
             if not in_section and not on_row:
-                continue
+                own_flow_exit = (
+                    tgt_port is not None
+                    and not tgt_port.is_entry
+                    and tgt_port.section_id == sec_id
+                    and tgt_port.side in flow_edge_sides
+                )
+                if not own_flow_exit:
+                    continue
+                tgt_row = tgt.y
+                tgt_offs = _ranked_onto_held_slots(ctx, tgt_id, cur, offs)
             visited.add(tgt_id)
-            reached.append(tgt_id)
-            queue.append(tgt_id)
+            reached.append((tgt_id, tgt_offs))
+            queue.append((tgt_id, tgt_row, tgt_offs))
     return reached
+
+
+def _ranked_onto_held_slots(
+    ctx: _OffsetCtx,
+    station_id: str,
+    source_id: str,
+    pending: Mapping[str, float],
+) -> dict[str, float]:
+    """*source_id*'s line order re-expressed on the slots *station_id* holds.
+
+    A port answers to its own neighbours for which lanes it occupies, so
+    importing a run's literal offsets can widen or shift its bundle.  Permuting
+    its lines across the slots it already holds moves the order alone, and so
+    cannot seat one of them on a slot another line of the port keeps.
+
+    The order read off *source_id* is the one a re-slot in flight leaves there:
+    *pending* for the lines it moves, the settled offsets for the rest.  A
+    re-slot may move one line of a bundle and leave its co-travellers where they
+    are, so the order to carry across is the combined one.
+    """
+    graph = ctx.graph
+    source_lines = set(graph.station_lines(source_id))
+    carried = sorted(
+        lid for lid in graph.station_lines(station_id) if lid in source_lines
+    )
+    slots = sorted(ctx.offsets.get((station_id, lid), 0.0) for lid in carried)
+    ranked = sorted(
+        carried,
+        key=lambda lid: (
+            pending[lid] if lid in pending else ctx.offsets.get((source_id, lid), 0.0),
+            lid,
+        ),
+    )
+    return dict(zip(ranked, slots, strict=True))
 
 
 def _bundle_reslot_collides(
@@ -3083,11 +3141,14 @@ def _bundle_reslot_collides(
     """
     graph = ctx.graph
     return any(
-        abs(new_offs[moved] - ctx.offsets.get((sid, held), 0.0)) <= _OFFSET_EQ_TOLERANCE
-        for sid in (start_id, *_bundle_walk_stations(ctx, start_id, sec_id))
+        abs(offs[moved] - ctx.offsets.get((sid, held), 0.0)) <= _OFFSET_EQ_TOLERANCE
+        for sid, offs in (
+            (start_id, dict(new_offs)),
+            *_bundle_walk(ctx, start_id, sec_id, new_offs),
+        )
         for lines in (set(graph.station_lines(sid)),)
-        for moved in lines & new_offs.keys()
-        for held in lines - new_offs.keys()
+        for moved in lines & offs.keys()
+        for held in lines - offs.keys()
     )
 
 

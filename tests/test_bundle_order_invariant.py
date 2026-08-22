@@ -30,6 +30,7 @@ from nf_metro.layout.routing.invariants import (
     BundleOrderViolation,
     Side,
     check_bundle_order_preserved,
+    check_exit_inherits_entry_bundle_order,
     check_shared_run_turn_preserves_bundle_order,
     check_tb_exit_corner_preserves_column_order,
 )
@@ -424,10 +425,6 @@ def test_disjoint_runs_sharing_a_name_are_free_to_differ_at_the_two_ends() -> No
     so this test exercises the disjoint-run exemption on its own, independent
     of that separate frame invariant.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_exit_inherits_entry_bundle_order,
-    )
-
     path = EXAMPLES / "topologies" / "target_lane_transition.mmd"
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph, validate=True)
@@ -450,3 +447,21 @@ def test_disjoint_runs_sharing_a_name_are_free_to_differ_at_the_two_ends() -> No
 
     violations = check_exit_inherits_entry_bundle_order(graph, offsets)
     assert [item.exit_port for item in violations] == [exit_id]
+
+
+def test_exit_lane_rise_keeps_the_entry_bundle_order() -> None:
+    """A bundle climbing to an off-trunk exit port keeps its entry order.
+
+    ``mid`` is taller than the section it feeds, so its RIGHT exit port sits a
+    lane above the trunk and the bundle climbs to reach it.  The two lines
+    reach the single entry port from different rows, which the entry-port
+    phases re-slot after the exit port has already taken an order; the climb
+    must carry the re-slot through rather than crossing the pair on the rise.
+    """
+    path = EXAMPLES / "topologies" / "exit_lane_rise_bundle_order.mmd"
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+
+    assert check_exit_inherits_entry_bundle_order(graph, offsets) == []
+    compute_layout(parse_metro_mermaid(path.read_text()), validate=True)
