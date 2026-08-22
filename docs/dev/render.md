@@ -119,6 +119,12 @@ graph carries). Routing is then re-derived on the moved copy, because where a
 run lands is only known once it is routed. A map that draws nothing outside its
 box envelope never moves.
 
+`_content_origin` reports the left and top edges that move settles on - the box
+envelope, carried outwards by any run drawn past it. A decoration the author
+left unpinned is placed against those edges rather than against a box, so the
+legend sits flush with the content whether a box or a run defines the boundary.
+An authored pin (`legend: x,y`, `| canvas`, `| dx,dy`) is placed as written.
+
 ## Bridges (`bridges.py`)
 
 Two distinct metro lines may cross at a point that is not a shared station,

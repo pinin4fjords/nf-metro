@@ -319,6 +319,51 @@ def _outboard_shortfall(envelope: float, ink: float, margin: float) -> float:
     return max(0.0, margin - ink)
 
 
+def _drawn_ink_origin(
+    graph: MetroGraph,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    debug: bool,
+) -> tuple[float, float]:
+    """Leftmost and topmost coordinate a station or a run is drawn at."""
+    stations = _drawn_stations(graph, debug)
+    points = [point for polyline in route_polylines for point in polyline]
+    return (
+        min([point[0] for point in points] + [station.x for station in stations]),
+        min([point[1] for point in points] + [station.y for station in stations]),
+    )
+
+
+def _content_origin(
+    graph: MetroGraph,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    debug: bool,
+    *,
+    margin: float,
+) -> tuple[float, float]:
+    """Left and top edges of the drawn content, box or run.
+
+    The section boxes frame the content, and a run drawn outside that envelope
+    carries the frame out with it -- to exactly where
+    :func:`_canvas_margin_shift` seats it, since the two read the same ink.  A
+    decoration placed against this boundary therefore sits flush with the
+    content whichever of the two defines the edge.
+
+    A map with no boxes has no such frame; its content edge is the drawn
+    margin, the same answer :func:`_canvas_margin_shift` gives by declining to
+    move it.  Station markers and labels reach past a bare station's
+    coordinate, so reading one as an edge would place a decoration inside the
+    content it frames.
+    """
+    boxes = [section for section in graph.sections.values() if section.bbox_w > 0]
+    if not boxes:
+        return margin, margin
+    ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
+    return (
+        min(ink_x, min(section.bbox_x for section in boxes)),
+        min(ink_y, min(section.bbox_y for section in boxes)),
+    )
+
+
 def _canvas_margin_shift(
     graph: MetroGraph,
     route_polylines: Sequence[Sequence[tuple[float, float]]],
@@ -343,10 +388,7 @@ def _canvas_margin_shift(
     boxes = [section for section in graph.sections.values() if section.bbox_w > 0]
     if not boxes:
         return 0.0, 0.0
-    stations = _drawn_stations(graph, debug)
-    points = [point for polyline in route_polylines for point in polyline]
-    ink_x = min([point[0] for point in points] + [s.x for s in stations])
-    ink_y = min([point[1] for point in points] + [s.y for s in stations])
+    ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
     return (
         _outboard_shortfall(min(s.bbox_x for s in boxes), ink_x, margin),
         _outboard_shortfall(min(s.bbox_y for s in boxes), ink_y, margin),
@@ -365,10 +407,14 @@ def _position_legend(
     legend_position: str,
     routes: list[RoutedPath],
     header_placements: dict[str, SectionHeaderPlacement],
+    content_origin: tuple[float, float],
 ) -> tuple[float, float, float, float, bool]:
     """Compute legend position and dimensions.
 
     Returns (legend_x, legend_y, legend_w, legend_h, show_legend).
+
+    ``content_origin`` is the top-left corner of the drawn content
+    (:func:`_content_origin`), which a content-framed keyword anchors against.
 
     ``legend_position`` is passed in because callers may override it per render
     (only ``"none"`` is overridden in practice); the placement modifiers
@@ -405,16 +451,9 @@ def _position_legend(
     pos = legend_position
     gap = LEGEND_GAP
     inset = LEGEND_INSET
-    content_left = min(
-        (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0),
-        default=padding,
-    )
-    content_top = min(
-        (s.bbox_y for s in graph.sections.values() if s.bbox_w > 0),
-        default=padding,
-    )
+    content_left, content_top = content_origin
 
-    # Frame the keyword anchor against the section bbox (default) or the canvas
+    # Frame the keyword anchor against the drawn content (default) or the canvas
     # margin. The canvas frame lets a corner fill the empty drawing margin.
     if graph.legend_anchor == "canvas":
         left, top = padding, padding
@@ -2294,6 +2333,7 @@ def _build_render_plan_scaled(
         effective_legend_position,
         routes,
         header_placements,
+        _content_origin(graph, route_polylines, debug, margin=padding),
     )
 
     if show_legend:

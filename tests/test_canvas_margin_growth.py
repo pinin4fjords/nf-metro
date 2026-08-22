@@ -6,6 +6,10 @@ about how much room the route has.  The canvas grows past the rightmost and
 bottommost ink already; these tests hold the same for the two margins whose
 edge sits at the coordinate origin, where the ink has nowhere to go and is
 drawn against -- or beyond -- the canvas edge instead.
+
+They also hold that the boundary those margins settle on is the one a
+content-framed decoration is placed against: a legend the author left unpinned
+sits on the edge of the drawn content, whether a box or a run defines it.
 """
 
 from __future__ import annotations
@@ -37,7 +41,9 @@ TOP_ESCAPING = (
 )
 
 
-def _plan(path: Path, *, strict: bool = False) -> RenderPlan:
+def _plan(
+    path: Path, *, strict: bool = False, legend_position: str | None = None
+) -> RenderPlan:
     """Build *path*'s render plan, refusing any downgraded geometry guard.
 
     Only that category is judged, so unrelated warnings stay visible instead of
@@ -47,7 +53,9 @@ def _plan(path: Path, *, strict: bool = False) -> RenderPlan:
     graph.strict = strict
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        plan = build_render_plan(graph, resolve_theme(None, graph))
+        plan = build_render_plan(
+            graph, resolve_theme(None, graph), legend_position=legend_position
+        )
     downgraded = [
         item for item in caught if issubclass(item.category, PermissiveGuardWarning)
     ]
@@ -100,6 +108,42 @@ def test_ink_above_the_box_envelope_keeps_the_canvas_margin(name: str) -> None:
         f"{name} draws ink at y={ink_y:.1f}, inside the {CANVAS_PADDING:.0f}px "
         f"margin the canvas leaves past its bottommost ink"
     )
+
+
+def _content_boundary(plan: RenderPlan) -> tuple[float, float]:
+    """Left and top edges of the drawn content: the box envelope or the ink."""
+    envelope = _box_envelope(plan.graph)
+    ink = _drawn_ink_origin(plan)
+    return min(envelope[0], ink[0]), min(envelope[1], ink[1])
+
+
+@pytest.mark.parametrize("name", LEFT_ESCAPING)
+def test_an_unpinned_legend_starts_at_the_left_content_boundary(name: str) -> None:
+    """A ``bottom`` legend's left edge is the left edge of the drawn content.
+
+    Each of these maps runs a line left of every section box, so the boundary
+    is the run's, and a legend placed against a box edge instead is indented
+    from the content above it.
+    """
+    plan = _plan(ROOT / name)
+    assert plan.show_legend
+    assert plan.graph.legend_at is None, f"{name} pins its legend"
+    left, _ = _content_boundary(plan)
+    assert plan.legend_x == pytest.approx(left)
+
+
+@pytest.mark.parametrize("name", TOP_ESCAPING)
+def test_an_unpinned_legend_starts_at_the_top_content_boundary(name: str) -> None:
+    """A ``right`` legend's top edge is the top edge of the drawn content.
+
+    The side placement is what reads the top boundary; each of these maps runs
+    a line above every section box, so the boundary is the run's.
+    """
+    plan = _plan(ROOT / name, legend_position="right")
+    assert plan.show_legend
+    assert plan.graph.legend_at is None, f"{name} pins its legend"
+    _, top = _content_boundary(plan)
+    assert plan.legend_y == pytest.approx(top)
 
 
 @pytest.mark.parametrize("name", (LEFT_ESCAPING[0], TOP_ESCAPING[0]))
