@@ -647,10 +647,9 @@ def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
     whose leaf is chosen by whether a candidate route can be built at all, so
     which shape they draw is settled at emission rather than here.
 
-    The boxed fan-out that ``_source_is_boxed_fanout_junction`` hands to the
-    band-hop is held back from ``PACKED_CELL_SAME_ROW`` only where the block
-    sits on the source row: the band-hop leads out along that row, so it has
-    nothing to offer a hop whose own Y already clears the cell-mate.
+    ``held_back_by_boxed_fanout`` qualifies on the source row because the
+    band-hop it defers to leads out along that row: the band-hop has nothing
+    to offer a hop whose own Y already clears the cell-mate.
     """
     if (
         f.entry_side is PortSide.LEFT
@@ -685,11 +684,14 @@ def _bypass_route_kind(f: _InterFacts) -> _BypassRoute:
         return _BypassRoute.RIGHT_ENTRY_CROSS_ROW
     if f.left_entry_from_right and f.is_left_exit:
         return _BypassRoute.LEFT_EXIT_AROUND_BELOW
+    held_back_by_boxed_fanout = (
+        f.cellmate_blocks_source_row and _source_is_boxed_fanout_junction(f)
+    )
     if (
         f.entry_side is PortSide.LEFT
         and (f.cellmate_blocks_source_row or f.cellmate_blocks_target_row)
         and f.src_row == f.tgt_row
-        and not (f.cellmate_blocks_source_row and _source_is_boxed_fanout_junction(f))
+        and not held_back_by_boxed_fanout
     ):
         return _BypassRoute.PACKED_CELL_SAME_ROW
     if f.left_entry_from_right:

@@ -511,149 +511,149 @@ Gates with an un-exercised arm:
 | Line | Gate | Un-exercised arm(s) | Triage |
 | ---: | --- | --- | --- |
 | 417 | `if section is None:` | `->L418` |  |
-| 657 | `and f.src_row is not None` | `->L684` | **defensive** -- LEFT-entry inter-row L-shape guard. Every LEFT-entry inter-section edge reaching this condition has a resolved source grid row (f.src_col/f.tgt_col are asserted non-None just above and the row resolves alongside), so the `f.src_row is None` short-circuit out of the L-shape branch is never taken. |
-| 658 | `and f.tgt_row is not None` | `->L684` | **defensive** -- Companion guard to f.src_row in the same LEFT-entry inter-row L-shape condition: the target grid row is likewise always resolved here, so the `f.tgt_row is None` short-circuit out of the branch is never taken. |
-| 734 | `if src_sec is None:` | `->L735` |  |
-| 738 | `if edges is None:` | `->L739` |  |
-| 762 | `if section and section.bbox_w > 0:` | `->L764` |  |
-| 770 | `if section and section.bbox_w > 0:` | `->L772` |  |
-| 796 | `if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):` | `->L797` | **defensive** -- Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive. |
-| 902 | `if min(drop_xs) < _section_right_edge(graph, tgt) - COORD_TOLERANCE:` | `->L903` |  |
-| 905 | `if _v_segment_crosses_other_section(graph, dx, src.y, tgt.y, exclude):` | `->L906` |  |
-| 946 | `if route is not None:` | `->L948` |  |
-| 970 | `if self.launch_coordinate is None or self.axis_coordinate is None:` | `->L971` | **defensive** -- _SourceSeam.minimum_runway returns None for a shape whose centreline never turns (everything but run_direction unstated). Production readers only reach it through _SourceTurnRequirement.from_seam and the planner sites that assert non-None first, and those run only for turning families, so the None arm firing would be a family-contract violation. |
-| 1147 | `if route is not None:` | `->L1161` |  |
-| 1292 | `if _corridor_is_viable(ctx, src, tgt):` | `->L1293` | **needs-review** -- Reachable only via a defective render (inter-row corridor grazes the source section); see #722. |
-| 1313 | `if kind is _LeftEntryRoute.CORRIDOR:` | `->L1314` |  |
-| 1340 | `if target_port is None:` | `->L1341` |  |
-| 1359 | `if sibling_port is None or not sibling_port.is_entry:` | `->L1360` |  |
-| 1422 | `if sibling_route is None or len(sibling_route.points) < 6:` | `->L1423` |  |
-| 1434 | `if (` | `->L1439` |  |
-| 1580 | `if abs(ep.y - f.sy) < ctx.curve_radius:` | `->L1581` | **defensive** -- Merge entry-port Y tracks the source/junction Y, so a sub-curve_radius exit->entry gap never arises (the same-Y rule already handles dy<tol); corpus instrumentation across the fixtures (#762) confirms the arm is never taken. Defensive. |
-| 1583 | `if ep_port and ep_port.side in (PortSide.TOP, PortSide.BOTTOM):` | `->L1584` |  |
-| 1585 | `if ep_port and ep_port.side == PortSide.LEFT:` | `->L1591` | **defensive** -- Contract guard in _route_inter_section: a merge entry port always resolves to a Port on the LEFT side here, so the non-LEFT/None arm (fall through to _route_l_shape at L344) is never taken (0/128). The earlier 'multiline phantom' note was inaccurate -- this is a recorded gate whose arm is never taken. Defensive guard. Reclassified defensive (#762). |
-| 1588 | `if _corridor_is_viable(ctx, src, ep):` | `->L1590` | **needs-review** -- Reachable only via a defective render (route skirts/crosses section boundary); see #724. |
-| 1612 | `if tgt_sec is None:` | `->L1613`, `->L1614` | **defensive** -- Defensive guard in _fan_shares_inter_row_channel: the edge is a fan branch into an entry port, which always resolves to a section, so the None arm is unreachable in practice. |
-| 1614 | `if port.side is PortSide.TOP:` | `->L1615`, `->L1620` |  |
-| 2049 | `if len(_INTER_SECTION_RULE_BY_FAMILY) != len(_INDEXED_INTER_SECTION_RULES):` | `->L2050`, `->L2053` |  |
-| 2055 | `if _INTER_SECTION_RULES is _INDEXED_INTER_SECTION_RULES:` | `->L2057` |  |
-| 2080 | `if not is_inter:` | `->L2081` |  |
-| 2091 | `if family_id is not RouteFamilyId.STANDARD_L_SHAPE:` | `->L2092` |  |
-| 2105 | `route is None` | `->L2106` |  |
-| 2106 | `and membership is not None` | `->L2107`, `->L2116` |  |
-| 2107 | `and membership.assignment is not None` | `->L2108`, `->L2116` |  |
-| 2108 | `and membership.plan.disposition is ExitTurnDisposition.PLANNED` | `->L2110`, `->L2116` |  |
-| 2116 | `if route is not None:` | `->L2121` |  |
-| 2260 | `if planned_transition is not None:` | `->L2261` |  |
-| 2523 | `if query is None:` | `->L2524` | **defensive** -- Production routing runs after layout publishes FanPlanExecution. The None arm preserves the ordinary dispatcher for direct or incomplete routing contexts. |
-| 2548 | `if ctx.station_offsets:` | `->L2550` | **defensive** -- _run_pass_c_guards always populates ctx.station_offsets before route_edges, and RAILS mode returns earlier; the empty-offsets arm never fires. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
-| 2655 | `if query is None:` | `->L2656` |  |
-| 2659 | `if binding is None:` | `->L2660` |  |
-| 2664 | `plan.disposition is not FanPlanDisposition.PLANNED` | `->L2670` |  |
-| 2665 | `or emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS` | `->L2670` |  |
-| 2666 | `or plan.fork_station_id != edge.source` | `->L2670` | **defensive** -- FanPlan membership validation requires every emission source to equal fork_station_id. This operand catches a frozen-plan/source mismatch before materialisation. |
-| 2667 | `or target_port is None` | `->L2670` | **defensive** -- The planner creates this emitter only for a resolved landing port. A missing target port therefore indicates graph or plan drift after publication. |
-| 2668 | `or target_port.side is not PortSide.RIGHT` | `->L2670` | **defensive** -- BOTTOM_EXIT_RIGHT_LANDINGS is selected only when every target is a RIGHT entry. The non-RIGHT arm is a defensive check that the frozen target still satisfies that contract. |
-| 2679 | `if port is None or port.side is not PortSide.RIGHT or section is None:` | `->L2680` | **defensive** -- The planned emitter is created only from existing RIGHT landing ports with owning sections. This guard rejects stale or corrupted port references during materialisation. |
-| 2683 | `if section not in landing_sections:` | `->L2674` | **defensive** -- The planner admits this emitter only when branches land in distinct sections, so the duplicate-section arm cannot occur for a valid frozen emission. It remains a materialisation-time drift check. |
-| 2685 | `if len(landing_sections) != len(plan.branches):` | `->L2686` | **defensive** -- The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart. |
-| 2688 | `if plan.entry_runway is None:` | `->L2689` | **defensive** -- Every PLANNED FanPlan is validated with both runways before publication. The None arm is a runtime drift check for an incomplete plan object. |
-| 2692 | `if not source_lines or edge.line_id not in source_lines:` | `->L2693` | **defensive** -- The planned emitter requires a non-empty offset_line_order whose line set exactly matches its emissions. The missing-line arm protects routing from a malformed frozen plan. |
-| 2719 | `if route is None:` | `->L2720` |  |
-| 2755 | `if tgt_port is None or tgt_port.side != PortSide.LEFT:` | `->L2756` |  |
-| 2758 | `if ep_col is None or ep_row is None:` | `->L2759` |  |
-| 2761 | `if corner_x is None:` | `->L2762` |  |
-| 2884 | `if _would_route_around_section_below(other, ctx):` | `->L2885` | **defensive** -- Competing-sibling detection in _has_around_section_sibling, routed through the dispatch table (#813). A non-bypass sibling feeding the same merge junction sits in an adjacent column or a gap with no same-row intervening section, so it dispatches to an L-shape, not the around-below loop; corpus instrumentation across the fixtures confirms the arm is never taken. Defensive. |
-| 3019 | `if trunk_shape.around_below:` | `->L3020` |  |
-| 3028 | `if flank_xs:` | `->L3007` |  |
-| 3236 | `and corridor.bypass_band_y >= base_y - COORD_TOLERANCE` | `->L3245` | **needs-review** -- Safety fallback: the shared bypass band is the deepest sibling's bypass_bottom_y, so a branch's own base_y never exceeds it; the arm that would decline a shallower shared band (guarding a predicate mismatch) is unexercised in the corpus. |
-| 3308 | `if trunk_v_up_pull_away:` | `->L3317` | **needs-review** -- Reachable only via a defective render (merge-junction tangle); see #721. |
-| 3347 | `this_xmin - gap_left >= SECTION_ROUTE_CLEARANCE` | `->L3348`, `->L3351` |  |
-| 3348 | `and gap_right - around_xmax >= SECTION_ROUTE_CLEARANCE` | `->L3350`, `->L3351` |  |
-| 3423 | `if src_sec is not None and src_sec.bbox_w > 0:` | `->L3473` | **defensive** -- A bypass source section always resolves and has bbox_w>0 (the parser never emits an empty section); the None/zero-width arm never fires. |
-| 3605 | `if facts.src_col is None or facts.tgt_col is None:` | `->L3606` |  |
-| 3610 | `if shape.around_below:` | `->L3611` |  |
-| 3615 | `or _bypass_route_kind(facts) is not _BypassRoute.U_BYPASS` | `->L3617` |  |
-| 3706 | `if ctx.exit_turns is None:` | `->L3707` |  |
-| 3710 | `membership is None` | `->L3713` |  |
-| 3715 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L3716` |  |
-| 3779 | `membership is None` | `->L3782` |  |
-| 3787 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L3788` | **defensive** -- _seat_bypass_descent reads the segment at BYPASS_DESCENT_RANK, which the U-bypass builder emits as the descent between the two gap corners and is vertical by construction. The non-vertical bail guards a route whose point order does not match the shape the caller just built. |
-| 3826 | `if route is not None:` | `->L3828` |  |
-| 3854 | `if route is None:` | `->L3855` | **defensive** -- Defensive in _declare_trunk: _route_inter_section only reaches the declaration after a matched rule (or the L-shape fall-through) produced a route, so the None guard never fires on the corpus; it mirrors _declare_channel's same guard for a handler that returns None. |
-| 3882 | `if route is None:` | `->L3883` | **defensive** -- _declare_channel deliberately accepts RoutedPath \| None so declining builders can be ignored. Production callers currently pass concrete routes; the None no-op remains a defensive helper contract. |
-| 3929 | `if route is None:` | `->L3930` | **defensive** -- _declare_placed_channels accepts RoutedPath \| None to match _declare_trunk and _declare_channel, but all three call sites have already established the route (an assert on the left-entry corridor, a RuntimeError when a planned fan emitter omits a member, and a locally built U-bypass), so the None no-op is a helper contract nothing exercises. |
-| 3943 | `if (lo, matched_row, direction) in declared:` | `->L3945` | **needs-review** -- The un-exercised arm is the fresh declaration, not the dedupe skip: declared is seeded from the slots the handler's targeted _declare_channel calls already made, and on the corpus every gap-landing leg of a frozen frame is one of those, so the sweep only ever skips. The declaration fires where two targeted declarations collapse onto one gap and direction, leaving a third leg holding a gap nothing named -- the case the left-entry corridor and U-bypass call sites are commented for. |
-| 4151 | `while cur is not None and cur not in seen:` | `->L4167` |  |
-| 4157 | `if port.side == PortSide.LEFT:` | `->L4159` |  |
-| 4160 | `if cur in graph.junctions:` | `->L4166` |  |
-| 4247 | `if (` | `->L4253` |  |
-| 4434 | `if geometry is None:` | `->L4435` |  |
-| 4533 | `if abs(tgt.x - src.x) <= ctx.curve_radius:` | `->L4534` |  |
-| 4546 | `if _h_segment_crosses_other_section(graph, src.x, final_x, src.y, exclude):` | `->L4547` | **defensive** -- Traverse-first clearance test in _top_entry_side_fan_traverse_clears (#1349). The below-side fan branch only reaches this gate when its junction also feeds an aligned straight drop; the corpus fan sits a clear row above its target, so the source-Y traverse never crosses another section and the fall-back-to-staircase arm is not exercised. Defensive. |
-| 4674 | `if abs(tgt.x - src.x) > COORD_TOLERANCE or src.id not in ctx.graph.junctions:` | `->L4675` |  |
-| 4709 | `if feeder is not None:` | `->L4714` |  |
-| 4884 | `if len(points) < 3:` | `->L4885` |  |
-| 4936 | `if not section_ids:` | `->L4937` |  |
-| 5016 | `if mid_y is None:` | `->L5033` |  |
-| 5048 | `channel_y is None` | `->L5078` |  |
-| 5050 | `and src_sec is not None` | `->L5078` | **defensive** -- Inter-row exit mid-Y clearance bump (the n>1 multi-line branch). When more than one line shares the exit the source section always resolves, so the `src_sec is None` short-circuit past the clearance bump is never taken. |
-| 5051 | `and tgt_sec is not None` | `->L5078` | **defensive** -- Companion to src_sec in the same n>1 mid-Y clearance branch: the target section always resolves there, so the `tgt_sec is None` short-circuit past the bump is never taken. |
-| 5080 | `if exit_side is not None:` | `->L5082` |  |
-| 5082 | `elif abs(dx) > ctx.curve_radius:` | `->L5083`, `->L5085` |  |
-| 5086 | `if src.id in ctx.graph.junctions:` | `->L5087`, `->L5099` | **needs-review** -- Reachable only via a defective render (LR->TB TOP-entry routing); see #720. |
-| 5087 | `for je in ctx.graph.edges_to(src.id):` | `->L5088`, `->L5099` |  |
-| 5089 | `if js.is_port:` | `->L5087`, `->L5090` |  |
-| 5090 | `if abs(js.x - src.x) <= COORD_TOLERANCE:` | `->L5091`, `->L5093` |  |
-| 5105 | `if exit_side is not None and not straight_drop:` | `->L5115` |  |
-| 5153 | `if not straight_drop:` | `->L5157` | **needs-review** -- A top-entry fan branch fed straight from directly above the junction (straight_drop) keeps its lead-in column at the source X rather than the shared fan pivot; the corpus's fan branches all carry horizontal travel, so the straight-drop arm is unexercised. |
-| 5155 | `if lead is Direction.R:` | `->L5157` | **needs-review** -- A top-entry fan branch leading LEFT out of the junction skips the _v1_corner_x right-edge clearance bump; the corpus's fan branches all lead right, so the left-lead arm is unexercised. |
-| 5182 | `if straight_drop:` | `->L5183` |  |
-| 5259 | `if ctx.exit_turns is None:` | `->L5260` | **needs-review** -- _perp_entry_turn_is_planned answers False for the pre-plan context the exit-turn planner probes emitters with; ctx.exit_turns is bound only for emission. That context does reach these emitters -- the same guard in _seat_bypass_descent takes its None arm on packed_cell_right_exit_left_entry_wrap -- but no corpus probe reaches the TOP/BOTTOM-entry L-shape records this predicate feeds. |
-| 5344 | `if src_sec is None or tgt_sec is None or src_sec.grid_row >= tgt_sec.grid_row:` | `->L5347` |  |
-| 5514 | `if src_section and src_section.bbox_w > 0:` | `->L5515` |  |
-| 5535 | `if tgt_sec is None:` | `->L5536` |  |
-| 5606 | `if src_col is None:` | `->L5607` |  |
-| 5841 | `if src_sec is not None:` | `->L5872` | **defensive** -- Defensive guard in the fanned entry-wrap source-clearance lift: a fan-out junction always resolves to its source section, so the None arm is unreachable in practice. |
-| 5878 | `if tgt_col is not None:` | `->L5883` | **defensive** -- tgt_col from _resolve_section_col on a valid LEFT entry port is always non-None (sections get grid_col>=0 after auto-layout). |
-| 5880 | `if shared_vx is not None:` | `->L5883` | **defensive** -- _fan_left_entry_descent_x returns None only when col_left<=0; col_left_edge for the target's own column is always >0. |
-| 6006 | `if entry_side is PortSide.LEFT:` | `->L6009` |  |
-| 6074 | `if entry_port is None:` | `->L6075` | **defensive** -- _route_around_section_below is always called with a non-None entry_port (both dispatch sites pass a checked station). |
-| 6085 | `if trunk_src is None or trunk_src == edge.source:` | `->L6087` | **needs-review** -- Reachable only via a defective render (merge-junction tangle); see #721. |
-| 6138 | `if col_left <= 0.0:` | `->L6139` | **defensive** -- col_left_edge's 0.0 default only fires for a column with no sections; the target's own column always holds its section. |
-| 6175 | `if entry_port is None:` | `->L6176` | **defensive** -- Every caller of _corridor_is_viable passes a non-None entry_port. |
-| 6182 | `if src_row is None or ep_row is None or src_col is None or ep_col is None:` | `->L6183` | **defensive** -- _resolve_section_colrow returns (None,None) only for a station with no section; valid entry ports always have a section with non-negative grid coords. |
-| 6270 | `if fan is not None and corridor is not None and corridor.band_y is not None:` | `->L6274` | **needs-review** -- Corridor-feeder shared inter-row band gate: the corpus's corridor feeders belong to fans whose corridor carries a band_y, so the short-circuit past it (no corridor or bypass-only) is unexercised; it falls to the elif fan-is-not-None global-band branch. |
-| 6274 | `elif fan is not None:` | `->L6278`, `->L6283` | **needs-review** -- Corridor-feeder fallback for a fan whose junction earned no corridor (its in-column gap below does not fit the bundle); the corpus's fans all earn a corridor, so this global-band branch is unexercised. |
-| 6283 | `elif gap_bottom > gap_top:` | `->L6284`, `->L6288` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
-| 6293 | `if fan is None and gap_bottom > gap_top:` | `->L6294` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
-| 6307 | `if fan is not None and ep_col is not None:` | `->L6309` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
-| 6309 | `if vx is None:` | `->L6310` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
-| 6411 | `if ep_section and ep_section.bbox_w > 0:` | `->L6414` | **defensive** -- entry_port.section_id is always set and the section has bbox_w>0 after layout; the else arm never fires. |
-| 6708 | `for claim in ctx.convergences.prior_channel_claims_for_edge(edge):` | `->L6709` |  |
-| 6709 | `if claim.line_id != edge.line_id or claim.owner_source == edge.source:` | `->L6710`, `->L6711` |  |
-| 6711 | `if not (corner_x - COORD_TOLERANCE <= claim.x <= gap_right + COORD_TOLERANCE):` | `->L6712`, `->L6713` |  |
-| 6713 | `if min(hi, claim.y_hi) - max(lo, claim.y_lo) > COORD_TOLERANCE:` | `->L6708`, `->L6714` |  |
-| 6787 | `if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, f.sy, hy, gap_right):` | `->L6788` |  |
-| 6919 | `if gap_bottom <= gap_top:` | `->L6920` | **defensive** -- The row-gap enforcer keeps stacked rows separated, so the inter-row band above a target row (row_bottom_edge(tgt_row-1) up to row_top_edge(tgt_row)) has positive height whenever a RIGHT entry is fed from a higher row; the degenerate-band arm guards an abutting-rows layout placement never produces. |
-| 6923 | `if not _inter_row_band_fits(gap_top, gap_bottom):` | `->L6924` | **defensive** -- Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive. |
-| 7002 | `if not normalize_exempt:` | `->L7006` |  |
-| 7079 | `if gap_bottom <= gap_top:` | `->L7080` |  |
-| 7081 | `if not _inter_row_band_fits(gap_top, gap_bottom):` | `->L7082` |  |
-| 7092 | `if f.v_segment_crosses_other_section(vx, gy, tgt.y):` | `->L7093` |  |
-| 7187 | `if source is None or source.bbox_w <= 0:` | `->L7188` |  |
-| 7192 | `if source.id not in members:` | `->L7193` |  |
-| 7198 | `if other.bbox_x <= source_right + COORD_TOLERANCE:` | `->L7199` |  |
-| 7200 | `if cellmate_left is None or other.bbox_x < cellmate_left:` | `->L7194` |  |
-| 7202 | `if cellmate_left is None:` | `->L7203` |  |
-| 7240 | `if band0_bottom <= band0_top or not _inter_row_band_fits(band0_top, band0_bottom):` | `->L7241` |  |
-| 7242 | `if band1_bottom <= band1_top or not _inter_row_band_fits(band1_top, band1_bottom):` | `->L7243` |  |
-| 7244 | `if band1_top <= band0_bottom + COORD_TOLERANCE:` | `->L7245` |  |
-| 7260 | `if f.v_segment_crosses_other_section(corner_x, band0_y, band1_y, exclude):` | `->L7261` |  |
-| 7317 | `if geom is None:` | `->L7318` |  |
-| 7320 | `if f.v_segment_crosses_other_section(geom.lead_x, src.y, geom.band0_y):` | `->L7321` |  |
-| 7322 | `if f.h_segment_crosses_other_section(geom.lead_x, geom.corner_x, geom.band0_y):` | `->L7323` |  |
-| 7324 | `if f.h_segment_crosses_other_section(geom.corner_x, geom.vx, geom.band1_y):` | `->L7325` |  |
+| 656 | `and f.src_row is not None` | `->L683` | **defensive** -- LEFT-entry inter-row L-shape guard. Every LEFT-entry inter-section edge reaching this condition has a resolved source grid row (f.src_col/f.tgt_col are asserted non-None just above and the row resolves alongside), so the `f.src_row is None` short-circuit out of the L-shape branch is never taken. |
+| 657 | `and f.tgt_row is not None` | `->L683` | **defensive** -- Companion guard to f.src_row in the same LEFT-entry inter-row L-shape condition: the target grid row is likewise always resolved here, so the `f.tgt_row is None` short-circuit out of the branch is never taken. |
+| 736 | `if src_sec is None:` | `->L737` |  |
+| 740 | `if edges is None:` | `->L741` |  |
+| 764 | `if section and section.bbox_w > 0:` | `->L766` |  |
+| 772 | `if section and section.bbox_w > 0:` | `->L774` |  |
+| 798 | `if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):` | `->L799` | **defensive** -- Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive. |
+| 904 | `if min(drop_xs) < _section_right_edge(graph, tgt) - COORD_TOLERANCE:` | `->L905` |  |
+| 907 | `if _v_segment_crosses_other_section(graph, dx, src.y, tgt.y, exclude):` | `->L908` |  |
+| 948 | `if route is not None:` | `->L950` |  |
+| 972 | `if self.launch_coordinate is None or self.axis_coordinate is None:` | `->L973` | **defensive** -- _SourceSeam.minimum_runway returns None for a shape whose centreline never turns (everything but run_direction unstated). Production readers only reach it through _SourceTurnRequirement.from_seam and the planner sites that assert non-None first, and those run only for turning families, so the None arm firing would be a family-contract violation. |
+| 1149 | `if route is not None:` | `->L1163` |  |
+| 1294 | `if _corridor_is_viable(ctx, src, tgt):` | `->L1295` | **needs-review** -- Reachable only via a defective render (inter-row corridor grazes the source section); see #722. |
+| 1315 | `if kind is _LeftEntryRoute.CORRIDOR:` | `->L1316` |  |
+| 1342 | `if target_port is None:` | `->L1343` |  |
+| 1361 | `if sibling_port is None or not sibling_port.is_entry:` | `->L1362` |  |
+| 1424 | `if sibling_route is None or len(sibling_route.points) < 6:` | `->L1425` |  |
+| 1436 | `if (` | `->L1441` |  |
+| 1582 | `if abs(ep.y - f.sy) < ctx.curve_radius:` | `->L1583` | **defensive** -- Merge entry-port Y tracks the source/junction Y, so a sub-curve_radius exit->entry gap never arises (the same-Y rule already handles dy<tol); corpus instrumentation across the fixtures (#762) confirms the arm is never taken. Defensive. |
+| 1585 | `if ep_port and ep_port.side in (PortSide.TOP, PortSide.BOTTOM):` | `->L1586` |  |
+| 1587 | `if ep_port and ep_port.side == PortSide.LEFT:` | `->L1593` | **defensive** -- Contract guard in _route_inter_section: a merge entry port always resolves to a Port on the LEFT side here, so the non-LEFT/None arm (fall through to _route_l_shape at L344) is never taken (0/128). The earlier 'multiline phantom' note was inaccurate -- this is a recorded gate whose arm is never taken. Defensive guard. Reclassified defensive (#762). |
+| 1590 | `if _corridor_is_viable(ctx, src, ep):` | `->L1592` | **needs-review** -- Reachable only via a defective render (route skirts/crosses section boundary); see #724. |
+| 1614 | `if tgt_sec is None:` | `->L1615`, `->L1616` | **defensive** -- Defensive guard in _fan_shares_inter_row_channel: the edge is a fan branch into an entry port, which always resolves to a section, so the None arm is unreachable in practice. |
+| 1616 | `if port.side is PortSide.TOP:` | `->L1617`, `->L1622` |  |
+| 2051 | `if len(_INTER_SECTION_RULE_BY_FAMILY) != len(_INDEXED_INTER_SECTION_RULES):` | `->L2052`, `->L2055` |  |
+| 2057 | `if _INTER_SECTION_RULES is _INDEXED_INTER_SECTION_RULES:` | `->L2059` |  |
+| 2082 | `if not is_inter:` | `->L2083` |  |
+| 2093 | `if family_id is not RouteFamilyId.STANDARD_L_SHAPE:` | `->L2094` |  |
+| 2107 | `route is None` | `->L2108` |  |
+| 2108 | `and membership is not None` | `->L2109`, `->L2118` |  |
+| 2109 | `and membership.assignment is not None` | `->L2110`, `->L2118` |  |
+| 2110 | `and membership.plan.disposition is ExitTurnDisposition.PLANNED` | `->L2112`, `->L2118` |  |
+| 2118 | `if route is not None:` | `->L2123` |  |
+| 2262 | `if planned_transition is not None:` | `->L2263` |  |
+| 2525 | `if query is None:` | `->L2526` | **defensive** -- Production routing runs after layout publishes FanPlanExecution. The None arm preserves the ordinary dispatcher for direct or incomplete routing contexts. |
+| 2550 | `if ctx.station_offsets:` | `->L2552` | **defensive** -- _run_pass_c_guards always populates ctx.station_offsets before route_edges, and RAILS mode returns earlier; the empty-offsets arm never fires. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken. |
+| 2657 | `if query is None:` | `->L2658` |  |
+| 2661 | `if binding is None:` | `->L2662` |  |
+| 2666 | `plan.disposition is not FanPlanDisposition.PLANNED` | `->L2672` |  |
+| 2667 | `or emission.emitter is not FanRouteEmitter.BOTTOM_EXIT_RIGHT_LANDINGS` | `->L2672` |  |
+| 2668 | `or plan.fork_station_id != edge.source` | `->L2672` | **defensive** -- FanPlan membership validation requires every emission source to equal fork_station_id. This operand catches a frozen-plan/source mismatch before materialisation. |
+| 2669 | `or target_port is None` | `->L2672` | **defensive** -- The planner creates this emitter only for a resolved landing port. A missing target port therefore indicates graph or plan drift after publication. |
+| 2670 | `or target_port.side is not PortSide.RIGHT` | `->L2672` | **defensive** -- BOTTOM_EXIT_RIGHT_LANDINGS is selected only when every target is a RIGHT entry. The non-RIGHT arm is a defensive check that the frozen target still satisfies that contract. |
+| 2681 | `if port is None or port.side is not PortSide.RIGHT or section is None:` | `->L2682` | **defensive** -- The planned emitter is created only from existing RIGHT landing ports with owning sections. This guard rejects stale or corrupted port references during materialisation. |
+| 2685 | `if section not in landing_sections:` | `->L2676` | **defensive** -- The planner admits this emitter only when branches land in distinct sections, so the duplicate-section arm cannot occur for a valid frozen emission. It remains a materialisation-time drift check. |
+| 2687 | `if len(landing_sections) != len(plan.branches):` | `->L2688` | **defensive** -- The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart. |
+| 2690 | `if plan.entry_runway is None:` | `->L2691` | **defensive** -- Every PLANNED FanPlan is validated with both runways before publication. The None arm is a runtime drift check for an incomplete plan object. |
+| 2694 | `if not source_lines or edge.line_id not in source_lines:` | `->L2695` | **defensive** -- The planned emitter requires a non-empty offset_line_order whose line set exactly matches its emissions. The missing-line arm protects routing from a malformed frozen plan. |
+| 2721 | `if route is None:` | `->L2722` |  |
+| 2757 | `if tgt_port is None or tgt_port.side != PortSide.LEFT:` | `->L2758` |  |
+| 2760 | `if ep_col is None or ep_row is None:` | `->L2761` |  |
+| 2763 | `if corner_x is None:` | `->L2764` |  |
+| 2886 | `if _would_route_around_section_below(other, ctx):` | `->L2887` | **defensive** -- Competing-sibling detection in _has_around_section_sibling, routed through the dispatch table (#813). A non-bypass sibling feeding the same merge junction sits in an adjacent column or a gap with no same-row intervening section, so it dispatches to an L-shape, not the around-below loop; corpus instrumentation across the fixtures confirms the arm is never taken. Defensive. |
+| 3021 | `if trunk_shape.around_below:` | `->L3022` |  |
+| 3030 | `if flank_xs:` | `->L3009` |  |
+| 3238 | `and corridor.bypass_band_y >= base_y - COORD_TOLERANCE` | `->L3247` | **needs-review** -- Safety fallback: the shared bypass band is the deepest sibling's bypass_bottom_y, so a branch's own base_y never exceeds it; the arm that would decline a shallower shared band (guarding a predicate mismatch) is unexercised in the corpus. |
+| 3310 | `if trunk_v_up_pull_away:` | `->L3319` | **needs-review** -- Reachable only via a defective render (merge-junction tangle); see #721. |
+| 3349 | `this_xmin - gap_left >= SECTION_ROUTE_CLEARANCE` | `->L3350`, `->L3353` |  |
+| 3350 | `and gap_right - around_xmax >= SECTION_ROUTE_CLEARANCE` | `->L3352`, `->L3353` |  |
+| 3425 | `if src_sec is not None and src_sec.bbox_w > 0:` | `->L3475` | **defensive** -- A bypass source section always resolves and has bbox_w>0 (the parser never emits an empty section); the None/zero-width arm never fires. |
+| 3607 | `if facts.src_col is None or facts.tgt_col is None:` | `->L3608` |  |
+| 3612 | `if shape.around_below:` | `->L3613` |  |
+| 3617 | `or _bypass_route_kind(facts) is not _BypassRoute.U_BYPASS` | `->L3619` |  |
+| 3708 | `if ctx.exit_turns is None:` | `->L3709` |  |
+| 3712 | `membership is None` | `->L3715` |  |
+| 3717 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L3718` |  |
+| 3781 | `membership is None` | `->L3784` |  |
+| 3789 | `if abs(start[0] - end[0]) > COORD_TOLERANCE:` | `->L3790` | **defensive** -- _seat_bypass_descent reads the segment at BYPASS_DESCENT_RANK, which the U-bypass builder emits as the descent between the two gap corners and is vertical by construction. The non-vertical bail guards a route whose point order does not match the shape the caller just built. |
+| 3828 | `if route is not None:` | `->L3830` |  |
+| 3856 | `if route is None:` | `->L3857` | **defensive** -- Defensive in _declare_trunk: _route_inter_section only reaches the declaration after a matched rule (or the L-shape fall-through) produced a route, so the None guard never fires on the corpus; it mirrors _declare_channel's same guard for a handler that returns None. |
+| 3884 | `if route is None:` | `->L3885` | **defensive** -- _declare_channel deliberately accepts RoutedPath \| None so declining builders can be ignored. Production callers currently pass concrete routes; the None no-op remains a defensive helper contract. |
+| 3931 | `if route is None:` | `->L3932` | **defensive** -- _declare_placed_channels accepts RoutedPath \| None to match _declare_trunk and _declare_channel, but all three call sites have already established the route (an assert on the left-entry corridor, a RuntimeError when a planned fan emitter omits a member, and a locally built U-bypass), so the None no-op is a helper contract nothing exercises. |
+| 3945 | `if (lo, matched_row, direction) in declared:` | `->L3947` | **needs-review** -- The un-exercised arm is the fresh declaration, not the dedupe skip: declared is seeded from the slots the handler's targeted _declare_channel calls already made, and on the corpus every gap-landing leg of a frozen frame is one of those, so the sweep only ever skips. The declaration fires where two targeted declarations collapse onto one gap and direction, leaving a third leg holding a gap nothing named -- the case the left-entry corridor and U-bypass call sites are commented for. |
+| 4153 | `while cur is not None and cur not in seen:` | `->L4169` |  |
+| 4159 | `if port.side == PortSide.LEFT:` | `->L4161` |  |
+| 4162 | `if cur in graph.junctions:` | `->L4168` |  |
+| 4249 | `if (` | `->L4255` |  |
+| 4436 | `if geometry is None:` | `->L4437` |  |
+| 4535 | `if abs(tgt.x - src.x) <= ctx.curve_radius:` | `->L4536` |  |
+| 4548 | `if _h_segment_crosses_other_section(graph, src.x, final_x, src.y, exclude):` | `->L4549` | **defensive** -- Traverse-first clearance test in _top_entry_side_fan_traverse_clears (#1349). The below-side fan branch only reaches this gate when its junction also feeds an aligned straight drop; the corpus fan sits a clear row above its target, so the source-Y traverse never crosses another section and the fall-back-to-staircase arm is not exercised. Defensive. |
+| 4676 | `if abs(tgt.x - src.x) > COORD_TOLERANCE or src.id not in ctx.graph.junctions:` | `->L4677` |  |
+| 4711 | `if feeder is not None:` | `->L4716` |  |
+| 4886 | `if len(points) < 3:` | `->L4887` |  |
+| 4938 | `if not section_ids:` | `->L4939` |  |
+| 5018 | `if mid_y is None:` | `->L5035` |  |
+| 5050 | `channel_y is None` | `->L5080` |  |
+| 5052 | `and src_sec is not None` | `->L5080` | **defensive** -- Inter-row exit mid-Y clearance bump (the n>1 multi-line branch). When more than one line shares the exit the source section always resolves, so the `src_sec is None` short-circuit past the clearance bump is never taken. |
+| 5053 | `and tgt_sec is not None` | `->L5080` | **defensive** -- Companion to src_sec in the same n>1 mid-Y clearance branch: the target section always resolves there, so the `tgt_sec is None` short-circuit past the bump is never taken. |
+| 5082 | `if exit_side is not None:` | `->L5084` |  |
+| 5084 | `elif abs(dx) > ctx.curve_radius:` | `->L5085`, `->L5087` |  |
+| 5088 | `if src.id in ctx.graph.junctions:` | `->L5089`, `->L5101` | **needs-review** -- Reachable only via a defective render (LR->TB TOP-entry routing); see #720. |
+| 5089 | `for je in ctx.graph.edges_to(src.id):` | `->L5090`, `->L5101` |  |
+| 5091 | `if js.is_port:` | `->L5089`, `->L5092` |  |
+| 5092 | `if abs(js.x - src.x) <= COORD_TOLERANCE:` | `->L5093`, `->L5095` |  |
+| 5107 | `if exit_side is not None and not straight_drop:` | `->L5117` |  |
+| 5155 | `if not straight_drop:` | `->L5159` | **needs-review** -- A top-entry fan branch fed straight from directly above the junction (straight_drop) keeps its lead-in column at the source X rather than the shared fan pivot; the corpus's fan branches all carry horizontal travel, so the straight-drop arm is unexercised. |
+| 5157 | `if lead is Direction.R:` | `->L5159` | **needs-review** -- A top-entry fan branch leading LEFT out of the junction skips the _v1_corner_x right-edge clearance bump; the corpus's fan branches all lead right, so the left-lead arm is unexercised. |
+| 5184 | `if straight_drop:` | `->L5185` |  |
+| 5261 | `if ctx.exit_turns is None:` | `->L5262` | **needs-review** -- _perp_entry_turn_is_planned answers False for the pre-plan context the exit-turn planner probes emitters with; ctx.exit_turns is bound only for emission. That context does reach these emitters -- the same guard in _seat_bypass_descent takes its None arm on packed_cell_right_exit_left_entry_wrap -- but no corpus probe reaches the TOP/BOTTOM-entry L-shape records this predicate feeds. |
+| 5346 | `if src_sec is None or tgt_sec is None or src_sec.grid_row >= tgt_sec.grid_row:` | `->L5349` |  |
+| 5516 | `if src_section and src_section.bbox_w > 0:` | `->L5517` |  |
+| 5537 | `if tgt_sec is None:` | `->L5538` |  |
+| 5608 | `if src_col is None:` | `->L5609` |  |
+| 5843 | `if src_sec is not None:` | `->L5874` | **defensive** -- Defensive guard in the fanned entry-wrap source-clearance lift: a fan-out junction always resolves to its source section, so the None arm is unreachable in practice. |
+| 5880 | `if tgt_col is not None:` | `->L5885` | **defensive** -- tgt_col from _resolve_section_col on a valid LEFT entry port is always non-None (sections get grid_col>=0 after auto-layout). |
+| 5882 | `if shared_vx is not None:` | `->L5885` | **defensive** -- _fan_left_entry_descent_x returns None only when col_left<=0; col_left_edge for the target's own column is always >0. |
+| 6008 | `if entry_side is PortSide.LEFT:` | `->L6011` |  |
+| 6076 | `if entry_port is None:` | `->L6077` | **defensive** -- _route_around_section_below is always called with a non-None entry_port (both dispatch sites pass a checked station). |
+| 6087 | `if trunk_src is None or trunk_src == edge.source:` | `->L6089` | **needs-review** -- Reachable only via a defective render (merge-junction tangle); see #721. |
+| 6140 | `if col_left <= 0.0:` | `->L6141` | **defensive** -- col_left_edge's 0.0 default only fires for a column with no sections; the target's own column always holds its section. |
+| 6177 | `if entry_port is None:` | `->L6178` | **defensive** -- Every caller of _corridor_is_viable passes a non-None entry_port. |
+| 6184 | `if src_row is None or ep_row is None or src_col is None or ep_col is None:` | `->L6185` | **defensive** -- _resolve_section_colrow returns (None,None) only for a station with no section; valid entry ports always have a section with non-negative grid coords. |
+| 6272 | `if fan is not None and corridor is not None and corridor.band_y is not None:` | `->L6276` | **needs-review** -- Corridor-feeder shared inter-row band gate: the corpus's corridor feeders belong to fans whose corridor carries a band_y, so the short-circuit past it (no corridor or bypass-only) is unexercised; it falls to the elif fan-is-not-None global-band branch. |
+| 6276 | `elif fan is not None:` | `->L6280`, `->L6285` | **needs-review** -- Corridor-feeder fallback for a fan whose junction earned no corridor (its in-column gap below does not fit the bundle); the corpus's fans all earn a corridor, so this global-band branch is unexercised. |
+| 6285 | `elif gap_bottom > gap_top:` | `->L6286`, `->L6290` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
+| 6295 | `if fan is None and gap_bottom > gap_top:` | `->L6296` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
+| 6309 | `if fan is not None and ep_col is not None:` | `->L6311` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
+| 6311 | `if vx is None:` | `->L6312` | **needs-review** -- Reachable only via a defective render (inter-row corridor on a <78px gap); see #722. |
+| 6413 | `if ep_section and ep_section.bbox_w > 0:` | `->L6416` | **defensive** -- entry_port.section_id is always set and the section has bbox_w>0 after layout; the else arm never fires. |
+| 6710 | `for claim in ctx.convergences.prior_channel_claims_for_edge(edge):` | `->L6711` |  |
+| 6711 | `if claim.line_id != edge.line_id or claim.owner_source == edge.source:` | `->L6712`, `->L6713` |  |
+| 6713 | `if not (corner_x - COORD_TOLERANCE <= claim.x <= gap_right + COORD_TOLERANCE):` | `->L6714`, `->L6715` |  |
+| 6715 | `if min(hi, claim.y_hi) - max(lo, claim.y_lo) > COORD_TOLERANCE:` | `->L6710`, `->L6716` |  |
+| 6789 | `if _leadout_self_meets_sibling_descent(ctx, edge, corner_x, f.sy, hy, gap_right):` | `->L6790` |  |
+| 6921 | `if gap_bottom <= gap_top:` | `->L6922` | **defensive** -- The row-gap enforcer keeps stacked rows separated, so the inter-row band above a target row (row_bottom_edge(tgt_row-1) up to row_top_edge(tgt_row)) has positive height whenever a RIGHT entry is fed from a higher row; the degenerate-band arm guards an abutting-rows layout placement never produces. |
+| 6925 | `if not _inter_row_band_fits(gap_top, gap_bottom):` | `->L6926` | **defensive** -- Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive. |
+| 7004 | `if not normalize_exempt:` | `->L7008` |  |
+| 7081 | `if gap_bottom <= gap_top:` | `->L7082` |  |
+| 7083 | `if not _inter_row_band_fits(gap_top, gap_bottom):` | `->L7084` |  |
+| 7094 | `if f.v_segment_crosses_other_section(vx, gy, tgt.y):` | `->L7095` |  |
+| 7189 | `if source is None or source.bbox_w <= 0:` | `->L7190` |  |
+| 7194 | `if source.id not in members:` | `->L7195` |  |
+| 7200 | `if other.bbox_x <= source_right + COORD_TOLERANCE:` | `->L7201` |  |
+| 7202 | `if cellmate_left is None or other.bbox_x < cellmate_left:` | `->L7196` |  |
+| 7204 | `if cellmate_left is None:` | `->L7205` |  |
+| 7242 | `if band0_bottom <= band0_top or not _inter_row_band_fits(band0_top, band0_bottom):` | `->L7243` |  |
+| 7244 | `if band1_bottom <= band1_top or not _inter_row_band_fits(band1_top, band1_bottom):` | `->L7245` |  |
+| 7246 | `if band1_top <= band0_bottom + COORD_TOLERANCE:` | `->L7247` |  |
+| 7262 | `if f.v_segment_crosses_other_section(corner_x, band0_y, band1_y, exclude):` | `->L7263` |  |
+| 7319 | `if geom is None:` | `->L7320` |  |
+| 7322 | `if f.v_segment_crosses_other_section(geom.lead_x, src.y, geom.band0_y):` | `->L7323` |  |
+| 7324 | `if f.h_segment_crosses_other_section(geom.lead_x, geom.corner_x, geom.band0_y):` | `->L7325` |  |
+| 7326 | `if f.h_segment_crosses_other_section(geom.corner_x, geom.vx, geom.band1_y):` | `->L7327` |  |
 
 ## `intra_handlers.py`
 
