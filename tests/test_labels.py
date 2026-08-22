@@ -228,8 +228,8 @@ class TestAvoidDiagonalRoutes:
         assert placement.y == 195
 
 
-# The issue-1768 reporter's map: a wide-label section beside a narrow one, so
-# the narrow section's labels are the ones forced to wrap.
+# A wide-label section beside a narrow one, so the narrow section's labels are
+# the ones forced to wrap (#1768).
 _CROWDED_LABELS_MMD = """%%metro line: main | Main | #e6007e
 %%metro grid: wide, narrow | 0,0
 

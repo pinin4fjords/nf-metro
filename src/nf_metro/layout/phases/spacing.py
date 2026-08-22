@@ -1,4 +1,10 @@
-"""Global y-spacing widening search that clears residual label overlaps."""
+"""Global spacing widening search that clears residual label crowding.
+
+Probes the renderer's own offset/route/label pipeline -- optionally with
+terminus file icons fed in as label obstacles -- to measure residual overlaps
+and strikes, widens the auto-resolved spacing axes to clear them, and warns
+when a pinned pitch is too narrow to be cleared that way.
+"""
 
 from __future__ import annotations
 
@@ -49,12 +55,12 @@ def _probe_label_placements(
     ``None`` if routing/placement raises (a transient failure never blocks
     layout).  Snapshots and restores the in-place mutations route/place make.
 
-    ``icon_aware`` feeds terminus file icons in as label obstacles, which is
-    what the renderer does, so a label the renderer sides off an icon is probed
-    where it lands.  A caller measuring *where a label ends up* wants that; a
-    caller measuring *how wide a label reaches* wants the unsided view, since
-    the reach it must clear is the one the label has before an icon narrows its
-    choices.
+    ``icon_aware`` feeds terminus file icons in as label obstacles, matching
+    what the renderer does.  A label the renderer sides off an icon is then
+    probed where it lands.  A caller measuring *where a label ends up* wants
+    that; a caller measuring *how wide a label reaches* wants the unsided view,
+    since the reach it must clear is the one the label has before an icon
+    narrows its choices.
 
     The render-time wrapped-label trunk lift is held off here so the spacing
     search and the label-overlap guard reason about the unlifted geometry; the
@@ -461,7 +467,7 @@ def _overlap_separation(
     return abs(a.x - b.x), abs(a.y - b.y)
 
 
-def warn_if_pinned_x_spacing_crowds_labels(
+def _warn_if_pinned_x_spacing_crowds_labels(
     graph: MetroGraph, x_spacing: float, y_spacing: float
 ) -> None:
     """Warn when a pinned column pitch ships overlapping station labels.

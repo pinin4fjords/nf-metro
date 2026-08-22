@@ -330,7 +330,7 @@ from nf_metro.layout.phases.spacing import (  # noqa: F401
     _residual_label_overlaps,
     _spread_bump,
     _struck_stations_and_collinear,
-    warn_if_pinned_x_spacing_crowds_labels,
+    _warn_if_pinned_x_spacing_crowds_labels,
 )
 from nf_metro.layout.routing.context import is_far_side_around_below_left_entry
 from nf_metro.parser.model import (
@@ -782,7 +782,7 @@ def _compute_layout_scaled(
     graph.bypass_label_obstacles = _bypass_label_obstacles(graph)
 
     if not auto_x:
-        warn_if_pinned_x_spacing_crowds_labels(graph, x_spacing, y_spacing)
+        _warn_if_pinned_x_spacing_crowds_labels(graph, x_spacing, y_spacing)
 
     _snap(graph, "final")
 
