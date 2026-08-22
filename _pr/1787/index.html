@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="nf-metro-render-run" content="32585814057">
+<meta name="nf-metro-render-run" content="32594698617">
 <title>Render diff - PR #1787</title>
 <style>
   :root {
@@ -257,7 +257,7 @@
   <h1>Render diff - PR #1787</h1>
   <button id="scheme-toggle" class="scheme-btn">System</button>
 </div>
-<p class="summary">2 changed, 1 added out of 325 total renders. Generated 2026-08-22 16:49 UTC.</p>
+<p class="summary">3 changed, 1 added out of 325 total renders. Generated 2026-08-22 19:47 UTC.</p>
 <details class="intro">
 <summary>What is this page?</summary>
 <p>
@@ -290,7 +290,8 @@ switch between side-by-side, base-only, and PR-only views.
 <tr><th>Render</th><th>Crossings</th><th>Near-horiz.</th><th>Lone diag.</th><th>Bends/route</th><th>Corners</th><th>Turn/route (rad)</th><th>Label strikes</th><th>Marker gap ↑</th><th>Excess gaps</th><th>Wasted canvas</th></tr>
 <tr><td><a href="#differentialabundance">differentialabundance</a></td><td class="m-flat">33</td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">1.3</td><td class="m-flat">180</td><td class="m-flat">1.4</td><td class="m-flat">0</td><td class="m-flat">46.4</td><td class="m-flat">5</td><td class="m-better">18%&rarr;18% (−0%)</td></tr>
 <tr><td><a href="#exit_lane_rise_bundle_order">exit_lane_rise_bundle_order</a></td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;1.1</td><td class="m-flat">&ndash;&rarr;24</td><td class="m-flat">&ndash;&rarr;1.0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;77.0</td><td class="m-flat">&ndash;&rarr;0</td><td class="m-flat">&ndash;&rarr;46%</td></tr>
-<tr><td><a href="#render_labelwrap_row_gap">render_labelwrap_row_gap</a></td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0.2</td><td class="m-flat">6</td><td class="m-flat">0.3</td><td class="m-flat">0</td><td class="m-flat">75.0</td><td class="m-flat">0</td><td class="m-better">40%&rarr;40% (−1%)</td></tr>
+<tr><td><a href="#render_labelwrap_row_gap">render_labelwrap_row_gap</a></td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0.2</td><td class="m-flat">6</td><td class="m-flat">0.3</td><td class="m-flat">0</td><td class="m-flat">75.0</td><td class="m-flat">0</td><td class="m-worse">40%&rarr;41% (+1%)</td></tr>
+<tr><td><a href="#straddling_fanout_junction">straddling_fanout_junction</a></td><td class="m-flat">1</td><td class="m-flat">0</td><td class="m-flat">0</td><td class="m-flat">0.2</td><td class="m-flat">6</td><td class="m-flat">0.4</td><td class="m-flat">0</td><td class="m-flat">69.5</td><td class="m-flat">0</td><td class="m-worse">39%&rarr;39% (+0%)</td></tr>
 </table>
 </div>
 <div class="toc">
@@ -303,6 +304,7 @@ switch between side-by-side, base-only, and PR-only views.
 <ul>
 <li><a href="#exit_lane_rise_bundle_order">exit_lane_rise_bundle_order</a><span class="badge badge-added">added</span></li>
 <li><a href="#render_labelwrap_row_gap">render_labelwrap_row_gap</a><span class="badge badge-changed">changed</span></li>
+<li><a href="#straddling_fanout_junction">straddling_fanout_junction</a><span class="badge badge-changed">changed</span></li>
 </ul>
 </div>
 <h2 class="section-header" id="section-realistic-pipelines">Realistic Pipelines</h2>
@@ -1759,7 +1761,7 @@ switch between side-by-side, base-only, and PR-only views.
 </svg></div></div>
 <div class="side side-pr"><h4>PR</h4><div class="svg-wrapper"><?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="849" height="678" viewBox="0 0 849 678">
+     width="687" height="678" viewBox="0 0 687 678">
 <defs>
 </defs>
 <style>.nf-metro-bg { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
@@ -1773,127 +1775,127 @@ switch between side-by-side, base-only, and PR-only views.
 .nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
 .nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
 .nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
-<rect x="0" y="0" width="849" height="678" fill="#2b2b2b" class="nf-metro-bg" />
+<rect x="0" y="0" width="687" height="678" fill="#2b2b2b" class="nf-metro-bg" />
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">label-wrap row gap</text>
-<rect x="30.0" y="70.0" width="328.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="align_sec" data-section-lines="fusion,qc,quant" />
+<rect x="30.0" y="70.0" width="280.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="align_sec" data-section-lines="fusion,qc,quant" />
 <circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="align_sec" />
 <text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="align_sec">1</text>
 <text x="57.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="align_sec">Alignment</text>
-<rect x="408.0" y="70.0" width="381.6" height="158.4" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="qc_sec" data-section-lines="qc" />
-<circle cx="419.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="qc_sec" />
-<text x="419.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="qc_sec">2</text>
-<text x="435.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="qc_sec">QC</text>
-<rect x="408.0" y="278.4" width="252.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="quant_sec" data-section-lines="quant" />
-<circle cx="419.0" cy="263.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="quant_sec" />
-<text x="419.0" y="263.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="quant_sec">3</text>
-<text x="435.0" y="263.4" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="quant_sec">Quantification</text>
-<rect x="408.0" y="428.4" width="252.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="fusion_sec" data-section-lines="fusion" />
-<circle cx="419.0" cy="413.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="fusion_sec" />
-<text x="419.0" y="413.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="fusion_sec">4</text>
-<text x="435.0" y="413.4" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="fusion_sec">Fusion detection</text>
-<path d="M80.0,128.0 L156.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M156.0,128.0 L232.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M232.0,128.0 L308.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M458.0,478.4 L534.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M534.0,478.4 L610.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M232.0,128.0 L358.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M408.0,478.4 L458.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M358.0,128.0 L368.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M368.0,128.0 L373.0,128.0 Q383.0,128.0,383.0,138.0 L383.0,464.4 Q383.0,478.4,397.0,478.4 L408.0,478.4" stroke="#38b927" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fusion" data-line-id="fusion" />
-<path d="M80.0,124.0 L156.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M156.0,124.0 L232.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M232.0,124.0 L308.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M458.0,328.4 L534.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M534.0,328.4 L610.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M232.0,124.0 L358.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M408.0,328.4 L458.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M358.0,124.0 L368.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M368.0,124.0 L373.0,124.0 Q387.0,124.0,387.0,138.0 L387.0,318.4 Q387.0,328.4,397.0,328.4 L408.0,328.4" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-quant" data-line-id="quant" />
-<path d="M80.0,120.0 L156.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M156.0,120.0 L232.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M232.0,120.0 L308.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M579.6,120.0 L655.6,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M579.6,178.39999999999998 L655.6,178.39999999999998" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M655.6,178.39999999999998 L731.6,178.39999999999998" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M232.0,120.0 L358.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M408.0,120.0 L579.6,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M408.0,120.0 L413.0,120.0 Q423.0,120.0,427.5693498139703,128.89500097119554 L448.4306501860297,169.50499902880443 Q453.0,178.39999999999998,463.0,178.39999999999998 L579.6,178.39999999999998" stroke="#e6550d" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M358.0,120.0 L368.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
-<path d="M368.0,120.0 L408.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<rect x="360.0" y="70.0" width="267.5" height="158.4" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="qc_sec" data-section-lines="qc" />
+<circle cx="371.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="qc_sec" />
+<text x="371.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="qc_sec">2</text>
+<text x="387.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="qc_sec">QC</text>
+<rect x="360.0" y="278.4" width="220.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="quant_sec" data-section-lines="quant" />
+<circle cx="371.0" cy="263.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="quant_sec" />
+<text x="371.0" y="263.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="quant_sec">3</text>
+<text x="387.0" y="263.4" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="quant_sec">Quantification</text>
+<rect x="360.0" y="428.4" width="220.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="fusion_sec" data-section-lines="fusion" />
+<circle cx="371.0" cy="413.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="fusion_sec" />
+<text x="371.0" y="413.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="fusion_sec">4</text>
+<text x="387.0" y="413.4" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="fusion_sec">Fusion detection</text>
+<path d="M80.0,128.0 L140.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M140.0,128.0 L200.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M200.0,128.0 L260.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M410.0,478.4 L470.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M470.0,478.4 L530.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M200.0,128.0 L310.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M360.0,478.4 L410.0,478.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M310.0,128.0 L320.0,128.0" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M320.0,128.0 L325.0,128.0 Q335.0,128.0,335.0,138.0 L335.0,464.4 Q335.0,478.4,349.0,478.4 L360.0,478.4" stroke="#38b927" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-fusion" data-line-id="fusion" />
+<path d="M80.0,124.0 L140.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M140.0,124.0 L200.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M200.0,124.0 L260.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M410.0,328.4 L470.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M470.0,328.4 L530.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M200.0,124.0 L310.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M360.0,328.4 L410.0,328.4" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M310.0,124.0 L320.0,124.0" stroke="#0570b0" stroke-width="3.0" stroke-linecap="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M320.0,124.0 L325.0,124.0 Q339.0,124.0,339.0,138.0 L339.0,318.4 Q339.0,328.4,349.0,328.4 L360.0,328.4" stroke="#0570b0" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-quant" data-line-id="quant" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M140.0,120.0 L200.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M200.0,120.0 L260.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M449.5,120.0 L509.5,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M449.5,178.39999999999998 L509.5,178.39999999999998" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M509.5,178.39999999999998 L569.5,178.39999999999998" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M200.0,120.0 L310.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M360.0,120.0 L449.5,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M360.0,120.0 L365.0,120.0 Q375.0,120.0,379.5693498139703,128.89500097119554 L400.4306501860297,169.50499902880443 Q405.0,178.39999999999998,415.0,178.39999999999998 L449.5,178.39999999999998" stroke="#e6550d" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M310.0,120.0 L320.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
+<path d="M320.0,120.0 L360.0,120.0" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" class="metro-line-qc" data-line-id="qc" />
 <rect x="75.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="reads_in" data-station-lines="fusion,qc,quant" data-station-label="reads_in" data-section-id="align_sec" data-section-name="Alignment" />
-<rect x="151.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bbduk" data-station-lines="fusion,qc,quant" data-station-label="BBDuk trim" data-section-id="align_sec" data-section-name="Alignment" />
-<rect x="227.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="star" data-station-lines="fusion,qc,quant" data-station-label="STAR 2-pass" data-section-id="align_sec" data-section-name="Alignment" />
-<rect x="303.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="cram_out" data-station-lines="fusion,qc,quant" data-station-label="cram_out" data-section-id="align_sec" data-section-name="Alignment" />
-<rect x="574.6" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="flagstat" data-station-lines="qc" data-station-label="flagstat + mosdepth" data-section-id="qc_sec" data-section-name="QC" />
-<rect x="574.6" y="173.39999999999998" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="markdup" data-station-lines="qc" data-station-label="sambamba markdup" data-section-id="qc_sec" data-section-name="QC" />
-<rect x="650.6" y="173.39999999999998" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rnaseqc" data-station-lines="qc" data-station-label="RNA-SeQC" data-section-id="qc_sec" data-section-name="QC" />
-<rect x="650.6" y="115.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="sexcheck_out" data-station-lines="qc" data-station-label="sexcheck_out" data-section-id="qc_sec" data-section-name="QC" />
+<rect x="135.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="bbduk" data-station-lines="fusion,qc,quant" data-station-label="BBDuk trim" data-section-id="align_sec" data-section-name="Alignment" />
+<rect x="195.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="star" data-station-lines="fusion,qc,quant" data-station-label="STAR 2-pass" data-section-id="align_sec" data-section-name="Alignment" />
+<rect x="255.0" y="115.0" width="10.0" height="18.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="cram_out" data-station-lines="fusion,qc,quant" data-station-label="cram_out" data-section-id="align_sec" data-section-name="Alignment" />
+<rect x="444.5" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="flagstat" data-station-lines="qc" data-station-label="flagstat + mosdepth" data-section-id="qc_sec" data-section-name="QC" />
+<rect x="444.5" y="173.39999999999998" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="markdup" data-station-lines="qc" data-station-label="sambamba markdup" data-section-id="qc_sec" data-section-name="QC" />
+<rect x="504.5" y="173.39999999999998" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rnaseqc" data-station-lines="qc" data-station-label="RNA-SeQC" data-section-id="qc_sec" data-section-name="QC" />
+<rect x="504.5" y="115.0" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="sexcheck_out" data-station-lines="qc" data-station-label="sexcheck_out" data-section-id="qc_sec" data-section-name="QC" />
 <g data-station-id="sexcheck_out">
-<path d="M668.6,104.0 L686.6,104.0 L694.6,112.0 L694.6,134.0 Q694.6,136.0,692.6,136.0 L668.6,136.0 Q666.6,136.0,666.6,134.0 L666.6,106.0 Q666.6,104.0,668.6,104.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
-<path d="M686.6,104.0 L686.6,112.0 L694.6,112.0 Z" fill="#333333" opacity="0.15" stroke="none" />
-<path d="M686.6,104.0 L686.6,112.0 L694.6,112.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
-<text x="680.6" y="121.2" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">TSV</text>
-<text x="680.6" y="140.0" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" class="nf-metro-station-label">Sex check</text>
+<path d="M522.5,104.0 L540.5,104.0 L548.5,112.0 L548.5,134.0 Q548.5,136.0,546.5,136.0 L522.5,136.0 Q520.5,136.0,520.5,134.0 L520.5,106.0 Q520.5,104.0,522.5,104.0 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M540.5,104.0 L540.5,112.0 L548.5,112.0 Z" fill="#333333" opacity="0.15" stroke="none" />
+<path d="M540.5,104.0 L540.5,112.0 L548.5,112.0" fill="none" stroke="#333333" stroke-width="0.8999999999999999" />
+<text x="534.5" y="121.2" font-size="7.5" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">TSV</text>
+<text x="534.5" y="140.0" font-size="7.8" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" class="nf-metro-station-label">Sex check</text>
 </g>
-<rect x="726.6" y="173.39999999999998" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="metrics_out" data-station-lines="qc" data-station-label="metrics_out" data-section-id="qc_sec" data-section-name="QC" />
+<rect x="564.5" y="173.39999999999998" width="10.0" height="10.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="metrics_out" data-station-lines="qc" data-station-label="metrics_out" data-section-id="qc_sec" data-section-name="QC" />
 <g data-station-id="metrics_out">
-<path d="M744.6,162.39999999999998 L751.8000000000001,162.39999999999998 Q753.8000000000001,162.39999999999998,753.8000000000001,164.39999999999998 L753.8000000000001,168.79999999999998 L742.6,168.79999999999998 L742.6,164.39999999999998 Q742.6,162.39999999999998,744.6,162.39999999999998 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
-<path d="M742.6,168.79999999999998 L768.6,168.79999999999998 Q770.6,168.79999999999998,770.6,170.79999999999998 L770.6,192.39999999999998 Q770.6,194.39999999999998,768.6,194.39999999999998 L744.6,194.39999999999998 Q742.6,194.39999999999998,742.6,192.39999999999998 L742.6,168.79999999999998 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
-<text x="756.6" y="181.59999999999997" font-size="4.791666666666667" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">RNA-SeQC</text>
+<path d="M582.5,162.39999999999998 L589.7,162.39999999999998 Q591.7,162.39999999999998,591.7,164.39999999999998 L591.7,168.79999999999998 L580.5,168.79999999999998 L580.5,164.39999999999998 Q580.5,162.39999999999998,582.5,162.39999999999998 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<path d="M580.5,168.79999999999998 L606.5,168.79999999999998 Q608.5,168.79999999999998,608.5,170.79999999999998 L608.5,192.39999999999998 Q608.5,194.39999999999998,606.5,194.39999999999998 L582.5,194.39999999999998 Q580.5,194.39999999999998,580.5,192.39999999999998 L580.5,168.79999999999998 Z" fill="#ffffff" stroke="#333333" stroke-width="1.5" stroke-linejoin="round" />
+<text x="594.5" y="181.59999999999997" font-size="4.791666666666667" fill="#000000" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em">RNA-SeQC</text>
 </g>
-<rect x="453.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rsem" data-station-lines="quant" data-station-label="RSEM" data-section-id="quant_sec" data-section-name="Quantification" />
-<rect x="529.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="geneann" data-station-lines="quant" data-station-label="Gene annotation" data-section-id="quant_sec" data-section-name="Quantification" />
-<rect x="605.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="expr_out" data-station-lines="quant" data-station-label="expr_out" data-section-id="quant_sec" data-section-name="Quantification" />
-<rect x="453.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="arriba" data-station-lines="fusion" data-station-label="Arriba" data-section-id="fusion_sec" data-section-name="Fusion detection" />
-<rect x="529.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="starfusion" data-station-lines="fusion" data-station-label="STAR-Fusion" data-section-id="fusion_sec" data-section-name="Fusion detection" />
-<rect x="605.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fusions_out" data-station-lines="fusion" data-station-label="fusions_out" data-section-id="fusion_sec" data-section-name="Fusion detection" />
-<text x="575.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">flagstat + mosdepth</text>
-<text x="575.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="flagstat" class="nf-metro-station-label">flagstat + mosdepth</text>
-<text x="579.6" y="164.39999999999998" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">sambamba markdup</text>
-<text x="579.6" y="164.39999999999998" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="markdup" class="nf-metro-station-label">sambamba markdup</text>
-<text x="458.0" y="339.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">RSEM</text>
-<text x="458.0" y="339.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rsem" class="nf-metro-station-label">RSEM</text>
-<text x="458.0" y="489.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Arriba</text>
-<text x="458.0" y="489.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="arriba" class="nf-metro-station-label">Arriba</text>
-<text x="156.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">BBDuk trim</text>
-<text x="156.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="bbduk" class="nf-metro-station-label">BBDuk trim</text>
-<text x="655.6" y="189.39999999999998" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">RNA-SeQC</text>
-<text x="655.6" y="189.39999999999998" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rnaseqc" class="nf-metro-station-label">RNA-SeQC</text>
-<text x="534.0" y="314.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Gene annotation</text>
-<text x="534.0" y="314.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="geneann" class="nf-metro-station-label">Gene annotation</text>
-<text x="534.0" y="464.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">STAR-Fusion</text>
-<text x="534.0" y="464.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="starfusion" class="nf-metro-station-label">STAR-Fusion</text>
-<text x="232.0" y="139.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">STAR 2-pass</text>
-<text x="232.0" y="139.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="star" class="nf-metro-station-label">STAR 2-pass</text>
-<circle cx="423.0" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<circle cx="453.0" cy="178.39999999999998" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<circle cx="387.0" cy="124.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<circle cx="387.0" cy="328.4" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<circle cx="383.0" cy="128.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<circle cx="383.0" cy="478.4" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
-<path d="M358.0,115.0 L363.0,120.0 L358.0,125.0 L353.0,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
-<text x="358.0" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">align_sec__exit_right_0 (right)</text>
-<path d="M408.0,115.0 L413.0,120.0 L408.0,125.0 L403.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
-<text x="408.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">qc_sec__entry_left_1 (left)</text>
-<path d="M408.0,323.4 L413.0,328.4 L408.0,333.4 L403.0,328.4 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
-<text x="408.0" y="320.4" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">quant_sec__entry_left_2 (left)</text>
-<path d="M408.0,473.4 L413.0,478.4 L408.0,483.4 L403.0,478.4 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
-<text x="408.0" y="470.4" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">fusion_sec__entry_left_3 (left)</text>
-<path d="M368.0,115.0 L373.0,120.0 L368.0,125.0 L363.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
-<text x="368.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">__junction_4 (?)</text>
-<path d="M383.0,50.0 L383.0,548.4" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
-<text x="383.0" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 0|1</text>
-<path d="M10.0,253.39999999999998 L809.6,253.39999999999998" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
-<path d="M10.0,403.4 L809.6,403.4" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<rect x="405.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="rsem" data-station-lines="quant" data-station-label="RSEM" data-section-id="quant_sec" data-section-name="Quantification" />
+<rect x="465.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="geneann" data-station-lines="quant" data-station-label="Gene annotation" data-section-id="quant_sec" data-section-name="Quantification" />
+<rect x="525.0" y="323.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="expr_out" data-station-lines="quant" data-station-label="expr_out" data-section-id="quant_sec" data-section-name="Quantification" />
+<rect x="405.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="arriba" data-station-lines="fusion" data-station-label="Arriba" data-section-id="fusion_sec" data-section-name="Fusion detection" />
+<rect x="465.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="starfusion" data-station-lines="fusion" data-station-label="STAR-Fusion" data-section-id="fusion_sec" data-section-name="Fusion detection" />
+<rect x="525.0" y="473.4" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="fusions_out" data-station-lines="fusion" data-station-label="fusions_out" data-section-id="fusion_sec" data-section-name="Fusion detection" />
+<text x="449.5" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">flagstat + mosdepth</text>
+<text x="449.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="flagstat" class="nf-metro-station-label">flagstat + mosdepth</text>
+<text x="449.5" y="148.79999999999998" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto"><tspan x="449.5" dy="0em">sambamba</tspan><tspan x="449.5" dy="1.2em">markdup</tspan></text>
+<text x="449.5" y="148.79999999999998" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="markdup" class="nf-metro-station-label"><tspan x="449.5" dy="0em">sambamba</tspan><tspan x="449.5" dy="1.2em">markdup</tspan></text>
+<text x="410.0" y="339.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">RSEM</text>
+<text x="410.0" y="339.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rsem" class="nf-metro-station-label">RSEM</text>
+<text x="410.0" y="489.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Arriba</text>
+<text x="410.0" y="489.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="arriba" class="nf-metro-station-label">Arriba</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">BBDuk trim</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="bbduk" class="nf-metro-station-label">BBDuk trim</text>
+<text x="509.5" y="189.39999999999998" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">RNA-SeQC</text>
+<text x="509.5" y="189.39999999999998" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="rnaseqc" class="nf-metro-station-label">RNA-SeQC</text>
+<text x="470.0" y="314.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Gene annotation</text>
+<text x="470.0" y="314.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="geneann" class="nf-metro-station-label">Gene annotation</text>
+<text x="470.0" y="464.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">STAR-Fusion</text>
+<text x="470.0" y="464.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="starfusion" class="nf-metro-station-label">STAR-Fusion</text>
+<text x="200.0" y="139.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">STAR 2-pass</text>
+<text x="200.0" y="139.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="star" class="nf-metro-station-label">STAR 2-pass</text>
+<circle cx="375.0" cy="120.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="405.0" cy="178.39999999999998" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="339.0" cy="124.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="339.0" cy="328.4" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="335.0" cy="128.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="335.0" cy="478.4" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<path d="M310.0,115.0 L315.0,120.0 L310.0,125.0 L305.0,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="310.0" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">align_sec__exit_right_0 (right)</text>
+<path d="M360.0,115.0 L365.0,120.0 L360.0,125.0 L355.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="360.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">qc_sec__entry_left_1 (left)</text>
+<path d="M360.0,323.4 L365.0,328.4 L360.0,333.4 L355.0,328.4 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="360.0" y="320.4" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">quant_sec__entry_left_2 (left)</text>
+<path d="M360.0,473.4 L365.0,478.4 L360.0,483.4 L355.0,478.4 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="360.0" y="470.4" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">fusion_sec__entry_left_3 (left)</text>
+<path d="M320.0,115.0 L325.0,120.0 L320.0,125.0 L315.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="320.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">__junction_4 (?)</text>
+<path d="M335.0,50.0 L335.0,548.4" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="335.0" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 0|1</text>
+<path d="M10.0,253.39999999999998 L647.5,253.39999999999998" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<path d="M10.0,403.4 L647.5,403.4" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
 <text x="6.0" y="253.39999999999998" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0|1</text>
 <text x="6.0" y="403.4" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1|2</text>
-<path d="M20.0,120.0 L799.6,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M20.0,120.0 L637.5,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
 <text x="16.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
-<path d="M20.0,178.4 L799.6,178.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
-<path d="M398.0,328.4 L670.0,328.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
-<text x="394.0" y="328.4" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
-<path d="M398.0,478.4 L670.0,478.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
-<text x="394.0" y="478.4" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 2 grid</text>
+<path d="M20.0,178.4 L637.5,178.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<path d="M350.0,328.4 L590.0,328.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="346.0" y="328.4" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
+<path d="M350.0,478.4 L590.0,478.4" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="346.0" y="478.4" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 2 grid</text>
 <rect x="30.0" y="558.4" width="183.20000000000002" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" class="nf-metro-legend-bg" />
 <path d="M42.0,582.4 L66.0,582.4" stroke="#e6550d" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="582.4" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">QC</text>
@@ -1901,7 +1903,314 @@ switch between side-by-side, base-only, and PR-only views.
 <text x="78.0" y="606.4" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Quantification</text>
 <path d="M42.0,630.4 L66.0,630.4" stroke="#38b927" stroke-width="3.0" stroke-linecap="round" />
 <text x="78.0" y="630.4" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Fusion detection</text>
-<text x="819.0" y="670.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0+dev</text>
+<text x="657.0" y="670.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0+dev</text>
+</svg></div></div>
+</div>
+</div>
+
+<div class="diff-entry" id="straddling_fanout_junction">
+<h3>Straddling Fanout Junction <span class="badge badge-changed">changed</span></h3>
+<div class="toggle-bar"><button class="active" data-mode="side-by-side">Side by side</button><button data-mode="base">Base only</button><button data-mode="pr">PR only</button></div>
+<div class="comparison">
+<div class="side side-base"><h4>Base (main)</h4><div class="svg-wrapper"><?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="751" height="680" viewBox="0 0 751 680">
+<defs>
+</defs>
+<style>.nf-metro-bg { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
+.nf-metro-title { fill: var(--nfm-map-title-color, light-dark(#111111, #ffffff)); }
+.nf-metro-station-label { fill: var(--nfm-map-label-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-section-box { fill: var(--nfm-map-section-fill, light-dark(#ededed, #373737)); stroke: var(--nfm-map-section-stroke, light-dark(#e6e6e6, #595959)); }
+.nf-metro-section-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-underline { stroke: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-legend-bg { fill: var(--nfm-map-legend-bg, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.3))); }
+.nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
+.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
+<rect x="0" y="0" width="751" height="680" fill="#2b2b2b" class="nf-metro-bg" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Straddling fan-out junction</text>
+<rect x="30.0" y="70.0" width="203.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="pre" data-section-lines="main,side" />
+<circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="pre" />
+<text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="pre">1</text>
+<text x="57.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="pre">Pre-processing</text>
+<rect x="286.5" y="70.0" width="203.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="feeder" data-section-lines="main,side" />
+<circle cx="297.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="feeder" />
+<text x="297.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="feeder">2</text>
+<text x="313.5" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="feeder">Quantification</text>
+<rect x="591.0" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="leaf" data-section-lines="main" />
+<circle cx="602.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="leaf" />
+<text x="602.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="leaf">3</text>
+<text x="618.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="leaf">Reporting</text>
+<rect x="30.0" y="252.0" width="203.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="mid" data-section-lines="deep" />
+<circle cx="41.0" cy="237.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="mid" />
+<text x="41.0" y="237.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="mid">5</text>
+<text x="57.0" y="237.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="mid">Novel transcripts</text>
+<rect x="286.5" y="252.0" width="353.5" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="blocker" data-section-lines="deep" />
+<circle cx="297.5" cy="227.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="blocker" />
+<text x="297.5" y="227.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="blocker">6</text>
+<text x="313.5" y="217.8" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="blocker"><tspan x="313.5" dy="0em">ORF calling and P-site</tspan><tspan x="313.5" dy="1.2em">identification</tspan></text>
+<rect x="30.0" y="430.0" width="206.5" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="far" data-section-lines="side" />
+<circle cx="41.0" cy="415.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="far" />
+<text x="41.0" y="415.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="far">4</text>
+<text x="57.0" y="415.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="far">TE</text>
+<path d="M80.0,310.0 L183.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M340.0,310.0 L443.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M443.0,310.0 L546.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M183.0,310.0 L233.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M286.5,310.0 L340.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M233.0,310.0 L286.5,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M80.0,124.0 L183.0,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M336.5,124.0 L439.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M83.5,480.0 L186.5,480.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M183.0,124.0 L233.0,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M286.5,124.0 L336.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M439.5,124.0 L489.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M30.0,480.0 L83.5,480.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M233.0,124.0 L286.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M489.5,124.0 L499.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M499.5,124.0 L528.25,124.0 Q538.25,124.0,538.25,134.0 L538.25,186.0 Q538.25,196.0,528.25,196.0 L284.5,196.0 Q270.5,196.0,270.5,210.0 L270.5,368.0 Q270.5,378.0,260.5,378.0 L24.0,378.0 Q10.0,378.0,10.0,392.0 L10.0,466.0 Q10.0,480.0,24.0,480.0 L30.0,480.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-side" data-line-id="side" />
+<path d="M80.0,120.0 L183.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M336.5,120.0 L439.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M183.0,120.0 L233.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M286.5,120.0 L336.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M439.5,120.0 L489.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M591.0,120.0 L641.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M233.0,120.0 L286.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M489.5,120.0 L499.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M499.5,120.0 L591.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="p_in" data-station-lines="main,side" data-station-label="p_in" data-section-id="pre" data-section-name="Pre-processing" />
+<rect x="178.0" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="p_prep" data-station-lines="main,side" data-station-label="Prep" data-section-id="pre" data-section-name="Pre-processing" />
+<rect x="331.5" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="f_a" data-station-lines="main,side" data-station-label="Quant A" data-section-id="feeder" data-section-name="Quantification" />
+<rect x="434.5" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="f_b" data-station-lines="main,side" data-station-label="Quant B" data-section-id="feeder" data-section-name="Quantification" />
+<rect x="636.0" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="r_rep" data-station-lines="main" data-station-label="Report" data-section-id="leaf" data-section-name="Reporting" />
+<rect x="75.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="m_a" data-station-lines="deep" data-station-label="Novel" data-section-id="mid" data-section-name="Novel transcripts" />
+<rect x="178.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="m_b" data-station-lines="deep" data-station-label="Assemble" data-section-id="mid" data-section-name="Novel transcripts" />
+<rect x="335.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_a" data-station-lines="deep" data-station-label="ORF calling" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="438.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_b" data-station-lines="deep" data-station-label="P-site identification" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="541.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_c" data-station-lines="deep" data-station-label="Quantify ORF P-sites" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="78.5" y="475.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="t_te" data-station-lines="side" data-station-label="TE analysis" data-section-id="far" data-section-name="TE" />
+<rect x="181.5" y="475.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="t_out" data-station-lines="side" data-station-label="Report TE" data-section-id="far" data-section-name="TE" />
+<text x="336.5" y="135.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Quant A</text>
+<text x="336.5" y="135.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="f_a" class="nf-metro-station-label">Quant A</text>
+<text x="83.5" y="491.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">TE analysis</text>
+<text x="83.5" y="491.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="t_te" class="nf-metro-station-label">TE analysis</text>
+<text x="80.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Novel</text>
+<text x="80.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="m_a" class="nf-metro-station-label">Novel</text>
+<text x="340.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">ORF calling</text>
+<text x="340.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="b_a" class="nf-metro-station-label">ORF calling</text>
+<text x="641.0" y="131.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Report</text>
+<text x="641.0" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="r_rep" class="nf-metro-station-label">Report</text>
+<text x="183.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Prep</text>
+<text x="183.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="p_prep" class="nf-metro-station-label">Prep</text>
+<text x="439.5" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Quant B</text>
+<text x="439.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="f_b" class="nf-metro-station-label">Quant B</text>
+<text x="186.5" y="466.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Report TE</text>
+<text x="186.5" y="466.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="t_out" class="nf-metro-station-label">Report TE</text>
+<text x="183.0" y="296.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Assemble</text>
+<text x="183.0" y="296.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="m_b" class="nf-metro-station-label">Assemble</text>
+<text x="443.0" y="296.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">P-site identification</text>
+<text x="443.0" y="296.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="b_b" class="nf-metro-station-label">P-site identification</text>
+<text x="546.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Quantify ORF P-sites</text>
+<text x="546.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="b_c" class="nf-metro-station-label">Quantify ORF P-sites</text>
+<circle cx="538.25" cy="124.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="538.25" cy="196.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="270.5" cy="196.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="270.5" cy="378.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="10.0" cy="378.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="10.0" cy="480.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<path d="M233.0,115.0 L238.0,120.0 L233.0,125.0 L228.0,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="233.0" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">pre__exit_right_0 (right)</text>
+<path d="M489.5,115.0 L494.5,120.0 L489.5,125.0 L484.5,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="489.5" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">feeder__exit_right_1 (right)</text>
+<path d="M233.0,297.0 L238.0,302.0 L233.0,307.0 L228.0,302.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="233.0" y="294.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">mid__exit_right_2 (right)</text>
+<path d="M286.5,115.0 L291.5,120.0 L286.5,125.0 L281.5,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="286.5" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">feeder__entry_left_3 (left)</text>
+<path d="M591.0,115.0 L596.0,120.0 L591.0,125.0 L586.0,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="591.0" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">leaf__entry_left_4 (left)</text>
+<path d="M30.0,475.0 L35.0,480.0 L30.0,485.0 L25.0,480.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="30.0" y="472.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">far__entry_left_5 (left)</text>
+<path d="M286.5,297.0 L291.5,302.0 L286.5,307.0 L281.5,302.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="286.5" y="294.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">blocker__entry_left_6 (left)</text>
+<path d="M499.5,115.0 L504.5,120.0 L499.5,125.0 L494.5,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="499.5" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">__junction_7 (?)</text>
+<path d="M261.5,50.0 L261.5,550.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="261.5" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 0|1</text>
+<path d="M10.0,211.0 L711.0,211.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<path d="M10.0,391.0 L711.0,391.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="6.0" y="211.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0|1</text>
+<text x="6.0" y="391.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1|2</text>
+<path d="M20.0,120.0 L243.0,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M276.5,120.0 L499.5,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="272.5" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M581.0,120.0 L701.0,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="577.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M20.0,302.0 L243.0,302.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="302.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
+<path d="M276.5,302.0 L650.0,302.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="272.5" y="302.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
+<path d="M20.0,480.0 L246.5,480.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="480.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 2 grid</text>
+<rect x="30.0" y="560.0" width="90.80000000000001" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" class="nf-metro-legend-bg" />
+<path d="M42.0,584.0 L66.0,584.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="584.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Main</text>
+<path d="M42.0,608.0 L66.0,608.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="608.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Side</text>
+<path d="M42.0,632.0 L66.0,632.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="632.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Deep</text>
+<text x="721.0" y="672.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0+dev</text>
+</svg></div></div>
+<div class="side side-pr"><h4>PR</h4><div class="svg-wrapper"><?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="643" height="701" viewBox="0 0 643 701">
+<defs>
+</defs>
+<style>.nf-metro-bg { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
+.nf-metro-title { fill: var(--nfm-map-title-color, light-dark(#111111, #ffffff)); }
+.nf-metro-station-label { fill: var(--nfm-map-label-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-section-box { fill: var(--nfm-map-section-fill, light-dark(#ededed, #373737)); stroke: var(--nfm-map-section-stroke, light-dark(#e6e6e6, #595959)); }
+.nf-metro-section-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-label { fill: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-group-underline { stroke: var(--nfm-map-section-label-color, light-dark(#666666, #c8c8c8)); }
+.nf-metro-legend-bg { fill: var(--nfm-map-legend-bg, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.3))); }
+.nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
+.nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
+.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
+<rect x="0" y="0" width="643" height="701" fill="#2b2b2b" class="nf-metro-bg" />
+<text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Straddling fan-out junction</text>
+<rect x="30.0" y="70.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="pre" data-section-lines="main,side" />
+<circle cx="41.0" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="pre" />
+<text x="41.0" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="pre">1</text>
+<text x="57.0" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="pre">Pre-processing</text>
+<rect x="243.5" y="70.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="feeder" data-section-lines="main,side" />
+<circle cx="254.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="feeder" />
+<text x="254.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="feeder">2</text>
+<text x="270.5" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="feeder">Quantification</text>
+<rect x="483.5" y="70.0" width="100.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="leaf" data-section-lines="main" />
+<circle cx="494.5" cy="55.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="leaf" />
+<text x="494.5" y="55.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="leaf">3</text>
+<text x="510.5" y="55.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="leaf">Reporting</text>
+<rect x="30.0" y="252.0" width="160.0" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="mid" data-section-lines="deep" />
+<circle cx="41.0" cy="227.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="mid" />
+<text x="41.0" y="227.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="mid">5</text>
+<text x="57.0" y="217.8" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="mid"><tspan x="57.0" dy="0em">Novel</tspan><tspan x="57.0" dy="1.2em">transcripts</tspan></text>
+<rect x="243.5" y="252.0" width="267.5" height="120.60000000000002" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="blocker" data-section-lines="deep" />
+<circle cx="254.5" cy="227.4" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="blocker" />
+<text x="254.5" y="227.4" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="blocker">6</text>
+<text x="270.5" y="217.8" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="blocker"><tspan x="270.5" dy="0em">ORF calling and P-site</tspan><tspan x="270.5" dy="1.2em">identification</tspan></text>
+<rect x="30.0" y="451.0" width="163.5" height="100.0" rx="8" ry="8" fill="#373737" stroke="#595959" stroke-width="1.0" class="nf-metro-section-box" data-section-id="far" data-section-lines="side" />
+<circle cx="41.0" cy="436.0" r="11" fill="#333333" class="nf-metro-section-num-circle" data-section-id="far" />
+<text x="41.0" y="436.0" font-size="12" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dy="0.3em" data-section-id="far">4</text>
+<text x="57.0" y="436.0" font-size="16.0" fill="#c8c8c8" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" dy="0.3em" class="nf-metro-section-label" data-section-id="far">TE</text>
+<path d="M80.0,310.0 L140.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M297.0,310.0 L357.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M357.0,310.0 L417.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M140.0,310.0 L190.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M243.5,310.0 L297.0,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M190.0,310.0 L243.5,310.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" class="metro-line-deep" data-line-id="deep" />
+<path d="M80.0,124.0 L140.0,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M293.5,124.0 L353.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M83.5,501.0 L143.5,501.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M140.0,124.0 L190.0,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M243.5,124.0 L293.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M353.5,124.0 L403.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M30.0,501.0 L83.5,501.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M190.0,124.0 L243.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M403.5,124.0 L413.5,124.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" class="metro-line-side" data-line-id="side" />
+<path d="M413.5,124.0 L431.5,124.0 Q441.5,124.0,441.5,134.0 L441.5,186.0 Q441.5,196.0,431.5,196.0 L241.5,196.0 Q227.5,196.0,227.5,210.0 L227.5,388.6 Q227.5,398.6,217.5,398.6 L24.0,398.6 Q10.0,398.6,10.0,412.6 L10.0,487.0 Q10.0,501.0,24.0,501.0 L30.0,501.0" stroke="#2db572" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-side" data-line-id="side" />
+<path d="M80.0,120.0 L140.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M293.5,120.0 L353.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M140.0,120.0 L190.0,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M243.5,120.0 L293.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M353.5,120.0 L403.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M483.5,120.0 L533.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M190.0,120.0 L243.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M403.5,120.0 L413.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<path d="M413.5,120.0 L483.5,120.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" class="metro-line-main" data-line-id="main" />
+<rect x="75.0" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="p_in" data-station-lines="main,side" data-station-label="p_in" data-section-id="pre" data-section-name="Pre-processing" />
+<rect x="135.0" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="p_prep" data-station-lines="main,side" data-station-label="Prep" data-section-id="pre" data-section-name="Pre-processing" />
+<rect x="288.5" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="f_a" data-station-lines="main,side" data-station-label="Quant A" data-section-id="feeder" data-section-name="Quantification" />
+<rect x="348.5" y="115.0" width="10.0" height="14.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="f_b" data-station-lines="main,side" data-station-label="Quant B" data-section-id="feeder" data-section-name="Quantification" />
+<rect x="528.5" y="115.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="r_rep" data-station-lines="main" data-station-label="Report" data-section-id="leaf" data-section-name="Reporting" />
+<rect x="75.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="m_a" data-station-lines="deep" data-station-label="Novel" data-section-id="mid" data-section-name="Novel transcripts" />
+<rect x="135.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="m_b" data-station-lines="deep" data-station-label="Assemble" data-section-id="mid" data-section-name="Novel transcripts" />
+<rect x="292.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_a" data-station-lines="deep" data-station-label="ORF calling" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="352.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_b" data-station-lines="deep" data-station-label="P-site identification" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="412.0" y="305.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="b_c" data-station-lines="deep" data-station-label="Quantify ORF P-sites" data-section-id="blocker" data-section-name="ORF calling and P-site identification" />
+<rect x="78.5" y="496.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="t_te" data-station-lines="side" data-station-label="TE analysis" data-section-id="far" data-section-name="TE" />
+<rect x="138.5" y="496.0" width="10.0" height="10.0" rx="5.0" ry="5.0" fill="#ffffff" stroke="#333333" stroke-width="1.5" class="nf-metro-station" data-station-id="t_out" data-station-lines="side" data-station-label="Report TE" data-section-id="far" data-section-name="TE" />
+<text x="293.5" y="135.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Quant A</text>
+<text x="293.5" y="135.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="f_a" class="nf-metro-station-label">Quant A</text>
+<text x="83.5" y="512.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">TE analysis</text>
+<text x="83.5" y="512.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="t_te" class="nf-metro-station-label">TE analysis</text>
+<text x="80.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Novel</text>
+<text x="80.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="m_a" class="nf-metro-station-label">Novel</text>
+<text x="297.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">ORF calling</text>
+<text x="297.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="b_a" class="nf-metro-station-label">ORF calling</text>
+<text x="533.5" y="131.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Report</text>
+<text x="533.5" y="131.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="r_rep" class="nf-metro-station-label">Report</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Prep</text>
+<text x="140.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="p_prep" class="nf-metro-station-label">Prep</text>
+<text x="353.5" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Quant B</text>
+<text x="353.5" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="f_b" class="nf-metro-station-label">Quant B</text>
+<text x="143.5" y="487.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Report TE</text>
+<text x="143.5" y="487.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="t_out" class="nf-metro-station-label">Report TE</text>
+<text x="140.0" y="296.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Assemble</text>
+<text x="140.0" y="296.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="m_b" class="nf-metro-station-label">Assemble</text>
+<text x="357.0" y="280.4" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto"><tspan x="357.0" dy="0em">P-site</tspan><tspan x="357.0" dy="1.2em">identification</tspan></text>
+<text x="357.0" y="280.4" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="b_b" class="nf-metro-station-label"><tspan x="357.0" dy="0em">P-site</tspan><tspan x="357.0" dy="1.2em">identification</tspan></text>
+<text x="417.0" y="321.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging"><tspan x="417.0" dy="0em">Quantify</tspan><tspan x="417.0" dy="1.2em">ORF</tspan><tspan x="417.0" dy="1.2em">P-sites</tspan></text>
+<text x="417.0" y="321.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="b_c" class="nf-metro-station-label"><tspan x="417.0" dy="0em">Quantify</tspan><tspan x="417.0" dy="1.2em">ORF</tspan><tspan x="417.0" dy="1.2em">P-sites</tspan></text>
+<circle cx="441.5" cy="124.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="441.5" cy="196.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="227.5" cy="196.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="227.5" cy="398.6" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="10.0" cy="398.6" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<circle cx="10.0" cy="501.0" r="3.0" fill="rgba(255, 200, 50, 0.6)" />
+<path d="M190.0,115.0 L195.0,120.0 L190.0,125.0 L185.0,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="190.0" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">pre__exit_right_0 (right)</text>
+<path d="M403.5,115.0 L408.5,120.0 L403.5,125.0 L398.5,120.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="403.5" y="112.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">feeder__exit_right_1 (right)</text>
+<path d="M190.0,297.0 L195.0,302.0 L190.0,307.0 L185.0,302.0 Z" fill="rgba(80, 180, 255, 0.7)" stroke="none" />
+<text x="190.0" y="294.0" font-size="7" fill="rgba(80, 180, 255, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">mid__exit_right_2 (right)</text>
+<path d="M243.5,115.0 L248.5,120.0 L243.5,125.0 L238.5,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="243.5" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">feeder__entry_left_3 (left)</text>
+<path d="M483.5,115.0 L488.5,120.0 L483.5,125.0 L478.5,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="483.5" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">leaf__entry_left_4 (left)</text>
+<path d="M30.0,496.0 L35.0,501.0 L30.0,506.0 L25.0,501.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="30.0" y="493.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">far__entry_left_5 (left)</text>
+<path d="M243.5,297.0 L248.5,302.0 L243.5,307.0 L238.5,302.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="243.5" y="294.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">blocker__entry_left_6 (left)</text>
+<path d="M413.5,115.0 L418.5,120.0 L413.5,125.0 L408.5,120.0 Z" fill="rgba(255, 80, 80, 0.7)" stroke="none" />
+<text x="413.5" y="112.0" font-size="7" fill="rgba(255, 80, 80, 0.7)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle" dominant-baseline="auto">__junction_7 (?)</text>
+<path d="M218.5,50.0 L218.5,571.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="218.5" y="46.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="middle">col 0|1</text>
+<path d="M10.0,211.0 L603.5,211.0" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<path d="M10.0,411.8 L603.5,411.8" stroke="rgba(255, 255, 0, 0.5)" stroke-width="1" stroke-dasharray="6,4" />
+<text x="6.0" y="211.0" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0|1</text>
+<text x="6.0" y="411.8" font-size="7" fill="rgba(255, 255, 0, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1|2</text>
+<path d="M20.0,120.0 L200.0,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M233.5,120.0 L413.5,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="229.5" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M473.5,120.0 L593.5,120.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="469.5" y="120.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 0 grid</text>
+<path d="M20.0,302.0 L200.0,302.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="302.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
+<path d="M233.5,302.0 L521.0,302.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="229.5" y="302.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 1 grid</text>
+<path d="M20.0,501.0 L203.5,501.0" stroke="rgba(80, 255, 180, 0.5)" stroke-width="0.75" stroke-dasharray="4,6" />
+<text x="16.0" y="501.0" font-size="7" fill="rgba(80, 255, 180, 0.5)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">row 2 grid</text>
+<rect x="30.0" y="581.0" width="90.80000000000001" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" class="nf-metro-legend-bg" />
+<path d="M42.0,605.0 L66.0,605.0" stroke="#e6007e" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="605.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Main</text>
+<path d="M42.0,629.0 L66.0,629.0" stroke="#2db572" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="629.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Side</text>
+<path d="M42.0,653.0 L66.0,653.0" stroke="#2b6cb0" stroke-width="3.0" stroke-linecap="round" />
+<text x="78.0" y="653.0" font-size="14.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" dy="0.3em" class="nf-metro-legend-text">Deep</text>
+<text x="613.0" y="693.0" font-size="8" fill="rgba(150, 150, 150, 0.6)" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" text-anchor="end">created with nf-metro v1.1.0+dev</text>
 </svg></div></div>
 </div>
 </div>
