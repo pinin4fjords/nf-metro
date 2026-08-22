@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro.layout.constants import LABEL_OFFSET
+from nf_metro.layout.constants import LABEL_OFFSET, LABEL_OVERLAP_TOL
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import segment_intersects_bbox as _segment_intersects_bbox
 from nf_metro.layout.labels import (
@@ -14,14 +14,12 @@ from nf_metro.layout.labels import (
     _avoid_diagonal_routes,
     _build_label_ctx,
     _compute_port_label_preference,
-    _initial_label_side,
-    _label_anchor_offsets,
-    _label_clear_of_everything,
+    _find_clear_reflow_candidate,
+    _intrusion,
+    _label_bbox,
     _make_obstacle_placements,
     _places_label_beside_pill,
-    _rail_label_side,
     _station_marker_boxes,
-    _try_place,
     _wrap_text_to_chars,
     place_labels,
 )
@@ -383,10 +381,11 @@ def _reflowed_labels_beside_a_free_side(graph: MetroGraph) -> list[str]:
     """Re-flowed labels that overlap although a side of their own pill is free.
 
     Re-flowing a label onto several lines changes its footprint, so the side
-    picked for the flat single line has to be re-offered to the block.  A
-    station reported here ships an overlap it could have escaped by hanging its
-    block off the other side of its own pill, which means the engine pays for
-    the collision by widening spacing instead.
+    picked for the flat single line has to be re-offered to the block.  Asks
+    :func:`_find_clear_reflow_candidate` -- the production decision itself, so
+    the two cannot drift -- of the labels the layout shipped: a station
+    reported here ships an overlap with a clear side going spare, which means
+    the engine pays for the collision by widening spacing instead.
     """
     offsets = compute_station_offsets(graph)
     routes = route_edges_centred(graph, station_offsets=offsets)
@@ -409,35 +408,8 @@ def _reflowed_labels_beside_a_free_side(graph: MetroGraph) -> list[str]:
         station = graph.stations.get(placement.station_id)
         if station is None or placement.text == station.label:
             continue
-        # A beside-pill label's other side is a horizontal flip across the
-        # trunk, which re-flowing never relieves; an angled label hangs on one
-        # side by construction.
-        if ctx.label_angle or _places_label_beside_pill(graph, station):
-            continue
         others = [p for p in placements if p is not placement] + obstacle_placements
-        if _label_clear_of_everything(placement, others, markers):
-            continue
-        min_off, max_off = _label_anchor_offsets(ctx, station)
-        safe_above, safe_below = ctx.safe_offsets.get(
-            station.id, (LABEL_OFFSET, LABEL_OFFSET)
-        )
-        preferred = _initial_label_side(ctx, station, _rail_label_side(graph, station))
-        if any(
-            _label_clear_of_everything(
-                _try_place(
-                    station,
-                    safe_above if above else safe_below,
-                    above,
-                    others,
-                    min_off,
-                    max_off,
-                    placement.text,
-                ),
-                others,
-                markers,
-            )
-            for above in (preferred, not preferred)
-        ):
+        if _find_clear_reflow_candidate(ctx, placement, others, markers) is not None:
             stranded.append(placement.station_id)
     return stranded
 
@@ -468,6 +440,58 @@ class TestReflowedLabelsAreRePlaced:
         assert not stranded, (
             f"{fixture} @ x_spacing={x_spacing}: re-flowed label(s) "
             f"{sorted(stranded)} overlap although a side of their own pill is free"
+        )
+
+
+class TestReflowedBesidePillLabelsKeepTheirPill:
+    """A vertical-flow label re-flowed off a marker stays beside its pill (#1768).
+
+    A label in a vertical-flow section hangs off a pill edge, anchored from
+    that edge (``text_anchor`` start/end) and centred on the station's own Y.
+    Narrowing one to relieve a marker intrusion is worthwhile, so such a label
+    does reach the re-flow re-siding pass, which offers only the anchors
+    centred above and below the station -- straddling the trunk, and measured
+    for a centred anchor the placement does not use.  Adopting one would draw
+    the name across its own pill, so the pass has to leave these alone.
+    """
+
+    @pytest.mark.parametrize(
+        ("fixture", "x_spacing"),
+        [
+            ("examples/topologies/fold_left_exit_right_entry.mmd", None),
+            ("examples/topologies/fold_left_exit_right_entry.mmd", 40.0),
+            ("examples/topologies/tb_fork_lane_transpose.mmd", None),
+        ],
+    )
+    def test_reflowed_vertical_flow_label_hangs_off_its_pill_edge(
+        self, fixture: str, x_spacing: float | None
+    ) -> None:
+        graph = _laid_out(fixture, x_spacing)
+        plan = build_render_plan(graph, THEMES["nfcore"])
+        markers = _station_marker_boxes(graph, plan.station_offsets)
+        checked: list[str] = []
+        for placement in plan.labels:
+            station = graph.stations.get(placement.station_id)
+            if station is None or not _places_label_beside_pill(graph, station):
+                continue
+            if placement.text == station.label:
+                continue
+            checked.append(placement.station_id)
+            assert placement.y == pytest.approx(station.y), (
+                f"{placement.station_id}: re-flowed block left its pill's baseline"
+            )
+            assert placement.dominant_baseline == "central"
+            assert placement.text_anchor in ("start", "end")
+            own = markers.get(placement.station_id)
+            assert own is not None
+            ox, oy = _intrusion(_label_bbox(placement), own)
+            assert not (ox > LABEL_OVERLAP_TOL and oy > LABEL_OVERLAP_TOL), (
+                f"{placement.station_id}: re-flowed block runs across its own "
+                f"pill by {ox:.1f}x{oy:.1f}px"
+            )
+        assert checked, (
+            f"{fixture} @ x_spacing={x_spacing} no longer re-flows a "
+            "vertical-flow label; the case this locks is unexercised"
         )
 
 

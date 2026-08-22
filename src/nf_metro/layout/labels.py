@@ -1959,13 +1959,13 @@ def _apply_rail_label_angle(
 _WRAP_MAX_ROUNDS = 200
 
 
-def _reside_reflowed_label(
+def _find_clear_reflow_candidate(
     ctx: _LabelCtx,
     placement: LabelPlacement,
-    placements: list[LabelPlacement],
+    others: list[LabelPlacement],
     markers: dict[str, tuple[float, float, float, float]],
-) -> None:
-    """Re-choose side and anchor for a label whose text has just been re-flowed.
+) -> LabelPlacement | None:
+    """Where a label whose text has just been re-flowed should move, if anywhere.
 
     Re-flowing rewrites text alone, so the placement keeps the side and anchor
     derived from a single flat line.  A re-flowed block is roughly half as wide
@@ -1978,22 +1978,25 @@ def _reside_reflowed_label(
     Only the two pill-centred anchors are offered -- no nudge, no push-out.  A
     re-flowed block is narrow enough that a clear side accepts it centred, and
     sliding a narrow block sideways to squeeze past a neighbour butts the two
-    labels into one another and reads as a single run of text.  When neither
-    side is wholly clear the placement stands and the engine's spread loop
-    clears the remainder.
+    labels into one another and reads as a single run of text.  ``None`` when
+    the placement is already clear or neither side is wholly clear, leaving the
+    engine's spread loop to widen for whatever remains.
 
-    A label beside its pill is skipped: its two sides are a horizontal flip
-    across the trunk, and narrowing such a label only grows it taller, so
-    neither side is relieved by the re-flow.
+    A label beside its pill is declined whatever drove its re-flow.  The two
+    anchors offered here hang centred above and below the station, which is
+    where a vertical-flow section runs its own trunk, and such a placement
+    anchors from a pill edge (``text_anchor`` start/end, ``central`` baseline),
+    so adopting a centred anchor's coordinates would draw a box other than the
+    one measured here -- across its own pill.  Relieving one means flipping it
+    to the far side of its pill, which is :func:`_place_tb_label`'s choice.
     """
     station = ctx.graph.stations.get(placement.station_id)
     if station is None or ctx.label_angle:
-        return
+        return None
     if _places_label_beside_pill(ctx.graph, station):
-        return
-    others = [p for p in placements if p is not placement]
+        return None
     if _label_clear_of_everything(placement, others, markers):
-        return
+        return None
     min_off, max_off = _label_anchor_offsets(ctx, station)
     safe_above, safe_below = ctx.safe_offsets.get(
         station.id, (ctx.label_offset, ctx.label_offset)
@@ -2010,10 +2013,23 @@ def _reside_reflowed_label(
             placement.text,
         )
         if _label_clear_of_everything(candidate, others, markers):
-            placement.x = candidate.x
-            placement.y = candidate.y
-            placement.above = candidate.above
-            return
+            return candidate
+    return None
+
+
+def _reside_reflowed_label(
+    ctx: _LabelCtx,
+    placement: LabelPlacement,
+    placements: list[LabelPlacement],
+    markers: dict[str, tuple[float, float, float, float]],
+) -> None:
+    """Move a re-flowed label to a clear side of its pill, where one exists."""
+    others = [p for p in placements if p is not placement]
+    candidate = _find_clear_reflow_candidate(ctx, placement, others, markers)
+    if candidate is not None:
+        placement.x = candidate.x
+        placement.y = candidate.y
+        placement.above = candidate.above
 
 
 def _wrap_overlapping_labels(
