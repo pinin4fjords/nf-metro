@@ -26,6 +26,24 @@ def is_stacked_left_exit_left_entry(
     )
 
 
+def is_stacked_right_exit_right_entry(
+    exit_port: Port,
+    entry_port: Port,
+    feeder: Section,
+    consumer: Section,
+    *,
+    via_junction: bool,
+) -> bool:
+    """Whether same-facing RIGHT ports form a cross-row outer half-turn."""
+    return (
+        not via_junction
+        and exit_port.side is PortSide.RIGHT
+        and entry_port.side is PortSide.RIGHT
+        and feeder.grid_row != consumer.grid_row
+        and consumer.grid_col >= feeder.grid_col
+    )
+
+
 def entry_fan_receives_stacked_left_reversed_bundle(
     graph: MetroGraph,
     section: Section,

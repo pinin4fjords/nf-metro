@@ -1088,6 +1088,16 @@ gallery:
       left via direction: RL. The bundle stays on the outside of the fold the whole
       way round (top, right, then bottom) with no crossover, and the descent column
       aligns under the exit so the drop is a clean U."
+  - id: serpentine_rl_right_entry_bundle
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A two-line boustrophedon fold with both rows packed into one grid cell, so
+      the top row's RIGHT exit descends straight into the direction: RL return
+      row's RIGHT entry. Leaving and arriving rightward is a half-turn, so the
+      bundle re-nests across the fold: the line on the top track going out rides
+      the outer lane round the corner and lands on the bottom track coming back
+      (issue #1767)."
   - id: lr_bottom_exit_rl_top_entry_jog
     source_dir: examples/topologies
     category: Serpentine Layout
@@ -1698,6 +1708,14 @@ gallery:
     description:
       A single line wrapping from an LR exit into a cross-row RL section's RIGHT
       entry, with no junction siblings (the solo `_route_right_entry_wrap` lead-in).
+  - id: right_entry_wrap_bundle
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      A two-line bundle wrapping from an LR exit into a cross-row RL section's
+      RIGHT entry. The wrap is a half-turn, so the bundle arrives mirrored and
+      the two lines stay nested the whole way round instead of swapping at the
+      port.
   - id: stacked_right_ports_coincident
     source_dir: examples/topologies
     category: Inter-section Routing

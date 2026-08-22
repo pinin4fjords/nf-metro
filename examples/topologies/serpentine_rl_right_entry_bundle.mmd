@@ -1,0 +1,37 @@
+%%metro title: Serpentine RL Right-Entry Bundle
+%%metro style: dark
+%%metro line: dna | DNA | #4a90d9
+%%metro line: rna | RNA | #e63946
+%%metro grid: alignment, quantification | 0,0
+%%metro grid: variant_calling, annotation | 0,1
+
+graph LR
+    subgraph alignment [Alignment]
+        al1[Trim]
+        al2[Map]
+        al1 -->|dna,rna| al2
+    end
+
+    subgraph quantification [Quantification]
+        qu1[Count]
+        qu2[Normalise]
+        qu1 -->|dna,rna| qu2
+    end
+
+    subgraph variant_calling [Variant Calling]
+        %%metro direction: RL
+        vc1[Call]
+        vc2[Filter]
+        vc1 -->|dna,rna| vc2
+    end
+
+    subgraph annotation [Annotation]
+        %%metro direction: RL
+        an1[Annotate]
+        an2[Report]
+        an1 -->|dna,rna| an2
+    end
+
+    al2 -->|dna,rna| qu1
+    qu2 -->|dna,rna| vc1
+    vc2 -->|dna,rna| an1

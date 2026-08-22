@@ -95,6 +95,10 @@ CORPUS_IDS = [
 #   - the near-vertical junction RIGHT entry, whose reversal turns on pixel
 #     overhang rather than sides/grid and is deferred coordinate-free.
 NEAR_VERTICAL_RESIDUAL = ("near_vertical_junction_hook", "src", "pseudo", "R->R")
+
+# The opposite direction: seams the seam-local classifier reverses and the
+# machinery does not, because the machinery carries no section-absolute flag for
+# a direct half-turn.  Same key shape as the residual set above.
 EXPECTED_CLASSIFIER_ONLY_REVERSALS = frozenset(
     {
         ("stacked_left_exit_drop", "sec1", "sec2", "L->L"),
@@ -105,6 +109,34 @@ EXPECTED_CLASSIFIER_ONLY_REVERSALS = frozenset(
             "shared_source",
             "target_secondary",
             "L->R",
+        ),
+        # The RIGHT-facing mirror of that stacked LEFT half-turn: an LR row's
+        # RIGHT exit descending into an RL row's RIGHT entry at or right of the
+        # feeder's column.  Leaving rightward and arriving rightward is a net
+        # half-turn, so the delivered bundle has to re-nest; every seam below is
+        # that shape, with the feeder row above the consumer row.
+        #
+        # aux (col 0, row 1) descends two columns right into the RL repeats row.
+        ("convergence_stacked_sink", "aux", "repeats", "R->R"),
+        # feeder_a (col 0, row 0) drops one column right into the RL source row.
+        ("leftward_up_exit_turn_order", "feeder_a", "source", "R->R"),
+        # source (col 0, row 0) clears an empty row to reach target at col 2.
+        ("right_entry_gap_above_empty_row", "source", "target", "R->R"),
+        # source wraps past target's outward edge and doubles back into it.
+        ("right_entry_wrap_no_fan", "source", "target", "R->R"),
+        # The multi-line member of that wrap, where the re-nesting is visible.
+        ("right_entry_wrap_bundle", "source", "target", "R->R"),
+        # Two single-line feeders, one per row, converge on one stacked RIGHT
+        # entry; each takes the same descend-and-turn half-turn into it.
+        ("stacked_right_ports_coincident", "above", "below", "R->R"),
+        ("stacked_right_ports_coincident", "feeder", "below", "R->R"),
+        # The packed-cell serpentine fold: a two-line bundle folding from an LR
+        # row into the RL return row stacked beneath it.
+        (
+            "serpentine_rl_right_entry_bundle",
+            "quantification",
+            "variant_calling",
+            "R->R",
         ),
     }
 )
@@ -326,6 +358,8 @@ def _verdict(stem: str, feeder: str, consumer: str):
         ("tb_right_entry_stack", "source", "upper"),  # over-the-top RIGHT entry
         ("bypass_leftward_far_side_entry", "src_sec", "tgt_sec"),  # around-below LEFT
         ("stacked_multiline_left_exit_drop", "source", "target"),  # stacked LEFT
+        # stacked RIGHT
+        ("serpentine_rl_right_entry_bundle", "quantification", "variant_calling"),
         ("rnaseq_sections", "postprocessing", "qc_report"),  # TB column continuation
         ("fold_stacked_branch", "integration", "bio_interp"),  # fold RIGHT via junction
         ("fold_double", "calling", "hard_filter"),  # fold turn across rows
