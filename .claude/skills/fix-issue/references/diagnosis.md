@@ -57,6 +57,11 @@ that is open-ended judgment: the worker returns blocked naming the options in
 its `DECIDE` field, and the work re-routes to HIGH. A stated cause bounds
 *where to look*, not necessarily *how much there is to decide*.
 
+Don't ask the user to pick a magnitude/spacing `DECIDE` (a padding, a margin)
+blind before a render exists - implement the cheaper default, get a render in
+front of them, let inspection set the number. A number chosen sight-unseen is
+what a later visual-review round overturns anyway.
+
 ### Check your premise against current `origin/main` first
 
 Diagnose against latest remote, not a stale tree. The coordinator fetches
@@ -94,6 +99,14 @@ Require the diagnostic worker to decide which of three things it is looking at:
 
 Record which one it is - in numbers for (a), (b) and (d), in named call sites
 for (c) - before briefing the writer.
+
+**Default to a plan-time fix for (b); a render-time post-hoc correction needs
+a stated reason it's unavoidable, not just easier.** Before briefing the
+writer, check for an active architecture programme covering this defect class
+(grep open issues, stale branches). Brief the writer for plan-time unless a
+concrete blocker rules it out this run (an unstarted dependency, a
+stale/conflicting branch, a data-flow inversion needing its own PR) - name it
+in the handoff. File a tracking issue if the gap is untracked.
 
 ### Once it's an engine bug, the reproducer is frozen evidence
 

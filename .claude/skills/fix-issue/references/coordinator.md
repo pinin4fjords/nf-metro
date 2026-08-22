@@ -167,6 +167,10 @@ The writer is the only party that can see its own turn count, so
 [`worker-contract.md`](worker-contract.md) requires it to report turns on every
 handoff and to offer the split itself.
 
+A writer's session can also expire before its turn budget - resume can fail
+outright well under 200 turns. Treat that as expected: brief a fresh sole
+writer from the last candidate SHA rather than waiting on it.
+
 Use one candidate sequence throughout: the sole writer makes local candidate
 commit(s), runs mutation-capable hooks or generators, and hands off the exact
 SHA. Independent read-only workers verify and review that SHA without changing
