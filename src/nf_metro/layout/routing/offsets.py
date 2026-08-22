@@ -3056,17 +3056,17 @@ def _bundle_walk(
 
     Up to the section's own exit port the run carries *new_offs* itself: the
     re-slot names the slots it wants and the stations along it answer to the
-    same lane frame.  Crossing an exit the run has to *climb* to re-bases onto
-    the port's row, and from there the walk carries only the *order*, re-dealing
-    it onto each station's own slots.  Past the port every station belongs to
-    some other section, which anchors its lanes for its own reasons; stamping
-    this run's literal offsets onto them would shift their bundles wholesale
-    rather than settling the one thing the climb has to settle.
+    same lane frame.  Crossing an exit the run has to *climb* re-bases it onto
+    the port's row; from there the walk carries only the *order*, re-dealing it
+    onto each station's own slots.  Past the port every station belongs to some
+    other section, which anchors its lanes for its own reasons; stamping this
+    run's literal offsets onto them would shift their bundles wholesale rather
+    than settling the one thing the climb has to settle.
 
-    The climb is measured against the station the run leaves, not against the
-    row the walk started on: those differ once the walk has stepped between
-    lanes inside the section, and an exit level with its own feeder is an
-    ordinary flat continuation with no turn to carry an order across.
+    The climb is measured against the station the run leaves, not the row the
+    walk started on -- these differ once the walk has stepped between lanes
+    inside the section.  An exit level with the run's own row is a flat
+    continuation, not a climb, and carries no order across.
     """
     graph = ctx.graph
     direction = graph.sections[sec_id].direction
@@ -3074,9 +3074,11 @@ def _bundle_walk(
     flow_edge_sides = flow_port_sides(direction)
     reached: list[tuple[str, dict[str, float]]] = []
     visited = {start_id}
+    # queue item: (station, row_y, offs, already-rebased-onto-own-slots)
     queue = deque([(start_id, graph.stations[start_id].y, dict(new_offs), False)])
     while queue:
         cur, row_y, offs, rebased = queue.popleft()
+        cur_y = graph.stations[cur].y
         for edge in graph.edges_from(cur):
             tgt_id = edge.target
             if tgt_id in visited:
@@ -3092,7 +3094,7 @@ def _bundle_walk(
                 and not tgt_port.is_entry
                 and tgt_port.section_id == sec_id
                 and tgt_port.side in flow_edge_sides
-                and abs(tgt.y - graph.stations[cur].y) > _SAME_Y_TOLERANCE
+                and abs(tgt.y - cur_y) > _SAME_Y_TOLERANCE
             )
             if not in_section and not on_row and not own_flow_exit:
                 continue
