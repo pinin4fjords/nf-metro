@@ -5486,6 +5486,40 @@ def _guard_planned_fan_frame_realised(
                     )
 
 
+def _guard_canvas_margin_settled(
+    graph: MetroGraph,
+    phase: str,
+    *,
+    shift: tuple[float, float],
+    margin: float,
+    moves: int,
+) -> None:
+    """Guard that no left or top canvas margin outlives the moves that own it.
+
+    A canvas margin is not a boundary any row or column offset can widen, so
+    the render answers a short one by moving the whole map away from the edge
+    (issue #1769).  Each move gives the runs concerned strictly more room than
+    the measurement that asked for it, so a *shift* surviving *moves* of them
+    is a demand moving does not answer: engine drift rather than something an
+    author can express.  Drawing it pinched is what ``permissive`` asks for.
+    """
+    dx, dy = shift
+    sides = ", ".join(
+        f"{name} by {amount:.1f}px"
+        for name, amount in (("left", dx), ("top", dy))
+        if amount
+    )
+    msg = (
+        f"{phase}: the canvas margin still falls short after {moves} moves: "
+        f"content outside the section-box envelope is drawn inside the "
+        f"{margin:.0f}px margin on the {sides}.  Moving the map clear of the "
+        "edge is not converging on this arrangement."
+    )
+    if graph.strict and not graph.permissive:
+        raise LayoutInvariantError(msg)
+    warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
+
+
 @dataclass(frozen=True)
 class GuardSpec:
     """One ``validate=True`` guard, with the dispatch + classification data
@@ -6138,6 +6172,21 @@ INLINE_GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_symmetric_diamond_branches_half_pitch, "B"),
     GuardSpec(_guard_tall_anchor_stack_well_formed, "B"),
     GuardSpec(_guard_tb_top_entry_drop_hugs_top, "B"),
+    # Called from the render's canvas-margin move loop rather than by either
+    # guard runner: its input is the shortfall a move left behind, which exists
+    # nowhere else.  Tier B keeps it out of the chokepoint's dispatched Tier-A
+    # set, which its signature could not join; the loop calls it on every
+    # render regardless.
+    GuardSpec(
+        _guard_canvas_margin_settled,
+        "B",
+        issue_pin=("#1769",),
+        narrow_reason=(
+            "Restricted to the shortfall the canvas-margin moves leave behind: "
+            "the moves own this margin outright, so a map they answer has no "
+            "margin left to assert and one they cannot is the whole failure."
+        ),
+    ),
 )
 
 

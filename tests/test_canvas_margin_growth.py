@@ -38,9 +38,21 @@ TOP_ESCAPING = (
 
 
 def _plan(path: Path, *, strict: bool = False) -> RenderPlan:
+    """Build *path*'s render plan, refusing any downgraded geometry guard.
+
+    Only that category is judged, so unrelated warnings stay visible instead of
+    being swallowed by a blanket filter.
+    """
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
     graph.strict = strict
-    return build_render_plan(graph, resolve_theme(None, graph))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        plan = build_render_plan(graph, resolve_theme(None, graph))
+    downgraded = [
+        item for item in caught if issubclass(item.category, PermissiveGuardWarning)
+    ]
+    assert not downgraded, [str(item.message) for item in downgraded]
+    return plan
 
 
 def _box_envelope(graph: MetroGraph) -> tuple[float, float]:
@@ -68,10 +80,7 @@ def _drawn_ink_origin(plan: RenderPlan) -> tuple[float, float]:
 
 @pytest.mark.parametrize("name", LEFT_ESCAPING)
 def test_ink_left_of_the_box_envelope_keeps_the_canvas_margin(name: str) -> None:
-    path = ROOT / name
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        plan = _plan(path)
+    plan = _plan(ROOT / name)
     envelope_x, _ = _box_envelope(plan.graph)
     ink_x, _ = _drawn_ink_origin(plan)
     assert ink_x < envelope_x, f"{name} draws nothing left of its box envelope"
@@ -83,10 +92,7 @@ def test_ink_left_of_the_box_envelope_keeps_the_canvas_margin(name: str) -> None
 
 @pytest.mark.parametrize("name", TOP_ESCAPING)
 def test_ink_above_the_box_envelope_keeps_the_canvas_margin(name: str) -> None:
-    path = ROOT / name
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        plan = _plan(path)
+    plan = _plan(ROOT / name)
     _, envelope_y = _box_envelope(plan.graph)
     _, ink_y = _drawn_ink_origin(plan)
     assert ink_y < envelope_y, f"{name} draws nothing above its box envelope"
@@ -96,18 +102,11 @@ def test_ink_above_the_box_envelope_keeps_the_canvas_margin(name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("name", LEFT_ESCAPING[:1] + TOP_ESCAPING[:1])
+@pytest.mark.parametrize("name", (LEFT_ESCAPING[0], TOP_ESCAPING[0]))
 def test_a_canvas_margin_corridor_holds_its_claim_on_both_arms(name: str) -> None:
-    """The strict canvas-corridor guard passes, not merely warns.
+    """The strict canvas-corridor guard passes, rather than raising.
 
     The reproducers each seat a whole bundle in a canvas margin, which is the
     arrangement the guard refuses when the margin cannot hold it.
     """
-    path = ROOT / name
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _plan(path, strict=True)
-    downgraded = [
-        item for item in caught if issubclass(item.category, PermissiveGuardWarning)
-    ]
-    assert not downgraded, [str(item.message) for item in downgraded]
+    _plan(ROOT / name, strict=True)

@@ -55,6 +55,7 @@ from nf_metro.layout.phases.canvas import translate_graph
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     LayoutInvariantError,
+    _guard_canvas_margin_settled,
     assert_canvas_corridors_hold_their_claims,
     assert_render_header_clearance,
     assert_render_layout_invariants,
@@ -134,7 +135,6 @@ from nf_metro.parser.model import (
     LayoutGeometryWarning,
     MarkerStyle,
     MetroGraph,
-    PermissiveGuardWarning,
     Section,
     Station,
 )
@@ -1700,17 +1700,6 @@ class _SettledRenderGeometry(NamedTuple):
     route_plan: RoutePlan
     settlement: EnvelopeSettlement
 
-    @property
-    def settlement_translations(
-        self,
-    ) -> tuple[ReservationCoordinateTranslation, ...]:
-        """Translations the plan's frozen claims are projected through.
-
-        A canvas claim is measured only once the render has sized its canvas,
-        and needs this projection to land on the geometry the canvas encloses.
-        """
-        return self.settlement.coordinate_translations
-
 
 def _settle_render_geometry(
     graph: MetroGraph,
@@ -1763,9 +1752,9 @@ def _settle_render_geometry(
     surface rather than reflowed into kinked tracks.
 
     The Tier-A layout guards judge this result from outside
-    (:func:`_assert_settled_geometry_is_drawable`), so they read the pass the
-    renderer draws rather than one the canvas-margin move supersedes.  Label
-    growth legitimately carries a bbox edge past a port, so
+    (:func:`_assert_settled_geometry_is_drawable`), so they read the final
+    settled pass, the only one describing geometry a viewer sees.  Label growth
+    legitimately carries a bbox edge past a port, so
     ``carry_ports_with_section_edges`` moves the port with the edge it is
     anchored to and the port guards see a consistent pair.
 
@@ -2105,55 +2094,33 @@ def _settle_clear_of_the_canvas_margins(
     releasing such a run can uncover a little more demand than the first
     measurement saw -- hence a re-measurement rather than a single move.
 
-    The settled-geometry guards run once, on whichever pass survives: a pass a
-    later move supersedes describes geometry no viewer sees.
+    The settled-geometry guards read the final pass, the only one describing
+    geometry a viewer sees.
+
+    A shortfall under :data:`SAME_COORD_TOLERANCE` is nothing a viewer can
+    resolve, and moving for one would spend a re-route on a sub-pixel residue,
+    so the measurement settles there rather than at exact zero.
     """
     graph = _copy_graph_for_render(source_graph)
     settled = _settle_render_geometry(graph, theme, offset_step, section_y_gap)
     moved = 0.0, 0.0
-    moves = 0
-    while (
-        shift := _canvas_margin_shift(
+    for moves in range(_CANVAS_MARGIN_MOVES + 1):
+        shift = _canvas_margin_shift(
             graph, settled.route_polylines, debug, margin=margin
         )
-    ) != (0.0, 0.0):
-        if moves == _CANVAS_MARGIN_MOVES:
-            _report_unmet_canvas_margin(graph, shift, margin)
+        if max(shift) <= SAME_COORD_TOLERANCE:
             break
-        moves += 1
+        if moves == _CANVAS_MARGIN_MOVES:
+            _guard_canvas_margin_settled(
+                graph, "render", shift=shift, margin=margin, moves=moves
+            )
+            break
         moved = moved[0] + shift[0], moved[1] + shift[1]
         graph = _copy_graph_for_render(source_graph)
         translate_graph(graph, *moved)
         settled = _settle_render_geometry(graph, theme, offset_step, section_y_gap)
     _assert_settled_geometry_is_drawable(graph, settled)
     return graph, settled
-
-
-def _report_unmet_canvas_margin(
-    graph: MetroGraph, shift: tuple[float, float], margin: float
-) -> None:
-    """Fail on a map whose left or top margin no number of moves satisfies.
-
-    Each move gives the runs concerned strictly more room than the measurement
-    that asked for it, so a demand surviving every move is one the moves do not
-    answer: engine drift rather than something an author can express.  Drawing
-    it pinched is what ``permissive`` asks for.
-    """
-    dx, dy = shift
-    sides = ", ".join(
-        f"{name} by {amount:.1f}px"
-        for name, amount in (("left", dx), ("top", dy))
-        if amount
-    )
-    msg = (
-        f"the canvas margin still falls short after {_CANVAS_MARGIN_MOVES} moves: "
-        f"content outside the section-box envelope is drawn inside the "
-        f"{margin:.0f}px margin on the {sides}.  Moving the map clear of the "
-        "edge is not converging on this arrangement."
-    )
-    if graph.strict and not graph.permissive:
-        raise LayoutInvariantError(msg)
-    warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
 
 
 def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
@@ -2235,7 +2202,9 @@ def _build_render_plan_scaled(
     route_polylines = settled.route_polylines
     labels = settled.labels
     route_plan = settled.route_plan
-    settlement_translations = settled.settlement_translations
+    # A canvas claim is measured only once the render has sized its canvas, so
+    # it needs this projection to land on the geometry the canvas encloses.
+    settlement_translations = settled.settlement.coordinate_translations
     route_polylines, route_curve_radii, route_segment_shifts = (
         materialize_source_turnout_paths(
             routes,
