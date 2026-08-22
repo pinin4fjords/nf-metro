@@ -3067,11 +3067,17 @@ def _bundle_walk(
     walk started on -- these differ once the walk has stepped between lanes
     inside the section.  An exit level with the run's own row is a flat
     continuation, not a climb, and carries no order across.
+
+    Only a Y-stacked (LR/RL) section climbs this way.  A vertical flow's exit
+    is off-Y by construction rather than by climbing, and it reverses its
+    offsets to arc concentrically instead of inheriting the entry's order, so
+    carrying an order across it would be the wrong idiom.
     """
     graph = ctx.graph
     direction = graph.sections[sec_id].direction
     lane_edge_sides = perpendicular_port_sides(direction)
     flow_edge_sides = flow_port_sides(direction)
+    lane_stacked_on_y = lanes_run_along_y(direction)
     reached: list[tuple[str, dict[str, float]]] = []
     visited = {start_id}
     # queue item: (station, row_y, offs, already-rebased-onto-own-slots)
@@ -3090,7 +3096,8 @@ def _bundle_walk(
             )
             on_row = abs(tgt.y - row_y) <= _SAME_Y_TOLERANCE
             own_flow_exit = (
-                tgt_port is not None
+                lane_stacked_on_y
+                and tgt_port is not None
                 and not tgt_port.is_entry
                 and tgt_port.section_id == sec_id
                 and tgt_port.side in flow_edge_sides
