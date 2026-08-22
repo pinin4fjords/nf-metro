@@ -16,6 +16,13 @@ tree, so the Step 8 provenance check fails and the fallback is to enumerate the
 corpus and render both sides locally. Use it for genuine throwaway snapshots;
 never on the commit you intend to review.
 
+If checks don't appear on a push meant to trigger CI within a couple of
+minutes, check that commit's message for a stray skip marker before assuming
+propagation delay - a commit whose prose even names or quotes the marker text
+can trip it (Actions scans the whole message), and a writer explaining an
+earlier skipped commit can reproduce this by accident. Recover with a new
+(never amended) commit that omits the marker.
+
 Read this at the push/merge/cleanup end of a run.
 
 ## Additive only - no force-push, ever
@@ -43,7 +50,11 @@ gh pr edit <PR_NUMBER> --body-file /tmp/pr-body.md
 ```
 
 The description should be a standalone summary of the current state of the diff
-against main - not a chronology of how the PR got there.
+against main - not a chronology of how the PR got there. When a PR goes
+through multiple rounds of D-delta narrowing, regenerate the summary against
+the full base..HEAD diff each time, not incrementally against just the latest
+round - otherwise earlier, already-reviewed deltas quietly drop out of the
+record and a fresh reviewer correctly flags the body as incomplete.
 
 If narrative comments already exist, the coordinator may sweep them via the
 GraphQL `deleteIssueComment` mutation only with issue/PR edit authority. **Keep**

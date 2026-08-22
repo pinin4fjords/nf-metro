@@ -80,6 +80,11 @@ brief. Revise any later brief from its findings. The draft PR already exists
 from Step 8; this step adds no push and no new PR. Only after the gate passes
 may the coordinator run `gh pr ready <N>`.
 
+This gate reads the diff; it does not need the CI matrix to have finished. Run
+it as soon as the candidate SHA, its test evidence, and the render-diff/visual
+verdict are in hand, in parallel with a still-running CI - gate only the
+merge itself, not this review, on CI going green.
+
 A successful fix-issue run is not done when `/simplify` or a test worker
 returns. It reaches PR-ready completion when:
 
