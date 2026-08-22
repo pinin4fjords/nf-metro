@@ -3052,8 +3052,21 @@ def _bundle_walk(
 
     The reach depends only on the graph and the rows the run stands on, so a
     caller can ask which stations a re-slot would touch before deciding whether
-    to make it.  The paired offsets are *new_offs* itself everywhere except past
-    an off-row exit port, which re-bases the run onto its own lane set.
+    to make it.
+
+    Up to the section's own exit port the run carries *new_offs* itself: the
+    re-slot names the slots it wants and the stations along it answer to the
+    same lane frame.  Crossing an exit the run has to *climb* to re-bases onto
+    the port's row, and from there the walk carries only the *order*, re-dealing
+    it onto each station's own slots.  Past the port every station belongs to
+    some other section, which anchors its lanes for its own reasons; stamping
+    this run's literal offsets onto them would shift their bundles wholesale
+    rather than settling the one thing the climb has to settle.
+
+    The climb is measured against the station the run leaves, not against the
+    row the walk started on: those differ once the walk has stepped between
+    lanes inside the section, and an exit level with its own feeder is an
+    ordinary flat continuation with no turn to carry an order across.
     """
     graph = ctx.graph
     direction = graph.sections[sec_id].direction
@@ -3061,9 +3074,9 @@ def _bundle_walk(
     flow_edge_sides = flow_port_sides(direction)
     reached: list[tuple[str, dict[str, float]]] = []
     visited = {start_id}
-    queue = deque([(start_id, graph.stations[start_id].y, dict(new_offs))])
+    queue = deque([(start_id, graph.stations[start_id].y, dict(new_offs), False)])
     while queue:
-        cur, row_y, offs = queue.popleft()
+        cur, row_y, offs, rebased = queue.popleft()
         for edge in graph.edges_from(cur):
             tgt_id = edge.target
             if tgt_id in visited:
@@ -3079,17 +3092,19 @@ def _bundle_walk(
                 and not tgt_port.is_entry
                 and tgt_port.section_id == sec_id
                 and tgt_port.side in flow_edge_sides
+                and abs(tgt.y - graph.stations[cur].y) > _SAME_Y_TOLERANCE
             )
             if not in_section and not on_row and not own_flow_exit:
                 continue
-            if in_section or on_row:
-                tgt_row, tgt_offs = row_y, offs
-            else:
-                tgt_row = tgt.y
-                tgt_offs = _ranked_onto_held_slots(ctx, tgt_id, cur, offs)
+            crosses_exit = not in_section and not on_row
+            tgt_row = tgt.y if crosses_exit else row_y
+            tgt_rebased = rebased or crosses_exit
+            tgt_offs = (
+                _ranked_onto_held_slots(ctx, tgt_id, cur, offs) if tgt_rebased else offs
+            )
             visited.add(tgt_id)
             reached.append((tgt_id, tgt_offs))
-            queue.append((tgt_id, tgt_row, tgt_offs))
+            queue.append((tgt_id, tgt_row, tgt_offs, tgt_rebased))
     return reached
 
 
