@@ -96,9 +96,12 @@ survived Steps 1-3.
    worked, or a short date-based slug if there wasn't one).
 2. Edit only files under `.claude/skills/fix-issue/`.
 3. Run `prek run --files` on the changed files - these are docs edits, no
-   test suite is relevant, and `.claude/skills/fix-issue/scripts/check_skill.py`
-   only scans that skill's own files, so it isn't triggered by an unrelated
-   skill edit.
+   test suite is relevant. Also run
+   `python .claude/skills/fix-issue/scripts/check_skill.py` locally: it scans
+   `fix-issue`'s own reference files, which is exactly what this skill edits,
+   and CI enforces it. It fails on prose that reads as a worker assignment
+   (`brief`, `spawn`, `assign` + a role noun) without a tier or "sole writer"
+   nearby - phrase around that rather than finding out from a red CI run.
 4. Commit, push, open a **non-draft** PR (no render preview applies to a
    docs-only change). PR body: one bullet per file changed, naming the
    incident class each edit addresses, and naming any candidate you dropped
