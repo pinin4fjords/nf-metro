@@ -4015,6 +4015,49 @@ def test_no_diagonal_strikes_label(fixture, x_spacing):
     assert not collinear, f"{fixture} @ x_spacing={x_spacing}: collinear overlay"
 
 
+# A terminus file icon pushes a producer's name to the far side of its trunk,
+# where a flat run clear of the unsided name can rake it.  Each case rakes an
+# icon-sided label on a layout whose unsided labels are clear, so only the drawn
+# placement exposes it.
+_ICON_SIDED_STRIKE_CASES = [
+    "topologies/render_labelwrap_row_gap.mmd",
+    "differentialabundance.mmd",
+]
+
+
+@pytest.mark.parametrize("fixture", _ICON_SIDED_STRIKE_CASES)
+def test_no_diagonal_strikes_icon_sided_label(fixture):
+    """No diagonal rakes a name label where the renderer sides it off an icon.
+
+    Measured on the placements the renderer draws -- terminus file icons fed in
+    as obstacles -- rather than on the unsided view, so the assertion is about
+    the glyphs a reader sees.  Otherwise as
+    :func:`test_no_diagonal_strikes_label`: the engine's own strike definition,
+    which the clearance loop lengthens flat runs to satisfy.
+    """
+    from nf_metro.layout.phases.spacing import _struck_label_station_ids
+    from nf_metro.themes import resolve_theme
+
+    graph = _layout(fixture)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges_centred(graph, station_offsets=offsets)
+    placements = place_labels(
+        graph,
+        station_offsets=offsets,
+        routes=routes,
+        icon_obstacles=_compute_icon_obstacles(
+            graph, resolve_theme(None, graph), offsets
+        ),
+        label_angle=graph.label_angle or 0.0,
+        lift_wrapped_off_trunks=False,
+    )
+    struck = _struck_label_station_ids(graph, offsets, routes, placements)
+    assert not struck, (
+        f"{fixture}: diagonals rake icon-sided label glyph ink: "
+        + ", ".join(sorted(graph.stations[s].label for s in struck))
+    )
+
+
 _BYPASS_LABEL_RAKE_CASES = [
     "topologies/bypass_label_rake.mmd",
     "topologies/bypass_label_rake_left.mmd",

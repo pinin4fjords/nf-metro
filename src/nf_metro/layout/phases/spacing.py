@@ -45,6 +45,38 @@ def _icon_label_obstacles(
     return _compute_icon_obstacles(graph, resolve_theme(None, graph), offsets)
 
 
+def _icon_sided_placements(
+    graph: MetroGraph,
+    offsets: dict[tuple[str, str], float],
+    routes: list[RoutedPath],
+) -> dict[str, LabelPlacement]:
+    """Label placements as the renderer sides them against terminus file icons.
+
+    Empty for a graph that draws no icons, where the sided placement is the
+    unsided one.  ``place_labels`` grows a section's ``bbox_h`` to seat labels,
+    so the geometry it touches is restored and this probe never perturbs the
+    live layout.
+    """
+    from nf_metro.layout.labels import place_labels
+
+    obstacles = _icon_label_obstacles(graph, offsets)
+    if not obstacles:
+        return {}
+    with _restoring_layout_geometry(graph):
+        return {
+            p.station_id: p
+            for p in place_labels(
+                graph,
+                station_offsets=offsets,
+                routes=routes,
+                label_angle=graph.label_angle or 0.0,
+                lift_wrapped_off_trunks=False,
+                icon_obstacles=obstacles,
+            )
+            if p.station_id
+        }
+
+
 def _probe_label_placements(
     graph: MetroGraph, *, icon_aware: bool = False
 ) -> _Probe | None:
@@ -138,8 +170,14 @@ def _struck_label_station_ids(
     diverging or merging station's label, since the per-column runway relocates
     that divergence but not the V's fixed-offset crossing of any other label
     (see ``relocatable_for`` below).
+
+    ``placements`` need not be the icon-sided view: every label is additionally
+    tested where the renderer sides it against terminus file icons.  Both views
+    count -- the unsided reach is what a flat-run lever is measured against, the
+    sided placement is what gets drawn -- so a strike present in either is
+    reported whichever view the caller probed.
     """
-    from nf_metro.layout.labels import place_labels, segment_strikes_label
+    from nf_metro.layout.labels import segment_strikes_label
     from nf_metro.layout.routing.common import apply_route_offsets
 
     def _off_track(node_id: str) -> bool:
@@ -170,43 +208,19 @@ def _struck_label_station_ids(
         return relocatable_for in (ANY_STATION, station_id)
 
     seg_lists = []
-    any_off_track_output = False
     for r in routes:
         pts = apply_route_offsets(r, offsets)
-        is_off_output = _off_track(r.edge.target) and not _off_track(r.edge.source)
-        if is_off_output:
+        if _off_track(r.edge.target) and not _off_track(r.edge.source):
             # Off-track output sweep: relocatable for its own producer's label
             # only (via the off-track lead lever), per the docstring.
             relocatable_for = r.edge.source
-            any_off_track_output = True
         elif _off_track(r.edge.source) or _off_track(r.edge.target):
             relocatable_for = None
         else:
             relocatable_for = _bypass_endpoint(r) or ANY_STATION
-        seg_lists.append((pts, relocatable_for, is_off_output))
+        seg_lists.append((pts, relocatable_for))
 
-    # The renderer sides a producer's name label against nearby terminus icons;
-    # ``placements`` is the unsided view, which would miss a strike that only
-    # appears once that siding happens.  So an off-track output sweep is
-    # additionally tested against its producer's icon-sided label; other segment
-    # kinds have no icon-siding interaction.
-    icon_placements: dict[str, LabelPlacement] = {}
-    if any_off_track_output:
-        # ``place_labels`` grows a section's ``bbox_h`` to seat labels; restore
-        # the geometry it touches so this side probe never perturbs the layout.
-        with _restoring_layout_geometry(graph):
-            icon_placements = {
-                ip.station_id: ip
-                for ip in place_labels(
-                    graph,
-                    station_offsets=offsets,
-                    routes=routes,
-                    label_angle=graph.label_angle or 0.0,
-                    lift_wrapped_off_trunks=False,
-                    icon_obstacles=_icon_label_obstacles(graph, offsets),
-                )
-                if ip.station_id
-            }
+    icon_placements = _icon_sided_placements(graph, offsets, routes)
 
     def _rakes(pts: list[tuple[float, float]], place: LabelPlacement) -> bool:
         return not place.angle and any(
@@ -220,10 +234,10 @@ def _struck_label_station_ids(
         station = graph.stations.get(p.station_id)
         if station is None or not station.label.strip() or p.angle:
             continue
-        for pts, relocatable_for, is_off_output in seg_lists:
+        icon_place = icon_placements.get(p.station_id)
+        for pts, relocatable_for in seg_lists:
             if not _segment_applies(relocatable_for, p.station_id):
                 continue
-            icon_place = icon_placements.get(p.station_id) if is_off_output else None
             if _rakes(pts, p) or (icon_place is not None and _rakes(pts, icon_place)):
                 struck.add(p.station_id)
                 break
