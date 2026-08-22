@@ -1076,8 +1076,8 @@ def _settle_row_pitch_against_reflow(
         offer = settled + LABEL_OVERLAP_TOL
         trial = deepcopy(graph)
         try:
-            # An offer is laid unvalidated: it is a question, not a decision,
-            # and one that fails a stage check is simply declined.
+            # An offer is laid unvalidated: it is a question, not a decision.
+            # An offer whose layout raises is declined and ends the search.
             _relay(trial, offer, validate_layout=False)
         except Exception:
             break

@@ -289,8 +289,9 @@ the 6.13 cascade), `graph._placement_ref_y` /
 when `y_spacing` is auto-resolved), `graph._resolved_x_spacing` (the
 resolved column pitch recorded before layout, read as the cross-axis off-track
 step for vertical-flow sections), and `graph._resolved_y_spacing` (the row
-pitch the spacing search settled on, recorded once that search finishes and
-read by no layout stage).
+pitch the spacing search settled on, recorded post-layout once that search
+finishes, after the stage pipeline and the spread loop, and read by no layout
+stage).
 
 A further group crosses a subsystem boundary rather than two numbered stages,
 so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,
