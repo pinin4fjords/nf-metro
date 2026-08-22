@@ -1667,6 +1667,14 @@ gallery:
       A right-exit bundle wrapping down to a left-entry in the row below. The horizontal
       run sits centred in the inter-row gap, clear of both the section above and the next row's
       header.
+  - id: wrap_return_canvas_margin
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A five-line return band wrapping around the left of the lower row's first
+      section, outside every section box. The canvas grows to hold it with the margin
+      its rightmost ink gets, rather than squeezing it into whatever the box placement
+      left over (issue #1769)."
   - id: inter_row_drop_section_clearance
     source_dir: examples/topologies
     category: Inter-section Routing

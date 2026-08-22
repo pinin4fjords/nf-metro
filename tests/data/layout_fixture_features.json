@@ -450,6 +450,7 @@
     "topologies/wide_fan_in.mmd",
     "topologies/wide_fan_out.mmd",
     "topologies/wide_label_fan.mmd",
+    "topologies/wrap_return_canvas_margin.mmd",
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
     "variantprioritization.mmd"

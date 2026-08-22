@@ -253,14 +253,48 @@ def _renumber_sections_by_route(graph: MetroGraph) -> None:
         next_number += 1
 
 
-def _translate_graph_y(graph: MetroGraph, shift: float) -> None:
-    """Shift every station, section bbox, and port down by ``shift``."""
+def translate_graph(graph: MetroGraph, dx: float, dy: float) -> None:
+    """Move every absolute coordinate the graph carries by ``(dx, dy)``.
+
+    The laid-out graph states its geometry in canvas coordinates, and some of
+    that lives outside the stations, ports, and section boxes: a rail section's
+    per-line centrelines and the obstacle boxes the router steers bypasses
+    around both name a canvas position.  Leaving any of them behind splits the
+    graph across two coordinate frames, so a caller moving the map has to move
+    the whole set together.
+
+    An authored legend pin (``%%metro legend: x,y``) is not part of that set: it
+    places a block on the canvas, not a point in the map, and stays where the
+    author put it.
+    """
+    if not dx and not dy:
+        return
     for st in graph.stations.values():
-        st.y += shift
+        st.x += dx
+        st.y += dy
+        if st.rail_top_y is not None:
+            st.rail_top_y += dy
+        if st.rail_bottom_y is not None:
+            st.rail_bottom_y += dy
+        st.rail_used_ys = [y + dy for y in st.rail_used_ys]
     for section in graph.sections.values():
-        section.bbox_y += shift
+        section.bbox_x += dx
+        section.bbox_y += dy
     for port in graph.ports.values():
-        port.y += shift
+        port.x += dx
+        port.y += dy
+    graph.bypass_label_obstacles = {
+        sid: (x0 + dx, y0 + dy, x1 + dx, y1 + dy)
+        for sid, (x0, y0, x1, y1) in graph.bypass_label_obstacles.items()
+    }
+    graph._rail_y = {
+        sid: {line_id: y + dy for line_id, y in rails.items()}
+        for sid, rails in graph._rail_y.items()
+    }
+    graph._placement_ref_y = {sid: y + dy for sid, y in graph._placement_ref_y.items()}
+    graph._placement_ref_bbox_top = {
+        sid: y + dy for sid, y in graph._placement_ref_bbox_top.items()
+    }
 
 
 def _canvas_top_shortfall(graph: MetroGraph, section_y_padding: float) -> float:
@@ -316,4 +350,4 @@ def _shift_graph_into_canvas(graph: MetroGraph, section_y_padding: float) -> Non
     """
     shortfall = _canvas_top_shortfall(graph, section_y_padding)
     if shortfall > 0:
-        _translate_graph_y(graph, shortfall)
+        translate_graph(graph, 0.0, shortfall)

@@ -102,7 +102,7 @@ from nf_metro.layout.phases.bbox import (  # noqa: F401
 from nf_metro.layout.phases.canvas import (  # noqa: F401
     _renumber_sections_by_route,
     _shift_graph_into_canvas,
-    _translate_graph_y,
+    translate_graph,
 )
 from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _align_symfan_section_to_row_feeder,

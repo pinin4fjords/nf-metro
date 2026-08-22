@@ -25,6 +25,7 @@ from nf_metro.layout.route_reservations import (
     CANVAS_EDGE_ON_NEGATIVE_SIDE,
     CanvasRegion,
     CanvasSide,
+    canvas_edge_slack,
 )
 from nf_metro.parser import parse_metro_mermaid
 from nf_metro.render.constants import RAIL_KNOB_RADIUS_RATIO
@@ -195,8 +196,8 @@ def test_a_coarsened_canvas_margin_reads_back_outside_its_pass() -> None:
         source_dir=str(path.parent),
         layout_options={"stroke_scale": 2.0},
     )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
         plan = build_observed_render_plan(graph, resolve_theme(None, graph)).route_plan
     query = build_route_plan_query(plan)
 
@@ -213,19 +214,15 @@ def test_a_coarsened_canvas_margin_reads_back_outside_its_pass() -> None:
     } == {scaled}
     assert all(query.realised_reservation(item.id) is not None for item in canvas)
 
-    # The map's left channel is placed for the unscaled stroke, so a coarsened
-    # render of it is genuinely short of the wider margin -- and the guard's
-    # attribution carries the scaled demand rather than the constant.
+    # The map's left channel is placed for the unscaled stroke, so the room the
+    # canvas is grown by has to answer the scaled demand, not the constant.
     left = next(item for item in canvas if item.region.side is CanvasSide.LEFT)
     assert left.minimum_width == pytest.approx(
         scaled + left.bundle_width + EDGE_TO_BUNDLE_CLEARANCE
     )
-    margin = next(
-        str(item.message)
-        for item in caught
-        if "left canvas margin" in str(item.message)
-    )
-    assert f"requires {left.minimum_width:.1f}px" in margin
+    realised = query.realised_reservation(left.id)
+    assert realised is not None
+    assert canvas_edge_slack(left.region, realised) >= 0.0
 
 
 def test_unit_scale_returns_the_same_theme() -> None:

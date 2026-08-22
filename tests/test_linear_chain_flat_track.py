@@ -129,4 +129,4 @@ def test_two_line_off_row_fan_keeps_peel_order() -> None:
             _first_vertical_x(_route_from(observed, junction, line_id).points),
         )
         for line_id in ("main", "side")
-    } == {"main": (120.0, 453.0), "side": (124.0, 457.0)}
+    } == {"main": (120.0, 469.0), "side": (124.0, 473.0)}
