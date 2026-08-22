@@ -59,7 +59,7 @@ three biggest layout modules are 205k tokens together and the median function in
 them is 28 lines. A window of 1-3k tokens is normally right.
 
 **But do not under-read.** Reading costs about $0.05 a spawn; a wrong fix costs a
-narrowing round plus a CI cycle, roughly $50. When in doubt read more. Two cases
+narrowing round plus a CI cycle, roughly $50. When in doubt read more. Three cases
 where a narrow window is actively dangerous:
 
 - `routing/core.py` is a **first-match dispatcher**, so a handler read in
@@ -69,6 +69,13 @@ where a narrow window is actively dangerous:
 - A guard in `phases/guards.py` or `routing/invariants.py` is registered with a
   tier that decides its blast radius; the registration matters as much as the
   body.
+- A one-sided predicate (LEFT vs RIGHT, TB vs BT) you're about to **mirror**
+  rarely stands alone: grep its name for companions - reflection logic, guard
+  eligibility, dispatch entries - that key off it too, and mirror all of them
+  together, not just the one your repro exercises. Check first whether
+  existing axis-generic machinery (`AxisFrame`, `axis_along`, and siblings)
+  already covers both sides; extending that beats adding a predicate you'll
+  need to keep in sync by hand.
 
 ## Judgment above your tier
 
