@@ -2,10 +2,11 @@
 
 A route that runs left of, or above, every section box is outside the envelope
 the boxes were placed with, so the margin that envelope leaves says nothing
-about how much room the route has.  The canvas grows past the rightmost and
-bottommost ink already; these tests hold the same for the two margins whose
-edge sits at the coordinate origin, where the ink has nowhere to go and is
-drawn against -- or beyond -- the canvas edge instead.
+about how much room the route has: on the two sides whose edge sits at the
+coordinate origin the ink has nowhere to go, and is drawn against -- or beyond
+-- the canvas edge instead.  These tests hold that such a route is given the
+room the layout gives the first section box on that side, so the map reads one
+margin per side whichever of the two is outermost.
 
 They also hold that the boundary those margins settle on is the one a
 content-framed decoration is placed against: a legend the author left unpinned
@@ -21,7 +22,7 @@ import pytest
 
 from nf_metro.api import prepare_graph
 from nf_metro.parser.model import MetroGraph, PermissiveGuardWarning
-from nf_metro.render.constants import CANVAS_PADDING
+from nf_metro.render.constants import CANVAS_ORIGIN_MARGIN
 from nf_metro.render.svg import RenderPlan, build_render_plan
 from nf_metro.themes import resolve_theme
 
@@ -92,9 +93,10 @@ def test_ink_left_of_the_box_envelope_keeps_the_canvas_margin(name: str) -> None
     envelope_x, _ = _box_envelope(plan.graph)
     ink_x, _ = _drawn_ink_origin(plan)
     assert ink_x < envelope_x, f"{name} draws nothing left of its box envelope"
-    assert ink_x >= CANVAS_PADDING, (
-        f"{name} draws ink at x={ink_x:.1f}, inside the {CANVAS_PADDING:.0f}px "
-        f"margin the canvas leaves past its rightmost ink"
+    assert ink_x >= CANVAS_ORIGIN_MARGIN[0], (
+        f"{name} draws ink at x={ink_x:.1f}, inside the "
+        f"{CANVAS_ORIGIN_MARGIN[0]:.0f}px the layout leaves between the canvas "
+        f"edge and a first section box"
     )
 
 
@@ -104,9 +106,10 @@ def test_ink_above_the_box_envelope_keeps_the_canvas_margin(name: str) -> None:
     _, envelope_y = _box_envelope(plan.graph)
     _, ink_y = _drawn_ink_origin(plan)
     assert ink_y < envelope_y, f"{name} draws nothing above its box envelope"
-    assert ink_y >= CANVAS_PADDING, (
-        f"{name} draws ink at y={ink_y:.1f}, inside the {CANVAS_PADDING:.0f}px "
-        f"margin the canvas leaves past its bottommost ink"
+    assert ink_y >= CANVAS_ORIGIN_MARGIN[1], (
+        f"{name} draws ink at y={ink_y:.1f}, inside the "
+        f"{CANVAS_ORIGIN_MARGIN[1]:.0f}px the layout leaves between the canvas "
+        f"edge and a first section header"
     )
 
 

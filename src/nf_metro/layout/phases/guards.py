@@ -5491,7 +5491,7 @@ def _guard_canvas_margin_settled(
     phase: str,
     *,
     shift: tuple[float, float],
-    margin: float,
+    margins: tuple[float, float],
     moves: int,
 ) -> None:
     """Guard that no left or top canvas margin outlives the moves that own it.
@@ -5505,15 +5505,14 @@ def _guard_canvas_margin_settled(
     """
     dx, dy = shift
     sides = ", ".join(
-        f"{name} by {amount:.1f}px"
-        for name, amount in (("left", dx), ("top", dy))
+        f"{name} by {amount:.1f}px inside a {margin:.0f}px margin"
+        for name, amount, margin in (("left", dx, margins[0]), ("top", dy, margins[1]))
         if amount
     )
     msg = (
         f"{phase}: the canvas margin still falls short after {moves} moves: "
-        f"content outside the section-box envelope is drawn inside the "
-        f"{margin:.0f}px margin on the {sides}.  Moving the map clear of the "
-        "edge is not converging on this arrangement."
+        f"content outside the section-box envelope is drawn {sides}.  Moving "
+        "the map clear of the edge is not converging on this arrangement."
     )
     if graph.strict and not graph.permissive:
         raise LayoutInvariantError(msg)

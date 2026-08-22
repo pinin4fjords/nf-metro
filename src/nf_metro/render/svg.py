@@ -140,6 +140,7 @@ from nf_metro.parser.model import (
 )
 from nf_metro.render.bridges import BridgeBreak, compute_bridges
 from nf_metro.render.constants import (
+    CANVAS_ORIGIN_MARGIN,
     CANVAS_PADDING,
     CAPTION_FILL,
     CAPTION_FONT_SIZE,
@@ -338,7 +339,7 @@ def _content_origin(
     route_polylines: Sequence[Sequence[tuple[float, float]]],
     debug: bool,
     *,
-    margin: float,
+    padding: float,
 ) -> tuple[float, float]:
     """Left and top edges of the drawn content, box or run.
 
@@ -348,15 +349,14 @@ def _content_origin(
     decoration placed against this boundary therefore sits flush with the
     content whichever of the two defines the edge.
 
-    A map with no boxes has no such frame; its content edge is the drawn
-    margin, the same answer :func:`_canvas_margin_shift` gives by declining to
-    move it.  Station markers and labels reach past a bare station's
-    coordinate, so reading one as an edge would place a decoration inside the
-    content it frames.
+    A map with no boxes has no such frame, and is never moved for one either,
+    so its content edge is the canvas padding.  Station markers and labels
+    reach past a bare station's coordinate, so reading one as an edge would
+    place a decoration inside the content it frames.
     """
     boxes = [section for section in graph.sections.values() if section.bbox_w > 0]
     if not boxes:
-        return margin, margin
+        return padding, padding
     ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
     return (
         min(ink_x, min(section.bbox_x for section in boxes)),
@@ -369,9 +369,9 @@ def _canvas_margin_shift(
     route_polylines: Sequence[Sequence[tuple[float, float]]],
     debug: bool,
     *,
-    margin: float,
+    margins: tuple[float, float],
 ) -> tuple[float, float]:
-    """How far to move the map so ink outside the box envelope clears *margin*.
+    """How far to move the map so ink outside the box envelope clears *margins*.
 
     The canvas is a first-quadrant frame: it grows past the rightmost and
     bottommost ink by a margin, while its left and top edges are pinned at
@@ -379,9 +379,10 @@ def _canvas_margin_shift(
     an inter-row return band wrapping left of the first box, a bundle rising
     over the top of one -- therefore has only whatever room the box placement
     happened to leave, and a wide enough bundle is drawn through it and off the
-    canvas.  Moving the whole map away from the edge by the shortfall gives
-    that run the same margin the far sides get, and the far margins absorb the
-    move by growing the canvas.
+    canvas.  Moving the whole map away from the edge by the shortfall seats that
+    run on the line the layout seats a first section against
+    (:data:`CANVAS_ORIGIN_MARGIN`), and the far margins absorb the move by
+    growing the canvas.
 
     Zero on both axes for a map that draws nothing outside its box envelope.
     """
@@ -390,8 +391,8 @@ def _canvas_margin_shift(
         return 0.0, 0.0
     ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
     return (
-        _outboard_shortfall(min(s.bbox_x for s in boxes), ink_x, margin),
-        _outboard_shortfall(min(s.bbox_y for s in boxes), ink_y, margin),
+        _outboard_shortfall(min(s.bbox_x for s in boxes), ink_x, margins[0]),
+        _outboard_shortfall(min(s.bbox_y for s in boxes), ink_y, margins[1]),
     )
 
 
@@ -2121,7 +2122,7 @@ def _settle_clear_of_the_canvas_margins(
     offset_step: float,
     section_y_gap: float,
     *,
-    margin: float,
+    margins: tuple[float, float],
     debug: bool = False,
 ) -> tuple[MetroGraph, _SettledRenderGeometry]:
     """Settle a copy of *source_graph*, moved clear of the left and top edges.
@@ -2145,13 +2146,13 @@ def _settle_clear_of_the_canvas_margins(
     moved = 0.0, 0.0
     for moves in range(_CANVAS_MARGIN_MOVES + 1):
         shift = _canvas_margin_shift(
-            graph, settled.route_polylines, debug, margin=margin
+            graph, settled.route_polylines, debug, margins=margins
         )
         if max(shift) <= SAME_COORD_TOLERANCE:
             break
         if moves == _CANVAS_MARGIN_MOVES:
             _guard_canvas_margin_settled(
-                graph, "render", shift=shift, margin=margin, moves=moves
+                graph, "render", shift=shift, margins=margins, moves=moves
             )
             break
         moved = moved[0] + shift[0], moved[1] + shift[1]
@@ -2188,7 +2189,7 @@ def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
             scaled_theme,
             graph_offset_step(source_graph, scaled_theme.line_width),
             section_y_gap,
-            margin=CANVAS_PADDING,
+            margins=CANVAS_ORIGIN_MARGIN,
         )
     return graph
 
@@ -2233,7 +2234,7 @@ def _build_render_plan_scaled(
         theme,
         offset_step,
         section_y_gap,
-        margin=0.0 if bare else padding,
+        margins=(0.0, 0.0) if bare else CANVAS_ORIGIN_MARGIN,
         debug=debug,
     )
     station_offsets = settled.station_offsets
@@ -2333,7 +2334,7 @@ def _build_render_plan_scaled(
         effective_legend_position,
         routes,
         header_placements,
-        _content_origin(graph, route_polylines, debug, margin=padding),
+        _content_origin(graph, route_polylines, debug, padding=padding),
     )
 
     if show_legend:

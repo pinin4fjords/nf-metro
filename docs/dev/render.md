@@ -119,6 +119,12 @@ graph carries). Routing is then re-derived on the moved copy, because where a
 run lands is only known once it is routed. A map that draws nothing outside its
 box envelope never moves.
 
+The room such a run is owed is `CANVAS_ORIGIN_MARGIN`, not `CANVAS_PADDING`:
+the near sides already have something placed against them, the first section's
+box edge and the header badge above its top, and a run settled anywhere else
+would read as a second boundary beside that one. The far sides have nothing
+placed against them, so they keep the flat padding.
+
 `_content_origin` reports the left and top edges that move settles on - the box
 envelope, carried outwards by any run drawn past it. A decoration the author
 left unpinned is placed against those edges rather than against a box, so the
