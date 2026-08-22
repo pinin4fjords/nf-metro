@@ -3074,16 +3074,17 @@ def _bundle_walk(
                 tgt_port is None or tgt_port.side in lane_edge_sides
             )
             on_row = abs(tgt.y - row_y) <= _SAME_Y_TOLERANCE
-            tgt_row, tgt_offs = row_y, offs
-            if not in_section and not on_row:
-                own_flow_exit = (
-                    tgt_port is not None
-                    and not tgt_port.is_entry
-                    and tgt_port.section_id == sec_id
-                    and tgt_port.side in flow_edge_sides
-                )
-                if not own_flow_exit:
-                    continue
+            own_flow_exit = (
+                tgt_port is not None
+                and not tgt_port.is_entry
+                and tgt_port.section_id == sec_id
+                and tgt_port.side in flow_edge_sides
+            )
+            if not in_section and not on_row and not own_flow_exit:
+                continue
+            if in_section or on_row:
+                tgt_row, tgt_offs = row_y, offs
+            else:
                 tgt_row = tgt.y
                 tgt_offs = _ranked_onto_held_slots(ctx, tgt_id, cur, offs)
             visited.add(tgt_id)
@@ -3105,17 +3106,13 @@ def _ranked_onto_held_slots(
     its lines across the slots it already holds moves the order alone, and so
     cannot seat one of them on a slot another line of the port keeps.
 
-    The order read off *source_id* is the one a re-slot in flight leaves there:
-    *pending* for the lines it moves, the settled offsets for the rest.  A
-    re-slot may move one line of a bundle and leave its co-travellers where they
-    are, so the order to carry across is the combined one.
+    The order read off *source_id* combines *pending* (the lines an in-flight
+    re-slot moves) with ``ctx.offsets`` (the co-travellers it leaves in place),
+    since a re-slot may touch only one line of a bundle.
     """
     graph = ctx.graph
     source_lines = set(graph.station_lines(source_id))
-    carried = sorted(
-        lid for lid in graph.station_lines(station_id) if lid in source_lines
-    )
-    slots = sorted(ctx.offsets.get((station_id, lid), 0.0) for lid in carried)
+    carried = [lid for lid in graph.station_lines(station_id) if lid in source_lines]
     ranked = sorted(
         carried,
         key=lambda lid: (
@@ -3123,7 +3120,7 @@ def _ranked_onto_held_slots(
             lid,
         ),
     )
-    return dict(zip(ranked, slots, strict=True))
+    return _deal_slots_in_order(ctx, station_id, ranked)
 
 
 def _bundle_reslot_collides(
