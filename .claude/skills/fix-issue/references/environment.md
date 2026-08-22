@@ -46,6 +46,17 @@ never editable-install a shared env against a worktree.)
 Python 3.11 is the pinned interpreter for the routing/TB ratchets; those tests
 skip silently off it (see [gate-ratchet.md](gate-ratchet.md)).
 
+Take a corpus A/B render diff in one script invocation or one continuous
+worker turn: the shared `nf-metro-dev` env can be updated by a concurrent
+session between two separately-dispatched measurement passes, producing a
+near-total false diff that costs a full re-measurement to disprove.
+
+## Never `git stash` in a fix-issue worktree
+
+`refs/stash` is shared across every worktree of this repo, so a `pop` here can
+hand back a concurrent session's entry instead of yours, conflicting against
+changes you never made. Use a throwaway commit instead.
+
 ## Commit hooks
 
 Hooks need the tools on `PATH` in the same Bash call: the repo uses `prek`

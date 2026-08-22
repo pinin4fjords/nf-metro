@@ -106,6 +106,21 @@ Step 9 narrowing must gate code on a structural precondition, never reword the
 input. If the writer proposes an input workaround during an engine fix, stop
 and route the evidence back through diagnosis.
 
+### Two falsification traps
+
+Confirming the fix against a reduced repro that clears the *first* violation
+is not falsification if the issue's repro names more than one - a second,
+unrelated defect can sit behind the first (often an authoring mistake in the
+reporter's own `.mmd`) and only shows up when the post-diagnosis gate reruns
+the literal repro. Test against the complete repro, not a reduced one.
+
+A rendered-corpus zero-diff shows the change moved no pixel; it does not show
+the change is *right* if the corpus has no case where the changed decision
+could actually disagree with itself (e.g. a single-line bundle has no order
+to violate, so reclassifying its seam is inert). Check the corpus contains a
+case that could reveal a wrong answer, or build one, before citing zero-diff
+as safety evidence.
+
 ### Diagnostic tooling
 
 The repo bundles two scripts that do exactly this render-and-read-the-numbers
