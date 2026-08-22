@@ -425,6 +425,7 @@ python scripts/list_topology_fixtures.py
 
 | Fixture                                | What it tests                                                                                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `exit_lane_rise_bundle_order.mmd`      | Exit port a lane above its own trunk - the climb out keeps the order the converging entry fixed, rather than crossing the pair (#1770)     |
 | `merge_around_below_leftmost.mmd`      | Merge where the continuation must route around a section sitting below and to the left of the leftmost source                              |
 | `merge_bottom_row_bypass.mmd`          | Merge on the bottom row where one branch arrives via an inter-row bypass                                                                   |
 | `merge_leftmost_sink_branch.mmd`       | Merge where the sink section is the leftmost section in its row - tests that the merge trunk does not overshoot left                       |
