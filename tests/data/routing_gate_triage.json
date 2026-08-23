@@ -1191,10 +1191,6 @@
   "note": "_reconcile_moved_trunk_slot's precondition guard: the re-banded leg is not the route's first interior horizontal run, or the route declared no trunk slot. The docstring states this as a real filter ('only the trunk the slot describes can retarget it'), and _bundle_divergent_distinct_traverses hands it every distinct-line traverse leg, so a non-trunk leg or a slotless route reaches it; all 3 corpus fixtures happen to pass. Reachable; wants a fixture.",
   "status": "needs-review"
  },
- "normalize.py::if target is None:::#1": {
-  "note": "The fused-lane re-seat abandons a lane when no candidate coordinate separates it: every one-step move off an obstacle either runs inside a section or closes on a third lane. The claim band ranks the candidates rather than removing them, so the two corpus corridors that reached the abandon arm (off_track_input_above_consumer, entry_trunk_row_bow) now take the nearest out-of-band move instead, and reaching it needs a corridor packed tight enough to leave a fused lane nowhere at all to stand. Revisit when a corpus map packs one that tightly.",
-  "status": "needs-review"
- },
  "normalize.py::if up.route.line_id != descent.route.line_id:::#1": {
   "note": "_clear_merge_trunk_opposite_arm skips an up-arm carrying a different line from the down-trunk, since only a same-line opposite arm folds the line back over itself. The corpus's one fork sends a single line both ways, so the different-line skip arm stays un-exercised. Defensive against a fork whose opposite arms carry distinct lines.",
   "status": "defensive"

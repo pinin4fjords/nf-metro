@@ -741,7 +741,6 @@
   "normalize.py::if sg[0].sign_x != t.sign_x:::#1",
   "normalize.py::if slot is None or trunk is None or trunk[0] != k:::#1",
   "normalize.py::if source_col is None:::#1",
-  "normalize.py::if target is None:::#1",
   "normalize.py::if target_x is None:::#1",
   "normalize.py::if up.route.line_id != descent.route.line_id:::#1",
   "normalize.py::or abs(p1[0] - p2[0]) > COORD_TOLERANCE::#1",

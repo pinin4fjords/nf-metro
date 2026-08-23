@@ -170,11 +170,12 @@ def _collect_corpus() -> list[tuple[Path, bool]]:
     ``content_corpus`` this keeps the ``rails`` fixtures -- their rail router is
     a routing path the matrix should measure, not skip.
 
-    ``curve_invariant_repros/`` is walked for the same reason.  Its maps are
-    held out of the invariant corpora because their authored geometry breaks
-    quality rules unrelated to the routing defect each one locks.  They render
-    all the same, and the crowded corridors that make them awkward are
-    precisely the ones that reach a repair's last-resort arms.
+    ``curve_invariant_repros/`` is walked for the same reason.  Its maps sit
+    outside the corpora that hold every fixture to the layout-quality
+    invariants, since each carries authored geometry the routing defect it locks
+    is not about and would be judged on that instead.  They render like any
+    other map, and the crowded corridors that put them there are what reach a
+    pass's last-resort arms.
     """
     examples = PROJECT_ROOT / "examples"
     fixtures = PROJECT_ROOT / "tests" / "fixtures"

@@ -568,16 +568,20 @@ def test_reported_corridors_keep_the_nesting_step(
         assert separations[pair] >= graph_offset_step(graph)
 
 
-def test_inter_row_trunk_overflow_renders_with_every_guard_live() -> None:
-    """An inter-row corridor carrying more lanes than it was sized for renders.
+def test_inter_row_corridor_reorder_holds_its_reserved_depth() -> None:
+    """A discretionary trunk reorder settles on one depth for its corridor.
 
-    Three handler-placed trunks from two route systems share the row-0/row-1
-    channel of ``inter_row_corridor_overflow`` while its reservation is
-    sized for two, so the lanes cannot all stand inside the band they claim.
-    The separation stage has to leave the band to keep them apart, and the
-    reorder that would otherwise pack them into it has to be declined; with
-    either missing, two of the three paint one stroke and the render aborts on
-    the collinearity and fused-pair guards rather than reaching a plan.
+    ``inter_row_corridor_overflow``'s row-0/row-1 channel carries a two-line
+    corridor with a third line's trunk between its lanes.  Reordering the
+    channel lifts that third trunk out, halving the depth the corridor occupies
+    and so the width its reservation asks the row gap for -- and every routing
+    pass measures the ledger afresh from whatever the previous one drew.  Left
+    to alternate, the passes take turns reordering and not reordering, the gap
+    is finally sized from an arrangement that is not the one drawn, and the two
+    lines the narrowed gap cannot both hold paint a single stroke.
+
+    Rendered under ``strict`` so the reservation settlement guard is live
+    alongside the collinearity and fused-pair guards.
     """
     from nf_metro.api import prepare_graph, resolve_theme
     from nf_metro.render.svg import build_observed_render_plan
@@ -586,6 +590,7 @@ def test_inter_row_trunk_overflow_renders_with_every_guard_live() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        graph.strict = True
         build_observed_render_plan(graph, resolve_theme(None, graph))
 
 
