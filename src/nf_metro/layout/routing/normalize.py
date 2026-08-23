@@ -3522,9 +3522,11 @@ def _suboptimal_trunk_bands(
     avoidable crossings: ``(band y, current crossings, best achievable)``.
 
     Reconstructs the bands :func:`_materialize_trunk_slots` reorders and scores
-    each through :func:`_band_order_deficits`, the same rule that pass reorders
-    on, so the checker and the repair cannot disagree about which orders are
-    suboptimal.  An empty result means every band is crossing-optimal.
+    each through :func:`_band_order_deficits`, the rule that pass reorders on,
+    so both read one definition of a suboptimal order.  The population here is
+    the narrower of the two -- destination-owned tails are dropped -- so every
+    band this reports is one that pass could have reordered, and an empty
+    result means every band it scores is crossing-optimal.
     """
     destination_owned = {
         id(trunk.route)
