@@ -1263,9 +1263,12 @@ in pipeline order.
   below the deepest content (trunk alignment unaffected -- only
   bottom shrinks), and clear the lowest drawn lane of every port the box
   holds: `PERP_PORT_EDGE_INSET` for a perpendicular port, otherwise
-  `PERP_PORT_EDGE_CLEARANCE`, both measured from the port's outermost lane
-  rather than the port station (`port_bundle_edge_reach`).  For each row pair,
-  the row gap is `section_y_gap` (no more, no less, except where rowspan
+  `MIN_BUNDLE_EDGE_CLEARANCE` for a trunk port carrying a multi-line bundle,
+  which owes the edge the label room an interior station's bundle owes it.  Both
+  terms are measured from the port's outermost lane rather than the port station
+  (`port_bundle_edge_reach`), and a trunk port carrying a single line reserves
+  nothing here -- where it sits is the content padding's business.  For each
+  row pair, the row gap is `section_y_gap` (no more, no less, except where rowspan
   sections filled their full row claim).  A row pair claimed by
   `_merge_trunk_row_minimums` keeps that wider minimum between the two row
   *envelopes*: the trunk's channel crosses the whole boundary, so no
@@ -1325,8 +1328,9 @@ in pipeline order.
   section with an empty band (no port / bypass above content) the padding term
   is an equality, not just a floor: the excess band is reclaimed. Both port
   terms are measured from the port's outermost lane rather than the port
-  station (`port_bundle_edge_reach`), and a port the inset does not cover still
-  owes `PERP_PORT_EDGE_CLEARANCE` past that lane.
+  station (`port_bundle_edge_reach`), and a port the inset does not cover but
+  that carries a multi-line bundle owes `MIN_BUNDLE_EDGE_CLEARANCE` past that
+  lane, the same floor an interior station's bundle owes the edge.
 - **Invariants preserved**: Station Ys (only bbox tops move). Resolves #406.
 - **Related tests**: `test_section_bbox_has_top_padding`,
   `test_section_bbox_top_hugs_content`.
