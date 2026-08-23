@@ -9,7 +9,7 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.geometry import lanes_run_along_y
 from nf_metro.layout.phase_state import require_phase_field
-from nf_metro.layout.phases.canvas import _canvas_top_preserved, _translate_graph_y
+from nf_metro.layout.phases.canvas import _canvas_top_preserved, translate_graph
 from nf_metro.layout.phases.fan_bundles import (
     _centreline_trunk_followers,
     _convergence_source_ys,
@@ -342,7 +342,7 @@ def _snap_canvas_y_to_grid(
     shift = min(candidates, key=abs)
     if abs(shift) < 1e-6:
         return
-    _translate_graph_y(graph, shift)
+    translate_graph(graph, 0.0, shift)
     # Junctions ride the same shift via _position_junctions, which keys
     # off the (now-shifted) exit/entry port Ys.
     _position_junctions(graph)

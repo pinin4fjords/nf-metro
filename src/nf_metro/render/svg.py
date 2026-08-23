@@ -51,9 +51,11 @@ from nf_metro.layout.labels import (
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
 from nf_metro.layout.phases._common import _station_bundle_offset_span
 from nf_metro.layout.phases.bbox import measure_row_gap_clearance
+from nf_metro.layout.phases.canvas import translate_graph
 from nf_metro.layout.phases.guards import (
     FoldThresholdError,
     LayoutInvariantError,
+    _guard_canvas_margin_settled,
     assert_canvas_corridors_hold_their_claims,
     assert_render_header_clearance,
     assert_render_layout_invariants,
@@ -138,6 +140,7 @@ from nf_metro.parser.model import (
 )
 from nf_metro.render.bridges import BridgeBreak, compute_bridges
 from nf_metro.render.constants import (
+    CANVAS_ORIGIN_MARGIN,
     CANVAS_PADDING,
     CAPTION_FILL,
     CAPTION_FONT_SIZE,
@@ -245,6 +248,18 @@ from nf_metro.text_metrics import (
 )
 
 
+def _drawn_stations(graph: MetroGraph, debug: bool) -> list[Station]:
+    """The stations the canvas is sized around; ports and hidden ones are not drawn.
+
+    A graph made only of ports has to be given some extent, so it falls back to
+    every station.
+    """
+    if debug:
+        return list(graph.stations.values())
+    visible = [s for s in graph.stations.values() if not s.is_port and not s.is_hidden]
+    return visible if visible else list(graph.stations.values())
+
+
 def _compute_canvas_bounds(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -252,15 +267,7 @@ def _compute_canvas_bounds(
     header_placements: dict[str, SectionHeaderPlacement] | None = None,
 ) -> tuple[float, float]:
     """Compute max X/Y from stations, section boxes, route waypoints, and headers."""
-    if debug:
-        visible_stations = list(graph.stations.values())
-    else:
-        visible_stations = [
-            s for s in graph.stations.values() if not s.is_port and not s.is_hidden
-        ]
-    all_stations = (
-        visible_stations if visible_stations else list(graph.stations.values())
-    )
+    all_stations = _drawn_stations(graph, debug)
 
     max_x = max(s.x for s in all_stations)
     max_y = max(s.y for s in all_stations)
@@ -291,6 +298,104 @@ def _compute_canvas_bounds(
     return max_x, max_y
 
 
+_CANVAS_MARGIN_MOVES = 3
+"""Times a render may move the map to clear the left and top canvas margins.
+
+The first move is measured against runs held against the canvas edge, and
+releasing them can uncover a few more pixels of demand, so the measurement is
+taken again on the moved geometry.  Each move strictly increases the room those
+runs have, so the demand cannot grow indefinitely; the cap bounds the re-routing
+a pathological map can provoke rather than expressing a geometric limit."""
+
+
+def _outboard_shortfall(envelope: float, ink: float, margin: float) -> float:
+    """Room owed to *ink* drawn outboard of *envelope*, towards a zero edge.
+
+    Ink inside the envelope is covered by the margin the envelope itself was
+    placed with; ink outside it has only the distance to the canvas edge at
+    zero, which is nobody's reservation.
+    """
+    if ink >= envelope - SAME_COORD_TOLERANCE:
+        return 0.0
+    return max(0.0, margin - ink)
+
+
+def _drawn_ink_origin(
+    graph: MetroGraph,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    debug: bool,
+) -> tuple[float, float]:
+    """Leftmost and topmost coordinate a station or a run is drawn at."""
+    stations = _drawn_stations(graph, debug)
+    points = [point for polyline in route_polylines for point in polyline]
+    return (
+        min([point[0] for point in points] + [station.x for station in stations]),
+        min([point[1] for point in points] + [station.y for station in stations]),
+    )
+
+
+def _content_origin(
+    graph: MetroGraph,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    debug: bool,
+    *,
+    padding: float,
+) -> tuple[float, float]:
+    """Left and top edges of the drawn content, box or run.
+
+    The section boxes frame the content, and a run drawn outside that envelope
+    carries the frame out with it -- to exactly where
+    :func:`_canvas_margin_shift` seats it, since the two read the same ink.  A
+    decoration placed against this boundary therefore sits flush with the
+    content whichever of the two defines the edge.
+
+    A map with no boxes has no such frame, and is never moved for one either,
+    so its content edge is the canvas padding.  Station markers and labels
+    reach past a bare station's coordinate, so reading one as an edge would
+    place a decoration inside the content it frames.
+    """
+    boxes = [section for section in graph.sections.values() if section.bbox_w > 0]
+    if not boxes:
+        return padding, padding
+    ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
+    return (
+        min(ink_x, min(section.bbox_x for section in boxes)),
+        min(ink_y, min(section.bbox_y for section in boxes)),
+    )
+
+
+def _canvas_margin_shift(
+    graph: MetroGraph,
+    route_polylines: Sequence[Sequence[tuple[float, float]]],
+    debug: bool,
+    *,
+    margins: tuple[float, float],
+) -> tuple[float, float]:
+    """How far to move the map so ink outside the box envelope clears *margins*.
+
+    The canvas is a first-quadrant frame: it grows past the rightmost and
+    bottommost ink by a margin, while its left and top edges are pinned at
+    zero.  A run outside the section-box envelope on one of those two sides --
+    an inter-row return band wrapping left of the first box, a bundle rising
+    over the top of one -- therefore has only whatever room the box placement
+    happened to leave, and a wide enough bundle is drawn through it and off the
+    canvas.  Moving the whole map away from the edge by the shortfall seats that
+    run on the line the layout seats a first section against
+    (:data:`CANVAS_ORIGIN_MARGIN`), and the far margins absorb the move by
+    growing the canvas.
+
+    Zero on both axes for a map that draws nothing outside its box envelope.
+    """
+    boxes = [section for section in graph.sections.values() if section.bbox_w > 0]
+    if not boxes:
+        return 0.0, 0.0
+    ink_x, ink_y = _drawn_ink_origin(graph, route_polylines, debug)
+    return (
+        _outboard_shortfall(min(s.bbox_x for s in boxes), ink_x, margins[0]),
+        _outboard_shortfall(min(s.bbox_y for s in boxes), ink_y, margins[1]),
+    )
+
+
 def _position_legend(
     graph: MetroGraph,
     theme: Theme,
@@ -303,10 +408,14 @@ def _position_legend(
     legend_position: str,
     routes: list[RoutedPath],
     header_placements: dict[str, SectionHeaderPlacement],
+    content_origin: tuple[float, float],
 ) -> tuple[float, float, float, float, bool]:
     """Compute legend position and dimensions.
 
     Returns (legend_x, legend_y, legend_w, legend_h, show_legend).
+
+    ``content_origin`` is the top-left corner of the drawn content
+    (:func:`_content_origin`), which a content-framed keyword anchors against.
 
     ``legend_position`` is passed in because callers may override it per render
     (only ``"none"`` is overridden in practice); the placement modifiers
@@ -343,16 +452,9 @@ def _position_legend(
     pos = legend_position
     gap = LEGEND_GAP
     inset = LEGEND_INSET
-    content_left = min(
-        (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0),
-        default=padding,
-    )
-    content_top = min(
-        (s.bbox_y for s in graph.sections.values() if s.bbox_w > 0),
-        default=padding,
-    )
+    content_left, content_top = content_origin
 
-    # Frame the keyword anchor against the section bbox (default) or the canvas
+    # Frame the keyword anchor against the drawn content (default) or the canvas
     # margin. The canvas frame lets a corner fill the empty drawing margin.
     if graph.legend_anchor == "canvas":
         left, top = padding, padding
@@ -1628,26 +1730,28 @@ def _assert_final_canvas_read_only_guards(
     )
 
 
+class _SettledRenderGeometry(NamedTuple):
+    """What :func:`_settle_render_geometry` derives from a laid-out graph."""
+
+    station_offsets: dict[tuple[str, str], float]
+    routes: list[RoutedPath]
+    route_polylines: list[list[tuple[float, float]]]
+    labels: list[LabelPlacement]
+    route_plan: RoutePlan
+    settlement: EnvelopeSettlement
+
+
 def _settle_render_geometry(
     graph: MetroGraph,
     theme: Theme,
     offset_step: float,
     section_y_gap: float,
-) -> tuple[
-    dict[tuple[str, str], float],
-    list[RoutedPath],
-    list[list[tuple[float, float]]],
-    list[LabelPlacement],
-    RoutePlan,
-    tuple[ReservationCoordinateTranslation, ...],
-]:
+) -> _SettledRenderGeometry:
     """Route, place labels, and reconcile a header collision for the render.
 
     Returns settled station offsets, routes, the drawable polylines those routes
-    become, labels, the route plan, and the settlement translations the plan's
-    claims are frozen ahead of -- a canvas claim is measured only once the render
-    has sized its canvas, and needs that projection to land on the geometry the
-    canvas encloses.  The polylines are built here because the settlement guard
+    become, labels, the route plan, and the envelope settlement those claims are
+    frozen ahead of.  The polylines are built here because the settlement guard
     scores the coordinate a viewer sees, so it and the renderer have to read one
     set of points rather than two derivations of them.
     Label wrapping
@@ -1687,11 +1791,12 @@ def _settle_render_geometry(
     render-time row shift, so a collision involving one is left for the guard to
     surface rather than reflowed into kinked tracks.
 
-    The Tier-A layout guards run once, on the settled geometry, alongside the
-    header-clearance guard: they judge what the renderer draws rather than an
-    intermediate the later stages then move.  Label growth legitimately carries a
-    bbox edge past a port, so ``carry_ports_with_section_edges`` moves the port
-    with the edge it is anchored to and the port guards see a consistent pair.
+    The Tier-A layout guards judge this result from outside
+    (:func:`_assert_settled_geometry_is_drawable`), so they read the final
+    settled pass, the only one describing geometry a viewer sees.  Label growth
+    legitimately carries a bbox edge past a port, so
+    ``carry_ports_with_section_edges`` moves the port with the edge it is
+    anchored to and the port guards see a consistent pair.
 
     A ``group`` caption band below a section grows that section's bottom edge,
     and that edge is the blocker bounding the row corridor beneath it, so the
@@ -1823,12 +1928,6 @@ def _settle_render_geometry(
         station_offsets,
         stage=SettlementStage.DISCOVERY,
         allow_clearance_requirements=True,
-    )
-    deferred_final_route_guards = bool(
-        graph._validate_active and graph._final_route_guards_deferred
-    )
-    effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
-        graph.permissive
     )
     assert_render_curve_invariants(graph, routes, station_offsets)
 
@@ -1973,60 +2072,124 @@ def _settle_render_geometry(
     if grant_settlement is not None and grant_settlement is not settlement:
         route_plan = attach_settlement_diagnostics(route_plan, grant_settlement)
     route_polylines = [apply_route_offsets(route, station_offsets) for route in routes]
-    assert_reservations_are_settled(
-        graph,
-        route_plan,
-        settlement,
-        route_polylines,
-        strict=effective_strict,
-    )
-
-    # The layout guards read the settled routes and boxes. Deferred
-    # route-dependent guards join the Tier-A set here, so every guard judges the
-    # geometry the renderer is handed rather than a routing pass that later
-    # steps move. The strictness override preserves hard-fail semantics for
-    # validation-deferred guards.
-    assert_render_layout_invariants(
-        graph,
-        routes,
-        station_offsets,
-        strict=effective_strict or deferred_final_route_guards,
-        include_deferred_final=deferred_final_route_guards,
-    )
-    assert_render_header_clearance(graph, strict=effective_strict)
     route_plan = replace(route_plan, settlement_trace=settlement_trace)
-    return (
+    return _SettledRenderGeometry(
         station_offsets,
         routes,
         route_polylines,
         labels,
         route_plan,
-        settlement.coordinate_translations,
+        settlement,
     )
+
+
+def _assert_settled_geometry_is_drawable(
+    graph: MetroGraph, settled: _SettledRenderGeometry
+) -> None:
+    """Judge the settled routes and boxes a renderer is about to draw.
+
+    Deferred route-dependent guards join the Tier-A set here, so every guard
+    judges the geometry the renderer is handed rather than an intermediate a
+    later step moves; the strictness override preserves hard-fail semantics for
+    validation-deferred guards.
+    """
+    deferred_final_route_guards = bool(
+        graph._validate_active and graph._final_route_guards_deferred
+    )
+    effective_strict = (graph.strict or bool(graph._fold_compressed_sections)) and not (
+        graph.permissive
+    )
+    assert_reservations_are_settled(
+        graph,
+        settled.route_plan,
+        settled.settlement,
+        settled.route_polylines,
+        strict=effective_strict,
+    )
+    assert_render_layout_invariants(
+        graph,
+        settled.routes,
+        settled.station_offsets,
+        strict=effective_strict or deferred_final_route_guards,
+        include_deferred_final=deferred_final_route_guards,
+    )
+    assert_render_header_clearance(graph, strict=effective_strict)
+
+
+def _settle_clear_of_the_canvas_margins(
+    source_graph: MetroGraph,
+    theme: Theme,
+    offset_step: float,
+    section_y_gap: float,
+    *,
+    margins: tuple[float, float],
+    debug: bool = False,
+) -> tuple[MetroGraph, _SettledRenderGeometry]:
+    """Settle a copy of *source_graph*, moved clear of the left and top edges.
+
+    Where a run lands is only known once it is routed, so a map that routes
+    outside its box envelope is re-derived on a copy moved away from the edge by
+    :func:`_canvas_margin_shift`.  The move is rigid, so the re-route answers it
+    differently only where a run was being held against the canvas edge, and
+    releasing such a run can uncover a little more demand than the first
+    measurement saw -- hence a re-measurement rather than a single move.
+
+    The settled-geometry guards read the final pass, the only one describing
+    geometry a viewer sees.
+
+    A shortfall under :data:`SAME_COORD_TOLERANCE` is nothing a viewer can
+    resolve, and moving for one would spend a re-route on a sub-pixel residue,
+    so the measurement settles there rather than at exact zero.
+    """
+    graph = _copy_graph_for_render(source_graph)
+    settled = _settle_render_geometry(graph, theme, offset_step, section_y_gap)
+    moved = 0.0, 0.0
+    for moves in range(_CANVAS_MARGIN_MOVES + 1):
+        shift = _canvas_margin_shift(
+            graph, settled.route_polylines, debug, margins=margins
+        )
+        if max(shift) <= SAME_COORD_TOLERANCE:
+            break
+        if moves == _CANVAS_MARGIN_MOVES:
+            _guard_canvas_margin_settled(
+                graph, "render", shift=shift, margins=margins, moves=moves
+            )
+            break
+        moved = moved[0] + shift[0], moved[1] + shift[1]
+        graph = _copy_graph_for_render(source_graph)
+        translate_graph(graph, *moved)
+        settled = _settle_render_geometry(graph, theme, offset_step, section_y_gap)
+    _assert_settled_geometry_is_drawable(graph, settled)
+    return graph, settled
 
 
 def _settled_render_graph(source_graph: MetroGraph, theme: Theme) -> MetroGraph:
     """A private copy of *source_graph* carrying the geometry a render draws.
 
     ``render_svg`` finishes geometry -- label wrapping, the header reconcile,
-    envelope settlement -- on a copy, so the caller's graph keeps the
-    coordinates ``compute_layout`` left.  Callers that need to reason about
-    what was actually drawn ask for the settled copy rather than re-deriving
-    those steps.
+    envelope settlement, the move clear of the canvas margins -- on a copy, so
+    the caller's graph keeps the coordinates ``compute_layout`` left.  Callers
+    that need to reason about what was actually drawn ask for the settled copy
+    rather than re-deriving those steps.
     """
-    graph = _copy_graph_for_render(source_graph)
     scaled_theme = _scale_theme_strokes(
-        _scale_theme_fonts(theme, graph.font_scale), graph.stroke_scale
+        _scale_theme_fonts(theme, source_graph.font_scale), source_graph.stroke_scale
     )
     section_y_gap = (
-        graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
+        source_graph.section_y_gap
+        if source_graph.section_y_gap is not None
+        else SECTION_Y_GAP
     )
-    with font_scale_context(graph.font_scale), stroke_scale_context(graph.stroke_scale):
-        _settle_render_geometry(
-            graph,
+    with (
+        font_scale_context(source_graph.font_scale),
+        stroke_scale_context(source_graph.stroke_scale),
+    ):
+        graph, _settled = _settle_clear_of_the_canvas_margins(
+            source_graph,
             scaled_theme,
-            graph_offset_step(graph, scaled_theme.line_width),
+            graph_offset_step(source_graph, scaled_theme.line_width),
             section_y_gap,
+            margins=CANVAS_ORIGIN_MARGIN,
         )
     return graph
 
@@ -2056,28 +2219,32 @@ def _build_render_plan_scaled(
     bare: bool = False,
 ) -> tuple[RenderPlan, RoutePlan]:
     """Finish render geometry on a private graph copy and freeze the result."""
-    graph = _copy_graph_for_render(source_graph)
     effective_legend_position = (
-        legend_position if legend_position is not None else graph.legend_position
+        legend_position if legend_position is not None else source_graph.legend_position
     )
 
-    offset_step = graph_offset_step(graph, theme.line_width)
+    offset_step = graph_offset_step(source_graph, theme.line_width)
     section_y_gap = (
-        graph.section_y_gap if graph.section_y_gap is not None else SECTION_Y_GAP
+        source_graph.section_y_gap
+        if source_graph.section_y_gap is not None
+        else SECTION_Y_GAP
     )
-    (
-        station_offsets,
-        routes,
-        route_polylines,
-        labels,
-        route_plan,
-        settlement_translations,
-    ) = _settle_render_geometry(
-        graph,
+    graph, settled = _settle_clear_of_the_canvas_margins(
+        source_graph,
         theme,
         offset_step,
         section_y_gap,
+        margins=(0.0, 0.0) if bare else CANVAS_ORIGIN_MARGIN,
+        debug=debug,
     )
+    station_offsets = settled.station_offsets
+    routes = settled.routes
+    route_polylines = settled.route_polylines
+    labels = settled.labels
+    route_plan = settled.route_plan
+    # A canvas claim is measured only once the render has sized its canvas, so
+    # it needs this projection to land on the geometry the canvas encloses.
+    settlement_translations = settled.settlement.coordinate_translations
     route_polylines, route_curve_radii, route_segment_shifts = (
         materialize_source_turnout_paths(
             routes,
@@ -2167,6 +2334,7 @@ def _build_render_plan_scaled(
         effective_legend_position,
         routes,
         header_placements,
+        _content_origin(graph, route_polylines, debug, padding=padding),
     )
 
     if show_legend:

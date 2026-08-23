@@ -159,9 +159,14 @@ LEDGER_REROUTE_CORPUS = (
     (ROOT / "examples" / "genomeassembly.mmd", 0),
     (ROOT / "examples" / "variantbenchmarking.mmd", 1),
     (ROOT / "examples" / "differentialabundance_default.mmd", 1),
-    (TOPOLOGIES / "merge_around_below_leftmost.mmd", 1),
+    # The first two route outside their box envelope and inside the margin the
+    # canvas edge owes them, so the render settles each a second time on a copy
+    # moved clear of the edge, and each settle re-routes its own ledger once.
+    # The third also routes outside its envelope but already clears that
+    # margin, so it is never moved and settles once.
+    (TOPOLOGIES / "merge_around_below_leftmost.mmd", 2),
+    (TOPOLOGIES / "junction_entry_align.mmd", 2),
     (TOPOLOGIES / "bypass_left_entry_from_right.mmd", 1),
-    (TOPOLOGIES / "junction_entry_align.mmd", 1),
 )
 
 # One fixture per supported flow direction, so the single axis-based

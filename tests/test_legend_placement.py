@@ -52,6 +52,10 @@ def _place(text: str):
     compute_layout(graph)
     offsets = S.compute_station_offsets(graph)
     routes = route_edges_centred(graph, station_offsets=offsets)
+    polylines = [S.apply_route_offsets(route, offsets) for route in routes]
+    content_origin = S._content_origin(
+        graph, polylines, False, padding=S.CANVAS_PADDING
+    )
     max_x, max_y = S._compute_canvas_bounds(graph, routes, False)
     pos = graph.legend_position
     show_logo = bool(graph.logo_path and Path(graph.logo_path).is_file())
@@ -71,12 +75,9 @@ def _place(text: str):
         pos,
         routes,
         {},
+        content_origin,
     )
-    content_left = min(
-        (s.bbox_x for s in graph.sections.values() if s.bbox_w > 0),
-        default=S.CANVAS_PADDING,
-    )
-    return graph, res, max_x, max_y, content_left, routes
+    return graph, res, max_x, max_y, content_origin[0], routes
 
 
 @pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.stem)
@@ -169,6 +170,7 @@ def test_default_bottom_legend_clears_a_wrapped_header():
         graph.legend_position,
         routes,
         header_placements,
+        S._content_origin(graph, polylines, False, padding=S.CANVAS_PADDING),
     )
     assert show
     assert not S._legend_overlaps_headers(lx, ly, lw, lh, header_placements)

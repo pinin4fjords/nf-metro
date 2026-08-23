@@ -100,6 +100,37 @@ It uses the per-station offsets from `compute_station_offsets` in
    `%%metro legend_position:` or set to `"none"` (suppressed) for the HTML
    output mode.
 
+### Canvas sizing
+
+The canvas is a first-quadrant frame: its `viewBox` always starts at `0 0`, so
+overlays can share it without an outer transform (see
+[`manifest/__init__.py`](https://github.com/seqeralabs/nf-metro/blob/main/src/nf_metro/manifest/__init__.py)).
+Width and height come from `_compute_canvas_bounds` plus a margin -
+`CANVAS_PADDING` on the right, the watermark band at the bottom - so the far
+edges grow to hold whatever the render draws.
+
+The near edges cannot grow, so the map moves instead.
+`_settle_clear_of_the_canvas_margins` measures the ink that lands outside the
+section-box envelope on the left or top - an inter-row return band wrapping
+around the first box of a row, a bundle rising over the top of one - and moves
+the whole laid-out graph away from the edge by the shortfall (`translate_graph`
+in `layout/phases/canvas.py`, which owns the full set of absolute coordinates a
+graph carries). Routing is then re-derived on the moved copy, because where a
+run lands is only known once it is routed. A map that draws nothing outside its
+box envelope never moves.
+
+The room such a run is owed is `CANVAS_ORIGIN_MARGIN`, not `CANVAS_PADDING`:
+the near sides already have something placed against them, the first section's
+box edge and the header badge above its top, and a run settled anywhere else
+would read as a second boundary beside that one. The far sides have nothing
+placed against them, so they keep the flat padding.
+
+`_content_origin` reports the left and top edges that move settles on - the box
+envelope, carried outwards by any run drawn past it. A decoration the author
+left unpinned is placed against those edges rather than against a box, so the
+legend sits flush with the content whether a box or a run defines the boundary.
+An authored pin (`legend: x,y`, `| canvas`, `| dx,dy`) is placed as written.
+
 ## Bridges (`bridges.py`)
 
 Two distinct metro lines may cross at a point that is not a shared station,
