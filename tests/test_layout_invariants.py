@@ -90,6 +90,7 @@ from nf_metro.layout.phases._common import (
     iter_fold_lr_exits_short_of_target,
     iter_sole_trunk_continuations,
     line_forks_within_section,
+    port_bundle_edge_reach,
     section_axes,
     section_cross_axis,
     wrap_exit_carrier_anchor,
@@ -8115,6 +8116,12 @@ def test_section_bbox_padding_has_min_bundle_edge_clearance(fixture):
     smaller ``MIN_BUNDLE_EDGE_CLEARANCE`` floor, but every multi-line
     bundle in the corpus should clear at least that much so its label
     never crowds the section edge regardless of symmetry.
+
+    A horizontal flow's LEFT/RIGHT port is its trunk arriving or leaving, so
+    a bundle it carries is drawn ink inside the box just as a station's pill
+    is, and owes the same floor to the top and bottom edges.  TOP/BOTTOM
+    ports are pinned to the edge they sit on by construction, so a zero gap
+    there is correct and they are not checked.
     """
     from nf_metro.layout.constants import MIN_BUNDLE_EDGE_CLEARANCE
     from nf_metro.layout.routing import compute_station_offsets
@@ -8135,6 +8142,28 @@ def test_section_bbox_padding_has_min_bundle_edge_clearance(fixture):
             and sid not in port_ids
             and not graph.stations[sid].is_hidden
         ]
+        for pid in sorted(port_ids):
+            port = graph.ports.get(pid)
+            station = graph.stations.get(pid)
+            if station is None or port is None:
+                continue
+            if port.side not in (PortSide.LEFT, PortSide.RIGHT):
+                continue
+            low_reach, high_reach = port_bundle_edge_reach(graph, pid, offsets, "y")
+            if low_reach <= 0.0 and high_reach <= 0.0:
+                continue
+            top_gap = (station.y - low_reach) - sec.bbox_y
+            bot_gap = (sec.bbox_y + sec.bbox_h) - (station.y + high_reach)
+            if top_gap + tol < MIN_BUNDLE_EDGE_CLEARANCE:
+                offenders.append(
+                    f"section {sec.id!r} port {pid!r}: top gap={top_gap:.1f} "
+                    f"< MIN_BUNDLE_EDGE_CLEARANCE={MIN_BUNDLE_EDGE_CLEARANCE}"
+                )
+            if bot_gap + tol < MIN_BUNDLE_EDGE_CLEARANCE:
+                offenders.append(
+                    f"section {sec.id!r} port {pid!r}: bottom gap={bot_gap:.1f} "
+                    f"< MIN_BUNDLE_EDGE_CLEARANCE={MIN_BUNDLE_EDGE_CLEARANCE}"
+                )
         if not content_ids:
             continue
         for sid in content_ids:

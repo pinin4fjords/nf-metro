@@ -14,7 +14,7 @@ from nf_metro.layout.constants import (
     COORD_GROUP_DIGITS_FINE,
     COORD_TOLERANCE,
     COORD_TOLERANCE_FINE,
-    PERP_PORT_EDGE_CLEARANCE,
+    MIN_BUNDLE_EDGE_CLEARANCE,
     PERP_PORT_EDGE_INSET,
     PORT_BOUNDARY_CROSSING_TOL,
     SAME_COORD_TOLERANCE,
@@ -1806,17 +1806,23 @@ def port_edge_inset(
 
     On Y it is only a vertical flow's LEFT/RIGHT port.  A horizontal flow's
     LEFT/RIGHT port is its trunk arriving or leaving, not a run crossing the box,
-    so how far it sits from the top and bottom edges is the content padding's
-    business -- reserving against it instead grows a box into its neighbours.
+    so a single line through it owes the top and bottom edges nothing here: where
+    it sits is the content padding's business, and reserving against it instead
+    grows a box into its neighbours.
 
     ``lane_reach`` is how far the port's drawn bundle extends past the port
     station toward that edge (:func:`port_bundle_edge_reach`).  Both insets are
     room the outermost *drawn lane* owes the border rather than room the station
     owes it, so the reach adds on top: a bundle staggered 12px off its port would
-    otherwise leave its outer lane 12px short of what the inset advertises.  A
-    port the wider inset does not cover still owes
-    ``PERP_PORT_EDGE_CLEARANCE`` past its outermost lane, the floor
-    :func:`...guards._guard_ports_clear_unanchored_box_edges` enforces.
+    otherwise leave its outer lane 12px short of what the inset advertises.
+
+    A port the wider inset does not cover owes ``MIN_BUNDLE_EDGE_CLEARANCE`` past
+    its outermost lane whenever it carries a bundle at all: a multi-line trunk
+    crossing the box is drawn ink needing label room off the border, exactly as
+    an interior station's pill is (:func:`...bbox._bundle_edge_padding`).  That
+    is stricter than the ``PERP_PORT_EDGE_CLEARANCE`` floor
+    :func:`...guards._guard_ports_clear_unanchored_box_edges` enforces, the hard
+    runtime minimum for a lane of any kind.
     """
     if port is None:
         return 0.0
@@ -1827,7 +1833,7 @@ def port_edge_inset(
     elif axis == "x" and port.side in (PortSide.TOP, PortSide.BOTTOM):
         return reach + PERP_PORT_EDGE_INSET
     if reach:
-        return reach + PERP_PORT_EDGE_CLEARANCE
+        return reach + MIN_BUNDLE_EDGE_CLEARANCE
     return 0.0
 
 
