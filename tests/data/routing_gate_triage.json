@@ -1019,10 +1019,6 @@
   "note": "_suboptimal_trunk_bands diagnostic loop: validate-only, not reached by the render-path coverage sweep (see the len(trunks)<2 note).",
   "status": "defensive"
  },
- "normalize.py::for sign in (1, -1):::#1": {
-  "note": "_suboptimal_trunk_bands direction loop: validate-only, not on the render path.",
-  "status": "defensive"
- },
  "normalize.py::if (::#1": {
   "note": "The settled exit-turn radius mismatch raises only after construction or a later pass changes a recorded planned corner without updating its concentric inputs. Valid production derives both values together; test_gap_plan_validator_rejects_a_changed_corner_radius exercises both failure flanks.",
   "status": "defensive"
@@ -1087,10 +1083,6 @@
   "note": "Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render.",
   "status": "defensive"
  },
- "normalize.py::if best < cur:::#1": {
-  "note": "_suboptimal_trunk_bands crossing-comparison: validate-only, not on the render path.",
-  "status": "defensive"
- },
  "normalize.py::if channel.idx == 0:::#1": {
   "note": "A declared gap channel participating in a same-source divergence follows the branch's horizontal opening and therefore cannot be the route's first segment. The zero-index arm defensively rejects a vertical-first route shape.",
   "status": "defensive"
@@ -1127,10 +1119,6 @@
   "note": "In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive.",
   "status": "defensive"
  },
- "normalize.py::if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:::#1": {
-  "note": "_suboptimal_trunk_bands slot-count guard: validate-only, not on the render path.",
-  "status": "defensive"
- },
  "normalize.py::if len(trunks) < 2:::#1": {
   "note": "Early-return in _suboptimal_trunk_bands, called only from the _guard_* validator (phases/guards.py) and a unit test, never on the production render path. The coverage sweep renders with validate=False, so neither arm registers. Defensive (exercised via the validate=True guard / test surface; cf. #728 validate-only precedent).",
   "status": "defensive"
@@ -1141,10 +1129,6 @@
  },
  "normalize.py::if len({id(t.route) for t in grp}) < 2:::#2": {
   "note": "Single-route-group skip in _suboptimal_trunk_bands, validate-only: called from the _guard_* validator and a unit test, not the production render path the validate=False sweep exercises. Defensive.",
-  "status": "defensive"
- },
- "normalize.py::if not any(not t.route.normalize_exempt for t in grp):::#2": {
-  "note": "_suboptimal_trunk_bands diagnostic guard: validate-only, not on the render path.",
   "status": "defensive"
  },
  "normalize.py::if not reference_fits(lower):::#2": {

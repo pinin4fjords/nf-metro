@@ -43,6 +43,7 @@
   "corridor_solo": [
     "target_entry_runway_bypass.mmd",
     "topologies/exit_lane_swap_shared_exit_port.mmd",
+    "topologies/inter_row_exempt_band_order.mmd",
     "topologies/twoline_fanout_up.mmd",
     "legend_logo_placement.mmd",
     "variant_calling_tuned.mmd",
@@ -319,6 +320,7 @@
     "topologies/folded_corridor_distinct_lanes.mmd",
     "topologies/inter_row_drop_section_clearance.mmd",
     "topologies/inter_row_drop_section_clearance_row1.mmd",
+    "topologies/inter_row_exempt_band_order.mmd",
     "topologies/inter_row_wrap_clearance.mmd",
     "topologies/interchange_label_clears_bridge.mmd",
     "topologies/interchange_lane_reorder.mmd",

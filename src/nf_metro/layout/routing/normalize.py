@@ -3074,10 +3074,11 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
     Concentric fanning, crossing-minimal slot ordering and the flanking-radius
     recompute are per-gap geometry a single handler cannot do alone (it needs
     every trunk in the gap at once), so they stay here.  A group of only
-    handler-owned (``normalize_exempt``) trunks keeps its geometry untouched;
-    an exempt trunk sharing a channel with a non-exempt one joins the fan, and a
-    non-exempt trunk left fused on an unbundled exempt run is cleared by
-    :func:`_dogleg_off_exempt_trunks`.
+    handler-owned (``normalize_exempt``) trunks keeps its geometry untouched
+    unless its realized Y order leaves avoidable crossings
+    (:func:`_band_order_deficits`); an exempt trunk sharing a channel with a
+    non-exempt one joins the fan, and a non-exempt trunk left fused on an
+    unbundled exempt run is cleared by :func:`_dogleg_off_exempt_trunks`.
 
     Trunks alone in their channel, or already at distinct Ys, are left
     untouched; the flanking corner radii are recomputed for any trunk that
@@ -3097,10 +3098,12 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # One trunk per distinct route; a shared channel needs >1 to fan.
         if len({id(t.route) for t in grp}) < 2:
             continue
-        # Exempt (handler-owned) trunks only join the fan when they share the
-        # channel with a non-exempt trunk; a group of only exempt trunks keeps
-        # its handler geometry untouched here.
-        if not any(not t.route.normalize_exempt for t in grp):
+        # Exempt trunks join the fan when they share the channel with a
+        # non-exempt trunk, or when their realized Y order costs crossings a
+        # reorder would remove: no single handler sees the whole channel to
+        # check that.
+        all_exempt = not any(not t.route.normalize_exempt for t in grp)
+        if all_exempt and not _band_order_deficits(grp):
             continue
         # Opposite-direction flows that share one inter-row channel must not be
         # smooshed into one tight bundle (issue #484): a leftward and a rightward
@@ -3395,6 +3398,61 @@ def _band_looseness(
     return total
 
 
+def _expressed_band_orders(
+    realized: list[list[_HTrunk]],
+) -> Iterator[list[list[_HTrunk]]]:
+    """Every top-to-bottom slot order the realized Ys actually express.
+
+    *realized* is one band's slots in Y order.  Slots within
+    ``COORD_TOLERANCE`` of each other are coincident: the Ys rank the clusters
+    but say nothing about the order inside one, so every arrangement within a
+    cluster is equally realized and each is yielded.
+    """
+    clusters: list[list[list[_HTrunk]]] = []
+    prev_y: float | None = None
+    for sg in realized:
+        y = min(t.y for t in sg)
+        if prev_y is not None and y - prev_y <= COORD_TOLERANCE:
+            clusters[-1].append(sg)
+        else:
+            clusters.append([sg])
+        prev_y = y
+    for combo in itertools.product(*(itertools.permutations(c) for c in clusters)):
+        yield [sg for cluster in combo for sg in cluster]
+
+
+def _band_order_deficits(grp: list[_HTrunk]) -> list[tuple[float, int, int]]:
+    """``(band y, current crossings, best achievable)`` per suboptimal band.
+
+    One channel group splits into a same-direction band per traversal sign; a
+    band that costs more crossings than its best permutation contributes an
+    entry.  An empty result means every band in the group is already
+    crossing-optimal.
+
+    The band is scored at the cheapest order its Ys express, so a deficit is
+    one no arrangement of its coincident slots can absorb: only moving a slot
+    past a distinctly-placed one reaches ``best``.
+    """
+    out: list[tuple[float, int, int]] = []
+    for sign in (1, -1):
+        band = [t for t in grp if t.sign_x == sign]
+        slots = _coincident_trunk_slots(band)
+        if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:
+            continue
+        feats = {id(sg): _trunk_slot_features(sg) for sg in slots}
+        realized = sorted(slots, key=lambda sg: min(t.y for t in sg))
+        cur = min(
+            _band_order_crossings(order, feats)
+            for order in _expressed_band_orders(realized)
+        )
+        best = min(
+            _band_order_crossings(list(p), feats) for p in itertools.permutations(slots)
+        )
+        if best < cur:
+            out.append((min(t.y for t in band), cur, best))
+    return out
+
+
 def _plan_trunk_band(
     band: list[_HTrunk],
 ) -> tuple[list[list[_HTrunk]], dict[int, int], int]:
@@ -3463,9 +3521,12 @@ def _suboptimal_trunk_bands(
     """Same-direction inter-row trunk bands whose realized Y order leaves
     avoidable crossings: ``(band y, current crossings, best achievable)``.
 
-    Reconstructs the bands :func:`_materialize_trunk_slots` reorders, then
-    checks each realized top-to-bottom order against the crossing-minimal
-    permutation.  An empty result means every band is crossing-optimal.
+    Reconstructs the bands :func:`_materialize_trunk_slots` reorders and scores
+    each through :func:`_band_order_deficits`, the rule that pass reorders on,
+    so both read one definition of a suboptimal order.  The population here is
+    the narrower of the two -- destination-owned tails are dropped -- so every
+    band this reports is one that pass could have reordered, and an empty
+    result means every band it scores is crossing-optimal.
     """
     destination_owned = {
         id(trunk.route)
@@ -3486,22 +3547,7 @@ def _suboptimal_trunk_bands(
     for grp in groups:
         if len({id(t.route) for t in grp}) < 2:
             continue
-        if not any(not t.route.normalize_exempt for t in grp):
-            continue  # handler-owned all-exempt groups: the planner leaves them
-        for sign in (1, -1):
-            band = [t for t in grp if t.sign_x == sign]
-            slots = _coincident_trunk_slots(band)
-            if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:
-                continue
-            feats = {id(sg): _trunk_slot_features(sg) for sg in slots}
-            realized = sorted(slots, key=lambda sg: min(t.y for t in sg))
-            cur = _band_order_crossings(realized, feats)
-            best = min(
-                _band_order_crossings(list(p), feats)
-                for p in itertools.permutations(slots)
-            )
-            if best < cur:
-                out.append((min(t.y for t in band), cur, best))
+        out.extend(_band_order_deficits(grp))
     return out
 
 

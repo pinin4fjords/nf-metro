@@ -1667,6 +1667,15 @@ gallery:
       A right-exit bundle wrapping down to a left-entry in the row below. The horizontal
       run sits centred in the inter-row gap, clear of both the section above and the next row's
       header.
+  - id: inter_row_exempt_band_order
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "Two independently routed wraps stagger equal-length trunks across one
+      inter-row gap. The right-hand trunk drops out of the gap inside the
+      left-hand trunk's span, so it takes the lower track: the order follows
+      where each trunk leaves the gap, not how far it reaches, which is the
+      same for both (issue #1774)."
   - id: wrap_return_canvas_margin
     source_dir: examples/topologies
     category: Inter-section Routing
