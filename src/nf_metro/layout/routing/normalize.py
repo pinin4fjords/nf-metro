@@ -3414,6 +3414,11 @@ def _band_order_deficits(grp: list[_HTrunk]) -> list[tuple[float, int, int]]:
         slots = _coincident_trunk_slots(band)
         if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:
             continue
+        # A band whose slot Ys coincide has no realized order, so ``sorted``
+        # would score a permutation the geometry never expressed.
+        ys = sorted(min(t.y for t in sg) for sg in slots)
+        if any(hi - lo <= COORD_TOLERANCE for lo, hi in zip(ys, ys[1:])):
+            continue
         feats = {id(sg): _trunk_slot_features(sg) for sg in slots}
         realized = sorted(slots, key=lambda sg: min(t.y for t in sg))
         cur = _band_order_crossings(realized, feats)
