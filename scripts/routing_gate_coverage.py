@@ -169,6 +169,12 @@ def _collect_corpus() -> list[tuple[Path, bool]]:
     fixtures retire gate arms the gallery never reaches. Unlike
     ``content_corpus`` this keeps the ``rails`` fixtures -- their rail router is
     a routing path the matrix should measure, not skip.
+
+    ``curve_invariant_repros/`` is walked for the same reason.  Its maps are
+    held out of the invariant corpora because their authored geometry breaks
+    quality rules unrelated to the routing defect each one locks.  They render
+    all the same, and the crowded corridors that make them awkward are
+    precisely the ones that reach a repair's last-resort arms.
     """
     examples = PROJECT_ROOT / "examples"
     fixtures = PROJECT_ROOT / "tests" / "fixtures"
@@ -176,6 +182,7 @@ def _collect_corpus() -> list[tuple[Path, bool]]:
     sources: list[tuple[list[Path], bool]] = [
         (sorted(examples.rglob("*.mmd")), False),
         (sorted(fixtures.glob("*.mmd")), False),
+        (sorted((fixtures / "curve_invariant_repros").glob("*.mmd")), False),
         (sorted(nextflow.glob("*.mmd")), True),
     ]
     candidates = [(p, is_nextflow) for paths, is_nextflow in sources for p in paths]

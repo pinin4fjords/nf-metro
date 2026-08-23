@@ -3118,7 +3118,7 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # moves each the least and never reorders the two flows (no new
         # crossing).
         bands.sort(key=lambda b: min(t.y for t in b))
-        _stack_trunk_bands(bands, ctx, step, bundled)
+        _stack_trunk_bands(bands, ctx, step, bundled, discretionary=all_exempt)
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
     _bundle_same_destination_tails(routes, ctx)
@@ -3126,7 +3126,12 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
 
 
 def _stack_trunk_bands(
-    bands: list[list[_HTrunk]], ctx: _RoutingCtx, step: float, bundled: set[int]
+    bands: list[list[_HTrunk]],
+    ctx: _RoutingCtx,
+    step: float,
+    bundled: set[int],
+    *,
+    discretionary: bool = False,
 ) -> None:
     """Lay an ordered top -> bottom list of trunk bands into their inter-row gap.
 
@@ -3138,13 +3143,23 @@ def _stack_trunk_bands(
     Each band carries its own dip direction, so a down-dip and an up-dip band
     can stack together; a single-direction caller passes bands that all share
     one dip.
+
+    *discretionary* marks a stack whose trunks are all placed by their handlers
+    already, restacked only to spend crossings the ordering can save.  Such a
+    stack is abandoned where its corridor's own claims admit no start for it,
+    since the reorder would be paid for in an arrangement no later pass can
+    honour; a caller placing geometry nothing else will place leaves it false
+    and takes the derived start.
     """
     planned = [_plan_trunk_band(b) for b in bands]
     gap = BUNDLE_TO_BUNDLE_CLEARANCE
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
     top = min(t.y for b in bands for t in b)
-    band_top = _clamp_inter_row_band_top(ctx, top, total)
-    band_top = _hold_stack_in_claim_bands(ctx, band_top, planned, bands, step, gap)
+    derived = _clamp_inter_row_band_top(ctx, top, total)
+    held = _hold_stack_in_claim_bands(ctx, derived, planned, bands, step, gap)
+    if held is None and discretionary:
+        return
+    band_top = derived if held is None else held
     for (order, track_of, n), band in zip(planned, bands):
         _restack_trunk_band(
             order, track_of, n, band_top, band[0].dips_down, step, ctx, bundled
@@ -3159,13 +3174,18 @@ def _hold_stack_in_claim_bands(
     bands: list[list[_HTrunk]],
     step: float,
     gap: float,
-) -> float:
+) -> float | None:
     """The stack top holding every claimed direction band inside its own band.
 
     Each direction band sits at a fixed offset within the stack, so a claim on
     one band constrains where the whole stack may start.  The intersection of
-    every claimed band's feasible interval holds the stack; jointly infeasible
-    claims (or a stack with no claimed trunk) leave *band_top* as derived.
+    every claimed band's feasible interval holds the stack, and a stack no trunk
+    claims a corridor for keeps *band_top* as derived.
+
+    ``None`` where the claims are jointly infeasible: the corridor is sized for
+    fewer lanes than the stack carries, so no start offers every claimant the
+    band it was promised, and the caller decides whether its stack is worth
+    placing outside them.
     """
     lo_bound = hi_bound = None
     offset = 0.0
@@ -3178,9 +3198,10 @@ def _hold_stack_in_claim_bands(
             lo_bound = lo if lo_bound is None else max(lo_bound, lo)
             hi_bound = hi if hi_bound is None else min(hi_bound, hi)
         offset += height + gap
-    if lo_bound is None or hi_bound is None or hi_bound < lo_bound - COORD_TOLERANCE:
+    if lo_bound is None or hi_bound is None:
         return band_top
-    return ReservedBand(lo_bound, hi_bound).hold(band_top)
+    held = resolved_band(lo_bound, hi_bound)
+    return None if held is None else held.hold(band_top)
 
 
 def _separate_opposing_inter_row_trunks(
@@ -3875,6 +3896,14 @@ def _separate_fused_cotravelling_runs(
     put a track inside a section is abandoned rather than forced; the closing
     ``check_no_fused_cotravelling_lines`` reports whatever is left.
 
+    A claim band ranks the separating moves rather than vetoing them.  A
+    corridor sized for fewer lanes than it carries admits no arrangement that
+    separates all of them, so a band held as a veto there pins the fusion it was
+    consulted to resolve.  The nearest move the bands admit therefore wins where
+    one exists, and the nearest that separates wins where none does, leaving the
+    overrun to :func:`_hold_runs_in_corridor_clearance`, which measures the leg's
+    own gap directly and is what containment of the drawn geometry rests on.
+
     When station offsets are supplied, the lanes are measured where the
     renderer draws them and translated by the projected correction. This keeps
     deferred line separation from undoing the nesting step after planning.
@@ -3956,17 +3985,9 @@ def _separate_fused_cotravelling_runs(
             for direction in (-1, 1)
         }
 
-        def feasible(target: float) -> bool:
-            delta = target - lane.coord
+        def separates(target: float) -> bool:
             if any(
                 _run_enters_section(ctx.graph, run.axis, target, run.span)
-                for run in lane.runs
-            ):
-                return False
-            if any(
-                (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
-                and abs(band.hold(run.coord + delta) - (run.coord + delta))
-                > COORD_TOLERANCE_FINE
                 for run in lane.runs
             ):
                 return False
@@ -3975,9 +3996,21 @@ def _separate_fused_cotravelling_runs(
                 moved.fuses_with(other, step) for other in lanes if other is not lane
             )
 
+        def claimed(target: float) -> bool:
+            delta = target - lane.coord
+            return not any(
+                (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
+                and abs(band.hold(run.coord + delta) - (run.coord + delta))
+                > COORD_TOLERANCE_FINE
+                for run in lane.runs
+            )
+
+        def preference(target: float) -> tuple[bool, float, float]:
+            return (not claimed(target), abs(target - lane.coord), target)
+
         target = min(
-            (candidate for candidate in candidates if feasible(candidate)),
-            key=lambda candidate: (abs(candidate - lane.coord), candidate),
+            (candidate for candidate in candidates if separates(candidate)),
+            key=preference,
             default=None,
         )
         if target is None:
