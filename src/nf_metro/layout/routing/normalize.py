@@ -3076,10 +3076,9 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
     every trunk in the gap at once), so they stay here.  A group of only
     handler-owned (``normalize_exempt``) trunks keeps its geometry untouched
     unless its realized Y order leaves avoidable crossings
-    (:func:`_band_order_deficits`); an exempt
-    trunk sharing a channel with a non-exempt one joins the fan, and a
-    non-exempt trunk left fused on an unbundled exempt run is cleared by
-    :func:`_dogleg_off_exempt_trunks`.
+    (:func:`_band_order_deficits`); an exempt trunk sharing a channel with a
+    non-exempt one joins the fan, and a non-exempt trunk left fused on an
+    unbundled exempt run is cleared by :func:`_dogleg_off_exempt_trunks`.
 
     Trunks alone in their channel, or already at distinct Ys, are left
     untouched; the flanking corner radii are recomputed for any trunk that
