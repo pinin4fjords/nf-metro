@@ -2675,6 +2675,71 @@ def test_pack_band_tracks_no_reserved_gaps(spans, expected):
     assert _pack_band_tracks(order, span_of) == expected
 
 
+def _staircase_trunk(line_id, y, x_lo, x_hi):
+    """A right-to-left trunk that rises at ``x_hi`` and drops away at ``x_lo``.
+
+    Three such trunks whose spans form a staircase (each overlapping only its
+    neighbour) cross exactly when a rightward one is stacked above a leftward
+    one, which makes the crossing-minimal order the left-to-right span order.
+    """
+    from nf_metro.layout.routing.common import RoutedPath
+    from nf_metro.layout.routing.normalize import _HTrunk
+
+    return _HTrunk(
+        route=RoutedPath(
+            edge=None,
+            line_id=line_id,
+            points=[(x_hi, y - 80), (x_hi, y), (x_lo, y), (x_lo, y + 80)],
+        ),
+        idx=1,
+        y=y,
+        x_lo=x_lo,
+        x_hi=x_hi,
+        dips_down=True,
+        sign_x=-1,
+    )
+
+
+_STAIRCASE_SPANS = {"a": (10.0, 300.0), "b": (250.0, 500.0), "c": (480.0, 700.0)}
+
+
+@pytest.mark.parametrize(
+    "lines, ys, expected",
+    [
+        # 'c' sits above a tied 'a'/'b' pair. Neither arrangement of the tie
+        # lifts 'c' clear of 'b', so the band is genuinely suboptimal.
+        ("abc", (104.0, 104.0, 100.0), [(100.0, 2, 0)]),
+        # All three coincide: every order is equally realized, including the
+        # crossing-free one, so the band has no order to improve on. Both
+        # input orders must agree, or the verdict is a sort artifact.
+        ("abc", (100.0, 100.0, 100.0), []),
+        ("cba", (100.0, 100.0, 100.0), []),
+        # Distinct Ys, left-to-right span order: already crossing-minimal.
+        ("abc", (100.0, 104.0, 108.0), []),
+        # Distinct Ys, reversed: every neighbouring pair crosses.
+        ("abc", (108.0, 104.0, 100.0), [(100.0, 4, 0)]),
+    ],
+)
+def test_band_order_deficits_ignore_order_within_coincident_slots(lines, ys, expected):
+    """A trunk band is judged on the crossing order its Ys actually express.
+
+    Slots at one Y are coincident, so their relative order is whatever
+    ``sorted`` happened to leave rather than a placement the geometry states;
+    scoring one such arrangement invents a deficit that reversing the input
+    would erase.  Ranking against the cheapest arrangement of each tied cluster
+    keeps a slot that sits at a distinct Y accountable for the crossings it
+    costs against every other slot.
+    """
+    from nf_metro.layout.routing.normalize import _band_order_deficits
+
+    band = [
+        _staircase_trunk(line_id, y, *_STAIRCASE_SPANS[line_id])
+        for line_id, y in zip(lines, ys)
+    ]
+
+    assert _band_order_deficits(band) == expected
+
+
 def test_disjoint_sameline_trunks_bundle_tight():
     """Two distinct lines that dive into one below-row channel together ride a
     tight bundle until a member peels off at its turn column (issue #702).
