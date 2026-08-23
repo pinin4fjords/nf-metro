@@ -1,0 +1,42 @@
+%%metro title: Exempt inter-row trunk band ordering
+%%metro style: dark
+%%metro section_y_gap: 100
+%%metro line: rnaseq | RNA-seq | #0570b0
+%%metro line: riboseq | Ribo-seq | #31a354
+
+%%metro grid: src, lvl | 0,0
+%%metro grid: model, report | 0,1
+
+graph LR
+    subgraph src [Source]
+        %%metro exit: right | rnaseq
+        s_a[Ingest]
+        s_b[Trim]
+        s_c[Prepare]
+        s_a -->|rnaseq| s_b
+        s_b -->|rnaseq| s_c
+    end
+
+    subgraph lvl [Level]
+        %%metro exit: right | riboseq
+        l_a[Count]
+        l_b[Scale]
+        l_a -->|riboseq| l_b
+    end
+
+    subgraph model [Model]
+        %%metro entry: left | rnaseq
+        m_a[Fit]
+        m_b[Report M]
+        m_a -->|rnaseq| m_b
+    end
+
+    subgraph report [Report]
+        %%metro entry: left | riboseq
+        r_a[Merge]
+        r_b[Report R]
+        r_a -->|riboseq| r_b
+    end
+
+    l_b -->|riboseq| r_a
+    s_c -->|rnaseq| m_a

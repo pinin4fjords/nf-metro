@@ -3074,8 +3074,10 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
     Concentric fanning, crossing-minimal slot ordering and the flanking-radius
     recompute are per-gap geometry a single handler cannot do alone (it needs
     every trunk in the gap at once), so they stay here.  A group of only
-    handler-owned (``normalize_exempt``) trunks keeps its geometry untouched;
-    an exempt trunk sharing a channel with a non-exempt one joins the fan, and a
+    handler-owned (``normalize_exempt``) trunks keeps its geometry untouched
+    unless its realized Y order leaves avoidable crossings
+    (:func:`_band_order_deficits`), which no single handler can see; an exempt
+    trunk sharing a channel with a non-exempt one joins the fan, and a
     non-exempt trunk left fused on an unbundled exempt run is cleared by
     :func:`_dogleg_off_exempt_trunks`.
 
@@ -3097,10 +3099,13 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # One trunk per distinct route; a shared channel needs >1 to fan.
         if len({id(t.route) for t in grp}) < 2:
             continue
-        # Exempt (handler-owned) trunks only join the fan when they share the
-        # channel with a non-exempt trunk; a group of only exempt trunks keeps
-        # its handler geometry untouched here.
-        if not any(not t.route.normalize_exempt for t in grp):
+        # Exempt (handler-owned) trunks join the fan when they share the channel
+        # with a non-exempt trunk, or when the order their handlers happened to
+        # realize costs crossings a reorder removes -- each handler places its
+        # own trunk blind to the others, so the whole-channel view here is the
+        # only place that ordering can be seen.
+        all_exempt = not any(not t.route.normalize_exempt for t in grp)
+        if all_exempt and not _band_order_deficits(grp):
             continue
         # Opposite-direction flows that share one inter-row channel must not be
         # smooshed into one tight bundle (issue #484): a leftward and a rightward
@@ -3395,6 +3400,31 @@ def _band_looseness(
     return total
 
 
+def _band_order_deficits(grp: list[_HTrunk]) -> list[tuple[float, int, int]]:
+    """``(band y, current crossings, best achievable)`` per suboptimal band.
+
+    One channel group splits into a same-direction band per traversal sign; a
+    band whose realized top-to-bottom order costs more crossings than its best
+    permutation contributes an entry.  An empty result means every band in the
+    group is already crossing-optimal.
+    """
+    out: list[tuple[float, int, int]] = []
+    for sign in (1, -1):
+        band = [t for t in grp if t.sign_x == sign]
+        slots = _coincident_trunk_slots(band)
+        if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:
+            continue
+        feats = {id(sg): _trunk_slot_features(sg) for sg in slots}
+        realized = sorted(slots, key=lambda sg: min(t.y for t in sg))
+        cur = _band_order_crossings(realized, feats)
+        best = min(
+            _band_order_crossings(list(p), feats) for p in itertools.permutations(slots)
+        )
+        if best < cur:
+            out.append((min(t.y for t in band), cur, best))
+    return out
+
+
 def _plan_trunk_band(
     band: list[_HTrunk],
 ) -> tuple[list[list[_HTrunk]], dict[int, int], int]:
@@ -3486,22 +3516,7 @@ def _suboptimal_trunk_bands(
     for grp in groups:
         if len({id(t.route) for t in grp}) < 2:
             continue
-        if not any(not t.route.normalize_exempt for t in grp):
-            continue  # handler-owned all-exempt groups: the planner leaves them
-        for sign in (1, -1):
-            band = [t for t in grp if t.sign_x == sign]
-            slots = _coincident_trunk_slots(band)
-            if len(slots) < 2 or len(slots) > _MAX_BAND_PERMUTE:
-                continue
-            feats = {id(sg): _trunk_slot_features(sg) for sg in slots}
-            realized = sorted(slots, key=lambda sg: min(t.y for t in sg))
-            cur = _band_order_crossings(realized, feats)
-            best = min(
-                _band_order_crossings(list(p), feats)
-                for p in itertools.permutations(slots)
-            )
-            if best < cur:
-                out.append((min(t.y for t in band), cur, best))
+        out.extend(_band_order_deficits(grp))
     return out
 
 
