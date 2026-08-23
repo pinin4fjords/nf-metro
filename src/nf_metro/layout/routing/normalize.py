@@ -3996,7 +3996,7 @@ def _separate_fused_cotravelling_runs(
                 moved.fuses_with(other, step) for other in lanes if other is not lane
             )
 
-        def claimed(target: float) -> bool:
+        def respects_claim(target: float) -> bool:
             delta = target - lane.coord
             return not any(
                 (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
@@ -4006,7 +4006,7 @@ def _separate_fused_cotravelling_runs(
             )
 
         def preference(target: float) -> tuple[bool, float, float]:
-            return (not claimed(target), abs(target - lane.coord), target)
+            return (not respects_claim(target), abs(target - lane.coord), target)
 
         target = min(
             (candidate for candidate in candidates if separates(candidate)),
