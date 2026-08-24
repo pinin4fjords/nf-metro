@@ -3147,14 +3147,17 @@ def _stack_trunk_bands(
     one dip.
 
     A *discretionary* stack's trunks are already placed by their handlers and
-    reordered here only to spend crossings the order can save, so it is
-    abandoned where the reorder would resize a corridor
-    (:func:`_restack_holds_corridor_depths`) rather than reordering anyway.
+    reordered here only to spend crossings the order can save, so it is abandoned
+    where no stack top seats the reordered corridors inside the bands their
+    reservations claim (:func:`_restack_fits_corridor_claims`) rather than
+    reordering into a corridor that overruns its own band.
     """
     planned = [_plan_trunk_band(b) for b in bands]
     gap = BUNDLE_TO_BUNDLE_CLEARANCE
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
-    if discretionary and not _restack_holds_corridor_depths(planned, bands, step, gap):
+    if discretionary and not _restack_fits_corridor_claims(
+        ctx, planned, bands, step, gap
+    ):
         return
     top = min(t.y for b in bands for t in b)
     band_top = _clamp_inter_row_band_top(ctx, top, total)
@@ -3176,20 +3179,27 @@ def _slot_depth_in_band(inner: int, count: int, dips: bool) -> int:
     return inner if dips else count - 1 - inner
 
 
-def _restack_holds_corridor_depths(
+def _restack_fits_corridor_claims(
+    ctx: _RoutingCtx,
     planned: list[tuple[list[list[_HTrunk]], dict[int, int], int]],
     bands: list[list[_HTrunk]],
     step: float,
     gap: float,
 ) -> bool:
-    """Whether a planned stack leaves every corridor in it the depth it has now.
+    """Whether the planned stack can seat every corridor inside its own claim.
 
     A corridor is one emitted edge's trunks -- the lines a single ``(source,
-    target)`` hop carries side by side -- and the depth it occupies is what the
-    reservation ledger measures to size the row gap it crosses.  Interleaving a
-    foreign trunk into a corridor, or lifting one out from between its lanes,
-    changes that depth even though the ledger was sized for the old one, so a
-    discretionary reorder that would do either is not worth taking.
+    target)`` hop carries side by side -- and the reservation ledger publishes
+    the band of the row gap that corridor may run in.  The plan fixes each
+    trunk's depth below the stack top but not the stack top itself, so a
+    corridor's claim names an interval of stack tops that seat it: its shallowest
+    trunk no higher than the band's near edge, its deepest no lower than the far
+    one.  A stack top all the claimed corridors admit exists exactly when those
+    intervals meet, and :func:`_hold_stack_in_claim_bands` is what then picks it.
+
+    An unclaimed corridor constrains nothing, and a stack no corridor of which
+    is claimed is therefore admitted outright rather than refused for want of
+    evidence.
     """
     depth_of: dict[int, float] = {}
     depth_offset = 0.0
@@ -3206,17 +3216,23 @@ def _restack_holds_corridor_depths(
         for trunk in band:
             edge = trunk.route.edge
             corridors[edge.source, edge.target].append(trunk)
-    return all(
-        abs(
-            (max(t.y for t in trunks) - min(t.y for t in trunks))
-            - (
-                max(depth_of[id(t)] for t in trunks)
-                - min(depth_of[id(t)] for t in trunks)
-            )
-        )
-        <= COORD_TOLERANCE
-        for trunks in corridors.values()
-    )
+    lo_bound = hi_bound = None
+    for trunks in corridors.values():
+        claim = _bundle_claim_band(ctx, ((t.route, t.idx) for t in trunks))
+        if claim is None:
+            continue
+        depths = [depth_of[id(t)] for t in trunks]
+        lo = claim.lo - min(depths)
+        hi = claim.hi - max(depths)
+        lo_bound = lo if lo_bound is None else max(lo_bound, lo)
+        hi_bound = hi if hi_bound is None else min(hi_bound, hi)
+    # Admitting an unclaimed stack is the deliberate choice, not the cautious
+    # one: the ledger is measured from whatever the earlier passes draw, and
+    # those run before it has published a band, so refusing there would leave
+    # the gap sized for an arrangement no pass ever produces.
+    if lo_bound is None or hi_bound is None:
+        return True
+    return hi_bound >= lo_bound - COORD_TOLERANCE
 
 
 def _hold_stack_in_claim_bands(

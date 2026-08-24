@@ -2056,6 +2056,38 @@ def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     return upper.band_high - lower.band_low < separation - COORD_TOLERANCE_FINE
 
 
+def _lanes_are_nested(first: _BoundaryLane, second: _BoundaryLane) -> bool:
+    """Whether these two lanes are drawn as neighbouring tracks of one bundle.
+
+    They are when they travel the same way along a shared stretch of their
+    boundary and are drawn no further apart than the clearance between them, so
+    the two strokes as they stand read as one nested run.
+
+    This is the drawn counterpart of :func:`_lanes_are_confined`'s question about
+    reach.  A pair whose bands can hold it apart asks nothing of the boundary
+    *once one of the two has moved*; while both are drawn where they are the
+    boundary carries them at the pitch they are drawn at, and a width stated
+    without them is a width no pass can seat the arrangement in.  Bounding it by
+    the clearance rather than by the boundary's own edges is what keeps a lane
+    drawn elsewhere in a wide gap from being charged for at the distance it
+    happens to lie away.
+
+    Counter-running lanes are excluded because they are separate bundles rather
+    than tracks of one (see
+    :func:`~nf_metro.layout.geometry.cotravelling_lane_clearance`): the room two
+    of them need from each other is the reach question confinement already asks,
+    not a nesting pitch either has to hold the other at.
+    """
+    if first.leg.direction is not second.leg.direction:
+        return False
+    separation = _lane_separation(first, second)
+    if separation <= 0.0 or not _lanes_overlap(first, second):
+        return False
+    lower, upper = sorted((first, second), key=lambda lane: lane.leg.coordinate)
+    drawn = measured_distance(lower.leg.coordinate, upper.leg.coordinate)
+    return drawn <= separation + COORD_TOLERANCE
+
+
 def _confined_stack_width(lanes: Sequence[_BoundaryLane]) -> float:
     """The width *lanes* need to sit in one boundary at their own separations.
 
@@ -2134,9 +2166,9 @@ def _peer_widths(
     where its band was read from, not which strokes it is drawn beside: a run
     measured across one boundary and a run measured across the next can be drawn
     in one stretch of the canvas, their bands meeting exactly at the edge the two
-    share.  Whether two lanes compete is :func:`_lanes_are_confined`'s question
-    alone, settled by the stretch of corridor they share and the reach their two
-    bands have between them.
+    share.  Whether two lanes compete is settled by the stretch of corridor they
+    share, the reach their two bands have between them, and where each is drawn,
+    not by which grid boundary either was filed against.
 
     A boundary is charged for every stroke drawn in it, and a claim is not what
     makes a stroke take room: an :class:`_UnfiledRun` crosses no boundary yet is
@@ -2147,6 +2179,16 @@ def _peer_widths(
     ask for.  It is charged as a peer rather than filed as a claim because a
     reservation is a corridor a run may be *seated in*, and a leg the region
     search files against no boundary has no such corridor to be held inside.
+
+    A peer is charged for on either of two grounds: it is *confined* with one of
+    the boundary's own lanes, so no seating draws both until the boundary grows
+    (:func:`_lanes_are_confined`), or it is drawn *nested* against one, so the
+    stack standing in the boundary is wider than the boundary's own claims
+    describe (:func:`_lanes_are_nested`).  Confinement alone leaves a boundary
+    stated at the width its own lanes would take with the interloper gone, and
+    nothing the interloper divides can then be brought together without a claim
+    overrunning its band -- so the reorder that would take the interloper out of
+    the way is refused, and the interloper stays where it is.
     """
     bands = {index: _group_band(graph, group) for index, group in enumerate(groups)}
     by_axis: defaultdict[CorridorOrientation, list[_BoundaryLane]] = defaultdict(list)
@@ -2170,7 +2212,10 @@ def _peer_widths(
                 peer
                 for peer in (*lanes, *unfiled_by_group[index])
                 if peer.group_index != index
-                and any(_lanes_are_confined(mine, peer) for mine in own)
+                and any(
+                    _lanes_are_confined(mine, peer) or _lanes_are_nested(mine, peer)
+                    for mine in own
+                )
             ]
             if confined:
                 widths[index] = max(

@@ -568,20 +568,27 @@ def test_reported_corridors_keep_the_nesting_step(
         assert separations[pair] >= graph_offset_step(graph)
 
 
-def test_inter_row_corridor_reorder_holds_its_reserved_depth() -> None:
-    """A discretionary trunk reorder settles on one depth for its corridor.
+def test_inter_row_corridor_seats_its_shared_destination_pair_together(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A three-track inter-row channel keeps its two co-arriving lines adjacent.
 
-    ``inter_row_corridor_overflow``'s row-0/row-1 channel carries a two-line
-    corridor with a third line's trunk between its lanes.  Reordering the
-    channel lifts that third trunk out, halving the depth the corridor occupies
-    and so the width its reservation asks the row gap for -- and every routing
-    pass measures the ledger afresh from whatever the previous one drew.  Left
-    to alternate, the passes take turns reordering and not reordering, the gap
-    is finally sized from an arrangement that is not the one drawn, and the two
-    lines the narrowed gap cannot both hold paint a single stroke.
+    ``inter_row_corridor_overflow``'s row-0/row-1 channel carries three trunks:
+    ``la`` and ``lc`` cross it together to reach one section, and ``lb`` crosses
+    it to another.  Drawn with ``lb`` between the pair, ``lb`` has to cut across
+    both of them where it peels off; the channel has room to seat it outside the
+    pair instead, which costs no crossing at all.
 
-    Rendered under ``strict`` so the reservation settlement guard is live
-    alongside the collinearity and fused-pair guards.
+    Reaching that arrangement needs the reservation covering the pair to state
+    the width of the whole three-track stack it is drawn inside.  Stated at the
+    pair's own two tracks, the channel publishes room for half the stack that
+    stands in it, no reordering of the three fits inside what is claimed, and
+    the interloper stays between them.
+
+    Rendered twice: once under ``strict``, where the settlement, collinearity
+    and fused-pair guards all have to pass on the arrangement, and once through
+    the measuring chokepoint, which reports the drawn lane separations the
+    ordering is read from.
     """
     from nf_metro.api import prepare_graph, resolve_theme
     from nf_metro.render.svg import build_observed_render_plan
@@ -592,6 +599,13 @@ def test_inter_row_corridor_reorder_holds_its_reserved_depth() -> None:
         graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
         graph.strict = True
         build_observed_render_plan(graph, resolve_theme(None, graph))
+
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    step = graph_offset_step(graph)
+    separations = _pair_separations(routes, offsets)
+    assert separations[("la", "lc", "Y")] == pytest.approx(step)
+    assert separations[("la", "lb", "Y")] == pytest.approx(step)
+    assert separations[("lb", "lc", "Y")] == pytest.approx(2 * step)
 
 
 @pytest.mark.parametrize("path", SEATED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
