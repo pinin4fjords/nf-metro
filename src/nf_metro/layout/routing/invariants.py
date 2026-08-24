@@ -6294,14 +6294,11 @@ def check_peeloff_concentric(
     """Return peel-off bundles that do not nest into one band at a LEFT entry port.
 
     Every contiguous concentric peel-off bundle - lines sharing one bypass trunk
-    rising into a common LEFT entry port - must have its riser peel-x and
-    port-slot Y ordered by trunk depth, on a band no wider than the bundle
-    itself, so it nests crossing-free and gap-free into the port.  A member off
-    its depth-earned slot rises across the lines stacked with it; a band spread
-    wider than the bundle draws a gap between strokes that arrive together.  Both
-    are set up front by ``_convergence_line_order`` (riser peel-x) and
+    rising into a common LEFT entry port - owes the band
+    :class:`PeeloffBundleCrossing` describes.  That band is set up front by
+    ``_convergence_line_order`` (riser peel-x) and
     ``_order_convergence_entry_ports`` (port slots), so the bundle nests through
-    the standard layout path.
+    the standard layout path rather than by repair here.
     """
     step = graph_offset_step(graph)
     out: list[PeeloffBundleCrossing | LooseDestinationTail] = []

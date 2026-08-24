@@ -1323,12 +1323,10 @@ def same_destination_approach_slots(
     """Map destination lane order onto adjacent final vertical channels."""
     port = graph.ports[bundle.port_id]
     n = len(bundle.per_line)
-    realised_xs = [tail.peel_x for tail in bundle.per_line.values()]
-    inner_x = max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
-    x_slots = (
-        [inner_x - (n - rank - 1) * step for rank in range(n)]
-        if port.side is PortSide.LEFT
-        else [inner_x + rank * step for rank in range(n)]
+    x_slots = port_approach_channel_xs(
+        (tail.peel_x for tail in bundle.per_line.values()),
+        step,
+        inner_is_max=port.side is PortSide.LEFT,
     )
     y_slots = sorted(tail.port_y for tail in bundle.per_line.values())
     port_order = sorted(

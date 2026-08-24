@@ -681,9 +681,7 @@ def test_peeloff_risers_descend_on_the_nesting_pitch(
     strokes that arrive together.
 
     Inputs the engine rejects outright are skipped: they never reach a settled
-    geometry to measure, and their rejection is pinned elsewhere.  The measured
-    count is asserted so a corpus that stopped producing peel-off bundles at all
-    reads as a failure rather than a vacuous pass.
+    geometry to measure, and their rejection is pinned elsewhere.
     """
     wide: dict[str, list[tuple[str, float, int]]] = {}
     measured = 0
@@ -695,7 +693,12 @@ def test_peeloff_risers_descend_on_the_nesting_pitch(
         measured += seen
         if found:
             wide[str(path.relative_to(REPO_ROOT))] = found
-    assert measured >= 20, measured
+    assert measured >= 20, (
+        f"only {measured} peel-off bundles measured across the corpus: the sweep "
+        "has stopped seeing the geometry it exists to check, so its silence is "
+        "not evidence. The floor is deliberately far below the count the corpus "
+        "yields, to catch that collapse without pinning an exact tally"
+    )
     assert not wide, (
         "peel-off risers descend wider than their own bundle: "
         + "; ".join(
