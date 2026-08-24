@@ -6189,13 +6189,15 @@ def check_trunks_declared(routes: list[RoutedPath]) -> list[UndeclaredTrunk]:
 
 @dataclass
 class PeeloffBundleCrossing:
-    """A peel-off bundle into a LEFT entry port braids instead of nesting.
+    """A peel-off bundle into a LEFT entry port misses its concentric band.
 
     Lines riding one shared bypass trunk that rise into a common LEFT entry port
-    must turn in concentrically: the riser peel-x (and the port-slot Y) ordered
-    by trunk depth.  A member whose realized peel-x is not the slot its trunk
-    depth earns rises across the lines stacked with it, crossing them just
-    before the port.
+    must turn in concentrically: one band of channels a bundle pitch apart, with
+    the riser peel-x (and the port-slot Y) ordered by trunk depth.  A member off
+    the slot its trunk depth earns rises across the lines stacked with it,
+    crossing them just before the port; a band spread wider than the bundle
+    holds lanes no line in the corridor runs in, and draws as a gap between
+    strokes that arrive together.
     """
 
     port_id: str
@@ -6208,7 +6210,8 @@ class PeeloffBundleCrossing:
         return (
             f"peel-off bundle into port {self.port_id!r}: line {self.line_id!r} "
             f"rises at peel-x {self.peel_x:.1f} but its trunk depth earns the "
-            f"slot at {self.expected_peel_x:.1f} (the bundle braids into the port)"
+            f"slot at {self.expected_peel_x:.1f} (the bundle does not nest into "
+            "one concentric band at the port)"
         )
 
 
@@ -6288,15 +6291,14 @@ def check_peeloff_concentric(
     routes: list[RoutedPath],
     curve_radius: float = CURVE_RADIUS,
 ) -> list[PeeloffBundleCrossing | LooseDestinationTail]:
-    """Return peel-off bundles that braid into a LEFT entry port.
+    """Return peel-off bundles that do not nest into one band at a LEFT entry port.
 
     Every contiguous concentric peel-off bundle - lines sharing one bypass trunk
-    rising into a common LEFT entry port - must have its riser peel-x and
-    port-slot Y ordered by trunk depth so the bundle nests crossing-free into the
-    port.  A member off its depth-earned slot rises across the lines stacked with
-    it, braiding the bundle just before the port.  The ordering is set up front by
-    ``_convergence_line_order`` (riser peel-x) and ``_order_convergence_entry_ports``
-    (port slots), so the bundle nests through the standard layout path.
+    rising into a common LEFT entry port - owes the band
+    :class:`PeeloffBundleCrossing` describes.  That band is set up front by
+    ``_convergence_line_order`` (riser peel-x) and
+    ``_order_convergence_entry_ports`` (port slots), so the bundle nests through
+    the standard layout path rather than by repair here.
     """
     step = graph_offset_step(graph)
     out: list[PeeloffBundleCrossing | LooseDestinationTail] = []
@@ -6328,7 +6330,7 @@ def check_peeloff_concentric(
             )
         if loose:
             continue
-        targets = peeloff_target_slots(bundle)
+        targets = peeloff_target_slots(bundle, step)
         for line_id, tail in bundle.per_line.items():
             slot = targets[line_id]
             if not tail_on_slot(tail, slot):
@@ -6350,7 +6352,7 @@ def check_peeloff_concentric(
         )
         if key in checked:
             continue
-        targets = peeloff_target_slots(bundle)
+        targets = peeloff_target_slots(bundle, step)
         for line_id, tail in bundle.per_line.items():
             slot = targets[line_id]
             if not tail_on_slot(tail, slot):

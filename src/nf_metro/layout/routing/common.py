@@ -1323,12 +1323,10 @@ def same_destination_approach_slots(
     """Map destination lane order onto adjacent final vertical channels."""
     port = graph.ports[bundle.port_id]
     n = len(bundle.per_line)
-    realised_xs = [tail.peel_x for tail in bundle.per_line.values()]
-    inner_x = max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
-    x_slots = (
-        [inner_x - (n - rank - 1) * step for rank in range(n)]
-        if port.side is PortSide.LEFT
-        else [inner_x + rank * step for rank in range(n)]
+    x_slots = port_approach_channel_xs(
+        (tail.peel_x for tail in bundle.per_line.values()),
+        step,
+        inner_is_max=port.side is PortSide.LEFT,
     )
     y_slots = sorted(tail.port_y for tail in bundle.per_line.values())
     port_order = sorted(
@@ -1778,6 +1776,24 @@ def iter_opposing_entry_confluences(
         )
 
 
+def port_approach_channel_xs(
+    realised_xs: Iterable[float], step: float, *, inner_is_max: bool
+) -> list[float]:
+    """Ascending *step*-pitch channel band for one port-approach bundle.
+
+    The band is anchored on the realised channel nearest the port, whose
+    standoff from the port's own box edge is what the emitting handler sized;
+    the remaining lanes pack in beside it at the bundle pitch.
+    """
+    xs = list(realised_xs)
+    n = len(xs)
+    if inner_is_max:
+        inner_x = max(xs)
+        return [inner_x - (n - rank - 1) * step for rank in range(n)]
+    inner_x = min(xs)
+    return [inner_x + rank * step for rank in range(n)]
+
+
 def opposing_entry_confluence_slots(
     bundle: OpposingEntryConfluence,
     graph: MetroGraph,
@@ -1786,12 +1802,10 @@ def opposing_entry_confluence_slots(
     """Map port lane order onto the bundle's preceding vertical channels."""
     port = graph.ports[bundle.port_id]
     n = len(bundle.per_line)
-    realised_xs = [tail.peel_x for tail in bundle.per_line.values()]
-    inner_x = max(realised_xs) if port.side is PortSide.LEFT else min(realised_xs)
-    x_slots = (
-        [inner_x - (n - rank - 1) * step for rank in range(n)]
-        if port.side is PortSide.LEFT
-        else [inner_x + rank * step for rank in range(n)]
+    x_slots = port_approach_channel_xs(
+        (tail.peel_x for tail in bundle.per_line.values()),
+        step,
+        inner_is_max=port.side is PortSide.LEFT,
     )
     y_slots = sorted(tail.port_y for tail in bundle.per_line.values())
     port_order = sorted(
@@ -1906,17 +1920,35 @@ def peeloff_trunk_line_order(bundle: PortPeeloffBundle) -> list[str]:
     return list(reversed(port_order))
 
 
-def peeloff_target_slots(bundle: PortPeeloffBundle) -> dict[str, PeeloffSlot]:
+def peeloff_target_slots(
+    bundle: PortPeeloffBundle, step: float
+) -> dict[str, PeeloffSlot]:
     """Map each line of *bundle* to the slot its trunk depth earns.
 
     Peel-X and port-Y use separate ranks.  A half-turn reverses the horizontal
     direction and therefore transposes port order relative to trunk order,
     while the first H-to-V turn independently decides whether approach X
     follows or reverses trunk order.
+
+    Risers spread wider than one bundle width close up onto the pitch rather
+    than merely permuting the Xs already realised: only this bundle's lines
+    descend the corridor, so a band sized by the wider fan that emitted them
+    holds lanes nothing runs in.  Closing up stays inside the bundle's own
+    corridor; opening a *narrower* band up needs room outboard of it, which the
+    separation stages own, so a fused band keeps its realised channels.  Port Y
+    is the destination port's own line stack rather than this bundle's to
+    choose, and stays as realised throughout.
     """
     per_line = bundle.per_line
     n = len(per_line)
-    x_slots = sorted(t.peel_x for t in per_line.values())
+    realised_xs = sorted(t.peel_x for t in per_line.values())
+    x_slots = (
+        port_approach_channel_xs(
+            realised_xs, step, inner_is_max=bundle.port_lead_sign > 0
+        )
+        if realised_xs[-1] - realised_xs[0] > (n - 1) * step + COORD_TOLERANCE
+        else realised_xs
+    )
     y_slots = sorted(t.port_y for t in per_line.values())
     ranked = sorted(per_line, key=lambda lid: per_line[lid].trunk_y)
     x_follows_trunk = -bundle.vertical_sign == bundle.trunk_sign

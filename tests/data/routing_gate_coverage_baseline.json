@@ -655,7 +655,6 @@
   "normalize.py::if (::#4",
   "normalize.py::if (::#6",
   "normalize.py::if 0 <= k - 1 < len(rp.curve_radii):::#1",
-  "normalize.py::if _planner_owns_channel(ch):::#2",
   "normalize.py::if _section_intrudes(::#1",
   "normalize.py::if a_trunk is None or b_trunk is None:::#1",
   "normalize.py::if abs(ch.x - descent.x) <= COORD_TOLERANCE:::#1",
