@@ -1698,6 +1698,15 @@ gallery:
       The same offset packed-section squeeze as inter_row_drop_section_clearance, with the wider
       section in the lower row so the drop would otherwise hug the row-1 section's edge; the
       channel is centred in the gap instead.
+  - id: inter_row_corridor_overflow
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "A generic (non-pipeline-specific) reproducer for the row-trunk-alignment
+      defect class covered by issues #1771/#1772/#1820: two grid rows of sections
+      linked by inter-row corridors. Renders cleanly under default settings, but
+      fails `compute_layout(validate=True)` with a carrier-row `PhaseInvariantError`
+      pending #1771 and #1820."
   - id: cross_col_top_entry
     source_dir: examples/topologies
     category: Inter-section Routing
