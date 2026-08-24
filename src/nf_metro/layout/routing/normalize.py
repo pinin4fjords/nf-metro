@@ -3118,7 +3118,9 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # moves each the least and never reorders the two flows (no new
         # crossing).
         bands.sort(key=lambda b: min(t.y for t in b))
-        _stack_trunk_bands(bands, ctx, step, bundled)
+        # An all-exempt channel's fan is best-effort (discretionary): abandon
+        # the reorder rather than resize a corridor's reservation.
+        _stack_trunk_bands(bands, ctx, step, bundled, discretionary=all_exempt)
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
     _bundle_same_destination_tails(routes, ctx)
@@ -3126,7 +3128,12 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
 
 
 def _stack_trunk_bands(
-    bands: list[list[_HTrunk]], ctx: _RoutingCtx, step: float, bundled: set[int]
+    bands: list[list[_HTrunk]],
+    ctx: _RoutingCtx,
+    step: float,
+    bundled: set[int],
+    *,
+    discretionary: bool = False,
 ) -> None:
     """Lay an ordered top -> bottom list of trunk bands into their inter-row gap.
 
@@ -3138,10 +3145,17 @@ def _stack_trunk_bands(
     Each band carries its own dip direction, so a down-dip and an up-dip band
     can stack together; a single-direction caller passes bands that all share
     one dip.
+
+    A *discretionary* stack's trunks are already placed by their handlers and
+    reordered here only to spend crossings the order can save, so it is
+    abandoned where the reorder would resize a corridor
+    (:func:`_restack_holds_corridor_depths`) rather than reordering anyway.
     """
     planned = [_plan_trunk_band(b) for b in bands]
     gap = BUNDLE_TO_BUNDLE_CLEARANCE
     total = sum((n - 1) * step for _o, _t, n in planned) + gap * (len(bands) - 1)
+    if discretionary and not _restack_holds_corridor_depths(planned, bands, step, gap):
+        return
     top = min(t.y for b in bands for t in b)
     band_top = _clamp_inter_row_band_top(ctx, top, total)
     band_top = _hold_stack_in_claim_bands(ctx, band_top, planned, bands, step, gap)
@@ -3150,6 +3164,59 @@ def _stack_trunk_bands(
             order, track_of, n, band_top, band[0].dips_down, step, ctx, bundled
         )
         band_top += (n - 1) * step + gap
+
+
+def _slot_depth_in_band(inner: int, count: int, dips: bool) -> int:
+    """A slot's depth rank within its band, 0 = innermost (shallowest) track.
+
+    A downward dip's channel interior is above, so the innermost track sits at
+    the top; an upward dip's interior is below, so the innermost track sits at
+    the bottom -- hence the inner/(count-1-inner) swap.
+    """
+    return inner if dips else count - 1 - inner
+
+
+def _restack_holds_corridor_depths(
+    planned: list[tuple[list[list[_HTrunk]], dict[int, int], int]],
+    bands: list[list[_HTrunk]],
+    step: float,
+    gap: float,
+) -> bool:
+    """Whether a planned stack leaves every corridor in it the depth it has now.
+
+    A corridor is one emitted edge's trunks -- the lines a single ``(source,
+    target)`` hop carries side by side -- and the depth it occupies is what the
+    reservation ledger measures to size the row gap it crosses.  Interleaving a
+    foreign trunk into a corridor, or lifting one out from between its lanes,
+    changes that depth even though the ledger was sized for the old one, so a
+    discretionary reorder that would do either is not worth taking.
+    """
+    depth_of: dict[int, float] = {}
+    depth_offset = 0.0
+    for (order, track_of, count), band in zip(planned, bands):
+        dips = band[0].dips_down
+        for slot in order:
+            inner = track_of[id(slot)]
+            depth = depth_offset + _slot_depth_in_band(inner, count, dips) * step
+            for trunk in slot:
+                depth_of[id(trunk)] = depth
+        depth_offset += (count - 1) * step + gap
+    corridors: defaultdict[tuple[str, str], list[_HTrunk]] = defaultdict(list)
+    for band in bands:
+        for trunk in band:
+            edge = trunk.route.edge
+            corridors[edge.source, edge.target].append(trunk)
+    return all(
+        abs(
+            (max(t.y for t in trunks) - min(t.y for t in trunks))
+            - (
+                max(depth_of[id(t)] for t in trunks)
+                - min(depth_of[id(t)] for t in trunks)
+            )
+        )
+        <= COORD_TOLERANCE
+        for trunks in corridors.values()
+    )
 
 
 def _hold_stack_in_claim_bands(
@@ -3606,12 +3673,8 @@ def _restack_trunk_band(
     """
     for sg in order:
         inner = track_of[id(sg)]  # 0 = innermost (shallowest); sets corner radii
-        # Depth from ``band_top`` (the band's smallest Y).  For a downward dip
-        # the channel interior is above, so the innermost track sits at the top;
-        # for an upward dip the interior is below, so the innermost sits at the
-        # bottom -- hence the inner/(n-1-inner) swap.
-        depth = inner if dips else n - 1 - inner
-        new_y = band_top + depth * step
+        # Depth from ``band_top`` (the band's smallest Y).
+        new_y = band_top + _slot_depth_in_band(inner, n, dips) * step
         for t in sg:
             bundled.add(id(t.route))
             if abs(new_y - t.y) <= COORD_TOLERANCE:

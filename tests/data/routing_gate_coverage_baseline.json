@@ -480,7 +480,6 @@
   "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1",
   "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#2",
   "inter_section_handlers.py::if not is_inter:::#1",
-  "inter_section_handlers.py::if not normalize_exempt:::#1",
   "inter_section_handlers.py::if not section_ids:::#1",
   "inter_section_handlers.py::if not source_lines or edge.line_id not in source_lines:::#1",
   "inter_section_handlers.py::if not straight_drop:::#1",

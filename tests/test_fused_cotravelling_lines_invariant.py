@@ -17,9 +17,10 @@ have separated it before geometry froze.
 Covers:
 
 * Happy-path: every shipped topology and example routes with no fused pair.
-* Targeted: the three corridors a reservation band pulled together
+* Targeted: the four corridors a reservation band pulled together
   (``rl_return_row_convergence``, ``convergence_fold_diamond``,
-  ``seed72_cross_family_fan``) keep the full step on the settled geometry.
+  ``seed72_cross_family_fan``, ``inter_row_corridor_overflow``) keep the
+  full step on the settled geometry.
 * Meaningfulness: on the fixtures whose bands leave the pair short of the step
   the tracks fuse once both separation stages are disabled, and settlement
   lands each pair exactly on the step rather than merely clear of the check.
@@ -60,10 +61,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TOPOLOGIES = REPO_ROOT / "tests" / "fixtures" / "topologies"
 EXAMPLES = REPO_ROOT / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
-CURVE_REPROS = REPO_ROOT / "tests" / "fixtures" / "curve_invariant_repros"
-REGRESSIONS = REPO_ROOT / "tests" / "fixtures" / "regressions"
-THROUGH_SECTION = REPO_ROOT / "tests" / "fixtures" / "through_section"
-FROZEN_FUZZ = REPO_ROOT / "tests" / "fixtures" / "hash_seed_determinism"
+FIXTURES = REPO_ROOT / "tests" / "fixtures"
+CURVE_REPROS = FIXTURES / "curve_invariant_repros"
+REGRESSIONS = FIXTURES / "regressions"
+THROUGH_SECTION = FIXTURES / "through_section"
+FROZEN_FUZZ = FIXTURES / "hash_seed_determinism"
 
 REPORTED = {
     CURVE_REPROS / "rl_return_row_convergence.mmd": frozenset(
@@ -75,6 +77,7 @@ REPORTED = {
     EXAMPLE_TOPOLOGIES / "seed72_cross_family_fan.mmd": frozenset(
         {("exempt", "normal", "X"), ("exempt", "normal", "Y")}
     ),
+    CURVE_REPROS / "inter_row_corridor_overflow.mmd": frozenset({("la", "lb", "Y")}),
 }
 
 FUSED_WITHOUT_THE_PASS = {
@@ -563,6 +566,32 @@ def test_reported_corridors_keep_the_nesting_step(
     for pair in REPORTED[path]:
         assert pair in separations, f"{pair} no longer shares a corridor"
         assert separations[pair] >= graph_offset_step(graph)
+
+
+def test_inter_row_corridor_reorder_holds_its_reserved_depth() -> None:
+    """A discretionary trunk reorder settles on one depth for its corridor.
+
+    ``inter_row_corridor_overflow``'s row-0/row-1 channel carries a two-line
+    corridor with a third line's trunk between its lanes.  Reordering the
+    channel lifts that third trunk out, halving the depth the corridor occupies
+    and so the width its reservation asks the row gap for -- and every routing
+    pass measures the ledger afresh from whatever the previous one drew.  Left
+    to alternate, the passes take turns reordering and not reordering, the gap
+    is finally sized from an arrangement that is not the one drawn, and the two
+    lines the narrowed gap cannot both hold paint a single stroke.
+
+    Rendered under ``strict`` so the reservation settlement guard is live
+    alongside the collinearity and fused-pair guards.
+    """
+    from nf_metro.api import prepare_graph, resolve_theme
+    from nf_metro.render.svg import build_observed_render_plan
+
+    path = CURVE_REPROS / "inter_row_corridor_overflow.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
+        graph.strict = True
+        build_observed_render_plan(graph, resolve_theme(None, graph))
 
 
 @pytest.mark.parametrize("path", SEATED_WITHOUT_THE_PASS, ids=lambda p: p.stem)
