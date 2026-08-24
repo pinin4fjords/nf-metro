@@ -3119,7 +3119,7 @@ def _materialize_trunk_slots(routes: list[RoutedPath], ctx: _RoutingCtx) -> None
         # crossing).
         bands.sort(key=lambda b: min(t.y for t in b))
         # An all-exempt channel's fan is best-effort (discretionary): abandon
-        # the reorder rather than resize a corridor's reservation.
+        # the reorder where no stack top seats it inside the claimed bands.
         _stack_trunk_bands(bands, ctx, step, bundled, discretionary=all_exempt)
 
     _dogleg_off_exempt_trunks(routes, ctx, skip=bundled)
@@ -3194,8 +3194,8 @@ def _restack_fits_corridor_claims(
     trunk's depth below the stack top but not the stack top itself, so a
     corridor's claim names an interval of stack tops that seat it: its shallowest
     trunk no higher than the band's near edge, its deepest no lower than the far
-    one.  A stack top all the claimed corridors admit exists exactly when those
-    intervals meet, and :func:`_hold_stack_in_claim_bands` is what then picks it.
+    one.  An empty intersection refuses the reorder; a non-empty one is weaker
+    than the per-direction-band fit :func:`_hold_stack_in_claim_bands` applies.
 
     An unclaimed corridor constrains nothing, and a stack no corridor of which
     is claimed is therefore admitted outright rather than refused for want of

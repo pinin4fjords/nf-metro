@@ -1835,8 +1835,8 @@ They are design evidence, not part of this specification.
   `landing_section_ids` is. Settlement is unaffected by this blocker: an anchor
   stands on the side a translation holds still, so the ownership lemma below
   gives the corridor the full widening it asks for.
-- **The width a boundary is asked for holds every corridor confined with each
-  one**: a reservation's `minimum_width` is
+- **The width a boundary is asked for holds every corridor confined with or
+  nested against each one**: a reservation's `minimum_width` is
   `negative_side_clearance + bundle_width + peer_width + positive_side_clearance`,
   and `peer_width` (`_peer_widths` in `layout/route_reservations.py`) is what the
   corridors sharing the boundary take beside this one. Two corridors crossing one
@@ -1844,28 +1844,27 @@ They are design evidence, not part of this specification.
   either of two further things holds. They are **confined**
   (`_lanes_are_confined`): neither one's own measured band can hold them the
   distance apart they need, so no seating draws both until the boundary grows.
-  That reach is measured in
-  the order the pair is drawn in, since that is the only order any seating may
-  produce: the router moves a corridor up to its neighbour's lane and never past
-  it, so crediting the pair with the better of the two orderings would report a
-  boundary settled that in fact has no seating at all. Or they are **nested**
-  (`_lanes_are_nested`): drawn travelling the same way no further apart than the
-  clearance between them, so whatever the two bands could reach, the boundary
-  carries the pair at the pitch it is drawn at until one of the two has moved.
-  That second test is bounded by the clearance rather than by the boundary's own
-  edges, which keeps a lane drawn elsewhere in a wide gap from being charged for
-  at the distance it happens to lie away, and it excludes counter-running pairs,
-  which are separate bundles rather than tracks of one stack and so are the reach
-  test's business. Confinement alone leaves a boundary stated at the width its
-  own lanes would take with an interloper drawn between them already gone --
-  nothing the interloper divides can then be brought together without a claim
-  overrunning its band, so the reorder that would take the interloper out of the
-  way is refused and it stays between them, as
-  `tests/fixtures/curve_invariant_repros/inter_row_corridor_overflow.mmd`
-  records. Where they do compete, the
-  demand is the stack in drawn order: each neighbouring pair contributes
-  `cotravelling_lane_clearance` (`layout/geometry.py`), which states in one place
-  what `_required_channel_clearance` asks of counter-running channels and
+  That reach is measured in the order the pair is drawn in, since that is the
+  only order any seating may produce: the router moves a corridor up to its
+  neighbour's lane and never past it, so crediting the pair with the better of
+  the two orderings would report a boundary settled that in fact has no seating
+  at all. Or they are **nested** (`_lanes_are_nested`): drawn travelling the same
+  way no further apart than the clearance between them, so whatever the two bands
+  could reach, the boundary carries the pair at the pitch it is drawn at until one
+  of the two has moved. That second test is bounded by the clearance rather than
+  by the boundary's own edges, which keeps a lane drawn elsewhere in a wide gap
+  from being charged for at the distance it happens to lie away, and it excludes
+  counter-running pairs, which are separate bundles rather than tracks of one
+  stack and so are the reach test's business. Confinement alone leaves a boundary
+  stated at the width its own lanes would take with an interloper drawn between
+  them already gone -- nothing the interloper divides can then be brought
+  together without a claim overrunning its band, so the reorder that would take
+  the interloper out of the way is refused and it stays between them, as
+  `tests/fixtures/curve_invariant_repros/inter_row_corridor_overflow.mmd` records.
+  Where they do compete, the demand is the stack in drawn order: each
+  neighbouring pair contributes `cotravelling_lane_clearance`
+  (`layout/geometry.py`), which states in one place what
+  `_required_channel_clearance` asks of counter-running channels and
   `_overlays_distinct_line` of co-travelling ones -- nothing between two tracks of
   one line running together, `OFFSET_STEP` between distinct co-travelling lines, a
   turn radius between a line and its own return leg, `BUNDLE_TO_BUNDLE_CLEARANCE`
@@ -2241,8 +2240,8 @@ They are design evidence, not part of this specification.
   arrived first rather than from a boundary edge, so widening the boundary moves
   neither of them, which is what makes the separation invariant under allocation
   instead of growing at half the widening rate.
-  Two corridors confined at one boundary are not a source of
-  residue either: `peer_width`
+  Two corridors that compete at one boundary are not a source of residue either,
+  whether they are confined there or nested against one another: `peer_width`
   states the room they take together, so settlement widens the boundary for both.
 - **Related tests**: `tests/test_envelope_settlement.py`,
   `tests/test_reserved_corridor_placement.py`, and
