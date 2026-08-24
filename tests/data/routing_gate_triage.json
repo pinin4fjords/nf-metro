@@ -1091,6 +1091,10 @@
   "note": "Defensive guard in _convergence_line_order: a peel-off riser channel always resolves to a source-section column, so the unresolved-column early return is never taken on the corpus.",
   "status": "defensive"
  },
+ "normalize.py::if discretionary and not _restack_fits_corridor_claims(::#1": {
+  "note": "A discretionary all-exempt trunk reorder is abandoned when no stack top seats the reordered corridors inside the bands their reservations claim. Every shipped corpus channel is reorderable within its claims because _peer_widths charges each boundary for the nested stack drawn in it, so the claim is already sized for the arrangement the plan produces and the refusal arm has no fixture. Reachable in principle: a plan that splits one corridor's trunks further apart than its own claim is wide asks for a seating no stack top provides. Revisit once a corpus map produces one.",
+  "status": "needs-review"
+ },
  "normalize.py::if down is None or len(up.points) < 2:::#1": {
   "note": "Un-exercised on origin/main too; 897747b0 covered it on 13 fixtures and HEAD is back to main's [0,138] split, so this is a return to main's behaviour rather than a new gap. Reachable by construction (main's baseline lists it as an open gap already). No fixture authored -- the render corpus is frozen for a measurement against main.",
   "status": "needs-review"

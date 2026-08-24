@@ -689,6 +689,7 @@
   "normalize.py::if col is None:::#1",
   "normalize.py::if ctx.exit_turns is None:::#1",
   "normalize.py::if ctx.validate_final_route_frames:::#1",
+  "normalize.py::if discretionary and not _restack_fits_corridor_claims(::#1",
   "normalize.py::if down is None or len(up.points) < 2:::#1",
   "normalize.py::if down_ok and up_ok and (cross_down is None) != (cross_up is None):::#1",
   "normalize.py::if feats is None:::#1",
