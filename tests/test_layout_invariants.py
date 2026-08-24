@@ -82,6 +82,7 @@ from nf_metro.layout.pass_metrics import font_scale_context
 from nf_metro.layout.phases._common import (
     _is_side_entered_vertical_section,
     _row_contiguous_column_groups,
+    _section_trunk_y,
     continuation_track_predecessors,
     flow_axis_exit_ports,
     flow_exit_carrier_anchor,
@@ -1545,6 +1546,126 @@ def test_shared_cell_fork_continuing_branch_holds_trunk():
         f"coverage dead-end q_split y={q_split:.1f} did not peel off trunk "
         f"y={quant_entry:.1f}"
     )
+
+
+@pytest.mark.parametrize(
+    ("fixture", "upstream", "straddler"),
+    [
+        (
+            "curve_invariant_repros/inter_row_corridor_overflow.mmd",
+            "intake",
+            "primary",
+        ),
+        ("regressions/riboseq_row_trunk_subrun.mmd", "preprocessing", "alignment"),
+    ],
+)
+def test_row_trunk_subrun_holds_one_lane_past_a_differing_row_mate(
+    fixture, upstream, straddler
+):
+    """A section caught between two lanes settles on the one its row uses.
+
+    Both maps pack three sections into grid cell 0,0: a deep-trunked source, a
+    shallow chain, and a third that carries only part of the bundle.  The chain
+    takes the row's lane at its right boundary and its own content's at its
+    left, so the bundle drops into it and climbs straight back out -- and that
+    one differing row-mate must not cost the matching pair their common trunk
+    (issue #1772).
+    """
+    graph = _layout(fixture)
+
+    lane = {
+        "upstream exit": _sole_port_y(graph, graph.sections[upstream].exit_ports),
+        "entry": _sole_port_y(graph, graph.sections[straddler].entry_ports),
+        "exit": _sole_port_y(graph, graph.sections[straddler].exit_ports),
+    }
+    spread = max(lane.values()) - min(lane.values())
+    assert spread <= _Y_TOL, (
+        f"{fixture}: the row bundle steps by {spread:.1f}px across {straddler}: "
+        f"{ {k: round(v, 1) for k, v in lane.items()} }"
+    )
+    trunk = _section_trunk_y(graph, graph.sections[straddler])
+    assert trunk is not None and abs(trunk - lane["entry"]) <= _Y_TOL, (
+        f"{fixture}: {straddler}'s content sits at {trunk} while its boundary "
+        f"lane runs at {lane['entry']}"
+    )
+
+
+def test_row_trunk_alignment_is_inert_on_an_interior_through_set_break(monkeypatch):
+    """No section moves when every row-neighbour pair carries different lines.
+
+    ``row_trunk_interior_break`` alternates its sections' through-lines along
+    one row ({main, qc}, {main}, {main, qc}, ...), so no two neighbours share a
+    trunk that could cross both.  Aligning any pair here would drag a section
+    down to a Y no bundle crosses, so the row-trunk pass owes this row nothing:
+    it must leave every station where it found it.
+    """
+    from nf_metro.layout import engine
+
+    path = _resolve_fixture("regressions/row_trunk_interior_break.mmd")
+    graph = parse_metro_mermaid(path.read_text())
+    graph.center_ports = False
+
+    real = engine._align_row_trunk_ys
+    calls = 0
+    moved: list[tuple[str, float, float]] = []
+
+    def spy(g: MetroGraph) -> None:
+        nonlocal calls
+        calls += 1
+        before = {sid: st.y for sid, st in g.stations.items()}
+        real(g)
+        moved.extend(
+            (sid, before[sid], st.y)
+            for sid, st in g.stations.items()
+            if abs(st.y - before[sid]) > SAME_COORD_TOLERANCE
+        )
+
+    monkeypatch.setattr(engine, "_align_row_trunk_ys", spy)
+    compute_layout(graph, validate=True)
+
+    assert calls, "the row-trunk pass never ran; this fixture guards nothing"
+    trunks = sorted(
+        {
+            round(_section_trunk_y(graph, sec) or 0.0, 1)
+            for sec in graph.sections.values()
+        }
+    )
+    assert len(trunks) > 1, (
+        f"fixture precondition lost: the row's trunks already agree at {trunks}"
+    )
+    sample = [(sid, round(a, 1), round(b, 1)) for sid, a, b in moved[:3]]
+    assert not moved, (
+        f"row-trunk alignment moved {len(moved)} station(s) on a row whose "
+        f"neighbours share no through-lines: {sample}"
+    )
+
+
+def test_riboseq_row_bundle_reaches_alignment_without_a_dogleg():
+    """Each nf-core/riboseq row-0 line runs straight into ``alignment``.
+
+    The port lanes agreeing is what the routed seam needs, and this is the map
+    where a reader sees it: three lines leave ``preprocessing`` together, and a
+    trunk 58.4px off the row's turns each of them into a two-corner detour
+    through the boundary gap.
+
+    The map carries a pre-existing carrier-row defect in its second row
+    (``psite_id``'s exit port), unrelated to the seam, so it lays out
+    unvalidated: the lock here is the row-0 routing, not the map's guard status.
+    """
+    graph = _layout("regressions/riboseq_row_trunk_subrun.mmd")
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    seam = [
+        apply_route_offsets(route, offsets)
+        for route in routes
+        if route.edge.source == "preprocessing__exit_right_0"
+        and route.edge.target == "alignment__entry_left_6"
+    ]
+    assert len(seam) == 3, f"expected the three-line seam, routed {len(seam)}"
+    for pts in seam:
+        assert len(pts) == 2 and abs(pts[0][1] - pts[-1][1]) <= _Y_TOL, (
+            f"the preprocessing -> alignment seam detours: {pts}"
+        )
 
 
 @lru_cache(maxsize=None)
