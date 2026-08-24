@@ -38,7 +38,7 @@ import nf_metro.layout.routing.convergences as convergences
 import nf_metro.layout.routing.core as routing_core
 import nf_metro.layout.routing.invariants as invariants
 import nf_metro.layout.routing.member_geometry as member_geometry
-from nf_metro.layout.constants import graph_offset_step
+from nf_metro.layout.constants import COORD_TOLERANCE, graph_offset_step
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import (
     compute_station_offsets,
@@ -606,6 +606,104 @@ def test_inter_row_corridor_seats_its_shared_destination_pair_together(
     assert separations[("la", "lc", "Y")] == pytest.approx(step)
     assert separations[("la", "lb", "Y")] == pytest.approx(step)
     assert separations[("lb", "lc", "Y")] == pytest.approx(2 * step)
+
+
+def _peeloff_riser_xs(
+    routes: list[RoutedPath], offsets, port_id: str
+) -> dict[str, float]:
+    """Drawn riser X per line on the peel-off tails arriving at *port_id*."""
+    from dataclasses import replace
+
+    from nf_metro.layout.routing.common import port_peeloff_tail
+
+    out: dict[str, float] = {}
+    for rp in routes:
+        if rp.edge.target != port_id:
+            continue
+        drawn = replace(rp, points=list(apply_route_offsets(rp, offsets)))
+        tail = port_peeloff_tail(drawn)
+        if tail is not None:
+            out.setdefault(rp.line_id, tail.peel_x)
+    return out
+
+
+def test_inter_row_corridor_descends_into_its_port_on_the_nesting_pitch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two lines peeling off one trunk descend a bundle-pitch band, not a wider one.
+
+    ``inter_row_corridor_overflow``'s ``la``/``lc`` pair leaves a three-line
+    junction, so the fan that emits them reserves a middle lane for the third
+    line.  That line runs straight on and never enters the descent into
+    ``calling``'s left entry port, so the pair owns the descent alone and must
+    close up to one ``OFFSET_STEP``; held at the fan's width they descend
+    ``2 * OFFSET_STEP`` apart with a visible gap between two strokes that
+    co-travel the whole leg.
+    """
+    path = CURVE_REPROS / "inter_row_corridor_overflow.mmd"
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    risers = _peeloff_riser_xs(routes, offsets, "calling__entry_left_8")
+
+    assert set(risers) == {"la", "lc"}, risers
+    assert abs(risers["la"] - risers["lc"]) == pytest.approx(graph_offset_step(graph))
+
+
+def _overwide_peeloff_bands(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[int, list[tuple[str, float, int]]]:
+    """Peel-off bundles measured at *path*, and those spanning over one width."""
+    from nf_metro.layout.routing.common import iter_port_peeloff_bundles
+
+    graph, routes, offsets, _violations = _settled(path, monkeypatch)
+    step = graph_offset_step(graph)
+    measured = 0
+    wide: list[tuple[str, float, int]] = []
+    for bundle in iter_port_peeloff_bundles(routes, graph, step):
+        risers = _peeloff_riser_xs(routes, offsets, bundle.port_id)
+        drawn = [risers[line_id] for line_id in bundle.per_line if line_id in risers]
+        if len(drawn) < 2:
+            continue
+        measured += 1
+        span = max(drawn) - min(drawn)
+        if span > (len(drawn) - 1) * step + COORD_TOLERANCE:
+            wide.append((bundle.port_id, span, len(drawn)))
+    return measured, wide
+
+
+def test_peeloff_risers_descend_on_the_nesting_pitch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No corpus fixture descends a peel-off bundle wider than its own line count.
+
+    A peel-off bundle's risers share one vertical corridor into a single entry
+    port, so ``n`` of them occupy ``(n - 1) * OFFSET_STEP``.  A wider band is a
+    lane held for a line that is not in the corridor, drawn as a gap between
+    strokes that arrive together.
+
+    Inputs the engine rejects outright are skipped: they never reach a settled
+    geometry to measure, and their rejection is pinned elsewhere.  The measured
+    count is asserted so a corpus that stopped producing peel-off bundles at all
+    reads as a failure rather than a vacuous pass.
+    """
+    wide: dict[str, list[tuple[str, float, int]]] = {}
+    measured = 0
+    for path in _CORPUS:
+        try:
+            seen, found = _overwide_peeloff_bands(path, monkeypatch)
+        except Exception:  # noqa: BLE001 - deliberately defective fixtures abort
+            continue
+        measured += seen
+        if found:
+            wide[str(path.relative_to(REPO_ROOT))] = found
+    assert measured >= 20, measured
+    assert not wide, (
+        "peel-off risers descend wider than their own bundle: "
+        + "; ".join(
+            f"{rel} {port_id} spans {span:.1f}px on {count} lines"
+            for rel, found in sorted(wide.items())
+            for port_id, span, count in found
+        )
+    )
 
 
 @pytest.mark.parametrize("path", SEATED_WITHOUT_THE_PASS, ids=lambda p: p.stem)

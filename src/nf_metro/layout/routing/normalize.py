@@ -37,6 +37,7 @@ from nf_metro.layout.routing.common import (
     Direction,
     GapSlot,
     HTrunkSeg,
+    PeeloffSlot,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -2009,21 +2010,27 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
     a hand-authored grid can stagger them against their source columns -- which
     can leave a riser on a slot a different depth earns: the braid
     :func:`check_peeloff_concentric` flags.  Running after the trunk pass, this
-    reads the settled depths and permutes each off-slot approach onto the
-    depth-earned peel-X and port-Y slots.  Those ranks are independent for a
-    half-turn: reversing horizontal direction transposes the port order without
-    necessarily reversing the vertical channels.  The in-section continuation
-    leaves the port at its base Y, so this only re-seats the concentric stagger
-    at the port, never the section linkage.
+    reads the settled depths and seats each approach on the depth-earned peel-X
+    and port-Y slots.  Those ranks are independent for a half-turn: reversing
+    horizontal direction transposes the port order without necessarily reversing
+    the vertical channels.  The in-section continuation leaves the port at its
+    base Y, so this only re-seats the concentric stagger at the port, never the
+    section linkage.
+
+    A bundle needing any member moved is re-seated whole, including the members
+    already on slot.  The flanking corner radii are a property of the band, not
+    of one riser: derived one member at a time against whatever base the
+    emitting handler happened to use, the moved and unmoved risers bend on
+    different arc centres and the bundle pinches through the corner.
     """
     step = ctx.offset_step
     for bundle in iter_port_peeloff_bundles(routes, ctx.graph, step):
-        targets = peeloff_target_slots(bundle)
+        targets = peeloff_target_slots(bundle, step)
         n = len(bundle.per_line)
+        seats: list[tuple[RoutedPath, _VChannel, PeeloffSlot]] = []
+        settled = True
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            if tail_on_slot(tail, slot):
-                continue
             ch = _VChannel(
                 route=rp,
                 idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
@@ -2034,6 +2041,11 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
             )
             if _planner_owns_channel(ch):
                 continue
+            seats.append((rp, ch, slot))
+            settled = settled and tail_on_slot(tail, slot)
+        if settled:
+            continue
+        for rp, ch, slot in seats:
             _restack_channel(
                 ch,
                 slot.peel_x,
