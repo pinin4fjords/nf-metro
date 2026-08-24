@@ -722,7 +722,7 @@ in pipeline order.
   pre-pass trunk Y. Where the through-lines differ across the run, that
   holds per stretch instead: a maximal set of `bbox_x`-adjacent sections
   carrying identical through-lines whose facing ports split their shared
-  lane, and where one member's own through-lane arrives and leaves at
+  lane, and where one member's own through-line arrives and leaves at
   different Ys. Every other section keeps its pre-pass trunk Y. A
   non-fold LR/RL exit selected by `flow_exit_carrier_anchor` shares its
   carrier Y; its downstream entry remains on the consumer row.

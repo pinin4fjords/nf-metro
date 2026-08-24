@@ -638,6 +638,11 @@ def _facing_port_pairs(
     entry/exit role keeps the pairing valid whichever way the row flows: under
     RL it is the left section's port that receives.
     """
+    right_lines = {
+        rpid: set(graph.station_lines(rpid))
+        for rpid in right.port_ids
+        if (rport := graph.ports.get(rpid)) is not None and rport.side is PortSide.LEFT
+    }
     for lpid in left.port_ids:
         lport = graph.ports.get(lpid)
         if lport is None or lport.side is not PortSide.RIGHT:
@@ -645,11 +650,8 @@ def _facing_port_pairs(
         lines = set(graph.station_lines(lpid))
         if not lines:
             continue
-        for rpid in right.port_ids:
-            rport = graph.ports.get(rpid)
-            if rport is None or rport.side is not PortSide.LEFT:
-                continue
-            if set(graph.station_lines(rpid)) == lines:
+        for rpid, rlines in right_lines.items():
+            if rlines == lines:
                 yield lpid, rpid
 
 
@@ -674,6 +676,7 @@ def _section_straddles_two_lanes(
     lane while the other holds its own content's, so one of the two runs bends
     at the box edge whatever the ports do.
     """
+    port_lines = {pid: set(graph.station_lines(pid)) for pid in section.port_ids}
     for line in lines:
         by_side: dict[PortSide, list[float]] = {}
         for pid in section.port_ids:
@@ -683,7 +686,7 @@ def _section_straddles_two_lanes(
                 port is None
                 or station is None
                 or port.side not in (PortSide.LEFT, PortSide.RIGHT)
-                or line not in graph.station_lines(pid)
+                or line not in port_lines[pid]
             ):
                 continue
             by_side.setdefault(port.side, []).append(station.y)
@@ -695,7 +698,7 @@ def _section_straddles_two_lanes(
     return False
 
 
-def _row_trunk_alignment_runs(
+def _row_trunk_alignment_stretches(
     graph: MetroGraph, group: list[Section]
 ) -> list[list[Section]]:
     """The stretches of a row run that should come to share one trunk Y.
@@ -718,32 +721,33 @@ def _row_trunk_alignment_runs(
     straight runs for a bend somewhere else in the row, where the boundary the
     ports disagree on is theirs to settle.
     """
-    through = [_section_row_through_lines(graph, s) for s in group]
-    non_empty = [t for t in through if t]
+    through_by_id = {s.id: _section_row_through_lines(graph, s) for s in group}
+    non_empty = [t for t in through_by_id.values() if t]
     if not non_empty:
         return []
     if all(t == non_empty[0] for t in non_empty):
         return [group]
 
-    runs: list[list[tuple[Section, set[str]]]] = []
+    stretches: list[list[Section]] = []
     previous: set[str] | None = None
-    for section, lines in sorted(zip(group, through), key=lambda pair: pair[0].bbox_x):
+    for section in sorted(group, key=lambda s: s.bbox_x):
+        lines = through_by_id[section.id]
         if (
             lines
             and lines == previous
-            and _boundary_lane_is_kinked(graph, runs[-1][-1][0], section)
+            and _boundary_lane_is_kinked(graph, stretches[-1][-1], section)
         ):
-            runs[-1].append((section, lines))
+            stretches[-1].append(section)
         else:
-            runs.append([(section, lines)])
+            stretches.append([section])
         previous = lines
     return [
-        [section for section, _lines in run]
-        for run in runs
-        if len(run) > 1
+        stretch
+        for stretch in stretches
+        if len(stretch) > 1
         and any(
-            _section_straddles_two_lanes(graph, section, lines)
-            for section, lines in run
+            _section_straddles_two_lanes(graph, section, through_by_id[section.id])
+            for section in stretch
         )
     ]
 
@@ -752,7 +756,7 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
     """Shift sections vertically so trunk Ys align within each grid row.
 
     Sections in a row's contiguous column run whose trunk Y sits above
-    the deepest trunk of the stretch they share a through-bundle with shift
+    the deepest trunk of the stretch they share through-lines with shift
     down to match.  Bbox tops are preserved (heights grow downward).
     Row-spanning sections (grid_row_span > 1) are skipped to avoid disturbing
     cross-row vertical relationships.
@@ -789,18 +793,18 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             group = [s for s in group if not _is_fan_branch_leaf(graph, s)]
             if len(group) < 2:
                 continue
-            for run in _row_trunk_alignment_runs(graph, group):
-                _align_run_trunk_ys(graph, run)
+            for stretch in _row_trunk_alignment_stretches(graph, group):
+                _align_stretch_trunk_ys(graph, stretch)
 
 
-def _align_run_trunk_ys(graph: MetroGraph, run: list[Section]) -> None:
+def _align_stretch_trunk_ys(graph: MetroGraph, stretch: list[Section]) -> None:
     """Seat every section of one row stretch on its deepest trunk Y."""
-    trunks = {s.id: t for s in run if (t := _section_trunk_y(graph, s)) is not None}
+    trunks = {s.id: t for s in stretch if (t := _section_trunk_y(graph, s)) is not None}
     if len(trunks) < 2:
         return
     target_y = max(trunks.values())
     shifted: set[str] = set()
-    for section in run:
+    for section in stretch:
         ty = trunks.get(section.id)
         if ty is None:
             continue
@@ -823,7 +827,7 @@ def _align_run_trunk_ys(graph: MetroGraph, run: list[Section]) -> None:
     # is the section trunk (a full-bundle station at target_y), in which
     # case the port rides that trunk while the others peel off and snaps
     # to target_y.
-    for section in run:
+    for section in stretch:
         if section.id not in shifted:
             continue
         bundle = _section_bundle_lines(graph, section)
