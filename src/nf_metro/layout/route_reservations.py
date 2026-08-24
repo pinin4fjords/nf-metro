@@ -2033,6 +2033,24 @@ def _lanes_overlap(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     )
 
 
+def _ordered_overlapping_lanes(
+    first: _BoundaryLane, second: _BoundaryLane
+) -> tuple[_BoundaryLane, _BoundaryLane, float] | None:
+    """*first* and *second* in drawn order with their clearance, or ``None``.
+
+    ``None`` means the pair needs no clearance from each other at all: either
+    they need none between them, or they run over disjoint stretches of the
+    boundary.  Order is the order the two are drawn in, because that is the
+    only order any seating may produce: the router moves a corridor up to its
+    neighbour's lane and never past it.
+    """
+    separation = _lane_separation(first, second)
+    if separation <= 0.0 or not _lanes_overlap(first, second):
+        return None
+    lower, upper = sorted((first, second), key=lambda lane: lane.leg.coordinate)
+    return lower, upper, separation
+
+
 def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     """Whether these two lanes compete for one coordinate at their boundary.
 
@@ -2042,17 +2060,11 @@ def _lanes_are_confined(first: _BoundaryLane, second: _BoundaryLane) -> bool:
     amount, so a pair whose bands already reach far enough is settled however the
     boundary grows and asks nothing of it; a pair that cannot reach that far has
     no seating that satisfies both claims and draws two strokes.
-
-    Reach is measured in the order the two are drawn in, because that is the only
-    order any seating may produce: the router moves a corridor up to its
-    neighbour's lane and never past it.  Taking the better of the two orderings
-    would credit the pair with a separation only a swap could realise, and report
-    a boundary settled that in fact has no seating at all.
     """
-    separation = _lane_separation(first, second)
-    if separation <= 0.0 or not _lanes_overlap(first, second):
+    ordered = _ordered_overlapping_lanes(first, second)
+    if ordered is None:
         return False
-    lower, upper = sorted((first, second), key=lambda lane: lane.leg.coordinate)
+    lower, upper, separation = ordered
     return upper.band_high - lower.band_low < separation - COORD_TOLERANCE_FINE
 
 
@@ -2061,29 +2073,25 @@ def _lanes_are_nested(first: _BoundaryLane, second: _BoundaryLane) -> bool:
 
     They are when they travel the same way along a shared stretch of their
     boundary and are drawn no further apart than the clearance between them, so
-    the two strokes as they stand read as one nested run.
-
-    This is the drawn counterpart of :func:`_lanes_are_confined`'s question about
-    reach.  A pair whose bands can hold it apart asks nothing of the boundary
-    *once one of the two has moved*; while both are drawn where they are the
-    boundary carries them at the pitch they are drawn at, and a width stated
-    without them is a width no pass can seat the arrangement in.  Bounding it by
-    the clearance rather than by the boundary's own edges is what keeps a lane
-    drawn elsewhere in a wide gap from being charged for at the distance it
-    happens to lie away.
+    the two strokes as they stand read as one nested run.  This is the drawn
+    counterpart of :func:`_lanes_are_confined`'s reach question: a pair whose
+    bands can hold it apart still stands at the pitch it is drawn at until one
+    of the two moves, so a width stated without it is a width no pass can seat
+    the arrangement in.  Bounding it by the clearance, rather than by the
+    boundary's own edges, keeps a lane drawn elsewhere in a wide gap from being
+    charged for at the distance it happens to lie away.
 
     Counter-running lanes are excluded because they are separate bundles rather
     than tracks of one (see
     :func:`~nf_metro.layout.geometry.cotravelling_lane_clearance`): the room two
-    of them need from each other is the reach question confinement already asks,
-    not a nesting pitch either has to hold the other at.
+    of them need from each other is what confinement already asks above.
     """
     if first.leg.direction is not second.leg.direction:
         return False
-    separation = _lane_separation(first, second)
-    if separation <= 0.0 or not _lanes_overlap(first, second):
+    ordered = _ordered_overlapping_lanes(first, second)
+    if ordered is None:
         return False
-    lower, upper = sorted((first, second), key=lambda lane: lane.leg.coordinate)
+    lower, upper, separation = ordered
     drawn = measured_distance(lower.leg.coordinate, upper.leg.coordinate)
     return drawn <= separation + COORD_TOLERANCE
 
@@ -2180,15 +2188,11 @@ def _peer_widths(
     reservation is a corridor a run may be *seated in*, and a leg the region
     search files against no boundary has no such corridor to be held inside.
 
-    A peer is charged for on either of two grounds: it is *confined* with one of
-    the boundary's own lanes, so no seating draws both until the boundary grows
-    (:func:`_lanes_are_confined`), or it is drawn *nested* against one, so the
-    stack standing in the boundary is wider than the boundary's own claims
-    describe (:func:`_lanes_are_nested`).  Confinement alone leaves a boundary
-    stated at the width its own lanes would take with the interloper gone, and
-    nothing the interloper divides can then be brought together without a claim
-    overrunning its band -- so the reorder that would take the interloper out of
-    the way is refused, and the interloper stays where it is.
+    A peer is charged for on either of two grounds: :func:`_lanes_are_confined`
+    with one of the boundary's own lanes, or :func:`_lanes_are_nested` against
+    one.  Either way, nothing the peer divides can be brought together without a
+    claim overrunning its band, so the reorder that would clear it out of the
+    way is refused and it stays where it is.
     """
     bands = {index: _group_band(graph, group) for index, group in enumerate(groups)}
     by_axis: defaultdict[CorridorOrientation, list[_BoundaryLane]] = defaultdict(list)
