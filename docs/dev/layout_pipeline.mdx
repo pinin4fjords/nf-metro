@@ -224,6 +224,10 @@ fan-out and full-bundle columns around the trunk.
   through at a single Y per row, then restores carrier-owned exits to
   their internal row while leaving downstream entries on their consumer
   row. Any level change therefore happens in the inter-section corridor.
+  A row whose sections carry different through-lines levels the stretches
+  that agree rather than the whole row, and only where a section is
+  caught between two lanes -- its own through-line arriving and leaving
+  at different Ys.
 - **Stages 4.9 to 4.10**: Redistribute fan-out siblings and full-bundle
   columns around the trunk. Stage 4.9 first materialises complete semantic fan
   plans, then applies the ordinary redistribution to legacy fans. Stage 4.10

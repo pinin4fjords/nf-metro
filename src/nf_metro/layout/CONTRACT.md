@@ -717,11 +717,16 @@ in pipeline order.
 - **Helpers**: `_align_row_trunk_ys` (`phases/row_align.py`), then
   `_reconcile_flow_exit_carrier_anchors` (`phases/ports.py`).
 - **Precondition**: Stage 4.7 done.
-- **Postcondition**: For sections in a row's contiguous column run,
-  the trunk Y is the row's deepest pre-pass trunk Y. A non-fold LR/RL
-  exit selected by `flow_exit_carrier_anchor` shares its carrier Y;
-  its downstream entry remains on the consumer row. Row-spanning
-  sections are skipped.
+- **Postcondition**: A row's contiguous column run whose sections all
+  carry the same through-lines shares one trunk Y, the run's deepest
+  pre-pass trunk Y. Where the through-lines differ across the run, that
+  holds per stretch instead: a maximal set of `bbox_x`-adjacent sections
+  carrying identical through-lines whose facing ports split their shared
+  lane, and where one member's own through-line arrives and leaves at
+  different Ys. Every other section keeps its pre-pass trunk Y. A
+  non-fold LR/RL exit selected by `flow_exit_carrier_anchor` shares its
+  carrier Y; its downstream entry remains on the consumer row.
+  Row-spanning sections are skipped.
 - **Invariants preserved**: Bbox tops, downstream entry coordinates,
   perpendicular exits, and row-spanning sections.
 - **Lifecycle:** invariant - the per-row trunk Y is consistent at the
