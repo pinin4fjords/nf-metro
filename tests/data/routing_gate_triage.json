@@ -3,6 +3,14 @@
   "note": "Single enforcement point for the bundle-centreline contract: a fanned bundle needs at least one leg, i.e. a >=2-vertex centreline. All three public builders (build_concentric_bundle / build_tapered_bundle / build_offset_bundle) funnel through _fan_bundle, which owns this one guard in place of the four per-builder re-checks the corpus never took (#1438). Every caller builds a >=2-vertex polyline by construction, so the raise arm stays un-exercised.",
   "status": "defensive"
  },
+ "centrelines.py::or edge.target not in ctx.graph.ports::#1": {
+  "note": "The lane-change step declines a run whose target is not the port the connector is drawn to: a run into a merge ends where the convergence planner re-seats it, so spending a target runway there leaves a zero-length tail. tests/fixtures/hash_seed_determinism/seed_41.mmd reaches the arm (its __junction_33 hands lines into __merge_11 and __merge_15 a lane out, with room to step), but the sweep's corpus roots do not include tests/fixtures/hash_seed_determinism, so no swept fixture evaluates it.",
+  "status": "needs-review"
+ },
+ "centrelines.py::or run_direction is None::#1": {
+  "note": "The lane-change step reads its run direction off the connector's own two endpoints rather than assuming an axis. segment_direction returns None for a leg that is diagonal or collapsed, which the straight-connector families that reach this helper never hand it: both settle their endpoints on one row or one column before routing, so no fixture can present a diagonal pair here.",
+  "status": "defensive"
+ },
  "common.py::and abs(start[0] - other_start[0]) < required - COORD_TOLERANCE_FINE::#1": {
   "note": "The same-destination approach proposal is abandoned when a proposed member column would sit closer than the co-travelling lane clearance to another vertical channel. Every shipped corpus proposal clears that distance because the member gap allocator seats each corridor against its neighbours before the proposal is built, so the refusal arm has no fixture; revisit once a corpus map needs a proposal the allocator cannot pre-separate.",
   "status": "needs-review"
@@ -563,10 +571,6 @@
   "note": "Traverse-first clearance test in _top_entry_side_fan_traverse_clears (#1349). The below-side fan branch only reaches this gate when its junction also feeds an aligned straight drop; the corpus fan sits a clear row above its target, so the source-Y traverse never crosses another section and the fall-back-to-staircase arm is not exercised. Defensive.",
   "status": "defensive"
  },
- "inter_section_handlers.py::if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):::#1": {
-  "note": "Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive.",
-  "status": "defensive"
- },
  "inter_section_handlers.py::if _would_route_around_section_below(other, ctx):::#1": {
   "note": "Competing-sibling detection in _has_around_section_sibling, routed through the dispatch table (#813). A non-bypass sibling feeding the same merge junction sits in an adjacent column or a gap with no same-row intervening section, so it dispatches to an L-shape, not the around-below loop; corpus instrumentation across the fixtures confirms the arm is never taken. Defensive.",
   "status": "defensive"
@@ -629,10 +633,6 @@
  },
  "inter_section_handlers.py::if len(landing_sections) != len(plan.branches):::#1": {
   "note": "The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart.",
-  "status": "defensive"
- },
- "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
-  "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
   "status": "defensive"
  },
  "inter_section_handlers.py::if not source_lines or edge.line_id not in source_lines:::#1": {
@@ -1355,10 +1355,6 @@
   "note": "_convergence_feeders receives resolved sources feeding a registered LEFT entry port. Each source is a sectioned port or a junction resolvable through one, so the missing-column arm protects an incomplete graph.",
   "status": "defensive"
  },
- "offsets.py::if src_n <= tgt_n:::#1": {
-  "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
-  "status": "defensive"
- },
  "offsets.py::if src_port and not src_port.is_entry:::#2": {
   "note": "Reaches the realignment body of _align_junction_to_entry_port only via a TB-reversed two-line bundle fanning into a junction (the #704 boundary fix is in, so this body is now provably reachable). The junction_entry_reversed_fold fixture now ships that topology; with the bundle order carried concentrically through the reversal corners the junction offsets already match their entry ports, so the realignment body short-circuits before its offset-writing arms and they stay un-exercised corpus-wide. Defensive. Its else arm (->1203) is additionally defensive: the sole feeder of a >=2-line fan-out junction is its exit port, a non-entry port.",
   "status": "defensive"
@@ -1549,6 +1545,30 @@
  },
  "tb_handlers.py::if tgt_sec is not None and tgt_sec.direction not in (\"TB\", \"BT\"):::#1": {
   "note": "Perp-entry drop crossing-X override: the edge's target is always a sectioned station, so tgt_sec resolves and the `tgt_sec is None` short-circuit to the plain drop is never taken; the `direction in (TB, BT)` arm (a drop continuing into a vertical-flow trunk) and the horizontal-target arm are both exercised.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):::#1": {
+  "note": "Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
+  "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
+  "status": "defensive"
+ },
+ "offsets.py::if len(hubs) != 1:::#1": {
+  "note": "Guard in _is_flat_handover_hub admitting a linear entry frame whose cohort terminates at a hub. Refuses unless exactly one carrier originates the local bundle; a section with two independent origination points hands its trunk over in two places, not one. The one corpus section that reaches the relaxed path (continuation_lane_step's Results hub) has a single hub, so the multi-hub refusal stays un-exercised. Defensive.",
+  "status": "defensive"
+ },
+ "offsets.py::if originating != local_lines:::#1": {
+  "note": "Guard in _is_flat_handover_hub: the single hub must originate the whole local bundle, else a downstream line starts somewhere other than the hand-over point and the frame would misplace it. The corpus's one relaxed section has the hub originating every local line, so the partial-origination refusal stays un-exercised. Defensive.",
+  "status": "defensive"
+ },
+ "offsets.py::if consumer is None:::#1": {
+  "note": "Guard in _is_flat_handover_hub: each line the hub originates must reach a single in-section stop, so a line that fans to several stops (a divergence hub, not a straight hand-over) is refused. The corpus's one relaxed section hands each local line to a lone consumer, so the fan refusal stays un-exercised. Defensive.",
+  "status": "defensive"
+ },
+ "offsets.py::if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:::#1": {
+  "note": "Guard in _is_flat_handover_hub: the hub's originating lines must run flat, so a consumer off the hub's trunk row (a peel-off, drawing a real turn) is refused. The corpus's one relaxed section hands over on a level row, so the off-row refusal stays un-exercised. Defensive.",
   "status": "defensive"
  }
 }

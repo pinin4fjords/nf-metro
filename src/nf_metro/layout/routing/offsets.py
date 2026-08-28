@@ -12,6 +12,7 @@ from collections.abc import (
     Sequence,
 )
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE_FINE,
@@ -85,6 +86,7 @@ class _OffsetCtx:
     graph: MetroGraph
     topology: RouteTopologyQuery | None = None
     divergence_exit_ports: dict[str, str] = field(default_factory=dict)
+    bundle_re_slots_whole: dict[tuple[str, str], bool] = field(default_factory=dict)
     offsets: dict[tuple[str, str], float] = field(default_factory=dict)
     line_priority: dict[str, int] = field(default_factory=dict)
     max_priority: int = 0
@@ -165,10 +167,19 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
         for assignment in carrier.assignments
     }
 
+    divergence_exit_ports = divergence_junction_exit_ports(graph, topology)
+    bundle_re_slots_whole = {
+        (junction_id, exit_port_id): _junction_bundle_re_slots_whole(
+            graph, junction_id, exit_port_id
+        )
+        for junction_id, exit_port_id in divergence_exit_ports.items()
+    }
+
     return _OffsetCtx(
         graph=graph,
         topology=topology,
-        divergence_exit_ports=divergence_junction_exit_ports(graph, topology),
+        divergence_exit_ports=divergence_exit_ports,
+        bundle_re_slots_whole=bundle_re_slots_whole,
         line_priority=line_priority,
         max_priority=max_priority,
         offset_step=offset_step,
@@ -379,20 +390,49 @@ def _flat_frame_components(
                 and present[a] & present[b]
             ):
                 parent[find(a)] = find(b)
+    for sec_a, sec_b in _junction_flat_pairs(ctx):
+        parent[find(sec_a)] = find(sec_b)
     return {sec_id: find(sec_id) for sec_id in sec_ids}
 
 
-def _assert_sections_anchored_on_trunk(ctx: _OffsetCtx) -> None:
-    """Raise :class:`OffsetAnchorError` if an independent section is not anchored.
+def _junction_flat_pairs(ctx: _OffsetCtx) -> Iterator[tuple[str, str]]:
+    """Yield section pairs a junction joins on one line along its own trunk Y.
 
-    Backstop on the postcondition of :func:`_reindex_section_local`: a section
-    with no flat-frame neighbour must have its non-port stations on the
-    contiguous top-anchored levels ``0, step, ..., (m-1)*step``.  A section that
-    shares a flat frame with a neighbour is exempt -- it may legitimately sit on
-    a sub-range so a line stays level across the boundary -- since re-basing
-    there is gated on the flat-run check in :func:`_reindex_local_priority_gaps`.
-    Fails loudly if a future change stops re-anchoring an independent
-    subset-carrying section rather than letting the misaligned markers reach the
+    A junction draws one trunk at one Y, so every section it reaches on that Y --
+    the one whose exit port feeds it as much as the ones whose entry ports it
+    feeds -- reads the line off a single lane the junction cannot hold in two
+    places at once.  That is the same flat frame an adjacent column shares,
+    reached over a bypass rather than across a boundary.
+    """
+    graph = ctx.graph
+    for jid in graph.junctions:
+        junction = graph.stations[jid]
+        joined: dict[str, list[str]] = {}
+        for edge in (*graph.edges_from(jid), *graph.edges_to(jid)):
+            other_id = edge.target if edge.source == jid else edge.source
+            port = graph.ports.get(other_id)
+            other = graph.stations.get(other_id)
+            if port is None or other is None or port.section_id is None:
+                continue
+            if abs(other.y - junction.y) > _SAME_Y_TOLERANCE:
+                continue
+            joined.setdefault(edge.line_id, []).append(port.section_id)
+        for sec_ids in joined.values():
+            for other_sec in sec_ids[1:]:
+                yield sec_ids[0], other_sec
+
+
+def _assert_sections_anchored_on_trunk(ctx: _OffsetCtx) -> None:
+    """Raise :class:`OffsetAnchorError` if a section's bundle is off its trunk.
+
+    Backstop on the postcondition of :func:`_reindex_section_local`: every
+    section's non-port stations sit on consecutive levels ``step`` apart, and a
+    section with no flat-frame neighbour sits on the top-anchored ones,
+    ``0, step, ..., (m-1)*step``.  A flat-frame member may instead hold a block
+    lower down so a line stays level across a boundary, but it holds one block:
+    an unclaimed level inside the bundle spreads its stations past the routes
+    that join them.  Fails loudly if a future change stops re-basing a
+    subset-carrying section, rather than letting the misaligned markers reach the
     canvas.  Compact mode allocates slots by a different rule (max lines per
     side) and is exempt.
     """
@@ -405,17 +445,25 @@ def _assert_sections_anchored_on_trunk(ctx: _OffsetCtx) -> None:
         station = ctx.graph.stations.get(sid)
         if station is None or station.is_port or station.section_id is None:
             continue
-        if component_size[roots[station.section_id]] > 1:
-            continue
         levels_by_section.setdefault(station.section_id, set()).add(round(off, 1))
     for sec_id, levels in levels_by_section.items():
         ordered = sorted(levels)
-        expected = [round(i * ctx.offset_step, 1) for i in range(len(ordered))]
+        if component_size[roots[sec_id]] > 1:
+            anchor, wording = ordered[0], "one block from"
+        else:
+            anchor, wording = 0.0, "top-anchored at"
+        expected = [round(anchor + i * ctx.offset_step, 1) for i in range(len(ordered))]
         if ordered != expected:
             raise OffsetAnchorError(
-                f"independent section {sec_id!r} bundle offsets {ordered} are "
-                f"not top-anchored {expected}; markers sit off the trunk"
+                f"section {sec_id!r} bundle offsets {ordered} are not "
+                f"{wording} {expected}; markers sit off the trunk"
             )
+
+
+def _base_rank(ctx: _OffsetCtx, lid: str, reverse: bool) -> int:
+    """*lid*'s rank on its global-priority slot, from the bottom if reversed."""
+    pri = ctx.line_priority.get(lid, 0)
+    return ctx.max_priority - pri if reverse else pri
 
 
 def _predicted_local_offset(
@@ -433,8 +481,7 @@ def _predicted_local_offset(
         local_max = max(local.values()) if local else 0
         rank = local_max - slot if reverse else slot
     else:
-        pri = ctx.line_priority.get(lid, 0)
-        rank = ctx.max_priority - pri if reverse else pri
+        rank = _base_rank(ctx, lid, reverse)
     return rank * ctx.offset_step
 
 
@@ -466,6 +513,78 @@ def _trunk_endpoint_offset(
     return None
 
 
+class _BoundaryRun(NamedTuple):
+    """One line crossing one of a section's ports, under a candidate slotting."""
+
+    offset: float
+    """Where the candidate puts the line on this section's trunk."""
+    base: float
+    """Where the line sits with no re-base at all: its global-priority slot."""
+    neighbour: float
+    """Where the line settles on the trunk waiting on the far side of the port."""
+
+    @property
+    def level(self) -> bool:
+        """Whether the run draws level rather than stepping across the port."""
+        return abs(self.offset - self.neighbour) <= _SAME_Y_TOLERANCE
+
+    @property
+    def level_unbased(self) -> bool:
+        """Whether the run draws level with the section left un-re-based."""
+        return abs(self.base - self.neighbour) <= _SAME_Y_TOLERANCE
+
+
+def _boundary_crossings(
+    ctx: _OffsetCtx,
+    sec_id: str,
+    section_local: dict[str, dict[str, int]],
+) -> list[tuple[str, float, float]]:
+    """``(line_id, base, neighbour)`` for each line crossing one of *sec_id*'s ports.
+
+    Edges into the section's own interior are skipped: they carry the bundle as a
+    whole, so moving the bundle shifts both of their ends together.  These facts
+    hold for any candidate slotting of *sec_id*, so :func:`_boundary_runs` builds
+    its per-candidate ranks from this list rather than re-deriving them.
+    """
+    graph = ctx.graph
+    section = graph.sections[sec_id]
+    reverse = _stores_reflected(ctx, sec_id)
+    crossings: list[tuple[str, float, float]] = []
+    for pid in (*section.entry_ports, *section.exit_ports):
+        for edge in (*graph.edges_to(pid), *graph.edges_from(pid)):
+            lid = edge.line_id
+            other_id = edge.target if edge.source == pid else edge.source
+            other = graph.stations.get(other_id)
+            if other is None or other.section_id == sec_id:
+                continue
+            neighbour = _trunk_endpoint_offset(ctx, other_id, lid, section_local)
+            if neighbour is None:
+                continue
+            base_rank = _base_rank(ctx, lid, reverse)
+            crossings.append((lid, base_rank * ctx.offset_step, neighbour))
+    return crossings
+
+
+def _boundary_runs(
+    ctx: _OffsetCtx,
+    sec_id: str,
+    candidate: dict[str, int],
+    section_local: dict[str, dict[str, int]],
+    crossings: Sequence[tuple[str, float, float]] | None = None,
+) -> Iterator[_BoundaryRun]:
+    """Yield one :class:`_BoundaryRun` per line crossing one of *sec_id*'s ports."""
+    reverse = _stores_reflected(ctx, sec_id)
+    local_max = max(candidate.values(), default=0)
+    if crossings is None:
+        crossings = _boundary_crossings(ctx, sec_id, section_local)
+    for lid, base, neighbour in crossings:
+        slot = candidate.get(lid)
+        if slot is None:
+            continue
+        rank = local_max - slot if reverse else slot
+        yield _BoundaryRun(rank * ctx.offset_step, base, neighbour)
+
+
 def _reanchor_keeps_runs_level(
     ctx: _OffsetCtx,
     sec_id: str,
@@ -474,40 +593,50 @@ def _reanchor_keeps_runs_level(
 ) -> bool:
     """Whether re-anchoring *sec_id* onto *candidate* leaves level runs level.
 
-    Every edge crossing the section's ports already either runs level (its line's
-    offset matches the connected trunk) or steps (the offsets differ, so routing
-    bridges it).  Re-anchoring is rejected only when it would pull a currently
-    level run off level -- the case that paints a straight-through line as a kink
-    or an almost-horizontal slope.  A run that already steps stays free, which is
-    why a member fed only through a bypass that re-based upstream may re-anchor.
+    Every edge crossing the section's ports either runs level without a re-base
+    (its line's base offset matches the connected trunk) or steps (the offsets
+    differ, so routing bridges it).  Re-anchoring is rejected only when it would
+    pull a level run off level -- the case that paints a straight-through line as
+    a kink or an almost-horizontal slope.  A run that already steps stays free,
+    which is why a member fed only through a bypass that re-based upstream may
+    re-anchor.
     """
-    graph = ctx.graph
-    section = graph.sections[sec_id]
-    reverse = _stores_reflected(ctx, sec_id)
-    local_max = len(candidate) - 1
-    for pid in (*section.entry_ports, *section.exit_ports):
-        for edge in (*graph.edges_to(pid), *graph.edges_from(pid)):
-            lid = edge.line_id
-            slot = candidate.get(lid)
-            if slot is None:
-                continue
-            other_id = edge.target if edge.source == pid else edge.source
-            other = graph.stations.get(other_id)
-            if other is None or other.section_id == sec_id:
-                # An edge into the section's own interior carries the bundle as a
-                # whole; re-anchoring shifts both ends together, so it is never a
-                # boundary run to keep level.
-                continue
-            rank = local_max - slot if reverse else slot
-            cand_off = rank * ctx.offset_step
-            current = _predicted_local_offset(ctx, sec_id, lid, section_local)
-            neighbour = _trunk_endpoint_offset(ctx, other_id, lid, section_local)
-            if neighbour is None:
-                continue
-            currently_level = abs(neighbour - current) <= _SAME_Y_TOLERANCE
-            if currently_level and abs(cand_off - neighbour) > _SAME_Y_TOLERANCE:
-                return False
-    return True
+    return all(
+        run.level or not run.level_unbased
+        for run in _boundary_runs(ctx, sec_id, candidate, section_local)
+    )
+
+
+def _level_run_lane_block(
+    ctx: _OffsetCtx,
+    sec_id: str,
+    ordered: Sequence[str],
+    section_local: dict[str, dict[str, int]],
+) -> dict[str, int]:
+    """Section-local slots for *sec_id* on the lanes its neighbours meet it on.
+
+    Its lines take consecutive lanes whatever happens: a lane left unclaimed
+    inside the bundle spreads the section's stations wider than the routes
+    joining them, stranding those routes off the markers they meet.  Which lanes
+    that block occupies is free, so it slides down the trunk to the first
+    position where every line crossing the section's ports meets the trunk on the
+    far side on its own lane -- a line met a lane out arrives on a slant instead.
+    Where no position does, the block stays at the top of the trunk, which is
+    what puts two unrelated bundles on one row at the same height; settling for
+    a position that fixes some runs by tilting others just moves the slant.
+
+    A reflected section ranks its lanes from its own last slot rather than from
+    the trunk, so its block has only the one position to take.
+    """
+    top_anchored = {lid: i for i, lid in enumerate(ordered)}
+    crossings = _boundary_crossings(ctx, sec_id, section_local)
+
+    for shift in range(max(ctx.max_priority - len(ordered) + 1, 0) + 1):
+        candidate = {lid: slot + shift for lid, slot in top_anchored.items()}
+        runs = _boundary_runs(ctx, sec_id, candidate, section_local, crossings)
+        if all(run.level for run in runs):
+            return candidate
+    return top_anchored
 
 
 def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
@@ -536,6 +665,7 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
     section_local: dict[str, dict[str, int]] = {}
     ordered_by_section: dict[str, list[str]] = {}
     not_anchored_frame: list[str] = []
+    closed_up: list[str] = []
     for sec_id in graph.sections:
         ordered = sorted(present[sec_id], key=lambda lid: ctx.line_priority.get(lid, 0))
         ordered_by_section[sec_id] = ordered
@@ -555,11 +685,20 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
             )
             if interior_gap:
                 section_local[sec_id] = {lid: i for i, lid in enumerate(ordered)}
+                closed_up.append(sec_id)
             elif not_anchored:
                 not_anchored_frame.append(sec_id)
         elif not_anchored:
             # Independent: re-centre any subset off the top-anchored run.
             section_local[sec_id] = {lid: i for i, lid in enumerate(ordered)}
+
+    # Every closed-up bundle is published top-anchored above before any of them
+    # picks its lanes, so a section's neighbours read the chosen lanes when
+    # they look this section up.
+    for sec_id in closed_up:
+        section_local[sec_id] = _level_run_lane_block(
+            ctx, sec_id, ordered_by_section[sec_id], section_local
+        )
 
     # Second pass: a frame member sitting below its trunk re-anchors to the top
     # only when doing so keeps every flat run to an adjacent frame neighbour
@@ -1687,6 +1826,42 @@ def _section_lane_squeeze(
     }
 
 
+def _junction_lanes_follow_port_squeeze(
+    ctx: _OffsetCtx, shift: Mapping[tuple[str, str], float]
+) -> dict[tuple[str, str], float]:
+    """The drops of *shift* again for each junction riding a squeezed port's lanes.
+
+    A divergence junction belongs to no section, so a section-wide relabelling
+    of lane levels passes it by and strands it on the levels its feeding exit
+    port has just come off.  Taking the same drops moves the two as one, which
+    is what :func:`_dead_lane_squeeze_keeps_runs` then measures.  A junction
+    already off its feeder's lanes is left where it is: it is holding a frame
+    some other phase settled, and only whole-bundle inheritors take a new one
+    (:func:`_junction_bundle_re_slots_whole`).
+    """
+    followed: dict[tuple[str, str], float] = {}
+    shifted_stations = {station_id for station_id, _lid in shift}
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if exit_port_id not in shifted_stations:
+            continue
+        if not ctx.bundle_re_slots_whole[(junction_id, exit_port_id)]:
+            continue
+        lines = ctx.graph.station_lines(junction_id)
+        drops = {
+            (junction_id, lid): shift[(exit_port_id, lid)]
+            for lid in lines
+            if (exit_port_id, lid) in shift
+            and abs(
+                ctx.offsets.get((junction_id, lid), 0.0)
+                - ctx.offsets.get((exit_port_id, lid), 0.0)
+            )
+            <= _OFFSET_EQ_TOLERANCE
+        }
+        if len(drops) == len(lines):
+            followed.update(drops)
+    return followed
+
+
 def _dead_lane_squeeze_keeps_runs(
     ctx: _OffsetCtx,
     shift: Mapping[tuple[str, str], float],
@@ -1726,8 +1901,10 @@ def _close_section_dead_lanes(ctx: _OffsetCtx) -> None:
     section rides reserves nothing, so every lane above it drops one step.
 
     The shift is a rigid, order-preserving relabelling of levels applied to every
-    station and port of the section at once, so each station keeps exactly one
-    lane per line it carries and the bundle order is untouched.  It is applied
+    station and port of the section at once -- plus any divergence junction
+    riding one of its exit ports' lanes
+    (:func:`_junction_lanes_follow_port_squeeze`) -- so each station keeps exactly
+    one lane per line it carries and the bundle order is untouched.  It is applied
     only when :func:`_dead_lane_squeeze_keeps_runs` confirms no run inside the
     section or across one of its seams tilts further for it.  Distinct from
     ``compact_offsets``, which sizes each station's bundle from that station's own
@@ -1751,6 +1928,7 @@ def _close_section_dead_lanes(ctx: _OffsetCtx) -> None:
             continue
         shift = _section_lane_squeeze(ctx, section_node_lines(ctx.graph, sec_id))
         if any(shift.values()):
+            shift.update(_junction_lanes_follow_port_squeeze(ctx, shift))
             squeezes.append(shift)
     if not squeezes:
         return
@@ -2458,21 +2636,111 @@ def _recompact_fan_port_bordering_stations(
         _propagate_touched_exit_ports_to_entries(ctx, touched)
 
 
-def _junction_bundle_re_slots_whole(graph: MetroGraph, junction_id: str) -> bool:
+def _branch_leaves_junction_straight(
+    graph: MetroGraph, junction_id: str, edge: Edge, lane_axis: str
+) -> bool:
+    """Whether *edge* leaves the junction along its lane instead of turning off it.
+
+    Straight means the branch is known to reach its target without bending at
+    the vertex: the target is an entry port on the side its section's flow
+    starts from, sits on the junction's own lane level, and lies downstream of
+    the junction along that flow, so the run into it carries on the way the
+    junction already points.  A far-side port reached by wrapping around its
+    section satisfies the first two and fails the third.  Everything else -- a
+    perpendicular side, another lane level, a target that is not an entry port
+    and so hands its shape on to routing -- counts as a turn: this is the false
+    half of a guard against fusing two corners at one vertex, so what is not
+    provably straight is treated as bending.
+    """
+    port = graph.ports.get(edge.target)
+    if port is None or not port.is_entry:
+        return False
+    direction = graph.section_for_port(port).direction
+    if port.side is not flow_port_sides(direction)[0]:
+        return False
+    junction, target = graph.stations[junction_id], graph.stations[edge.target]
+    lane_gap = getattr(target, lane_axis) - getattr(junction, lane_axis)
+    if abs(lane_gap) > _SAME_Y_TOLERANCE:
+        return False
+    flow_axis = AxisFrame.axes_for_direction(direction)[0]
+    downstream = getattr(target, flow_axis) - getattr(junction, flow_axis)
+    return downstream * AxisFrame.flow_sign(direction) > 0
+
+
+def _junction_bundle_re_slots_whole(
+    graph: MetroGraph, junction_id: str, exit_port_id: str
+) -> bool:
     """Whether a divergence junction's bundle can take a new frame as one unit.
 
-    A line leaving the junction on several branches turns them all at one shared
-    vertex, drawn as a single fused stroke whose radius is the widest of the legs
-    (:func:`corners.widest_coincident_radius`).  Pinned by the widest leg, that
-    radius cannot follow the lane onto a neighbouring slot: the distinct mate it
-    lands beside then reads as one wholesale-translated corner with it, and the
-    concentric reference sized for the pair loses to the fusion, pinching the
-    bundle through the bend.  Moving the other lanes without it would split the
-    bundle instead, so a junction carrying a fused lane keeps the frame its own
-    phases settled.
+    A line leaving the junction on several branches that each turn off its lane
+    turns them at one shared vertex, drawn as a single fused stroke whose radius
+    is the widest of the legs (:func:`corners.widest_coincident_radius`).
+    Pinned by the widest leg, that radius cannot follow the lane onto a
+    neighbouring slot: the distinct mate it lands beside then reads as one
+    wholesale-translated corner with it, and the concentric reference sized for
+    the pair loses to the fusion, pinching the bundle through the bend.  Moving
+    the other lanes without it would split the bundle instead, so a junction
+    carrying a fused lane keeps the frame its own phases settled.
+
+    A branch that leaves the vertex straight
+    (:func:`_branch_leaves_junction_straight`) turns, if at all, further
+    downstream, where it answers to its own geometry rather than to the vertex.
+    It cannot fuse there, so a line holding the vertex with one turning branch
+    and any number of straight ones re-slots with the rest of the bundle.
     """
-    branches = Counter(edge.line_id for edge in graph.edges_from(junction_id))
-    return all(count == 1 for count in branches.values())
+    lane_axis = AxisFrame.axes_for_direction(
+        graph.section_for_port(graph.ports[exit_port_id]).direction
+    )[1]
+    turning = Counter(
+        edge.line_id
+        for edge in graph.edges_from(junction_id)
+        if not _branch_leaves_junction_straight(graph, junction_id, edge, lane_axis)
+    )
+    return all(count == 1 for count in turning.values())
+
+
+def _port_frame_ranks_junction_lines_alike(
+    ctx: _OffsetCtx, junction_id: str, exit_port_id: str
+) -> bool:
+    """Whether the port's lanes rank the junction's lines the way it holds them.
+
+    Re-inheriting is meant to hand the junction the drop its feeder took, which
+    every line of the bundle takes together and which no branch crosses another
+    to follow.  A port that came out of the shift ranking those lines the other
+    way is offering a transposition instead: taking it swaps which branch leaves
+    the vertex on which side of the bundle, which settles the shape of the fan
+    rather than closing the gap between the port and the junction, and can send
+    a branch out across a section it never calls at.  That is a decision for the
+    phases owning the fan, so a junction offered a reordered frame keeps the one
+    its own phases settled.
+    """
+    ranked = sorted(
+        (ctx.offsets.get((junction_id, line_id), 0.0), port_lane)
+        for line_id in ctx.graph.station_lines(junction_id)
+        if (port_lane := ctx.offsets.get((exit_port_id, line_id))) is not None
+    )
+    offered = [port_lane for _held_lane, port_lane in ranked]
+    return offered == sorted(offered)
+
+
+def _reinherit_junction_lanes(ctx: _OffsetCtx, moved: Container[str]) -> None:
+    """Re-copy the lanes of every divergence junction whose feeder *moved*.
+
+    :func:`_propagate_to_junctions` seats a junction on the lanes of the exit
+    port feeding it, and a later phase that shifts that port's bundle leaves the
+    junction holding the port's old frame.  The few pixels between the two are
+    then spent slanting off the port's lane, and every branch beyond the
+    junction spends them again coming back.  Restricted to junctions whose whole
+    bundle can take the new frame (:func:`_junction_bundle_re_slots_whole`) in
+    the order it already holds (:func:`_port_frame_ranks_junction_lines_alike`).
+    """
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if (
+            exit_port_id in moved
+            and ctx.bundle_re_slots_whole[(junction_id, exit_port_id)]
+            and _port_frame_ranks_junction_lines_alike(ctx, junction_id, exit_port_id)
+        ):
+            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
 
 def _propagate_touched_exit_ports_to_entries(
@@ -2494,15 +2762,10 @@ def _propagate_touched_exit_ports_to_entries(
     or a reversing seam each carry the line on their own arrival-order lane
     rather than the feeder's raw stored offset, so a direct copy there would
     be wrong, not merely redundant.  A divergence junction fed by such a port
-    re-inherits the same way, and only where its whole bundle can take the new
-    frame together (:func:`_junction_bundle_re_slots_whole`).
+    re-inherits through :func:`_reinherit_junction_lanes`.
     """
     graph = ctx.graph
-    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
-        if exit_port_id in touched and _junction_bundle_re_slots_whole(
-            graph, junction_id
-        ):
-            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
+    _reinherit_junction_lanes(ctx, touched)
     for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
@@ -3562,6 +3825,10 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
 
     Iterates until stable, since fixing one edge can propagate
     through port -> station chains within the same section.
+
+    A shifted exit port carries its divergence junction with it
+    (:func:`_reinherit_junction_lanes`), which is outside the same-section
+    filter above: a junction has no section of its own.
     """
     # Pre-filter to edges where both endpoints share the same Y and
     # section. These properties are immutable during reconciliation.
@@ -3573,6 +3840,7 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
         and _same_section(ctx.graph, edge.source, edge.target)
     ]
 
+    moved: set[str] = set()
     for _ in range(max_iterations):
         changed = False
         for edge in candidates:
@@ -3594,8 +3862,10 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     ctx, edge.target, lid, candidate
                 )
                 if src_ok and tgt_ok:
-                    ctx.offsets[(edge.source, lid)] = candidate
-                    ctx.offsets[(edge.target, lid)] = candidate
+                    for sid, off in ((edge.source, src_off), (edge.target, tgt_off)):
+                        ctx.offsets[(sid, lid)] = candidate
+                        if off != candidate:
+                            moved.add(sid)
                     applied = True
                     changed = True
                     break
@@ -3614,10 +3884,13 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                 for other_lid in ctx.graph.station_lines(move_sid):
                     old = ctx.offsets.get((move_sid, other_lid), 0.0)
                     ctx.offsets[(move_sid, other_lid)] = old + delta
+                moved.add(move_sid)
                 changed = True
 
         if not changed:
             break
+
+    _reinherit_junction_lanes(ctx, moved)
 
 
 def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:
@@ -3897,6 +4170,57 @@ def _upstream_section_lane(
     return owner_section_id, owner_station_id, ctx.offsets[key]
 
 
+def _is_flat_handover_hub(
+    ctx: _OffsetCtx,
+    section: Section,
+    continuing_set: set[str],
+    present: set[str],
+    carrying: Sequence[str],
+    non_carrying: Sequence[str],
+) -> bool:
+    """Whether a terminating cohort hands the trunk to a single flat successor.
+
+    Admits one shape when the cohort stops short of the section's last station:
+    every station past the cohort carries none of it, one carrier originates the
+    whole local bundle, and each of those lines runs flat to its sole in-section
+    stop.  A cohort that fans out or peels off - a line splitting to several
+    stops, or a successor holding part of the cohort - draws a real turn and is
+    refused.
+    """
+    graph = ctx.graph
+    if any(
+        not continuing_set.isdisjoint(graph.station_lines(sid)) for sid in non_carrying
+    ):
+        return False
+    local_lines = present - continuing_set
+    originating_by_station = {
+        station_id: (
+            ctx.outbound.get(station_id, set()) - ctx.inbound.get(station_id, set())
+        )
+        & local_lines
+        for station_id in carrying
+    }
+    hubs = [station_id for station_id, lines in originating_by_station.items() if lines]
+    if len(hubs) != 1:
+        return False
+    hub = hubs[0]
+    originating = originating_by_station[hub]
+    if originating != local_lines:
+        return False
+    along_y = lanes_run_along_y(section.direction)
+    hub_station = graph.stations[hub]
+    hub_perp = hub_station.y if along_y else hub_station.x
+    for line_id in originating:
+        consumer = _sole_in_section_consumer(graph, hub, section.id, (line_id,))
+        if consumer is None:
+            return False
+        consumer_station = graph.stations[consumer]
+        consumer_perp = consumer_station.y if along_y else consumer_station.x
+        if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:
+            return False
+    return True
+
+
 def _linear_entry_frame(
     ctx: _OffsetCtx,
     section: Section,
@@ -3947,9 +4271,20 @@ def _linear_entry_frame(
         and not graph.stations[station_id].off_track
     )
     continuing_set = set(continuing)
-    if not real_station_ids or any(
-        not continuing_set.issubset(graph.station_lines(station_id))
+    carrying = [
+        station_id
         for station_id in real_station_ids
+        if continuing_set.issubset(graph.station_lines(station_id))
+    ]
+    if not carrying:
+        return None
+    carrying_set = set(carrying)
+    non_carrying = [
+        station_id for station_id in real_station_ids if station_id not in carrying_set
+    ]
+    present = _section_present_line_set(ctx, section.id)
+    if non_carrying and not _is_flat_handover_hub(
+        ctx, section, continuing_set, present, carrying, non_carrying
     ):
         return None
     flow_exit_lines = {
@@ -3961,7 +4296,6 @@ def _linear_entry_frame(
     if flow_exit_lines and not continuing_set.issubset(flow_exit_lines):
         return None
 
-    present = _section_present_line_set(ctx, section.id)
     priority_order = tuple(sorted(present, key=ctx.line_priority.__getitem__))
     determining = tuple(sorted(continuing, key=inherited.__getitem__))
     arranged = lane_order(
@@ -3975,7 +4309,9 @@ def _linear_entry_frame(
         line_id for line_id in local if ctx.line_priority[line_id] < first_priority
     ]
     available_below = max(0, round(min(levels) / ctx.offset_step))
-    below = before[-available_below:] if available_below else []
+    # A hub hand-over's post-hub stations carry only the local bundle, so it must
+    # sit as one contiguous block above the cohort rather than straddle it.
+    below = before[-available_below:] if available_below and not non_carrying else []
     after = [line_id for line_id in local if line_id not in below]
 
     assignments = dict(inherited)
@@ -4356,6 +4692,14 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
     sections downstream inherit it so their feed stays aligned.  Reversal is
     :func:`reversed_offset` per station, an involution, so stations with equal
     offsets stay equal -- propagated port/trunk equalities are preserved.
+
+    A divergence junction belongs to no section, so walking the stations of the
+    affected sections passes it by and leaves it holding the order the exit port
+    feeding it has just come off.  It takes that port's lanes again, the seat
+    :func:`_propagate_to_junctions` gives it; without that the reversal lands as
+    a transposition over the few pixels between the port and the junction, and
+    every branch leaves the vertex on the opposite side of the bundle from the
+    feed that arrived on it.
     """
     if not roots:
         return
@@ -4382,6 +4726,10 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
+
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if ctx.graph.ports[exit_port_id].section_id in affected:
+            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
 
 def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None:

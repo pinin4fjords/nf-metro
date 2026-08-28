@@ -128,7 +128,8 @@
     "topologies/wide_fan_out.mmd",
     "guide/02_sections.mmd",
     "guide/03_fan_out.mmd",
-    "guide/04_directions.mmd"
+    "guide/04_directions.mmd",
+    "topologies/junction_entry_lane_rebase.mmd"
   ],
   "downward_output": [
     "off_track_outputs.mmd"
@@ -278,6 +279,7 @@
     "topologies/clear_channel_target_aware_push.mmd",
     "topologies/compact_gap_peer_conflict.mmd",
     "topologies/complex_multipath.mmd",
+    "topologies/continuation_lane_step.mmd",
     "topologies/convergence_fold_diamond.mmd",
     "topologies/convergence_sink_above.mmd",
     "topologies/convergence_sink_fold.mmd",
@@ -455,7 +457,10 @@
     "topologies/wrap_return_canvas_margin.mmd",
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
-    "variantprioritization.mmd"
+    "variantprioritization.mmd",
+    "topologies/junction_entry_lane_rebase.mmd",
+    "topologies/junction_entry_lane_step.mmd",
+    "topologies/reversed_section_junction_reseat.mmd"
   ],
   "vertical_passthrough": [
     "planned_compatibility_channel_collision.mmd",

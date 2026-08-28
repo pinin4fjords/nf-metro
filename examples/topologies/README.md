@@ -85,6 +85,7 @@ Each fixture is tagged with the layout class(es) it primarily exercises. Use thi
 | `tb_internal_diagonal.mmd`                   | symmetric fan-out inside a TB section onto X tracks either side of the hub, routing both internal edges as 45-degree diagonals (`_route_tb_internal` diagonal arm) (issue #917)                                                 |
 | `fold_bypass_creep.mmd`                      | folded vertical bridge; a forking qc line bypasses a file terminus into a downstream section, whose placement converges in both validate modes (issue #1171)                                                                    |
 | `fold_bypass_creep_tight.mmd`                | tight fold bypass; the file terminus is one row below the fork so the bypass V seats on the trailing row, and the perp exit corridor must clear it by a full station flat (issue #1177)                                         |
+| `reversed_section_junction_reseat.mmd`       | reversed (RL) section entered near-vertically through a RIGHT port feeds a downstream reversed section whose exit-port divergence junction re-seats onto the reversed lane order (issue #1816)                                  |
 
 ---
 
@@ -399,11 +400,14 @@ python scripts/list_topology_fixtures.py
 
 ### Junction entry
 
-| Fixture                            | What it tests                                                                                                                                                     |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `junction_entry_align.mmd`         | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner                                   |
-| `junction_entry_collision.mmd`     | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order |
-| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                        |
+| Fixture                            | What it tests                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `junction_entry_align.mmd`         | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner                                                                                                                                           |
+| `junction_entry_collision.mmd`     | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order                                                                                                         |
+| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                                                                                                                                |
+| `junction_entry_lane_rebase.mmd`   | A section carrying a non-contiguous slice of the line order (priorities 1 and 3) next to a section carrying the missing one - the compacted bundle sits on the lane that keeps its junction feeder level instead of dropping to lane 0 and slanting the connector (#1816) |
+| `junction_entry_lane_step.mmd`     | A divergence junction ten pixels past the exit port feeding it, one branch continuing along the row and one leaving it - the bundle is shifted wholesale at the port, and the junction has to be carried with it, so the stubs either side of it both draw level (#1816)  |
+| `continuation_lane_step.mmd`       | Two lines cross into a section and run to a hub two stations in that ends them and starts two lines of its own; the ending pair keeps its arrival lanes and the starting pair takes its own lanes beside them, so both the approach and the departure draw flat (#1816)   |
 
 ### Left- and right-entry routing
 

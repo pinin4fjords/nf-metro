@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from nf_metro.layout.constants import COORD_TOLERANCE
+from nf_metro.layout.constants import COORD_TOLERANCE, MIN_STRAIGHT_EDGE
 from nf_metro.layout.fan_geometry import symmetric_lane_offsets
 from nf_metro.layout.geometry import (
     axis_point,
@@ -33,6 +33,7 @@ from nf_metro.layout.routing.common import (
     OffsetRegime,
     RoutedPath,
     horizontal_direction,
+    segment_direction,
 )
 from nf_metro.layout.routing.context import _get_offset, _RoutingCtx
 from nf_metro.layout.routing.orientation import direction_axis
@@ -441,6 +442,51 @@ def route_hvh_tapered(
     return route
 
 
+def _lane_change_step(
+    edge: Edge,
+    ctx: _RoutingCtx,
+    p_src: _Vec,
+    p_tgt: _Vec,
+) -> RoutedPath | None:
+    """One line's lane change across a straight connector, drawn as a step.
+
+    Ends that hold the line on different lanes have to climb the difference
+    somewhere.  Spread across the whole run it reads as neither a turn nor a
+    level run, and carries a chevron pointing off-axis; drawn against the target
+    port it is the 45-degree hand-off :func:`route_lane_transition` states.
+
+    ``None`` leaves the caller to draw one slope: a run into a merge ends where
+    the convergence planner re-seats it rather than at the coordinate routed
+    here, so the target runway is not this route's to spend, and a diagonal or
+    collapsed raw segment has no single direction to align the step with.
+    """
+    run_direction = segment_direction(p_src, p_tgt)
+    source_offset = _get_offset(ctx, edge.source, edge.line_id)
+    target_offset = _get_offset(ctx, edge.target, edge.line_id)
+    diagonal_run = abs(p_tgt[1] + target_offset - p_src[1] - source_offset)
+    run = abs(p_tgt[0] - p_src[0])
+    if (
+        diagonal_run <= COORD_TOLERANCE
+        or run + COORD_TOLERANCE < 2 * MIN_STRAIGHT_EDGE + diagonal_run
+        or edge.target not in ctx.graph.ports
+        or run_direction is None
+    ):
+        return None
+    return route_lane_transition(
+        edge,
+        p_src,
+        p_tgt,
+        source_offset=source_offset,
+        target_offset=target_offset,
+        run_direction=run_direction,
+        source_runway=MIN_STRAIGHT_EDGE,
+        target_runway=MIN_STRAIGHT_EDGE,
+        diagonal_run=diagonal_run,
+        place_at_source=False,
+        is_inter_section=True,
+    )
+
+
 def route_straight(
     edge: Edge,
     ctx: _RoutingCtx,
@@ -457,10 +503,11 @@ def route_straight(
     centreline is laid out in the canonical travel direction (left-to-right or
     top-to-bottom) and the emitted points reversed back to source-first if the
     edge runs the other way -- otherwise the perpendicular normal would flip the
-    fan on a right-to-left or serpentine segment.  A single line whose two ports
-    sit at different bundle ranks would need a diagonal centreline (which
-    :func:`build_concentric_bundle` forbids); it falls back to a direct segment
-    whose per-line offsets the renderer applies.
+    fan on a right-to-left or serpentine segment.  A bundle whose two ends sit at
+    different ranks would need a diagonal centreline (which
+    :func:`build_concentric_bundle` forbids), so each line takes the step
+    :func:`_lane_change_step` draws, falling back to a direct segment whose
+    per-line offsets the renderer applies where no step fits.
     """
     members, src_center, tgt_center = gather_bundle(ctx, edge)
     src_pt = (p_src[0], p_src[1] + src_center)
@@ -468,7 +515,7 @@ def route_straight(
     dx = tgt_pt[0] - src_pt[0]
     dy = tgt_pt[1] - src_pt[1]
     if abs(dx) > COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:
-        return RoutedPath(
+        return _lane_change_step(edge, ctx, p_src, p_tgt) or RoutedPath(
             edge=edge,
             line_id=edge.line_id,
             points=[p_src, p_tgt],
