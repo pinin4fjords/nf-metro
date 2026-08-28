@@ -1503,6 +1503,14 @@ gallery:
       line 3, so its bundle compacts onto two lanes. It takes the lane pair that keeps its
       feeder junction's line level across the entry port, rather than the topmost pair, which
       would tip that straight run into a shallow slant (issue #1816)."
+  - id: junction_entry_lane_step
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      "A section already carrying the line above cannot also hand the line below it
+      the lane its feeder junction arrives on, so no lane assignment levels the run. The
+      connector draws the 4px difference as a step -- flat, a 45-degree diagonal, flat --
+      instead of smearing it across the whole gap as a shallow slant (issue #1816)."
   - id: merge_feeder_shared_channel_gap
     source_dir: examples/topologies
     category: Merge & Convergence
