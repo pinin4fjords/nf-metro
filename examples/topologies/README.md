@@ -399,11 +399,12 @@ python scripts/list_topology_fixtures.py
 
 ### Junction entry
 
-| Fixture                            | What it tests                                                                                                                                                     |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `junction_entry_align.mmd`         | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner                                   |
-| `junction_entry_collision.mmd`     | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order |
-| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                        |
+| Fixture                            | What it tests                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `junction_entry_align.mmd`         | Junction entry port alignment - tests that a multi-line bundle entering via a junction port aligns concentrically at the corner                                                                                                                                           |
+| `junction_entry_collision.mmd`     | Junction entry collision skip - two lines enter the same junction with conflicting offsets; tests that the collision-skip logic produces a valid concentric order                                                                                                         |
+| `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                                                                                                                                |
+| `junction_entry_lane_rebase.mmd`   | A section carrying a non-contiguous slice of the line order (priorities 1 and 3) next to a section carrying the missing one - the compacted bundle sits on the lane that keeps its junction feeder level instead of dropping to lane 0 and slanting the connector (#1816) |
 
 ### Left- and right-entry routing
 

@@ -1495,6 +1495,14 @@ gallery:
       "A two-line bundle whose order is preserved across the junction-to-entry-port
       boundary, so the straight-through line stays horizontal instead of slanting to swap slots
       (issue #704)."
+  - id: junction_entry_lane_rebase
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      "A section carrying lines 2 and 4 of a four-line order sits beside one carrying
+      line 3, so its bundle compacts onto two lanes. It takes the lane pair that keeps its
+      feeder junction's line level across the entry port, rather than the topmost pair, which
+      would tip that straight run into a shallow slant (issue #1816)."
   - id: merge_feeder_shared_channel_gap
     source_dir: examples/topologies
     category: Merge & Convergence
