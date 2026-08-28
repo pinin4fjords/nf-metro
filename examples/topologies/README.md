@@ -407,7 +407,7 @@ python scripts/list_topology_fixtures.py
 | `junction_entry_reversed_fold.mmd` | Junction entry under a reversed fold - tests that entry alignment is preserved when the section flows in the reverse (RL) direction (#760)                                                                                                                                |
 | `junction_entry_lane_rebase.mmd`   | A section carrying a non-contiguous slice of the line order (priorities 1 and 3) next to a section carrying the missing one - the compacted bundle sits on the lane that keeps its junction feeder level instead of dropping to lane 0 and slanting the connector (#1816) |
 | `junction_entry_lane_step.mmd`     | A divergence junction ten pixels past the exit port feeding it, one branch continuing along the row and one leaving it - the bundle is shifted wholesale at the port, and the junction has to be carried with it, so the stubs either side of it both draw level (#1816)  |
-| `continuation_lane_step.mmd`       | Two lines cross into a section whose hub, two stations in, starts two more lines on the lanes they arrive on - the continuation walk finds the slot taken with runway to spare, so the pair steps down a lane mid-section (#1816)                                         |
+| `continuation_lane_step.mmd`       | Two lines cross into a section and run to a hub two stations in that ends them and starts two lines of its own; the ending pair keeps its arrival lanes and the starting pair takes its own lanes beside them, so both the approach and the departure draw flat (#1816)   |
 
 ### Left- and right-entry routing
 

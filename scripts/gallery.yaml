@@ -1523,10 +1523,11 @@ gallery:
     source_dir: examples/topologies
     category: Merge & Convergence
     description:
-      "Two lines cross into a section whose hub, two stations in, starts two more lines
-      on the lanes they arrive on. The continuation walk finds the slot taken with runway to
-      spare, so the pair steps down a lane together mid-section -- flat, a 45-degree diagonal,
-      flat -- instead of holding a lane the hub cannot give them (issue #1816)."
+      "Two lines cross into a section and run to a hub two stations in. The hub ends them
+      and starts two lines of its own that carry on to the next station. The ending pair
+      keeps the lanes it arrives on and the starting pair takes its own lanes beside them,
+      so the approach into the hub and the departure out of it both draw flat, with no
+      mid-section step (issue #1816)."
   - id: merge_feeder_shared_channel_gap
     source_dir: examples/topologies
     category: Merge & Convergence
