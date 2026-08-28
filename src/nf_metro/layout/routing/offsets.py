@@ -86,6 +86,7 @@ class _OffsetCtx:
     graph: MetroGraph
     topology: RouteTopologyQuery | None = None
     divergence_exit_ports: dict[str, str] = field(default_factory=dict)
+    bundle_re_slots_whole: dict[tuple[str, str], bool] = field(default_factory=dict)
     offsets: dict[tuple[str, str], float] = field(default_factory=dict)
     line_priority: dict[str, int] = field(default_factory=dict)
     max_priority: int = 0
@@ -166,10 +167,19 @@ def _build_offset_ctx(graph: MetroGraph, offset_step: float) -> _OffsetCtx:
         for assignment in carrier.assignments
     }
 
+    divergence_exit_ports = divergence_junction_exit_ports(graph, topology)
+    bundle_re_slots_whole = {
+        (junction_id, exit_port_id): _junction_bundle_re_slots_whole(
+            graph, junction_id, exit_port_id
+        )
+        for junction_id, exit_port_id in divergence_exit_ports.items()
+    }
+
     return _OffsetCtx(
         graph=graph,
         topology=topology,
-        divergence_exit_ports=divergence_junction_exit_ports(graph, topology),
+        divergence_exit_ports=divergence_exit_ports,
+        bundle_re_slots_whole=bundle_re_slots_whole,
         line_priority=line_priority,
         max_priority=max_priority,
         offset_step=offset_step,
@@ -560,11 +570,14 @@ def _boundary_runs(
     sec_id: str,
     candidate: dict[str, int],
     section_local: dict[str, dict[str, int]],
+    crossings: Sequence[tuple[str, float, float]] | None = None,
 ) -> Iterator[_BoundaryRun]:
     """Yield one :class:`_BoundaryRun` per line crossing one of *sec_id*'s ports."""
     reverse = _stores_reflected(ctx, sec_id)
     local_max = max(candidate.values(), default=0)
-    for lid, base, neighbour in _boundary_crossings(ctx, sec_id, section_local):
+    if crossings is None:
+        crossings = _boundary_crossings(ctx, sec_id, section_local)
+    for lid, base, neighbour in crossings:
         slot = candidate.get(lid)
         if slot is None:
             continue
@@ -616,22 +629,11 @@ def _level_run_lane_block(
     the trunk, so its block has only the one position to take.
     """
     top_anchored = {lid: i for i, lid in enumerate(ordered)}
-    reverse = _stores_reflected(ctx, sec_id)
     crossings = _boundary_crossings(ctx, sec_id, section_local)
 
     for shift in range(max(ctx.max_priority - len(ordered) + 1, 0) + 1):
         candidate = {lid: slot + shift for lid, slot in top_anchored.items()}
-        local_max = max(candidate.values(), default=0)
-        runs = (
-            _BoundaryRun(
-                (local_max - candidate[lid] if reverse else candidate[lid])
-                * ctx.offset_step,
-                base,
-                neighbour,
-            )
-            for lid, base, neighbour in crossings
-            if lid in candidate
-        )
+        runs = _boundary_runs(ctx, sec_id, candidate, section_local, crossings)
         if all(run.level for run in runs):
             return candidate
     return top_anchored
@@ -1838,8 +1840,11 @@ def _junction_lanes_follow_port_squeeze(
     (:func:`_junction_bundle_re_slots_whole`).
     """
     followed: dict[tuple[str, str], float] = {}
+    shifted_stations = {station_id for station_id, _lid in shift}
     for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
-        if not _junction_bundle_re_slots_whole(ctx.graph, junction_id, exit_port_id):
+        if exit_port_id not in shifted_stations:
+            continue
+        if not ctx.bundle_re_slots_whole[(junction_id, exit_port_id)]:
             continue
         lines = ctx.graph.station_lines(junction_id)
         drops = {
@@ -2694,6 +2699,30 @@ def _junction_bundle_re_slots_whole(
     return all(count == 1 for count in turning.values())
 
 
+def _port_frame_ranks_junction_lines_alike(
+    ctx: _OffsetCtx, junction_id: str, exit_port_id: str
+) -> bool:
+    """Whether the port's lanes rank the junction's lines the way it holds them.
+
+    Re-inheriting is meant to hand the junction the drop its feeder took, which
+    every line of the bundle takes together and which no branch crosses another
+    to follow.  A port that came out of the shift ranking those lines the other
+    way is offering a transposition instead: taking it swaps which branch leaves
+    the vertex on which side of the bundle, which settles the shape of the fan
+    rather than closing the gap between the port and the junction, and can send
+    a branch out across a section it never calls at.  That is a decision for the
+    phases owning the fan, so a junction offered a reordered frame keeps the one
+    its own phases settled.
+    """
+    ranked = sorted(
+        (ctx.offsets.get((junction_id, line_id), 0.0), port_lane)
+        for line_id in ctx.graph.station_lines(junction_id)
+        if (port_lane := ctx.offsets.get((exit_port_id, line_id))) is not None
+    )
+    offered = [port_lane for _held_lane, port_lane in ranked]
+    return offered == sorted(offered)
+
+
 def _reinherit_junction_lanes(ctx: _OffsetCtx, moved: Container[str]) -> None:
     """Re-copy the lanes of every divergence junction whose feeder *moved*.
 
@@ -2702,11 +2731,14 @@ def _reinherit_junction_lanes(ctx: _OffsetCtx, moved: Container[str]) -> None:
     junction holding the port's old frame.  The few pixels between the two are
     then spent slanting off the port's lane, and every branch beyond the
     junction spends them again coming back.  Restricted to junctions whose whole
-    bundle can take the new frame (:func:`_junction_bundle_re_slots_whole`).
+    bundle can take the new frame (:func:`_junction_bundle_re_slots_whole`) in
+    the order it already holds (:func:`_port_frame_ranks_junction_lines_alike`).
     """
     for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
-        if exit_port_id in moved and _junction_bundle_re_slots_whole(
-            ctx.graph, junction_id, exit_port_id
+        if (
+            exit_port_id in moved
+            and ctx.bundle_re_slots_whole[(junction_id, exit_port_id)]
+            and _port_frame_ranks_junction_lines_alike(ctx, junction_id, exit_port_id)
         ):
             _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
@@ -4597,6 +4629,14 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
     sections downstream inherit it so their feed stays aligned.  Reversal is
     :func:`reversed_offset` per station, an involution, so stations with equal
     offsets stay equal -- propagated port/trunk equalities are preserved.
+
+    A divergence junction belongs to no section, so walking the stations of the
+    affected sections passes it by and leaves it holding the order the exit port
+    feeding it has just come off.  It takes that port's lanes again, the seat
+    :func:`_propagate_to_junctions` gives it; without that the reversal lands as
+    a transposition over the few pixels between the port and the junction, and
+    every branch leaves the vertex on the opposite side of the bundle from the
+    feed that arrived on it.
     """
     if not roots:
         return
@@ -4623,6 +4663,10 @@ def _reverse_offsets_from_roots(ctx: _OffsetCtx, roots: set[str]) -> None:
             ctx.offsets[(sid, lid)] = reversed_offset(
                 ctx.offsets.get((sid, lid), 0.0), max_off
             )
+
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if ctx.graph.ports[exit_port_id].section_id in affected:
+            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
 
 def _reverse_near_vertical_junction_right_entry_offsets(ctx: _OffsetCtx) -> None:

@@ -1263,6 +1263,10 @@
   "note": "_exchange_pair_at's own guard, reached only from the continuation walk. the exit_lane_settlement_without_crossings variant described on the `if was_arriving is None or was_holder is None` entry takes the False arm, both slots present. The True arm needs a station whose line set contains both lines, which the caller has already checked, while ctx.offsets lacks a key for one of them. Base offsets are computed for every station and line the graph carries, so the only candidate is a junction the propagation passes skip, and I could not confirm one exists. Left unsettled rather than called defensive.",
   "status": "needs-review"
  },
+ "offsets.py::if ctx.graph.ports[exit_port_id].section_id in affected:::#1": {
+  "note": "_reverse_offsets_from_roots re-seats a divergence junction on its feeding exit port when that port's section is one the reversal covers, since the junction belongs to no section and the station walk above passes it by. The corpus reaches the enclosing pass with a non-empty root set from one fixture only, examples/topologies/near_vertical_junction_hook.mmd, whose single divergence junction is fed from a section outside the affected set: 9 evaluations, all false. The true arm is reachable and exercised by tests/fixtures/hash_seed_determinism/seed_41.mmd (27 evaluations), which _collect_corpus does not walk -- it globs tests/fixtures/*.mmd plus curve_invariant_repros/ and nextflow/, not the hash_seed_determinism/ subtree. Wants a fixture.",
+  "status": "needs-review"
+ },
  "offsets.py::if cur in seen:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
   "status": "needs-review"
