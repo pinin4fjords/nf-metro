@@ -279,6 +279,7 @@
     "topologies/clear_channel_target_aware_push.mmd",
     "topologies/compact_gap_peer_conflict.mmd",
     "topologies/complex_multipath.mmd",
+    "topologies/continuation_lane_step.mmd",
     "topologies/convergence_fold_diamond.mmd",
     "topologies/convergence_sink_above.mmd",
     "topologies/convergence_sink_fold.mmd",

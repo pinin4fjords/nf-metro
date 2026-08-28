@@ -1331,6 +1331,10 @@
   "note": "_compute_base_offsets sets ctx.offsets[(sid, lid)] for every station-line pair before _propagate_lr_rl_exit_to_entry runs. Exit ports are stations. The for-loop at L791 iterates graph.station_lines(port_id) which equals graph.station_lines(exit_port_id) (enforced by the exit_lines != entry_lines guard at L788). For each lid, ctx.offsets.get((exit_port_id, lid)) is therefore never None. The loop-back arc (793,791) for the paired_off-is-None case is structurally unreachable.",
   "status": "defensive"
  },
+ "offsets.py::if port is None or not port.is_entry:::#1": {
+  "note": "_branch_leaves_junction_straight's eligibility guard: a branch counts as leaving a divergence junction straight only if its target is a registered entry port. A census across examples/ and tests/fixtures/ finds every non-port edge target reaches this guard's false arm (137/137) and every port target is an entry port (0/752 non-entry), because an exit port is structurally an edge source, never a target, in a resolved graph, so a junction branch can never target one. Precedent for this shape of entry already exists at `centrelines.py::or run_direction is None::#1`.",
+  "status": "defensive"
+ },
  "offsets.py::if port_off is not None:::#1": {
   "note": "_compute_base_offsets runs before junction propagation and creates an offset for every station-line pair. A divergence exit port and its junction carry the same connector lines, so this lookup always succeeds; the missing-offset arm protects an incomplete synthetic context.",
   "status": "defensive"

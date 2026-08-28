@@ -1824,6 +1824,39 @@ def _section_lane_squeeze(
     }
 
 
+def _junction_lanes_follow_port_squeeze(
+    ctx: _OffsetCtx, shift: Mapping[tuple[str, str], float]
+) -> dict[tuple[str, str], float]:
+    """The drops of *shift* again for each junction riding a squeezed port's lanes.
+
+    A divergence junction belongs to no section, so a section-wide relabelling
+    of lane levels passes it by and strands it on the levels its feeding exit
+    port has just come off.  Taking the same drops moves the two as one, which
+    is what :func:`_dead_lane_squeeze_keeps_runs` then measures.  A junction
+    already off its feeder's lanes is left where it is: it is holding a frame
+    some other phase settled, and only whole-bundle inheritors take a new one
+    (:func:`_junction_bundle_re_slots_whole`).
+    """
+    followed: dict[tuple[str, str], float] = {}
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if not _junction_bundle_re_slots_whole(ctx.graph, junction_id, exit_port_id):
+            continue
+        lines = ctx.graph.station_lines(junction_id)
+        drops = {
+            (junction_id, lid): shift[(exit_port_id, lid)]
+            for lid in lines
+            if (exit_port_id, lid) in shift
+            and abs(
+                ctx.offsets.get((junction_id, lid), 0.0)
+                - ctx.offsets.get((exit_port_id, lid), 0.0)
+            )
+            <= _OFFSET_EQ_TOLERANCE
+        }
+        if len(drops) == len(lines):
+            followed.update(drops)
+    return followed
+
+
 def _dead_lane_squeeze_keeps_runs(
     ctx: _OffsetCtx,
     shift: Mapping[tuple[str, str], float],
@@ -1863,8 +1896,10 @@ def _close_section_dead_lanes(ctx: _OffsetCtx) -> None:
     section rides reserves nothing, so every lane above it drops one step.
 
     The shift is a rigid, order-preserving relabelling of levels applied to every
-    station and port of the section at once, so each station keeps exactly one
-    lane per line it carries and the bundle order is untouched.  It is applied
+    station and port of the section at once -- plus any divergence junction
+    riding one of its exit ports' lanes
+    (:func:`_junction_lanes_follow_port_squeeze`) -- so each station keeps exactly
+    one lane per line it carries and the bundle order is untouched.  It is applied
     only when :func:`_dead_lane_squeeze_keeps_runs` confirms no run inside the
     section or across one of its seams tilts further for it.  Distinct from
     ``compact_offsets``, which sizes each station's bundle from that station's own
@@ -1888,6 +1923,7 @@ def _close_section_dead_lanes(ctx: _OffsetCtx) -> None:
             continue
         shift = _section_lane_squeeze(ctx, section_node_lines(ctx.graph, sec_id))
         if any(shift.values()):
+            shift.update(_junction_lanes_follow_port_squeeze(ctx, shift))
             squeezes.append(shift)
     if not squeezes:
         return
@@ -2595,21 +2631,84 @@ def _recompact_fan_port_bordering_stations(
         _propagate_touched_exit_ports_to_entries(ctx, touched)
 
 
-def _junction_bundle_re_slots_whole(graph: MetroGraph, junction_id: str) -> bool:
+def _branch_leaves_junction_straight(
+    graph: MetroGraph, junction_id: str, edge: Edge, lane_axis: str
+) -> bool:
+    """Whether *edge* leaves the junction along its lane instead of turning off it.
+
+    Straight means the branch is known to reach its target without bending at
+    the vertex: the target is an entry port on the side its section's flow
+    starts from, sits on the junction's own lane level, and lies downstream of
+    the junction along that flow, so the run into it carries on the way the
+    junction already points.  A far-side port reached by wrapping around its
+    section satisfies the first two and fails the third.  Everything else -- a
+    perpendicular side, another lane level, a target that is not an entry port
+    and so hands its shape on to routing -- counts as a turn: this is the false
+    half of a guard against fusing two corners at one vertex, so what is not
+    provably straight is treated as bending.
+    """
+    port = graph.ports.get(edge.target)
+    if port is None or not port.is_entry:
+        return False
+    direction = graph.section_for_port(port).direction
+    if port.side is not flow_port_sides(direction)[0]:
+        return False
+    junction, target = graph.stations[junction_id], graph.stations[edge.target]
+    lane_gap = getattr(target, lane_axis) - getattr(junction, lane_axis)
+    if abs(lane_gap) > _SAME_Y_TOLERANCE:
+        return False
+    flow_axis = AxisFrame.axes_for_direction(direction)[0]
+    downstream = getattr(target, flow_axis) - getattr(junction, flow_axis)
+    return downstream * AxisFrame.flow_sign(direction) > 0
+
+
+def _junction_bundle_re_slots_whole(
+    graph: MetroGraph, junction_id: str, exit_port_id: str
+) -> bool:
     """Whether a divergence junction's bundle can take a new frame as one unit.
 
-    A line leaving the junction on several branches turns them all at one shared
-    vertex, drawn as a single fused stroke whose radius is the widest of the legs
-    (:func:`corners.widest_coincident_radius`).  Pinned by the widest leg, that
-    radius cannot follow the lane onto a neighbouring slot: the distinct mate it
-    lands beside then reads as one wholesale-translated corner with it, and the
-    concentric reference sized for the pair loses to the fusion, pinching the
-    bundle through the bend.  Moving the other lanes without it would split the
-    bundle instead, so a junction carrying a fused lane keeps the frame its own
-    phases settled.
+    A line leaving the junction on several branches that each turn off its lane
+    turns them at one shared vertex, drawn as a single fused stroke whose radius
+    is the widest of the legs (:func:`corners.widest_coincident_radius`).
+    Pinned by the widest leg, that radius cannot follow the lane onto a
+    neighbouring slot: the distinct mate it lands beside then reads as one
+    wholesale-translated corner with it, and the concentric reference sized for
+    the pair loses to the fusion, pinching the bundle through the bend.  Moving
+    the other lanes without it would split the bundle instead, so a junction
+    carrying a fused lane keeps the frame its own phases settled.
+
+    A branch that leaves the vertex straight
+    (:func:`_branch_leaves_junction_straight`) turns, if at all, further
+    downstream, where it answers to its own geometry rather than to the vertex.
+    It cannot fuse there, so a line holding the vertex with one turning branch
+    and any number of straight ones re-slots with the rest of the bundle.
     """
-    branches = Counter(edge.line_id for edge in graph.edges_from(junction_id))
-    return all(count == 1 for count in branches.values())
+    lane_axis = AxisFrame.axes_for_direction(
+        graph.section_for_port(graph.ports[exit_port_id]).direction
+    )[1]
+    turning = Counter(
+        edge.line_id
+        for edge in graph.edges_from(junction_id)
+        if not _branch_leaves_junction_straight(graph, junction_id, edge, lane_axis)
+    )
+    return all(count == 1 for count in turning.values())
+
+
+def _reinherit_junction_lanes(ctx: _OffsetCtx, moved: Container[str]) -> None:
+    """Re-copy the lanes of every divergence junction whose feeder *moved*.
+
+    :func:`_propagate_to_junctions` seats a junction on the lanes of the exit
+    port feeding it, and a later phase that shifts that port's bundle leaves the
+    junction holding the port's old frame.  The few pixels between the two are
+    then spent slanting off the port's lane, and every branch beyond the
+    junction spends them again coming back.  Restricted to junctions whose whole
+    bundle can take the new frame (:func:`_junction_bundle_re_slots_whole`).
+    """
+    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
+        if exit_port_id in moved and _junction_bundle_re_slots_whole(
+            ctx.graph, junction_id, exit_port_id
+        ):
+            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
 
 
 def _propagate_touched_exit_ports_to_entries(
@@ -2631,15 +2730,10 @@ def _propagate_touched_exit_ports_to_entries(
     or a reversing seam each carry the line on their own arrival-order lane
     rather than the feeder's raw stored offset, so a direct copy there would
     be wrong, not merely redundant.  A divergence junction fed by such a port
-    re-inherits the same way, and only where its whole bundle can take the new
-    frame together (:func:`_junction_bundle_re_slots_whole`).
+    re-inherits through :func:`_reinherit_junction_lanes`.
     """
     graph = ctx.graph
-    for junction_id, exit_port_id in ctx.divergence_exit_ports.items():
-        if exit_port_id in touched and _junction_bundle_re_slots_whole(
-            graph, junction_id
-        ):
-            _copy_exit_lanes_to_junction(ctx, junction_id, exit_port_id)
+    _reinherit_junction_lanes(ctx, touched)
     for sid in sorted(touched, key=ctx.station_rank.__getitem__):
         src_port = graph.ports.get(sid)
         if src_port is None or src_port.is_entry:
@@ -3699,6 +3793,10 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
 
     Iterates until stable, since fixing one edge can propagate
     through port -> station chains within the same section.
+
+    A shifted exit port carries its divergence junction with it
+    (:func:`_reinherit_junction_lanes`), which is outside the same-section
+    filter above: a junction has no section of its own.
     """
     # Pre-filter to edges where both endpoints share the same Y and
     # section. These properties are immutable during reconciliation.
@@ -3710,6 +3808,7 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
         and _same_section(ctx.graph, edge.source, edge.target)
     ]
 
+    moved: set[str] = set()
     for _ in range(max_iterations):
         changed = False
         for edge in candidates:
@@ -3731,8 +3830,10 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                     ctx, edge.target, lid, candidate
                 )
                 if src_ok and tgt_ok:
-                    ctx.offsets[(edge.source, lid)] = candidate
-                    ctx.offsets[(edge.target, lid)] = candidate
+                    for sid, off in ((edge.source, src_off), (edge.target, tgt_off)):
+                        ctx.offsets[(sid, lid)] = candidate
+                        if off != candidate:
+                            moved.add(sid)
                     applied = True
                     changed = True
                     break
@@ -3751,10 +3852,13 @@ def _reconcile_horizontal_offsets(ctx: _OffsetCtx, max_iterations: int = 10) -> 
                 for other_lid in ctx.graph.station_lines(move_sid):
                     old = ctx.offsets.get((move_sid, other_lid), 0.0)
                     ctx.offsets[(move_sid, other_lid)] = old + delta
+                moved.add(move_sid)
                 changed = True
 
         if not changed:
             break
+
+    _reinherit_junction_lanes(ctx, moved)
 
 
 def _center_rail_boundary_port_bundles(ctx: _OffsetCtx) -> None:

@@ -1511,6 +1511,14 @@ gallery:
       the lane its feeder junction arrives on, so no lane assignment levels the run. The
       connector draws the 4px difference as a step -- flat, a 45-degree diagonal, flat --
       instead of smearing it across the whole gap as a shallow slant (issue #1816)."
+  - id: continuation_lane_step
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      "Two lines cross into a section whose hub, two stations in, starts two more lines
+      on the lanes they arrive on. The continuation walk finds the slot taken with runway to
+      spare, so the pair steps down a lane together mid-section -- flat, a 45-degree diagonal,
+      flat -- instead of holding a lane the hub cannot give them (issue #1816)."
   - id: merge_feeder_shared_channel_gap
     source_dir: examples/topologies
     category: Merge & Convergence
