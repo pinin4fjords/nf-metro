@@ -571,10 +571,6 @@
   "note": "Traverse-first clearance test in _top_entry_side_fan_traverse_clears (#1349). The below-side fan branch only reaches this gate when its junction also feeds an aligned straight drop; the corpus fan sits a clear row above its target, so the source-Y traverse never crosses another section and the fall-back-to-staircase arm is not exercised. Defensive.",
   "status": "defensive"
  },
- "inter_section_handlers.py::if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):::#1": {
-  "note": "Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive.",
-  "status": "defensive"
- },
  "inter_section_handlers.py::if _would_route_around_section_below(other, ctx):::#1": {
   "note": "Competing-sibling detection in _has_around_section_sibling, routed through the dispatch table (#813). A non-bypass sibling feeding the same merge junction sits in an adjacent column or a gap with no same-row intervening section, so it dispatches to an L-shape, not the around-below loop; corpus instrumentation across the fixtures confirms the arm is never taken. Defensive.",
   "status": "defensive"
@@ -637,10 +633,6 @@
  },
  "inter_section_handlers.py::if len(landing_sections) != len(plan.branches):::#1": {
   "note": "The planner emits this route family only when every branch lands in one distinct RIGHT-entry section. A count mismatch can arise only if the frozen emission and plan have drifted apart.",
-  "status": "defensive"
- },
- "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
-  "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
   "status": "defensive"
  },
  "inter_section_handlers.py::if not source_lines or edge.line_id not in source_lines:::#1": {
@@ -1263,10 +1255,6 @@
   "note": "_exchange_pair_at's own guard, reached only from the continuation walk. the exit_lane_settlement_without_crossings variant described on the `if was_arriving is None or was_holder is None` entry takes the False arm, both slots present. The True arm needs a station whose line set contains both lines, which the caller has already checked, while ctx.offsets lacks a key for one of them. Base offsets are computed for every station and line the graph carries, so the only candidate is a junction the propagation passes skip, and I could not confirm one exists. Left unsettled rather than called defensive.",
   "status": "needs-review"
  },
- "offsets.py::if ctx.graph.ports[exit_port_id].section_id in affected:::#1": {
-  "note": "_reverse_offsets_from_roots re-seats a divergence junction on its feeding exit port when that port's section is one the reversal covers, since the junction belongs to no section and the station walk above passes it by. The corpus reaches the enclosing pass with a non-empty root set from one fixture only, examples/topologies/near_vertical_junction_hook.mmd, whose single divergence junction is fed from a section outside the affected set: 9 evaluations, all false. The true arm is reachable and exercised by tests/fixtures/hash_seed_determinism/seed_41.mmd (27 evaluations), which _collect_corpus does not walk -- it globs tests/fixtures/*.mmd plus curve_invariant_repros/ and nextflow/, not the hash_seed_determinism/ subtree. Wants a fixture.",
-  "status": "needs-review"
- },
  "offsets.py::if cur in seen:::#1": {
   "note": "In the exit-only-line reorder / same-Y offset propagation; reachable only via a multi-line LR/RL section with a perpendicular (TOP/BOTTOM) exit port, which the engine lays out as a station-as-elbow + collinear overlay PhaseInvariantError (#706). Exercise with a clean fixture once #706 is fixed.",
   "status": "needs-review"
@@ -1333,10 +1321,6 @@
  },
  "offsets.py::if paired_off is not None:::#1": {
   "note": "_compute_base_offsets sets ctx.offsets[(sid, lid)] for every station-line pair before _propagate_lr_rl_exit_to_entry runs. Exit ports are stations. The for-loop at L791 iterates graph.station_lines(port_id) which equals graph.station_lines(exit_port_id) (enforced by the exit_lines != entry_lines guard at L788). For each lid, ctx.offsets.get((exit_port_id, lid)) is therefore never None. The loop-back arc (793,791) for the paired_off-is-None case is structurally unreachable.",
-  "status": "defensive"
- },
- "offsets.py::if port is None or not port.is_entry:::#1": {
-  "note": "_branch_leaves_junction_straight's eligibility guard: a branch counts as leaving a divergence junction straight only if its target is a registered entry port. A census across examples/ and tests/fixtures/ finds every non-port edge target reaches this guard's false arm (137/137) and every port target is an entry port (0/752 non-entry), because an exit port is structurally an edge source, never a target, in a resolved graph, so a junction branch can never target one. Precedent for this shape of entry already exists at `centrelines.py::or run_direction is None::#1`.",
   "status": "defensive"
  },
  "offsets.py::if port_off is not None:::#1": {
@@ -1561,6 +1545,14 @@
  },
  "tb_handlers.py::if tgt_sec is not None and tgt_sec.direction not in (\"TB\", \"BT\"):::#1": {
   "note": "Perp-entry drop crossing-X override: the edge's target is always a sectioned station, so tgt_sec resolves and the `tgt_sec is None` short-circuit to the plain drop is never taken; the `direction in (TB, BT)` arm (a drop continuing into a vertical-flow trunk) and the horizontal-target arm are both exercised.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if _v_segment_crosses_other_section(graph, corner_x, src.y, ey, exclude):::#1": {
+  "note": "Drop-in viability test in _right_entry_drop_in_is_clear (#889). The cross-row RIGHT-entry rule fires only when the earlier bypass / plough rules ceded the edge, i.e. no section sits between source and port, so the outward-side descent runs clear; the not-clear arm covers only an exotic descent blocked by a wide same-column sibling no corpus fixture builds. Defensive.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if not _inter_row_band_fits(gap_top, gap_bottom):::#1": {
+  "note": "Band-fit test in _right_entry_gap_above_is_clear (#889), reached only when the cross-row RIGHT-entry drop-in is not clear (the exotic blocked-descent case above). The corpus always takes the drop-in, so neither arm of the gap-above fallback is exercised. Defensive.",
   "status": "defensive"
  }
 }

@@ -228,6 +228,11 @@ EXPECTED_RESIDUALS = frozenset(
             "side_report",
             "L->R",
         ),
+        # A two-line bundle drops near-vertically from an LR row's RIGHT exit into
+        # the RIGHT entry of the RL row directly below: the machinery marks the
+        # receiver reversed off the near-vertical-junction-right-entry rule, while
+        # the classifier reads the descend->turn seam as a preserved continuation.
+        ("reversed_section_junction_reseat", "align", "quant", "R->R"),
     }
 )
 

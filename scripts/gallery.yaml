@@ -1438,6 +1438,14 @@ gallery:
       then fans out at a junction into two same-row destinations. The bundle order is carried
       concentrically through the reversal corners so the lines never cross at a station, and
       the fan-out peels off cleanly (issue #760)."
+  - id: reversed_section_junction_reseat
+    source_dir: examples/topologies
+    category: Merge & Convergence
+    description:
+      A two-line bundle drops near-vertically into a reversing section's RIGHT entry, so
+      the section carries the reversed lane order. It hands the bundle to a downstream
+      reversing section whose exit-port divergence junction re-seats onto that reversed order
+      before fanning the two lines out to separate report sections (issue #1816).
   - id: convergence_stacked_sink
     source_dir: examples/topologies
     category: Merge & Convergence
