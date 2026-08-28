@@ -4170,10 +4170,11 @@ def _upstream_section_lane(
     return owner_section_id, owner_station_id, ctx.offsets[key]
 
 
-def _flat_handover_hub_stations(
+def _is_flat_handover_hub(
     ctx: _OffsetCtx,
     section: Section,
     continuing_set: set[str],
+    present: set[str],
     carrying: Sequence[str],
     non_carrying: Sequence[str],
 ) -> bool:
@@ -4187,19 +4188,23 @@ def _flat_handover_hub_stations(
     refused.
     """
     graph = ctx.graph
-    if any(continuing_set & set(graph.station_lines(sid)) for sid in non_carrying):
+    if any(
+        not continuing_set.isdisjoint(graph.station_lines(sid)) for sid in non_carrying
+    ):
         return False
-    local_lines = _section_present_line_set(ctx, section.id) - continuing_set
-    hubs = [
-        station_id
-        for station_id in carrying
-        if (ctx.outbound.get(station_id, set()) - ctx.inbound.get(station_id, set()))
+    local_lines = present - continuing_set
+    originating_by_station = {
+        station_id: (
+            ctx.outbound.get(station_id, set()) - ctx.inbound.get(station_id, set())
+        )
         & local_lines
-    ]
+        for station_id in carrying
+    }
+    hubs = [station_id for station_id, lines in originating_by_station.items() if lines]
     if len(hubs) != 1:
         return False
     hub = hubs[0]
-    originating = (ctx.outbound[hub] - ctx.inbound[hub]) & local_lines
+    originating = originating_by_station[hub]
     if originating != local_lines:
         return False
     along_y = lanes_run_along_y(section.direction)
@@ -4277,8 +4282,9 @@ def _linear_entry_frame(
     non_carrying = [
         station_id for station_id in real_station_ids if station_id not in carrying_set
     ]
-    if non_carrying and not _flat_handover_hub_stations(
-        ctx, section, continuing_set, carrying, non_carrying
+    present = _section_present_line_set(ctx, section.id)
+    if non_carrying and not _is_flat_handover_hub(
+        ctx, section, continuing_set, present, carrying, non_carrying
     ):
         return None
     flow_exit_lines = {
@@ -4290,7 +4296,6 @@ def _linear_entry_frame(
     if flow_exit_lines and not continuing_set.issubset(flow_exit_lines):
         return None
 
-    present = _section_present_line_set(ctx, section.id)
     priority_order = tuple(sorted(present, key=ctx.line_priority.__getitem__))
     determining = tuple(sorted(continuing, key=inherited.__getitem__))
     arranged = lane_order(

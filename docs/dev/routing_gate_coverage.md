@@ -16,7 +16,7 @@ Each row is a branch point (a *gate*) in a `layout/routing/` dispatch handler or
 
 Modules scoped to routing decision gates; `invariants.py` (the `validate=True` checker) and `__init__.py` are excluded.
 
-The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **389** gaps carry a triage verdict.
+The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **393** gaps carry a triage verdict.
 
 ## `arranger.py`
 
@@ -984,25 +984,25 @@ Gates with an un-exercised arm:
 | 4132 | `if _exchange_pair_at(ctx, station_id, first, second):` | `->L4126` | **needs-review** -- Extends the frontier only where the exchange actually applied. the exit_lane_settlement_without_crossings variant described on the `if was_arriving is None or was_holder is None` entry takes the True arm. The False arm needs _exchange_pair_at to decline, i.e. a station that carries both lines, since the check above passed, yet has no stored offset for one of them. Whether ctx.offsets can be that sparse at such a station is the same open question the `if arriving is None or holding is None` entry records; I could not settle it either way. |
 | 4144 | `if ctx.topology is None:` | `->L4145` |  |
 | 4168 | `if key not in ctx.offsets:` | `->L4169` |  |
-| 4199 | `if len(hubs) != 1:` | `->L4200` |  |
-| 4203 | `if originating != local_lines:` | `->L4204` |  |
-| 4210 | `if consumer is None:` | `->L4211` |  |
-| 4214 | `if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:` | `->L4215` |  |
-| 4256 | `len(levels) != len(continuing)` | `->L4259` |  |
-| 4329 | `if line_id not in assignments:` | `->L4330` |  |
-| 4334 | `and abs(owned - assignments[line_id]) > _OFFSET_EQ_TOLERANCE` | `->L4336` |  |
-| 4356 | `for _iteration in range(len(ctx.graph.sections) + 1):` | `->L4381` |  |
-| 4367 | `if line_id not in assignments:` | `->L4368` |  |
-| 4374 | `if set(frames).difference(next_frames):` | `->L4375` | **defensive** -- This fixed-point transaction rollback handles an entry frame accepted in one iteration whose owner disappears in a later iteration. Valid settled graphs converge monotonically; only deliberately transient planner state reaches this arm. test_linear_entry_frame_settlement_restores_offsets_if_owner_disappears exercises the rollback through controlled planner output. |
-| 4409 | `if any(` | `->L4413` |  |
-| 4415 | `if local_offset is None or not (` | `->L4421` | **defensive** -- This post-acceptance marker-cache guard requires the sole local line to occupy exactly the adjacent lane above or below the continuing cohort. The accepted frame allocator always creates one such adjacent assignment. The missing or nonadjacent arm protects corrupted or incomplete offset maps. |
-| 4440 | `if abs(actual - expected) > _OFFSET_EQ_TOLERANCE:` | `->L4441` |  |
-| 4451 | `if gap is not None:` | `->L4452` |  |
-| 4482 | `if any(` | `->L4488` | **defensive** -- This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state. |
-| 4506 | `if actual is None or abs(actual - assignment.offset) > _OFFSET_EQ_TOLERANCE:` | `->L4507` |  |
-| 4702 | `if dag is not None:` | `->L4710` |  |
-| 4706 | `if succ not in affected:` | `->L4705` |  |
-| 4715 | `if not offs:` | `->L4716` |  |
+| 4204 | `if len(hubs) != 1:` | `->L4205` | **defensive** -- Guard in _is_flat_handover_hub admitting a linear entry frame whose cohort terminates at a hub. Refuses unless exactly one carrier originates the local bundle; a section with two independent origination points hands its trunk over in two places, not one. The one corpus section that reaches the relaxed path (continuation_lane_step's Results hub) has a single hub, so the multi-hub refusal stays un-exercised. Defensive. |
+| 4208 | `if originating != local_lines:` | `->L4209` | **defensive** -- Guard in _is_flat_handover_hub: the single hub must originate the whole local bundle, else a downstream line starts somewhere other than the hand-over point and the frame would misplace it. The corpus's one relaxed section has the hub originating every local line, so the partial-origination refusal stays un-exercised. Defensive. |
+| 4215 | `if consumer is None:` | `->L4216` | **defensive** -- Guard in _is_flat_handover_hub: each line the hub originates must reach a single in-section stop, so a line that fans to several stops (a divergence hub, not a straight hand-over) is refused. The corpus's one relaxed section hands each local line to a lone consumer, so the fan refusal stays un-exercised. Defensive. |
+| 4219 | `if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:` | `->L4220` | **defensive** -- Guard in _is_flat_handover_hub: the hub's originating lines must run flat, so a consumer off the hub's trunk row (a peel-off, drawing a real turn) is refused. The corpus's one relaxed section hands over on a level row, so the off-row refusal stays un-exercised. Defensive. |
+| 4261 | `len(levels) != len(continuing)` | `->L4264` |  |
+| 4336 | `if line_id not in assignments:` | `->L4337` |  |
+| 4341 | `and abs(owned - assignments[line_id]) > _OFFSET_EQ_TOLERANCE` | `->L4343` |  |
+| 4363 | `for _iteration in range(len(ctx.graph.sections) + 1):` | `->L4388` |  |
+| 4374 | `if line_id not in assignments:` | `->L4375` |  |
+| 4381 | `if set(frames).difference(next_frames):` | `->L4382` | **defensive** -- This fixed-point transaction rollback handles an entry frame accepted in one iteration whose owner disappears in a later iteration. Valid settled graphs converge monotonically; only deliberately transient planner state reaches this arm. test_linear_entry_frame_settlement_restores_offsets_if_owner_disappears exercises the rollback through controlled planner output. |
+| 4416 | `if any(` | `->L4420` | **defensive** -- This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state. |
+| 4422 | `if local_offset is None or not (` | `->L4428` | **defensive** -- This post-acceptance marker-cache guard requires the sole local line to occupy exactly the adjacent lane above or below the continuing cohort. The accepted frame allocator always creates one such adjacent assignment. The missing or nonadjacent arm protects corrupted or incomplete offset maps. |
+| 4447 | `if abs(actual - expected) > _OFFSET_EQ_TOLERANCE:` | `->L4448` |  |
+| 4458 | `if gap is not None:` | `->L4459` |  |
+| 4489 | `if any(` | `->L4495` |  |
+| 4513 | `if actual is None or abs(actual - assignment.offset) > _OFFSET_EQ_TOLERANCE:` | `->L4514` |  |
+| 4709 | `if dag is not None:` | `->L4717` |  |
+| 4713 | `if succ not in affected:` | `->L4712` |  |
+| 4722 | `if not offs:` | `->L4723` |  |
 
 ## `orientation.py`
 
