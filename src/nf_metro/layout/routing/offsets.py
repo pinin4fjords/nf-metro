@@ -450,6 +450,12 @@ def _assert_sections_anchored_on_trunk(ctx: _OffsetCtx) -> None:
             )
 
 
+def _base_rank(ctx: _OffsetCtx, lid: str, reverse: bool) -> int:
+    """*lid*'s rank on its global-priority slot, from the bottom if reversed."""
+    pri = ctx.line_priority.get(lid, 0)
+    return ctx.max_priority - pri if reverse else pri
+
+
 def _predicted_local_offset(
     ctx: _OffsetCtx, sec_id: str, lid: str, section_local: dict[str, dict[str, int]]
 ) -> float:
@@ -465,8 +471,7 @@ def _predicted_local_offset(
         local_max = max(local.values()) if local else 0
         rank = local_max - slot if reverse else slot
     else:
-        pri = ctx.line_priority.get(lid, 0)
-        rank = ctx.max_priority - pri if reverse else pri
+        rank = _base_rank(ctx, lid, reverse)
     return rank * ctx.offset_step
 
 
@@ -501,7 +506,6 @@ def _trunk_endpoint_offset(
 class _BoundaryRun(NamedTuple):
     """One line crossing one of a section's ports, under a candidate slotting."""
 
-    line_id: str
     offset: float
     """Where the candidate puts the line on this section's trunk."""
     base: float
@@ -520,27 +524,25 @@ class _BoundaryRun(NamedTuple):
         return abs(self.base - self.neighbour) <= _SAME_Y_TOLERANCE
 
 
-def _boundary_runs(
+def _boundary_crossings(
     ctx: _OffsetCtx,
     sec_id: str,
-    candidate: dict[str, int],
     section_local: dict[str, dict[str, int]],
-) -> Iterator[_BoundaryRun]:
-    """Yield one :class:`_BoundaryRun` per line crossing one of *sec_id*'s ports.
+) -> list[tuple[str, float, float]]:
+    """``(line_id, base, neighbour)`` for each line crossing one of *sec_id*'s ports.
 
     Edges into the section's own interior are skipped: they carry the bundle as a
-    whole, so moving the bundle shifts both of their ends together.
+    whole, so moving the bundle shifts both of their ends together.  These facts
+    hold for any candidate slotting of *sec_id*, so :func:`_boundary_runs` builds
+    its per-candidate ranks from this list rather than re-deriving them.
     """
     graph = ctx.graph
     section = graph.sections[sec_id]
     reverse = _stores_reflected(ctx, sec_id)
-    local_max = max(candidate.values(), default=0)
+    crossings: list[tuple[str, float, float]] = []
     for pid in (*section.entry_ports, *section.exit_ports):
         for edge in (*graph.edges_to(pid), *graph.edges_from(pid)):
             lid = edge.line_id
-            slot = candidate.get(lid)
-            if slot is None:
-                continue
             other_id = edge.target if edge.source == pid else edge.source
             other = graph.stations.get(other_id)
             if other is None or other.section_id == sec_id:
@@ -548,15 +550,26 @@ def _boundary_runs(
             neighbour = _trunk_endpoint_offset(ctx, other_id, lid, section_local)
             if neighbour is None:
                 continue
-            pri = ctx.line_priority.get(lid, 0)
-            base_rank = ctx.max_priority - pri if reverse else pri
-            rank = local_max - slot if reverse else slot
-            yield _BoundaryRun(
-                lid,
-                rank * ctx.offset_step,
-                base_rank * ctx.offset_step,
-                neighbour,
-            )
+            base_rank = _base_rank(ctx, lid, reverse)
+            crossings.append((lid, base_rank * ctx.offset_step, neighbour))
+    return crossings
+
+
+def _boundary_runs(
+    ctx: _OffsetCtx,
+    sec_id: str,
+    candidate: dict[str, int],
+    section_local: dict[str, dict[str, int]],
+) -> Iterator[_BoundaryRun]:
+    """Yield one :class:`_BoundaryRun` per line crossing one of *sec_id*'s ports."""
+    reverse = _stores_reflected(ctx, sec_id)
+    local_max = max(candidate.values(), default=0)
+    for lid, base, neighbour in _boundary_crossings(ctx, sec_id, section_local):
+        slot = candidate.get(lid)
+        if slot is None:
+            continue
+        rank = local_max - slot if reverse else slot
+        yield _BoundaryRun(rank * ctx.offset_step, base, neighbour)
 
 
 def _reanchor_keeps_runs_level(
@@ -603,13 +616,23 @@ def _level_run_lane_block(
     the trunk, so its block has only the one position to take.
     """
     top_anchored = {lid: i for i, lid in enumerate(ordered)}
-
-    def runs(candidate: dict[str, int]) -> list[_BoundaryRun]:
-        return list(_boundary_runs(ctx, sec_id, candidate, section_local))
+    reverse = _stores_reflected(ctx, sec_id)
+    crossings = _boundary_crossings(ctx, sec_id, section_local)
 
     for shift in range(max(ctx.max_priority - len(ordered) + 1, 0) + 1):
         candidate = {lid: slot + shift for lid, slot in top_anchored.items()}
-        if all(run.level for run in runs(candidate)):
+        local_max = max(candidate.values(), default=0)
+        runs = (
+            _BoundaryRun(
+                (local_max - candidate[lid] if reverse else candidate[lid])
+                * ctx.offset_step,
+                base,
+                neighbour,
+            )
+            for lid, base, neighbour in crossings
+            if lid in candidate
+        )
+        if all(run.level for run in runs):
             return candidate
     return top_anchored
 
@@ -630,9 +653,6 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
     unconditionally; a frame member sitting below its trunk with no interior gap
     re-anchors only when a second pass confirms it carries no line flat across an
     adjacent-neighbour boundary (such a line would slope if its slot moved).
-
-    A bundle that closes a gap then chooses which lanes the closed-up block
-    occupies, rather than always falling to the top of the trunk.
     """
     graph = ctx.graph
     present = _section_present_lines(graph)
@@ -671,8 +691,8 @@ def _reindex_local_priority_gaps(ctx: _OffsetCtx) -> dict[str, dict[str, int]]:
             section_local[sec_id] = {lid: i for i, lid in enumerate(ordered)}
 
     # Every closed-up bundle is published top-anchored above before any of them
-    # picks its lanes, so a section reads its neighbours' closed-up bundles
-    # rather than the gappy ones they replace.
+    # picks its lanes, so a section's neighbours read the chosen lanes when
+    # they look this section up.
     for sec_id in closed_up:
         section_local[sec_id] = _level_run_lane_block(
             ctx, sec_id, ordered_by_section[sec_id], section_local

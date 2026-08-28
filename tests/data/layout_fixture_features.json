@@ -457,7 +457,8 @@
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
     "variantprioritization.mmd",
-    "topologies/junction_entry_lane_rebase.mmd"
+    "topologies/junction_entry_lane_rebase.mmd",
+    "topologies/junction_entry_lane_step.mmd"
   ],
   "vertical_passthrough": [
     "planned_compatibility_channel_collision.mmd",

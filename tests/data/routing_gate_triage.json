@@ -3,6 +3,14 @@
   "note": "Single enforcement point for the bundle-centreline contract: a fanned bundle needs at least one leg, i.e. a >=2-vertex centreline. All three public builders (build_concentric_bundle / build_tapered_bundle / build_offset_bundle) funnel through _fan_bundle, which owns this one guard in place of the four per-builder re-checks the corpus never took (#1438). Every caller builds a >=2-vertex polyline by construction, so the raise arm stays un-exercised.",
   "status": "defensive"
  },
+ "centrelines.py::or edge.target not in ctx.graph.ports::#1": {
+  "note": "The lane-change step declines a run whose target is not the port the connector is drawn to: a run into a merge ends where the convergence planner re-seats it, so spending a target runway there leaves a zero-length tail. tests/fixtures/hash_seed_determinism/seed_41.mmd reaches the arm (its __junction_33 hands lines into __merge_11 and __merge_15 a lane out, with room to step), but the sweep's corpus roots do not include tests/fixtures/hash_seed_determinism, so no swept fixture evaluates it.",
+  "status": "needs-review"
+ },
+ "centrelines.py::or run_direction is None::#1": {
+  "note": "The lane-change step reads its run direction off the connector's own two endpoints rather than assuming an axis. segment_direction returns None for a leg that is diagonal or collapsed, which the straight-connector families that reach this helper never hand it: both settle their endpoints on one row or one column before routing, so no fixture can present a diagonal pair here.",
+  "status": "defensive"
+ },
  "common.py::and abs(start[0] - other_start[0]) < required - COORD_TOLERANCE_FINE::#1": {
   "note": "The same-destination approach proposal is abandoned when a proposed member column would sit closer than the co-travelling lane clearance to another vertical channel. Every shipped corpus proposal clears that distance because the member gap allocator seats each corridor against its neighbours before the proposal is built, so the refusal arm has no fixture; revisit once a corpus map needs a proposal the allocator cannot pre-separate.",
   "status": "needs-review"
@@ -1353,10 +1361,6 @@
  },
  "offsets.py::if source_col is None:::#1": {
   "note": "_convergence_feeders receives resolved sources feeding a registered LEFT entry port. Each source is a sectioned port or a junction resolvable through one, so the missing-column arm protects an incomplete graph.",
-  "status": "defensive"
- },
- "offsets.py::if src_n <= tgt_n:::#1": {
-  "note": "_reconcile_horizontal_offsets' bundle-shift fallback moves the edge endpoint with fewer lines. The else arm (src_n > tgt_n: move the target) was exercised in the corpus solely by the fan-port drag where a many-line entry/exit port is the edge source and a same-Y trunk-row station with fewer lines is the target (funcprofiler_upstream's humann3 at its entry port). The #1480 exit-port ordering fix (merge_trunk_lines in _compute_exit_port_offsets) rides the trunk-continuation merge line out on the trunk slot, so that port and station now agree and the edge no longer needs shifting. The remaining corpus shift (sr_qc into its input exit port) has the fewer-line station as the source, taking the src_n <= tgt_n true arm. The else arm stays defensive for a same-Y bundle conflict whose higher-line-count endpoint is the edge source.",
   "status": "defensive"
  },
  "offsets.py::if src_port and not src_port.is_entry:::#2": {
