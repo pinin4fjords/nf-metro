@@ -29,6 +29,7 @@ import pytest
 from nf_metro.layout.constants import graph_offset_step
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
+from nf_metro.layout.routing import offsets as offsets_module
 from nf_metro.layout.routing.common import apply_route_offsets
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
@@ -37,6 +38,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 FIXTURES = [
     "examples/topologies/junction_entry_lane_rebase.mmd",
+    "examples/topologies/junction_entry_reversed_fold.mmd",
+    "examples/topologies/seed72_cross_family_fan.mmd",
     "examples/rnaseq_auto.mmd",
     "examples/rnaseq_sections.mmd",
     "examples/differentialabundance.mmd",
@@ -111,6 +114,24 @@ def test_section_bundles_occupy_consecutive_lanes(fixture: str) -> None:
         )
     ]
     assert not gapped, "\n".join(gapped)
+
+
+def test_gapped_lane_block_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bundle that leaves a lane unclaimed meets the closing guard, not the
+    canvas."""
+    monkeypatch.setattr(
+        offsets_module,
+        "_level_run_lane_block",
+        lambda ctx, sec_id, ordered, section_local: {
+            lid: ctx.line_priority.get(lid, 0) for lid in ordered
+        },
+    )
+    graph = parse_metro_mermaid(
+        (ROOT / REBASE_FIXTURE).read_text(), max_station_columns=15
+    )
+    with pytest.raises(offsets_module.OffsetAnchorError, match="off the trunk"):
+        compute_layout(graph)
+        compute_station_offsets(graph)
 
 
 def test_compacted_bundle_draws_its_feeder_run_flat() -> None:

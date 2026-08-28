@@ -128,7 +128,8 @@
     "topologies/wide_fan_out.mmd",
     "guide/02_sections.mmd",
     "guide/03_fan_out.mmd",
-    "guide/04_directions.mmd"
+    "guide/04_directions.mmd",
+    "topologies/junction_entry_lane_rebase.mmd"
   ],
   "downward_output": [
     "off_track_outputs.mmd"
@@ -455,7 +456,8 @@
     "topologies/wrap_return_canvas_margin.mmd",
     "variantbenchmarking.mmd",
     "variantbenchmarking_auto.mmd",
-    "variantprioritization.mmd"
+    "variantprioritization.mmd",
+    "topologies/junction_entry_lane_rebase.mmd"
   ],
   "vertical_passthrough": [
     "planned_compatibility_channel_collision.mmd",
