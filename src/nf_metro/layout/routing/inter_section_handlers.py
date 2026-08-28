@@ -3340,7 +3340,7 @@ def _bypass_geometry(
     # the target box, where a same-travel-direction descent would land the port
     # approach crossing the interior.  A source facing the wrong side of a plain
     # LEFT/RIGHT port is diverted to the wrap handlers before the U, so a direct
-    # port's outward side already agrees with the travel direction here.
+    # port's outward side matches the travel direction by construction here.
     gap2_left = effective_entry_side is PortSide.LEFT
 
     if gap2_left:

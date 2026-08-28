@@ -79,20 +79,24 @@ def test_left_entry_merge_feeder_descends_on_target_left() -> None:
         return geometry
 
     ish._bypass_geometry = spy
+    unexpected: Exception | None = None
     try:
         compute_layout(graph)
         offsets = compute_station_offsets(graph)
         route_edges_centred(graph, station_offsets=offsets)
-    except Exception:
+    except Exception as exc:
         # An unrelated convergence-Y planning abort can follow the descent-column
-        # choice this test pins; the spy has already recorded that choice, and the
-        # captured-non-empty assertion below fails loudly if routing never reached
-        # the feeder at all.
-        pass
+        # choice this test pins; the spy has already recorded that choice by the
+        # time it raises.  Keep the exception so an abort that instead precedes the
+        # feeder surfaces in the assertion below rather than masquerading as an
+        # unexercised fixture.
+        unexpected = exc
     finally:
         ish._bypass_geometry = original
 
-    assert captured, "fixture did not exercise a LEFT-entry merge-junction feeder"
+    assert captured, "fixture did not exercise a LEFT-entry merge-junction feeder" + (
+        f" (routing raised {unexpected!r})" if unexpected is not None else ""
+    )
     for target, descent_x, section_left in captured:
         assert descent_x <= section_left, (
             f"merge feeder into {target!r} descends at x={descent_x:.1f}, "
