@@ -4093,13 +4093,6 @@ def _lane_move_is_grounded(lane: CorridorLane, target: float, ctx: _RoutingCtx) 
     )
 
 
-def _move_reaches_section_or_band(
-    lane: CorridorLane, target: float, ctx: _RoutingCtx
-) -> bool:
-    """Whether holding *lane* at *target* lands in a section or leaves its band."""
-    return not _lane_move_is_grounded(lane, target, ctx)
-
-
 def _arrangement_is_clear(
     lanes: list[CorridorLane], proposal: Mapping[int, float], step: float
 ) -> bool:
@@ -4147,37 +4140,33 @@ def _renest_residual_fused_clusters(
 
     A cluster with no free neighbouring slot for any lane cannot be resolved by
     moving one lane at a time, so its movable lanes are restacked together, one
-    step apart, off whichever side of the cluster's immovable tracks lets the
-    whole stack draw clear -- taking the side that moves them least. A cluster
-    with no movable, unpinned member is skipped, and a stack that would enter a
-    section, overrun a claim band, or still overlap another lane is abandoned
-    rather than forced.
+    step apart, off one side of the cluster's immovable tracks. Both sides are
+    tried and whichever draws clear is taken: a cluster reaches here only when
+    the one-step cascade stranded its movable lanes against an immovable track,
+    which leaves room on a single side, so the choice does not arise in practice.
+    A cluster with no movable lane, or none it can anchor a stack against, is
+    skipped, and a stack that would enter a section, overrun a claim band, or
+    fail to draw clear of another lane is abandoned rather than forced.
     """
     for members in _fused_clusters(lanes, step):
         movable = [i for i in members if i in movable_lane_ids and not lanes[i].pinned]
-        if not movable:
+        anchors = [lanes[i].coord for i in members if i not in movable]
+        if not movable or not anchors:
             continue
-        fixed_coords = [lanes[i].coord for i in members if i not in movable]
-        best: tuple[float, dict[int, float]] | None = None
+        cleared: dict[int, float] | None = None
         for direction in (1, -1):
             order = sorted(movable, key=lambda i: lanes[i].coord, reverse=direction < 0)
-            if fixed_coords:
-                base = (max if direction > 0 else min)(fixed_coords)
-                slots = [base + direction * step * (k + 1) for k in range(len(order))]
-            else:
-                base = lanes[order[0]].coord
-                slots = [base + direction * step * k for k in range(len(order))]
+            base = (max if direction > 0 else min)(anchors)
+            slots = [base + direction * step * (k + 1) for k in range(len(order))]
             proposal = dict(zip(order, slots))
-            if any(
-                _move_reaches_section_or_band(lanes[i], proposal[i], ctx) for i in order
-            ) or not _arrangement_is_clear(lanes, proposal, step):
-                continue
-            displacement = sum(abs(proposal[i] - lanes[i].coord) for i in order)
-            if best is None or displacement < best[0]:
-                best = (displacement, proposal)
-        if best is None:
+            grounded = all(
+                _lane_move_is_grounded(lanes[i], proposal[i], ctx) for i in order
+            )
+            if grounded and _arrangement_is_clear(lanes, proposal, step):
+                cleared = proposal
+        if cleared is None:
             continue
-        for index, coord in best[1].items():
+        for index, coord in cleared.items():
             lanes[index] = _reseat_lane(lanes[index], coord, projected=projected)
 
 
