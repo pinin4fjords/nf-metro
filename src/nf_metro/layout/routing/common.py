@@ -3285,6 +3285,24 @@ class CorridorLane:
         """
         return all(run.route.normalize_exempt for run in self.runs)
 
+    def _corridor_run_pairs(
+        self, other: CorridorLane
+    ) -> Iterator[tuple[CorridorRun, CorridorRun]]:
+        """Run pairs to compare when checking whether this lane co-travels ``other``.
+
+        Empty when the lanes cannot corridor-share at all: different axes or
+        travel directions, or the same line.
+        """
+        if (
+            self.axis != other.axis
+            or self.sign != other.sign
+            or self.line_id == other.line_id
+        ):
+            return
+        for mine in self.runs:
+            for theirs in other.runs:
+                yield mine, theirs
+
     def fused_span(
         self, other: CorridorLane, step: float
     ) -> tuple[float, float] | None:
@@ -3293,17 +3311,10 @@ class CorridorLane:
         ``None`` when they do not: different axes or travel directions, one
         line, or every shared stretch already carrying the full nesting step.
         """
-        if (
-            self.axis != other.axis
-            or self.sign != other.sign
-            or self.line_id == other.line_id
-        ):
-            return None
         return max(
             (
                 (max(mine.span[0], theirs.span[0]), min(mine.span[1], theirs.span[1]))
-                for mine in self.runs
-                for theirs in other.runs
+                for mine, theirs in self._corridor_run_pairs(other)
                 if cotravelling_lanes_fuse(
                     self.coord, other.coord, mine.span, theirs.span, step
                 )
@@ -3315,6 +3326,13 @@ class CorridorLane:
     def fuses_with(self, other: CorridorLane, step: float) -> bool:
         """Whether the two lanes' strokes close into one over a shared corridor."""
         return self.fused_span(other, step) is not None
+
+    def shares_corridor_with(self, other: CorridorLane) -> bool:
+        """Whether any run pair between the two lanes overlaps in the same corridor."""
+        return any(
+            spans_share_corridor(*mine.span, *theirs.span)
+            for mine, theirs in self._corridor_run_pairs(other)
+        )
 
 
 def corridor_lanes(runs: Iterable[CorridorRun]) -> list[CorridorLane]:

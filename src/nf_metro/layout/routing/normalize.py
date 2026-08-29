@@ -4270,21 +4270,6 @@ def _renest_residual_fused_clusters(
             lanes[index] = _reseat_lane(lanes[index], coord, projected=projected)
 
 
-def _lanes_share_corridor(first: CorridorLane, second: CorridorLane) -> bool:
-    """Whether two distinct-line lanes co-travel one corridor in the same sense."""
-    if (
-        first.axis != second.axis
-        or first.sign != second.sign
-        or first.line_id == second.line_id
-    ):
-        return False
-    return any(
-        spans_share_corridor(*mine.span, *theirs.span)
-        for mine in first.runs
-        for theirs in second.runs
-    )
-
-
 def _tighten_overwide_movable_lanes(
     lanes: list[CorridorLane],
     movable_lane_ids: set[int],
@@ -4314,7 +4299,7 @@ def _tighten_overwide_movable_lanes(
         neighbours = [
             other
             for j, other in enumerate(lanes)
-            if j != i and _lanes_share_corridor(lane, other)
+            if j != i and lane.shares_corridor_with(other)
         ]
         if not neighbours:
             continue
@@ -4336,7 +4321,7 @@ def _tighten_overwide_movable_lanes(
             for j, other in enumerate(lanes)
             if j not in relocated
             and j in movable_lane_ids
-            and _lanes_share_corridor(lanes[i], other)
+            and lanes[i].shares_corridor_with(other)
         )
 
 
