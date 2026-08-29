@@ -4048,18 +4048,7 @@ def _separate_fused_cotravelling_runs(
         }
 
         def feasible(target: float) -> bool:
-            delta = target - lane.coord
-            if any(
-                _run_enters_section(ctx.graph, run.axis, target, run.span)
-                for run in lane.runs
-            ):
-                return False
-            if any(
-                (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
-                and abs(band.hold(run.coord + delta) - (run.coord + delta))
-                > COORD_TOLERANCE_FINE
-                for run in lane.runs
-            ):
+            if not _lane_move_is_grounded(lane, target, ctx):
                 return False
             moved = replace(lane, coord=target)
             return not any(
@@ -4089,19 +4078,26 @@ def _separate_fused_cotravelling_runs(
         )
 
 
-def _move_reaches_section_or_band(
-    lane: CorridorLane, target: float, ctx: _RoutingCtx
-) -> bool:
-    """Whether holding *lane* at *target* lands in a section or leaves its band."""
+def _lane_move_is_grounded(lane: CorridorLane, target: float, ctx: _RoutingCtx) -> bool:
+    """Whether holding *lane* at *target* stays clear of sections and its claim band."""
     delta = target - lane.coord
-    return any(
+    if any(
         _run_enters_section(ctx.graph, run.axis, target, run.span) for run in lane.runs
-    ) or any(
+    ):
+        return False
+    return not any(
         (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
         and abs(band.hold(run.coord + delta) - (run.coord + delta))
         > COORD_TOLERANCE_FINE
         for run in lane.runs
     )
+
+
+def _move_reaches_section_or_band(
+    lane: CorridorLane, target: float, ctx: _RoutingCtx
+) -> bool:
+    """Whether holding *lane* at *target* lands in a section or leaves its band."""
+    return not _lane_move_is_grounded(lane, target, ctx)
 
 
 def _arrangement_is_clear(
@@ -4149,18 +4145,13 @@ def _renest_residual_fused_clusters(
 ) -> None:
     """Nest the movable lanes of a residual fused cluster onto distinct tracks.
 
-    The one-step cascade above reseats a fused lane to the far side of the step
-    it leans toward.  A cluster too crowded for that -- distinct lines pinned
-    together against an immovable plan track, where no single lane has a free
-    neighbouring slot -- survives it as a residual overlay.  Such a cluster only
-    reaches here on a map the closing ``check_no_fused_cotravelling_lines`` would
-    otherwise abort, so restacking its movable lanes at the nesting step, clear
-    of the tracks it cannot move, is the separation of last resort.
-
-    The movable lanes stack one step apart off whichever side of the cluster's
-    immovable tracks their strokes clear the rest of the corridor, taking the
-    side that moves them least.  A stack that would enter a section, overrun a
-    claim band, or fail to draw clear is abandoned rather than forced.
+    A cluster with no free neighbouring slot for any lane cannot be resolved by
+    moving one lane at a time, so its movable lanes are restacked together, one
+    step apart, off whichever side of the cluster's immovable tracks lets the
+    whole stack draw clear -- taking the side that moves them least. A cluster
+    with no movable, unpinned member is skipped, and a stack that would enter a
+    section, overrun a claim band, or still overlap another lane is abandoned
+    rather than forced.
     """
     for members in _fused_clusters(lanes, step):
         movable = [i for i in members if i in movable_lane_ids and not lanes[i].pinned]
