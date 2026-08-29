@@ -4083,6 +4083,111 @@ def _separate_fused_cotravelling_runs(
             and not other.pinned
             and lanes[i].fuses_with(other, step)
         )
+    if movable_route_ids is None:
+        _renest_residual_fused_clusters(
+            lanes, movable_lane_ids, ctx, step, projected=station_offsets is not None
+        )
+
+
+def _move_reaches_section_or_band(
+    lane: CorridorLane, target: float, ctx: _RoutingCtx
+) -> bool:
+    """Whether holding *lane* at *target* lands in a section or leaves its band."""
+    delta = target - lane.coord
+    return any(
+        _run_enters_section(ctx.graph, run.axis, target, run.span) for run in lane.runs
+    ) or any(
+        (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
+        and abs(band.hold(run.coord + delta) - (run.coord + delta))
+        > COORD_TOLERANCE_FINE
+        for run in lane.runs
+    )
+
+
+def _arrangement_is_clear(
+    lanes: list[CorridorLane], proposal: Mapping[int, float], step: float
+) -> bool:
+    """Whether *lanes* draw as separate strokes once *proposal* is applied."""
+    trial = [
+        replace(lane, coord=proposal.get(index, lane.coord))
+        for index, lane in enumerate(lanes)
+    ]
+    return not any(
+        trial[a].fuses_with(trial[b], step)
+        for a in range(len(trial))
+        for b in range(a + 1, len(trial))
+    )
+
+
+def _fused_clusters(lanes: list[CorridorLane], step: float) -> list[list[int]]:
+    """Group lane indices into their connected fusion components (size >= 2)."""
+    parent = list(range(len(lanes)))
+
+    def find(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for a in range(len(lanes)):
+        for b in range(a + 1, len(lanes)):
+            if lanes[a].fuses_with(lanes[b], step):
+                parent[find(a)] = find(b)
+    components: dict[int, list[int]] = defaultdict(list)
+    for index in range(len(lanes)):
+        components[find(index)].append(index)
+    return [members for members in components.values() if len(members) > 1]
+
+
+def _renest_residual_fused_clusters(
+    lanes: list[CorridorLane],
+    movable_lane_ids: set[int],
+    ctx: _RoutingCtx,
+    step: float,
+    *,
+    projected: bool,
+) -> None:
+    """Nest the movable lanes of a residual fused cluster onto distinct tracks.
+
+    The one-step cascade above reseats a fused lane to the far side of the step
+    it leans toward.  A cluster too crowded for that -- distinct lines pinned
+    together against an immovable plan track, where no single lane has a free
+    neighbouring slot -- survives it as a residual overlay.  Such a cluster only
+    reaches here on a map the closing ``check_no_fused_cotravelling_lines`` would
+    otherwise abort, so restacking its movable lanes at the nesting step, clear
+    of the tracks it cannot move, is the separation of last resort.
+
+    The movable lanes stack one step apart off whichever side of the cluster's
+    immovable tracks their strokes clear the rest of the corridor, taking the
+    side that moves them least.  A stack that would enter a section, overrun a
+    claim band, or fail to draw clear is abandoned rather than forced.
+    """
+    for members in _fused_clusters(lanes, step):
+        movable = [i for i in members if i in movable_lane_ids and not lanes[i].pinned]
+        if not movable:
+            continue
+        fixed_coords = [lanes[i].coord for i in members if i not in movable]
+        best: tuple[float, dict[int, float]] | None = None
+        for direction in (1, -1):
+            order = sorted(movable, key=lambda i: lanes[i].coord, reverse=direction < 0)
+            if fixed_coords:
+                base = (max if direction > 0 else min)(fixed_coords)
+                slots = [base + direction * step * (k + 1) for k in range(len(order))]
+            else:
+                base = lanes[order[0]].coord
+                slots = [base + direction * step * k for k in range(len(order))]
+            proposal = dict(zip(order, slots))
+            if any(
+                _move_reaches_section_or_band(lanes[i], proposal[i], ctx) for i in order
+            ) or not _arrangement_is_clear(lanes, proposal, step):
+                continue
+            displacement = sum(abs(proposal[i] - lanes[i].coord) for i in order)
+            if best is None or displacement < best[0]:
+                best = (displacement, proposal)
+        if best is None:
+            continue
+        for index, coord in best[1].items():
+            lanes[index] = _reseat_lane(lanes[index], coord, projected=projected)
 
 
 def _reseating_order(lanes: list[CorridorLane]) -> list[int]:
