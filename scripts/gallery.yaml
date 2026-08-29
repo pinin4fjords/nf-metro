@@ -2333,6 +2333,7 @@ render_only:
     - target_entry_runway_bypass
     - tb_exit_terminal_on_carrier
     - group_band_over_row_corridor
+    - curve_invariant_repros/riboseq_inter_row_corridor
     - hash_seed_determinism/seed_15
     - hash_seed_determinism/seed_41
     - hash_seed_determinism/seed_72
