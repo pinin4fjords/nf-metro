@@ -16,7 +16,7 @@ Each row is a branch point (a *gate*) in a `layout/routing/` dispatch handler or
 
 Modules scoped to routing decision gates; `invariants.py` (the `validate=True` checker) and `__init__.py` are excluded.
 
-The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **395** gaps carry a triage verdict.
+The Triage column carries a curated verdict for gaps no fixture can close: **defensive** (a guard arm a valid topology never violates), **candidate-dead** (no constructible topology reaches it; left in place pending a separate deletion review), or **needs-review** (not yet classified). A blank cell means the gap is still open for a fixture. **396** gaps carry a triage verdict.
 
 ## `arranger.py`
 
@@ -810,9 +810,9 @@ Gates with an un-exercised arm:
 | 1590 | `if target_x is None:` | `->L1591`, `->L1592` |  |
 | 1593 | `for ch in downs:` | `->L1575`, `->L1594` |  |
 | 1594 | `if abs(ch.x - descent.x) <= COORD_TOLERANCE:` | `->L1593`, `->L1595` | **defensive** -- _clear_merge_trunk_opposite_arm moves every down-leg sharing the folding descent's column and skips those on other columns. The corpus's one folding descent carries all its down-legs on a single shared column, so the other-column skip arm stays un-exercised. Defensive against a fork with down-legs spread over several columns. |
-| 1614 | `if k == desc.idx + 1:` | `->L1613` | **defensive** -- In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive. |
+| 1614 | `if k == desc.idx + 1:` | `->L1613` | **defensive** -- In _fanout_traverse_leg: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive. |
 | 1763 | `if lower > upper + COORD_TOLERANCE_FINE:` | `->L1764` |  |
-| 1774 | `if anchored and abs(target - reference) > COORD_TOLERANCE_FINE:` | `->L1775` |  |
+| 1774 | `if anchored and abs(target - reference) > COORD_TOLERANCE_FINE:` | `->L1775` | **defensive** -- In _coincide_same_line_fanout_traverses: a fan-owned traverse is snapped onto its convergence-plan-owned sibling's band, but the movable member's own reserved claim band may forbid that Y. The corpus fan-owned traverses carry no claim band that conflicts with the anchor, so the target always lands on the reference and the skip arm is never taken. Defensive against a movable member whose reservation excludes the anchor's band. |
 | 1782 | `if any(` | `->L1792` |  |
 | 1812 | `abs(p0[1] - p1[1]) > COORD_TOLERANCE` | `->L1816` |  |
 | 1813 | `or abs(p1[0] - p2[0]) > COORD_TOLERANCE` | `->L1816` |  |
