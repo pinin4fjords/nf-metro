@@ -632,8 +632,6 @@ def _junction_traverse_band(
     routes, offsets, source: str, target: str
 ) -> tuple[float, tuple[float, float]] | None:
     """The Y and X-span of the widest horizontal leg *source*->*target* draws."""
-    from nf_metro.layout.routing.common import apply_route_offsets
-
     for rp in routes:
         if rp.edge.source != source or rp.edge.target != target:
             continue

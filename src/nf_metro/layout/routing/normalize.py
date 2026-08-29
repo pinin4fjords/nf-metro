@@ -1677,9 +1677,9 @@ def _traverses_share_a_stroke(
     a corridor apart in Y overlap in X only because they leave the same source;
     they are separate runs of the line to different rows, not a smear to fuse.
     """
-    lo = max(first.seg.x_lo, second.seg.x_lo)
-    hi = min(first.seg.x_hi, second.seg.x_hi)
-    if hi - lo <= COORD_TOLERANCE:
+    if not _spans_overlap(
+        first.seg.x_lo, first.seg.x_hi, second.seg.x_lo, second.seg.x_hi
+    ):
         return False
     return (
         abs(first.seg.xb - second.seg.xb) <= COORD_TOLERANCE
