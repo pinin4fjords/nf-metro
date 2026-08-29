@@ -4173,6 +4173,9 @@ def _separate_fused_cotravelling_runs(
         _renest_residual_fused_clusters(
             lanes, movable_lane_ids, ctx, step, projected=station_offsets is not None
         )
+        _tighten_overwide_movable_lanes(
+            lanes, movable_lane_ids, ctx, step, projected=station_offsets is not None
+        )
 
 
 def _lane_move_is_grounded(lane: CorridorLane, target: float, ctx: _RoutingCtx) -> bool:
@@ -4265,6 +4268,76 @@ def _renest_residual_fused_clusters(
             continue
         for index, coord in cleared.items():
             lanes[index] = _reseat_lane(lanes[index], coord, projected=projected)
+
+
+def _lanes_share_corridor(first: CorridorLane, second: CorridorLane) -> bool:
+    """Whether two distinct-line lanes co-travel one corridor in the same sense."""
+    if (
+        first.axis != second.axis
+        or first.sign != second.sign
+        or first.line_id == second.line_id
+    ):
+        return False
+    return any(
+        spans_share_corridor(*mine.span, *theirs.span)
+        for mine in first.runs
+        for theirs in second.runs
+    )
+
+
+def _tighten_overwide_movable_lanes(
+    lanes: list[CorridorLane],
+    movable_lane_ids: set[int],
+    ctx: _RoutingCtx,
+    step: float,
+    *,
+    projected: bool,
+) -> None:
+    """Draw each movable lane onto the nesting pitch from its nearest co-traveller.
+
+    The separation cascade clears every fusion but only ever widens a gap: a
+    lane that stepped clear of an obstacle which then relocated is stranded a
+    step too far out, so a bundle that should read at one pitch carries a
+    widened gap.  Once the geometry is fully non-fused, pull each movable lane
+    in to one step from its nearest co-travelling neighbour, on the side it
+    already sits, whenever it sits between one and two steps away and the tighter
+    slot draws clear.  Each lane moves inward at most once, so the pass cannot
+    reorder a bundle, open a fusion, or fail to terminate.
+    """
+    relocated: set[int] = set()
+    pending = deque(i for i in _reseating_order(lanes) if i in movable_lane_ids)
+    while pending:
+        i = pending.popleft()
+        if i in relocated:
+            continue
+        lane = lanes[i]
+        neighbours = [
+            other
+            for j, other in enumerate(lanes)
+            if j != i and _lanes_share_corridor(lane, other)
+        ]
+        if not neighbours:
+            continue
+        nearest = min(neighbours, key=lambda other: abs(other.coord - lane.coord))
+        gap = abs(lane.coord - nearest.coord)
+        if not step + COORD_TOLERANCE < gap < 2 * step - COORD_TOLERANCE:
+            continue
+        direction = 1.0 if lane.coord > nearest.coord else -1.0
+        target = nearest.coord + direction * step
+        if not _lane_move_is_grounded(lane, target, ctx):
+            continue
+        moved = replace(lane, coord=target)
+        if any(moved.fuses_with(other, step) for other in lanes if other is not lane):
+            continue
+        lanes[i] = _reseat_lane(lane, target, projected=projected)
+        relocated.add(i)
+        pending.extend(
+            j
+            for j, other in enumerate(lanes)
+            if j not in relocated
+            and j in movable_lane_ids
+            and _lanes_share_corridor(lanes[i], other)
+        )
 
 
 def _reseating_order(lanes: list[CorridorLane]) -> list[int]:
