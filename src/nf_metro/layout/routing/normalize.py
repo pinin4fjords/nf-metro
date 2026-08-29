@@ -4048,18 +4048,7 @@ def _separate_fused_cotravelling_runs(
         }
 
         def feasible(target: float) -> bool:
-            delta = target - lane.coord
-            if any(
-                _run_enters_section(ctx.graph, run.axis, target, run.span)
-                for run in lane.runs
-            ):
-                return False
-            if any(
-                (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
-                and abs(band.hold(run.coord + delta) - (run.coord + delta))
-                > COORD_TOLERANCE_FINE
-                for run in lane.runs
-            ):
+            if not _lane_move_is_grounded(lane, target, ctx):
                 return False
             moved = replace(lane, coord=target)
             return not any(
@@ -4083,6 +4072,102 @@ def _separate_fused_cotravelling_runs(
             and not other.pinned
             and lanes[i].fuses_with(other, step)
         )
+    if movable_route_ids is None:
+        _renest_residual_fused_clusters(
+            lanes, movable_lane_ids, ctx, step, projected=station_offsets is not None
+        )
+
+
+def _lane_move_is_grounded(lane: CorridorLane, target: float, ctx: _RoutingCtx) -> bool:
+    """Whether holding *lane* at *target* stays clear of sections and its claim band."""
+    delta = target - lane.coord
+    if any(
+        _run_enters_section(ctx.graph, run.axis, target, run.span) for run in lane.runs
+    ):
+        return False
+    return not any(
+        (band := _segment_claim_band(ctx, run.route, run.idx)) is not None
+        and abs(band.hold(run.coord + delta) - (run.coord + delta))
+        > COORD_TOLERANCE_FINE
+        for run in lane.runs
+    )
+
+
+def _arrangement_is_clear(
+    lanes: list[CorridorLane], proposal: Mapping[int, float], step: float
+) -> bool:
+    """Whether *lanes* draw as separate strokes once *proposal* is applied."""
+    trial = [
+        replace(lane, coord=proposal.get(index, lane.coord))
+        for index, lane in enumerate(lanes)
+    ]
+    return not any(
+        trial[a].fuses_with(trial[b], step)
+        for a in range(len(trial))
+        for b in range(a + 1, len(trial))
+    )
+
+
+def _fused_clusters(lanes: list[CorridorLane], step: float) -> list[list[int]]:
+    """Group lane indices into their connected fusion components (size >= 2)."""
+    parent = list(range(len(lanes)))
+
+    def find(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    for a in range(len(lanes)):
+        for b in range(a + 1, len(lanes)):
+            if lanes[a].fuses_with(lanes[b], step):
+                parent[find(a)] = find(b)
+    components: dict[int, list[int]] = defaultdict(list)
+    for index in range(len(lanes)):
+        components[find(index)].append(index)
+    return [members for members in components.values() if len(members) > 1]
+
+
+def _renest_residual_fused_clusters(
+    lanes: list[CorridorLane],
+    movable_lane_ids: set[int],
+    ctx: _RoutingCtx,
+    step: float,
+    *,
+    projected: bool,
+) -> None:
+    """Nest the movable lanes of a residual fused cluster onto distinct tracks.
+
+    A cluster with no free neighbouring slot for any lane cannot be resolved by
+    moving one lane at a time, so its movable lanes are restacked together, one
+    step apart, off one side of the cluster's immovable tracks. Both sides are
+    tried and whichever draws clear is taken: a cluster reaches here only when
+    the one-step cascade stranded its movable lanes against an immovable track,
+    which leaves room on a single side, so the choice does not arise in practice.
+    A cluster with no movable lane, or none it can anchor a stack against, is
+    skipped, and a stack that would enter a section, overrun a claim band, or
+    fail to draw clear of another lane is abandoned rather than forced.
+    """
+    for members in _fused_clusters(lanes, step):
+        movable = [i for i in members if i in movable_lane_ids and not lanes[i].pinned]
+        anchors = [lanes[i].coord for i in members if i not in movable]
+        if not movable or not anchors:
+            continue
+        cleared: dict[int, float] | None = None
+        for direction in (1, -1):
+            order = sorted(movable, key=lambda i: lanes[i].coord, reverse=direction < 0)
+            base = (max if direction > 0 else min)(anchors)
+            slots = [base + direction * step * (k + 1) for k in range(len(order))]
+            proposal = dict(zip(order, slots))
+            grounded = all(
+                _lane_move_is_grounded(lanes[i], proposal[i], ctx) for i in order
+            )
+            if grounded and _arrangement_is_clear(lanes, proposal, step):
+                cleared = proposal
+        if cleared is None:
+            continue
+        for index, coord in cleared.items():
+            lanes[index] = _reseat_lane(lanes[index], coord, projected=projected)
 
 
 def _reseating_order(lanes: list[CorridorLane]) -> list[int]:

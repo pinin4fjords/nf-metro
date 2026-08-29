@@ -608,6 +608,26 @@ def test_inter_row_corridor_seats_its_shared_destination_pair_together(
     assert separations[("lb", "lc", "Y")] == pytest.approx(2 * step)
 
 
+def test_cross_row_corridor_nests_lines_arriving_from_different_grid_rows() -> None:
+    """Distinct lines sharing an inter-row corridor keep the nesting step even
+    when they enter it from different grid rows.
+
+    On the riboseq map three corridor routes realise one reserved band from
+    separate reservation groups: ``rnaseq`` crosses from the alignment row to
+    ``te``, ``annotation`` from the transcript-discovery row to ``orf_calling``,
+    and ``riboseq`` runs its own trunk between them.  No group's own lane
+    allocation sees the others, so they settle onto one lane and paint over each
+    other -- ``rnaseq`` and ``annotation`` at the same coordinate, ``riboseq``
+    within one step of both.
+    """
+    path = CURVE_REPROS / "riboseq_inter_row_corridor.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph, routes, offsets = _route(path)
+    violations = check_no_fused_cotravelling_lines(graph, routes, offsets)
+    assert not violations, "\n".join(v.message() for v in violations)
+
+
 def _peeloff_riser_xs(
     routes: list[RoutedPath], offsets, port_id: str
 ) -> dict[str, float]:

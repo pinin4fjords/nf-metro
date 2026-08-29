@@ -1211,6 +1211,14 @@
   "note": "A settled exit-turn radius must retain all three defining points. Production routes have point-derived radius counts; the point-index case in test_gap_plan_radius_validator_rejects_incomplete_ownership exercises the attributed failure.",
   "status": "defensive"
  },
+ "normalize.py::if cleared is None:::#1": {
+  "note": "The residual-cluster fallback gives up on a fused cluster when neither the up nor the down stack of its movable lanes clears every section, claim band and other lane. The corpus's one residual cluster (riboseq_inter_row_corridor) is stranded against a pinned trunk with room on its open side, so a stack clears and the give-up arm stays un-exercised. Defensive against a cluster boxed on both sides, which has no non-fused seating to reach.",
+  "status": "defensive"
+ },
+ "normalize.py::if not movable or not anchors:::#1": {
+  "note": "The residual-cluster fallback skips a fused cluster it cannot restack: one with no movable, unpinned lane (nothing to move), or none it can anchor a stack against (every member movable). An all-movable residual is one the one-step cascade already exhausted the room for -- its obstacle-chain reaches every slot the shared section and band limits leave -- so the atomic stack cannot improve it; the corpus produces no all-fixed or all-movable residual, leaving this skip un-exercised.",
+  "status": "defensive"
+ },
  "offsets.py::elif feeding_exit != edge.source:::#1": {
   "note": "This arm (single_exit=False due to multiple distinct exit ports feeding one junction) requires one junction to receive edges from two different exit ports. But _rewrite_edges_with_junctions in resolve.py creates exactly one junction per exit port fan-out, wired exclusively from that exit port's edges. A junction always has a single upstream exit port; the elif is structurally unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
