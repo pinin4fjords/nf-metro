@@ -1071,6 +1071,10 @@
   "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
   "status": "defensive"
  },
+ "normalize.py::if anchored and abs(target - reference) > COORD_TOLERANCE_FINE:::#1": {
+  "note": "In _coincide_same_line_fanout_traverses: a fan-owned traverse is snapped onto its convergence-plan-owned sibling's band, but the movable member's own reserved claim band may forbid that Y. The corpus fan-owned traverses carry no claim band that conflicts with the anchor, so the target always lands on the reference and the skip arm is never taken. Defensive against a movable member whose reservation excludes the anchor's band.",
+  "status": "defensive"
+ },
  "normalize.py::if band is not None:::#1": {
   "note": "Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band).",
   "status": "defensive"
@@ -1120,7 +1124,7 @@
   "status": "defensive"
  },
  "normalize.py::if k == desc.idx + 1:::#1": {
-  "note": "In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive.",
+  "note": "In _fanout_traverse_leg: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive.",
   "status": "defensive"
  },
  "normalize.py::if len(trunks) < 2:::#1": {

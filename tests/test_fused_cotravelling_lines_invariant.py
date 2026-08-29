@@ -628,6 +628,62 @@ def test_cross_row_corridor_nests_lines_arriving_from_different_grid_rows() -> N
     assert not violations, "\n".join(v.message() for v in violations)
 
 
+def _junction_traverse_band(
+    routes, offsets, source: str, target: str
+) -> tuple[float, tuple[float, float]] | None:
+    """The Y and X-span of the widest horizontal leg *source*->*target* draws."""
+    from nf_metro.layout.routing.common import apply_route_offsets
+
+    for rp in routes:
+        if rp.edge.source != source or rp.edge.target != target:
+            continue
+        pts = list(apply_route_offsets(rp, offsets))
+        best: tuple[float, tuple[float, float]] | None = None
+        width = -1.0
+        for start, end in zip(pts, pts[1:], strict=False):
+            if (
+                abs(start[1] - end[1]) <= COORD_TOLERANCE
+                and abs(start[0] - end[0]) > COORD_TOLERANCE
+            ):
+                span = (min(start[0], end[0]), max(start[0], end[0]))
+                if span[1] - span[0] > width:
+                    width = span[1] - span[0]
+                    best = (start[1], span)
+        return best
+    return None
+
+
+def test_same_line_riboseq_junction_traverses_draw_as_one_stroke() -> None:
+    """Two same-line branches leaving one junction share their corridor as one stroke.
+
+    On the riboseq map ``riboseq`` leaves ``__junction_13`` on two inter-section
+    edges -- one convergence-plan-owned trunk to ``__merge_2`` and one fan-owned
+    branch to ``psite_id``'s left entry.  Their vertical arms already drop the
+    same column, but the horizontal corridor they turn onto settles on two bands
+    a couple of pixels apart, so the shared run reads as one line smeared across
+    two strokes.  A single line must draw as one stroke over the stretch its
+    branches co-travel, splitting only where the fan-owned branch peels off.
+    """
+    path = CURVE_REPROS / "riboseq_inter_row_corridor.mmd"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph, routes, offsets = _route(path)
+    merge = _junction_traverse_band(routes, offsets, "__junction_13", "__merge_2")
+    psite = _junction_traverse_band(
+        routes, offsets, "__junction_13", "psite_id__entry_left_9"
+    )
+    assert merge is not None, "merge trunk leg not found"
+    assert psite is not None, "psite branch leg not found"
+    merge_y, merge_span = merge
+    psite_y, psite_span = psite
+    overlap = min(merge_span[1], psite_span[1]) - max(merge_span[0], psite_span[0])
+    assert overlap > 100.0, f"branches barely share a corridor: {overlap:.1f}px"
+    assert abs(merge_y - psite_y) <= COORD_TOLERANCE, (
+        f"same-line riboseq traverses draw {abs(merge_y - psite_y):.1f}px apart over "
+        f"a {overlap:.1f}px shared corridor -- one line as two strokes"
+    )
+
+
 def _peeloff_riser_xs(
     routes: list[RoutedPath], offsets, port_id: str
 ) -> dict[str, float]:

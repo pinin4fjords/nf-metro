@@ -1603,24 +1603,36 @@ class _TraverseLeg(NamedTuple):
     seg: HTrunkSeg
 
 
+def _fanout_traverse_leg(rp: RoutedPath, desc: _VChannel) -> _TraverseLeg | None:
+    """The interior horizontal trunk a route turns onto right after *desc*.
+
+    A branch that leaves a source ``H`` then ``V`` and then turns to run along a
+    corridor has that corridor leg at ``desc.idx + 1`` -- an interior trunk
+    flanked by the descent and the onward riser.
+    """
+    for k, seg in iter_horizontal_trunks(rp):
+        if k == desc.idx + 1:
+            return _TraverseLeg(rp, k, seg)
+    return None
+
+
 def _fanout_traverse_spans(
     rp: RoutedPath,
 ) -> Iterable[tuple[tuple[str, bool], _TraverseLeg]]:
     """The horizontal leg a fan-out route turns onto after its opening descent.
 
-    A branch that leaves a source ``H`` then ``V`` and then turns to run along a
-    corridor has that corridor leg at ``descent.idx + 1`` -- an interior trunk
-    flanked by the descent and the onward riser.  Key it by
-    ``(source, descent-direction)`` so a fan's same-direction traverses nest
-    together, the same grouping :func:`_bundle_divergent_distinct_descents` uses.
+    Key it by ``(source, descent-direction)`` so a fan's same-direction
+    traverses nest together, the same grouping
+    :func:`_bundle_divergent_distinct_descents` uses.  Planner-owned descents are
+    dropped: this feeds the distinct-line bundler, which reseats a whole movable
+    group and must not pull on a plan-owned trunk.
     """
     desc = _initial_fanout_descent(rp)
     if desc is None:
         return
-    for k, seg in iter_horizontal_trunks(rp):
-        if k == desc.idx + 1:
-            yield (rp.edge.source, desc.down), _TraverseLeg(rp, k, seg)
-            break
+    leg = _fanout_traverse_leg(rp, desc)
+    if leg is not None:
+        yield (rp.edge.source, desc.down), leg
 
 
 def _fanout_traverse_legs(
@@ -1628,6 +1640,81 @@ def _fanout_traverse_legs(
 ) -> defaultdict[tuple[str, bool], list[_TraverseLeg]]:
     """Fan-out traverse legs bucketed by source and descent direction."""
     return _group_channels_by(routes, _fanout_traverse_spans)
+
+
+def _all_fanout_traverse_spans(
+    rp: RoutedPath,
+) -> Iterable[tuple[tuple[str, bool], _TraverseLeg]]:
+    """Like :func:`_fanout_traverse_spans` but keeps planner-owned descents.
+
+    The same-line coincidence pass fuses a fan-owned traverse onto a
+    convergence-plan-owned sibling leaving the same source the same way, so it
+    needs that plan-owned leg present as the immovable reference to snap onto.
+    """
+    desc = _opening_fanout_descent(rp)
+    if desc is None:
+        return
+    leg = _fanout_traverse_leg(rp, desc)
+    if leg is not None:
+        yield (rp.edge.source, desc.down), leg
+
+
+def _all_fanout_traverse_legs(
+    routes: list[RoutedPath],
+) -> defaultdict[tuple[str, bool], list[_TraverseLeg]]:
+    """Fan-out traverse legs, planner-owned included, bucketed by source and dir."""
+    return _group_channels_by(routes, _all_fanout_traverse_spans)
+
+
+def _traverses_share_a_stroke(
+    first: _TraverseLeg, second: _TraverseLeg, step: float
+) -> bool:
+    """Whether two same-line legs draw as one stroke where their Xs overlap.
+
+    They must overlap in X, and then either turn off the corridor at one column
+    -- parallel tracks running to a single peel point -- or run within a nesting
+    step of each other in Y, a sub-step smear of one trunk that split.  Two legs
+    a corridor apart in Y overlap in X only because they leave the same source;
+    they are separate runs of the line to different rows, not a smear to fuse.
+    """
+    lo = max(first.seg.x_lo, second.seg.x_lo)
+    hi = min(first.seg.x_hi, second.seg.x_hi)
+    if hi - lo <= COORD_TOLERANCE:
+        return False
+    return (
+        abs(first.seg.xb - second.seg.xb) <= COORD_TOLERANCE
+        or abs(first.seg.y - second.seg.y) <= step + COORD_TOLERANCE
+    )
+
+
+def _same_line_overlapping_traverses(
+    members: Sequence[_TraverseLeg], step: float
+) -> list[list[_TraverseLeg]]:
+    """Partition a source's traverse legs into same-line, one-stroke groups.
+
+    A pair that leaves together and peels off at different Xs shares its corridor
+    even though no single turn-off column groups them; :func:`_traverses_share_a_stroke`
+    decides which overlapping legs are one line's smear rather than its separate
+    runs to different rows.
+    """
+    groups: list[list[_TraverseLeg]] = []
+    for member in members:
+        group = next(
+            (
+                group
+                for group in groups
+                if group[0].route.line_id == member.route.line_id
+                and any(
+                    _traverses_share_a_stroke(other, member, step) for other in group
+                )
+            ),
+            None,
+        )
+        if group is None:
+            groups.append([member])
+        else:
+            group.append(member)
+    return groups
 
 
 def _fanout_traverse_group_is_movable(members: Sequence[_TraverseLeg]) -> bool:
@@ -1641,30 +1728,33 @@ def _fanout_traverse_group_is_movable(members: Sequence[_TraverseLeg]) -> bool:
 def _coincide_same_line_fanout_traverses(
     routes: list[RoutedPath], ctx: _RoutingCtx
 ) -> None:
-    """Fuse same-line fan traverses that turn onto one riser column."""
-    for members in _fanout_traverse_legs(routes).values():
-        groups: list[list[_TraverseLeg]] = []
-        for member in members:
-            group = next(
-                (
-                    group
-                    for group in groups
-                    if group[0].route.line_id == member.route.line_id
-                    and abs(group[0].seg.xb - member.seg.xb) <= COORD_TOLERANCE
-                ),
-                None,
-            )
-            if group is None:
-                groups.append([member])
-            else:
-                group.append(member)
+    """Fuse same-line fan traverses that share a corridor into one stroke.
 
-        for group in groups:
+    Several branches of one line leaving a source turn onto the corridor running
+    back toward their targets; where those horizontal legs overlap in X they are
+    one line and must draw as one stroke, splitting only where each branch turns
+    off.  A convergence-plan-owned branch owns its trunk Y and cannot move, so it
+    anchors the group and the fan-owned siblings snap onto its band; a group of
+    only fan-owned legs seats on the topmost band its reservations admit.
+    """
+    for members in _all_fanout_traverse_legs(routes).values():
+        for group in _same_line_overlapping_traverses(members, ctx.offset_step):
             if len(group) < 2:
+                continue
+            anchored: list[_TraverseLeg] = []
+            movable: list[_TraverseLeg] = []
+            for member in group:
+                bucket = (
+                    anchored
+                    if convergence_owns_segment_boundary(member.route, member.idx)
+                    else movable
+                )
+                bucket.append(member)
+            if not movable:
                 continue
             bands = tuple(
                 band
-                for member in group
+                for member in movable
                 if (band := _segment_claim_band(ctx, member.route, member.idx))
                 is not None
             )
@@ -1674,8 +1764,15 @@ def _coincide_same_line_fanout_traverses(
                 raise RuntimeError(
                     "same-line fan traverses have disjoint reserved bands"
                 )
-            target = min(member.seg.y for member in group)
-            target = min(max(target, lower), upper)
+            reference = min(
+                (member.seg.y for member in anchored),
+                default=min(member.seg.y for member in movable),
+            )
+            target = min(max(reference, lower), upper)
+            # A movable member's reservation may forbid the anchor's band; better
+            # to leave the pair a smear than move one leg onto its own stroke.
+            if anchored and abs(target - reference) > COORD_TOLERANCE_FINE:
+                continue
             exempt = {
                 section
                 for member in group
@@ -1690,10 +1787,10 @@ def _coincide_same_line_fanout_traverses(
                     target,
                     exempt,
                 )
-                for member in group
+                for member in movable
             ):
                 continue
-            for member in group:
+            for member in movable:
                 if abs(member.seg.y - target) > COORD_TOLERANCE_FINE:
                     _set_htrunk_y(member.route, member.idx, target)
 
