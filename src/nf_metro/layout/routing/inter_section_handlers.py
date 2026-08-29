@@ -290,6 +290,18 @@ class _InterFacts:
         return None
 
     @property
+    def effective_entry_side(self) -> PortSide | None:
+        """Side of the entry port the hop ultimately lands on.
+
+        A merge junction is a virtual target standing in front of a real entry
+        port, so a hop into one lands on that port's side; a hop into a real
+        entry port lands on its own.  ``None`` when the target carries no side.
+        """
+        if self.merge_ep is not None:
+            return self.graph.ports[self.merge_ep.id].side
+        return self.entry_side
+
+    @property
     def is_perp_exit(self) -> bool:
         """Source is a TOP/BOTTOM exit on a horizontal-flow section."""
         return (
@@ -3129,6 +3141,7 @@ def _bypass_geometry(
     i, src_row = f.i, f.src_row
     assert f.src_col is not None and f.tgt_col is not None
     src_col, tgt_col = f.src_col, f.tgt_col
+    effective_entry_side = f.effective_entry_side
     effective_tx = shape.effective_tx if shape is not None else None
     effective_ty = shape.effective_ty if shape is not None else None
     force_cross_row = shape is not None and shape.force_cross_row
@@ -3292,7 +3305,45 @@ def _bypass_geometry(
                 gap1_mid = gap1_base - half_g1
             off1 = delta1
             gap1_x = gap1_mid + delta1
+    else:
+        if fan is not None:
+            # Wrap-style routes whose source-side curve is on the RIGHT
+            # regardless of dx (left-entry wrap, around-section-below) are
+            # dispatched through their own handlers, not here.
+            ui, un = fan
+            fan_delta = l_shape_stagger(ui, un, gap1_vertical, ctx.offset_step)
+            fan_mid_x = _fan_corner_x(ctx, src, un, horizontal, facts=f)
+            off1 = fan_delta
+            gap1_x = fan_mid_x + fan_delta
+        else:
+            gap1_base = _gap_channel_base(
+                graph,
+                src_col - 1,
+                src_row,
+                g1_n,
+                ctx.offset_step,
+                anchor_section_id=src_sec_id,
+                anchor_side=PortSide.LEFT,
+            )
+            gap1_limit = sx - ctx.curve_radius
+            if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
+                gap1_mid = gap1_limit - half_g1
+            else:
+                gap1_mid = gap1_base + half_g1
+            off1 = delta1
+            gap1_x = gap1_mid + delta1
 
+    # gap2 descends on the entry's outward side: a LEFT entry is reached in the
+    # gap left of the target, a RIGHT entry in the gap right of it, whichever way
+    # the U travelled to get there.  A merge junction stands in front of a real
+    # entry port, so it descends on that port's side too -- its own x sits inside
+    # the target box, where a same-travel-direction descent would land the port
+    # approach crossing the interior.  A source facing the wrong side of a plain
+    # LEFT/RIGHT port is diverted to the wrap handlers before the U, so a direct
+    # port's outward side matches the travel direction by construction here.
+    gap2_left = effective_entry_side is PortSide.LEFT
+
+    if gap2_left:
         gap2_base = _gap_channel_base(
             graph,
             tgt_col - 1,
@@ -3350,35 +3401,7 @@ def _bypass_geometry(
                 and gap_right - around_xmax >= SECTION_ROUTE_CLEARANCE
             ):
                 gap2_mid = pulled_mid_candidate
-        gap2_x = gap2_mid + delta2
     else:
-        if fan is not None:
-            # Wrap-style routes whose source-side curve is on the RIGHT
-            # regardless of dx (left-entry wrap, around-section-below) are
-            # dispatched through their own handlers, not here.
-            ui, un = fan
-            fan_delta = l_shape_stagger(ui, un, gap1_vertical, ctx.offset_step)
-            fan_mid_x = _fan_corner_x(ctx, src, un, horizontal, facts=f)
-            off1 = fan_delta
-            gap1_x = fan_mid_x + fan_delta
-        else:
-            gap1_base = _gap_channel_base(
-                graph,
-                src_col - 1,
-                src_row,
-                g1_n,
-                ctx.offset_step,
-                anchor_section_id=src_sec_id,
-                anchor_side=PortSide.LEFT,
-            )
-            gap1_limit = sx - ctx.curve_radius
-            if gap1_base + (g1_n - 1) * ctx.offset_step > gap1_limit:
-                gap1_mid = gap1_limit - half_g1
-            else:
-                gap1_mid = gap1_base + half_g1
-            off1 = delta1
-            gap1_x = gap1_mid + delta1
-
         gap2_base = _gap_channel_base(
             graph,
             tgt_col,
@@ -3393,7 +3416,7 @@ def _bypass_geometry(
             gap2_mid = gap2_limit + half_g2
         else:
             gap2_mid = gap2_base - half_g2
-        gap2_x = gap2_mid + delta2
+    gap2_x = gap2_mid + delta2
 
     # When the descent crosses other grid rows, the source/target-row gap
     # channel can still pierce an oversized section stacked in a crossed row
@@ -3404,9 +3427,11 @@ def _bypass_geometry(
     if cross_row:
         if horizontal is Direction.R:
             g1_lo, g1_hi = column_gap_edges(graph, src_col, src_col + 1)
-            g2_lo, g2_hi = column_gap_edges(graph, tgt_col - 1, tgt_col)
         else:
             g1_lo, g1_hi = column_gap_edges(graph, src_col - 1, src_col)
+        if gap2_left:
+            g2_lo, g2_hi = column_gap_edges(graph, tgt_col - 1, tgt_col)
+        else:
             g2_lo, g2_hi = column_gap_edges(graph, tgt_col, tgt_col + 1)
         gap1_x = _clear_channel_x_in_band(
             graph, gap1_x, sy, by, SECTION_ROUTE_CLEARANCE, exclude, g1_lo, g1_hi
