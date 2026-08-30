@@ -4270,14 +4270,14 @@ def _frame_carriers_are_conflict_free(
     (the reservation invariant).
     """
     for station_id in carrier_ids:
-        lanes = [
-            round(assignments[line_id], 1)
+        lanes = {
+            line_id: round(assignments[line_id], 1)
             for line_id in graph.station_lines(station_id)
             if line_id in assignments
-        ]
-        if len(set(lanes)) != len(lanes):
+        }
+        if len(set(lanes.values())) != len(lanes):
             return False
-        if _carrier_offset_gap(graph, station_id, assignments, offset_step) is not None:
+        if _carrier_offset_gap(graph, station_id, lanes, offset_step) is not None:
             return False
     return True
 

@@ -981,8 +981,8 @@ Gates with an un-exercised arm:
 | 4170 | `if key not in ctx.offsets:` | `->L4171` |  |
 | 4206 | `if len(hubs) != 1:` | `->L4207` | **defensive** -- Guard in _is_flat_handover_hub admitting a linear entry frame whose cohort terminates at a hub. Refuses unless exactly one carrier originates the local bundle; a section with two independent origination points hands its trunk over in two places, not one. The one corpus section that reaches the relaxed path (continuation_lane_step's Results hub) has a single hub, so the multi-hub refusal stays un-exercised. Defensive. |
 | 4221 | `if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:` | `->L4222` | **defensive** -- Guard in _is_flat_handover_hub: the hub's originating lines must run flat, so a consumer off the hub's trunk row (a peel-off, drawing a real turn) is refused. The corpus's one relaxed section hands over on a level row, so the off-row refusal stays un-exercised. Defensive. |
-| 4278 | `if len(set(lanes)) != len(lanes):` | `->L4279` |  |
-| 4280 | `if _carrier_offset_gap(graph, station_id, assignments, offset_step) is not None:` | `->L4281` |  |
+| 4278 | `if len(set(lanes.values())) != len(lanes):` | `->L4279` |  |
+| 4280 | `if _carrier_offset_gap(graph, station_id, lanes, offset_step) is not None:` | `->L4281` |  |
 | 4354 | `len(levels) != len(continuing)` | `->L4357` |  |
 | 4435 | `if line_id not in assignments:` | `->L4436` |  |
 | 4440 | `and abs(owned - assignments[line_id]) > _OFFSET_EQ_TOLERANCE` | `->L4442` |  |
