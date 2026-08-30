@@ -102,6 +102,9 @@ class _OffsetCtx:
     # Section -> flat-frame component root, populated by section-local re-indexing
     frame_roots: dict[str, str] = field(default_factory=dict)
     fan_owned_offsets: dict[tuple[str, str], float] = field(default_factory=dict)
+    # Reactive offsets frozen before the entry-frame fixed point rebases any
+    # section; ``None`` outside that transaction.
+    prematerialize_offsets: dict[tuple[str, str], float] | None = None
 
 
 @dataclass(frozen=True)
@@ -4221,18 +4224,97 @@ def _is_flat_handover_hub(
     return True
 
 
+def _entry_seam_is_flat(graph: MetroGraph, entry_port_id: str) -> bool:
+    """Whether every feeder meets *entry_port_id* level with it.
+
+    A flat seam draws a lane mismatch between the feeder and the entry as a
+    horizontal jog, so inheriting the feeder lane lands the run level.  A
+    corridor feeder (off the port's Y) instead absorbs the lane step in its
+    vertical leg, and the trunk-anchoring invariant then requires a lone
+    consumer on offset 0 (:func:`iter_corridor_fed_solo_entries`); inheriting
+    the upstream lane there would only reserve empty lanes.
+    """
+    port_y = graph.stations[entry_port_id].y
+    feeder_dys = [
+        graph.stations[edge.source].y - port_y
+        for edge in graph.edges_to(entry_port_id)
+        if edge.source in graph.stations
+    ]
+    return bool(feeder_dys) and all(abs(dy) <= _SAME_Y_TOLERANCE for dy in feeder_dys)
+
+
+def _frame_carriers_are_conflict_free(
+    graph: MetroGraph,
+    carrier_ids: Sequence[str],
+    assignments: Mapping[str, float],
+    offset_step: float,
+) -> bool:
+    """Whether *assignments* leave every carrier ridden on a distinct lane.
+
+    Two facets of the frame's ownership contract, checked before it is planned:
+    no two lines of one carrier land on the same lane (the collinearity
+    invariant), and no carrier's marker spans an interior lane no line rides
+    (the reservation invariant).
+    """
+    for station_id in carrier_ids:
+        lane_by_line: dict[float, str] = {}
+        for line_id in graph.station_lines(station_id):
+            if line_id not in assignments:
+                continue
+            lane = round(assignments[line_id], 1)
+            if lane in lane_by_line:
+                return False
+            lane_by_line[lane] = line_id
+        levels = distinct_offset_levels(lane_by_line)
+        if max_interior_offset_gap(levels, offset_step) is not None:
+            return False
+    return True
+
+
+def _entry_cohort_jogs(
+    ctx: _OffsetCtx,
+    entry_port_id: str,
+    inherited: Mapping[str, float],
+) -> bool:
+    """Whether the entering cohort meets its feeder lane on a step.
+
+    Read against the reactive offsets frozen before the fixed point, so the
+    answer is stable across its passes.  When the reactive path already leveled
+    the cohort on its inherited lane there is no boundary jog for a frame to
+    remove, and rebasing would only churn the section's other lanes; only a real
+    step earns the rebase.  Outside the transaction there is no frozen snapshot,
+    so an entry frame is admitted unconditionally (the ownership capture path).
+    """
+    snapshot = ctx.prematerialize_offsets
+    if snapshot is None:
+        return True
+    return any(
+        abs(snapshot.get((entry_port_id, line_id), 0.0) - lane) > _OFFSET_EQ_TOLERANCE
+        for line_id, lane in inherited.items()
+    )
+
+
 def _linear_entry_frame(
     ctx: _OffsetCtx,
     section: Section,
 ) -> _LinearEntryFrame | None:
-    """Plan a complete section frame from one flow-aligned entry cohort."""
+    """Plan a complete section frame from one flow-aligned entry cohort.
+
+    A multi-line cohort that passes through to a flow-axis exit inherits its
+    feeder's exact lanes so the boundary carries no jog.  A single-line or
+    terminating cohort inherits them only across a flat seam the reactive path
+    left stepping, where the mismatch draws as an offset-sized diagonal; a
+    corridor-fed or reflected entry, one whose adopted lanes would collide or
+    strand a reserved lane, or one already level on its feeder lane, defers to
+    the reactive trunk-anchoring path instead.
+    """
     graph = ctx.graph
     flow_entry, flow_exit = flow_port_sides(section.direction)
     entries = [
         port_id
         for port_id in section.entry_ports
         if graph.ports[port_id].side is flow_entry
-        and len(graph.station_lines(port_id)) >= 2
+        and len(graph.station_lines(port_id)) >= 1
     ]
     if len(entries) != 1:
         return None
@@ -4283,6 +4365,8 @@ def _linear_entry_frame(
         station_id for station_id in real_station_ids if station_id not in carrying_set
     ]
     present = _section_present_line_set(ctx, section.id)
+    if any(line_id not in ctx.line_priority for line_id in present):
+        return None
     if non_carrying and not _is_flat_handover_hub(
         ctx, section, continuing_set, present, carrying, non_carrying
     ):
@@ -4293,7 +4377,11 @@ def _linear_entry_frame(
         if graph.ports[port_id].side is flow_port_sides(section.direction)[1]
         for line_id in graph.station_lines(port_id)
     }
-    if flow_exit_lines and not continuing_set.issubset(flow_exit_lines):
+    if (
+        flow_exit_lines
+        and (continuing_set & flow_exit_lines)
+        and not continuing_set.issubset(flow_exit_lines)
+    ):
         return None
 
     priority_order = tuple(sorted(present, key=ctx.line_priority.__getitem__))
@@ -4342,6 +4430,18 @@ def _linear_entry_frame(
             ):
                 return None
 
+    if len(continuing) < 2 or not continuing_set.issubset(flow_exit_lines):
+        if not _entry_seam_is_flat(graph, entry_port_id):
+            return None
+        if _stores_reflected(ctx, section.id):
+            return None
+        if not _frame_carriers_are_conflict_free(
+            graph, carrier_ids, assignments, ctx.offset_step
+        ):
+            return None
+        if not _entry_cohort_jogs(ctx, entry_port_id, inherited):
+            return None
+
     feeder_section_id, feeder_station_id = next(iter(owners))
     return _LinearEntryFrame(
         section_id=section.id,
@@ -4359,35 +4459,42 @@ def _materialize_linear_entry_frames(ctx: _OffsetCtx) -> tuple[_LinearEntryFrame
     if ctx.compact:
         return ()
     original = dict(ctx.offsets)
-    frames: dict[str, _LinearEntryFrame] = {}
-    for _iteration in range(len(ctx.graph.sections) + 1):
-        changed = False
-        next_frames: dict[str, _LinearEntryFrame] = {}
-        for section in ctx.graph.sections.values():
-            frame = _linear_entry_frame(ctx, section)
-            if frame is None:
-                continue
-            next_frames[section.id] = frame
-            assignments = dict(frame.assignments)
-            for station_id in frame.carrier_ids:
-                for line_id in ctx.graph.station_lines(station_id):
-                    if line_id not in assignments:
-                        continue
-                    key = station_id, line_id
-                    value = assignments[line_id]
-                    if abs(ctx.offsets.get(key, value) - value) > _OFFSET_EQ_TOLERANCE:
-                        changed = True
-                    ctx.offsets[key] = value
-        if set(frames).difference(next_frames):
-            ctx.offsets.clear()
-            ctx.offsets.update(original)
-            return ()
-        frames = next_frames
-        if not changed:
-            return tuple(frames.values())
-    ctx.offsets.clear()
-    ctx.offsets.update(original)
-    return ()
+    ctx.prematerialize_offsets = original
+    try:
+        frames: dict[str, _LinearEntryFrame] = {}
+        for _iteration in range(len(ctx.graph.sections) + 1):
+            changed = False
+            next_frames: dict[str, _LinearEntryFrame] = {}
+            for section in ctx.graph.sections.values():
+                frame = _linear_entry_frame(ctx, section)
+                if frame is None:
+                    continue
+                next_frames[section.id] = frame
+                assignments = dict(frame.assignments)
+                for station_id in frame.carrier_ids:
+                    for line_id in ctx.graph.station_lines(station_id):
+                        if line_id not in assignments:
+                            continue
+                        key = station_id, line_id
+                        value = assignments[line_id]
+                        if (
+                            abs(ctx.offsets.get(key, value) - value)
+                            > _OFFSET_EQ_TOLERANCE
+                        ):
+                            changed = True
+                        ctx.offsets[key] = value
+            if set(frames).difference(next_frames):
+                ctx.offsets.clear()
+                ctx.offsets.update(original)
+                return ()
+            frames = next_frames
+            if not changed:
+                return tuple(frames.values())
+        ctx.offsets.clear()
+        ctx.offsets.update(original)
+        return ()
+    finally:
+        ctx.prematerialize_offsets = None
 
 
 def _cache_linear_entry_pill_lines(
