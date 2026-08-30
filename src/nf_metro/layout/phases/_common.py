@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import heapq
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -415,15 +415,34 @@ def line_forks_within_section(
     return False
 
 
+def feeder_dys(graph: MetroGraph, port_id: str) -> list[float]:
+    """Signed Y distance of each feeder from *port_id*.
+
+    The raw material both the corridor filter (all feeders off the port's Y) and
+    the flat-seam filter (all feeders level with it) select on.
+    """
+    port_y = graph.stations[port_id].y
+    return [
+        graph.stations[e.source].y - port_y
+        for e in graph.edges_to(port_id)
+        if e.source in graph.stations
+    ]
+
+
+def seam_is_flat(dys: Sequence[float], tol: float) -> bool:
+    """Whether every feeder meets the port level with it, within *tol*.
+
+    A flat seam carries a feeder-to-port lane mismatch as a horizontal slope; a
+    corridor feeder (some ``dy`` past *tol*) absorbs it in a vertical leg.
+    """
+    return bool(dys) and all(abs(dy) <= tol for dy in dys)
+
+
 def _iter_solo_lr_entries(
     graph: MetroGraph,
 ) -> Iterator[tuple[str, str, str, list[float]]]:
     """Yield ``(section_id, entry_port_id, line_id, feeder_dys)`` for each
     LEFT/RIGHT entry port of an LR/RL section carrying a single present line.
-
-    ``feeder_dys`` is the signed Y distance of each feeder from the port -- the
-    raw material both the corridor filter (all feeders off the port's Y) and the
-    flat-seam filter (all feeders level with it) select on.
     """
     present: dict[str, set[str]] = defaultdict(set)
     for sid, st in graph.stations.items():
@@ -440,14 +459,9 @@ def _iter_solo_lr_entries(
             port = graph.ports.get(pid)
             if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
                 continue
-            port_y = graph.stations[pid].y
-            feeder_dys = [
-                graph.stations[e.source].y - port_y
-                for e in graph.edges_to(pid)
-                if e.source in graph.stations
-            ]
-            if feeder_dys:
-                yield sec_id, pid, line_id, feeder_dys
+            dys = feeder_dys(graph, pid)
+            if dys:
+                yield sec_id, pid, line_id, dys
 
 
 def iter_corridor_fed_solo_entries(
@@ -480,8 +494,8 @@ def iter_flat_seam_solo_entries(
     re-bases it to the trunk only when the feeder already rides the trunk, so
     the seam lands flat instead of tilting.
     """
-    for sec_id, pid, line_id, feeder_dys in _iter_solo_lr_entries(graph):
-        if all(abs(dy) <= tol for dy in feeder_dys):
+    for sec_id, pid, line_id, dys in _iter_solo_lr_entries(graph):
+        if seam_is_flat(dys, tol):
             yield sec_id, pid, line_id
 
 

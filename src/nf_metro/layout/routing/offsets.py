@@ -29,9 +29,11 @@ from nf_metro.layout.geometry import (
     station_lane_coord,
 )
 from nf_metro.layout.phases._common import (
+    feeder_dys,
     iter_corridor_fed_solo_entries,
     iter_flat_seam_solo_entries,
     line_forks_within_section,
+    seam_is_flat,
 )
 from nf_metro.layout.route_topology import divergence_junction_exit_ports
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
@@ -102,9 +104,6 @@ class _OffsetCtx:
     # Section -> flat-frame component root, populated by section-local re-indexing
     frame_roots: dict[str, str] = field(default_factory=dict)
     fan_owned_offsets: dict[tuple[str, str], float] = field(default_factory=dict)
-    # Reactive offsets frozen before the entry-frame fixed point rebases any
-    # section; ``None`` outside that transaction.
-    prematerialize_offsets: dict[tuple[str, str], float] | None = None
 
 
 @dataclass(frozen=True)
@@ -4234,13 +4233,27 @@ def _entry_seam_is_flat(graph: MetroGraph, entry_port_id: str) -> bool:
     consumer on offset 0 (:func:`iter_corridor_fed_solo_entries`); inheriting
     the upstream lane there would only reserve empty lanes.
     """
-    port_y = graph.stations[entry_port_id].y
-    feeder_dys = [
-        graph.stations[edge.source].y - port_y
-        for edge in graph.edges_to(entry_port_id)
-        if edge.source in graph.stations
-    ]
-    return bool(feeder_dys) and all(abs(dy) <= _SAME_Y_TOLERANCE for dy in feeder_dys)
+    return seam_is_flat(feeder_dys(graph, entry_port_id), _SAME_Y_TOLERANCE)
+
+
+def _carrier_offset_gap(
+    graph: MetroGraph,
+    station_id: str,
+    values: Mapping[str, float],
+    offset_step: float,
+) -> float | None:
+    """The interior lane gap *station_id*'s ridden lanes leave, or ``None``.
+
+    A carrier reserves the span from its lowest to its highest ridden lane; a
+    level in that span no line of *values* occupies strands the routes that join
+    the carrier off its markers.  Only lines present in *values* count.
+    """
+    levels = distinct_offset_levels(
+        values[line_id]
+        for line_id in graph.station_lines(station_id)
+        if line_id in values
+    )
+    return max_interior_offset_gap(levels, offset_step)
 
 
 def _frame_carriers_are_conflict_free(
@@ -4257,35 +4270,32 @@ def _frame_carriers_are_conflict_free(
     (the reservation invariant).
     """
     for station_id in carrier_ids:
-        lane_by_line: dict[float, str] = {}
-        for line_id in graph.station_lines(station_id):
-            if line_id not in assignments:
-                continue
-            lane = round(assignments[line_id], 1)
-            if lane in lane_by_line:
-                return False
-            lane_by_line[lane] = line_id
-        levels = distinct_offset_levels(lane_by_line)
-        if max_interior_offset_gap(levels, offset_step) is not None:
+        lanes = [
+            round(assignments[line_id], 1)
+            for line_id in graph.station_lines(station_id)
+            if line_id in assignments
+        ]
+        if len(set(lanes)) != len(lanes):
+            return False
+        if _carrier_offset_gap(graph, station_id, assignments, offset_step) is not None:
             return False
     return True
 
 
-def _entry_cohort_jogs(
-    ctx: _OffsetCtx,
+def _entry_cohort_has_unresolved_jog(
     entry_port_id: str,
     inherited: Mapping[str, float],
+    snapshot: Mapping[tuple[str, str], float] | None,
 ) -> bool:
-    """Whether the entering cohort meets its feeder lane on a step.
+    """Whether a boundary jog remains for a frame to resolve.
 
-    Read against the reactive offsets frozen before the fixed point, so the
+    *snapshot* holds the reactive offsets frozen before the fixed point, so the
     answer is stable across its passes.  When the reactive path already leveled
-    the cohort on its inherited lane there is no boundary jog for a frame to
-    remove, and rebasing would only churn the section's other lanes; only a real
-    step earns the rebase.  Outside the transaction there is no frozen snapshot,
-    so an entry frame is admitted unconditionally (the ownership capture path).
+    the cohort on its inherited lane there is no jog to remove, and rebasing
+    would only churn the section's other lanes; only a real step earns the
+    rebase.  When no snapshot is threaded in, the check is skipped and every
+    cohort is treated as jogging.
     """
-    snapshot = ctx.prematerialize_offsets
     if snapshot is None:
         return True
     return any(
@@ -4297,6 +4307,7 @@ def _entry_cohort_jogs(
 def _linear_entry_frame(
     ctx: _OffsetCtx,
     section: Section,
+    snapshot: Mapping[tuple[str, str], float] | None = None,
 ) -> _LinearEntryFrame | None:
     """Plan a complete section frame from one flow-aligned entry cohort.
 
@@ -4439,7 +4450,7 @@ def _linear_entry_frame(
             graph, carrier_ids, assignments, ctx.offset_step
         ):
             return None
-        if not _entry_cohort_jogs(ctx, entry_port_id, inherited):
+        if not _entry_cohort_has_unresolved_jog(entry_port_id, inherited, snapshot):
             return None
 
     feeder_section_id, feeder_station_id = next(iter(owners))
@@ -4459,42 +4470,35 @@ def _materialize_linear_entry_frames(ctx: _OffsetCtx) -> tuple[_LinearEntryFrame
     if ctx.compact:
         return ()
     original = dict(ctx.offsets)
-    ctx.prematerialize_offsets = original
-    try:
-        frames: dict[str, _LinearEntryFrame] = {}
-        for _iteration in range(len(ctx.graph.sections) + 1):
-            changed = False
-            next_frames: dict[str, _LinearEntryFrame] = {}
-            for section in ctx.graph.sections.values():
-                frame = _linear_entry_frame(ctx, section)
-                if frame is None:
-                    continue
-                next_frames[section.id] = frame
-                assignments = dict(frame.assignments)
-                for station_id in frame.carrier_ids:
-                    for line_id in ctx.graph.station_lines(station_id):
-                        if line_id not in assignments:
-                            continue
-                        key = station_id, line_id
-                        value = assignments[line_id]
-                        if (
-                            abs(ctx.offsets.get(key, value) - value)
-                            > _OFFSET_EQ_TOLERANCE
-                        ):
-                            changed = True
-                        ctx.offsets[key] = value
-            if set(frames).difference(next_frames):
-                ctx.offsets.clear()
-                ctx.offsets.update(original)
-                return ()
-            frames = next_frames
-            if not changed:
-                return tuple(frames.values())
-        ctx.offsets.clear()
-        ctx.offsets.update(original)
-        return ()
-    finally:
-        ctx.prematerialize_offsets = None
+    frames: dict[str, _LinearEntryFrame] = {}
+    for _iteration in range(len(ctx.graph.sections) + 1):
+        changed = False
+        next_frames: dict[str, _LinearEntryFrame] = {}
+        for section in ctx.graph.sections.values():
+            frame = _linear_entry_frame(ctx, section, snapshot=original)
+            if frame is None:
+                continue
+            next_frames[section.id] = frame
+            assignments = dict(frame.assignments)
+            for station_id in frame.carrier_ids:
+                for line_id in ctx.graph.station_lines(station_id):
+                    if line_id not in assignments:
+                        continue
+                    key = station_id, line_id
+                    value = assignments[line_id]
+                    if abs(ctx.offsets.get(key, value) - value) > _OFFSET_EQ_TOLERANCE:
+                        changed = True
+                    ctx.offsets[key] = value
+        if set(frames).difference(next_frames):
+            ctx.offsets.clear()
+            ctx.offsets.update(original)
+            return ()
+        frames = next_frames
+        if not changed:
+            return tuple(frames.values())
+    ctx.offsets.clear()
+    ctx.offsets.update(original)
+    return ()
 
 
 def _cache_linear_entry_pill_lines(
@@ -4556,12 +4560,12 @@ def _validate_linear_entry_frames(
                         f"section {frame.section_id!r} carrier {station_id!r} "
                         f"moves continuing line {line_id!r} from {expected} to {actual}"
                     )
-            levels = distinct_offset_levels(
-                ctx.offsets[(station_id, line_id)]
+            ridden = {
+                line_id: ctx.offsets[(station_id, line_id)]
                 for line_id in lines
                 if line_id in assignments and (station_id, line_id) in ctx.offsets
-            )
-            gap = max_interior_offset_gap(levels, ctx.offset_step)
+            }
+            gap = _carrier_offset_gap(graph, station_id, ridden, ctx.offset_step)
             if gap is not None:
                 raise LaneFrameInvariantError(
                     f"section {frame.section_id!r} carrier {station_id!r} "
