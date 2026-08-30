@@ -1071,6 +1071,14 @@
   "note": "_gap_channel_base falls back to the column gap when passed a null anchor. All six call sites (in _route_bypass) pass the bypass source/target section id, which is None only when that endpoint has no resolvable section (src_sec_id/tgt_sec_id in _route_bypass); the corpus has no bypass with a sectionless endpoint, so the null-anchor arm is never taken. Defensive guard for a sectionless bypass endpoint.",
   "status": "defensive"
  },
+ "normalize.py::if anchored and abs(target - reference) > COORD_TOLERANCE_FINE:::#1": {
+  "note": "In _coincide_same_line_fanout_traverses: a fan-owned traverse is snapped onto its convergence-plan-owned sibling's band, but the movable member's own reserved claim band may forbid that Y. The corpus fan-owned traverses carry no claim band that conflicts with the anchor, so the target always lands on the reference and the skip arm is never taken. Defensive against a movable member whose reservation excludes the anchor's band.",
+  "status": "defensive"
+ },
+ "normalize.py::if any(moved.fuses_with(other, step) for other in lanes if other is not lane):::#1": {
+  "note": "In _tighten_overwide_movable_lanes: the tighter slot one step from a lane's nearest co-traveller is abandoned when it would fuse with another lane. The corpus's one tightening move (riboseq_inter_row_corridor's rnaseq) draws clear, so the would-fuse abandon arm is never taken. Defensive against a slot boxed in by a third lane.",
+  "status": "defensive"
+ },
  "normalize.py::if band is not None:::#1": {
   "note": "Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band).",
   "status": "defensive"
@@ -1111,6 +1119,10 @@
   "note": "Re-entry skip in the co-travelling separation worklist. A track is re-queued only while it is still un-relocated, so the second copy of a track queued twice before its first pop is the only way to reach the skip; across the corpus every re-queued track is popped before it moves, so the taken arm never fires. Defensive against a crowded stack whose neighbours re-queue one track twice, where taking it twice would break the one-move-per-track bound.",
   "status": "defensive"
  },
+ "normalize.py::if i in relocated:::#2": {
+  "note": "Re-entry skip in _tighten_overwide_movable_lanes' worklist. A lane is re-queued when a tightened neighbour may let it draw in too, but the corpus's one tightening move is a single lane with no over-wide neighbour to re-queue, so nothing is ever popped after relocating. Defensive against a bundle where one tighten frees a second, mirroring the same guard in the separation loop.",
+  "status": "defensive"
+ },
  "normalize.py::if k + 2 != len(pts) - 1 or y_hi - y_lo < radius:::#1": {
   "note": "Shape guard in _land_feeder_on_run. _route_merge_branch emits exactly four waypoints, while an alternate attached-source construction or a malformed hand-built route can add points; the second half rejects a descent too short to re-form its corner. Neither shape occurs in the corpus (#1597).",
   "status": "defensive"
@@ -1120,7 +1132,7 @@
   "status": "defensive"
  },
  "normalize.py::if k == desc.idx + 1:::#1": {
-  "note": "In _fanout_traverse_spans: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive.",
+  "note": "In _fanout_traverse_leg: the corpus fan-out routes carry the traverse as their only interior horizontal trunk, so the loop matches on the first trunk and the non-match arm is never taken. Defensive.",
   "status": "defensive"
  },
  "normalize.py::if len(trunks) < 2:::#1": {
@@ -1133,6 +1145,10 @@
  },
  "normalize.py::if len({id(t.route) for t in grp}) < 2:::#2": {
   "note": "Single-route-group skip in _suboptimal_trunk_bands, validate-only: called from the _guard_* validator and a unit test, not the production render path the validate=False sweep exercises. Defensive.",
+  "status": "defensive"
+ },
+ "normalize.py::if not _lane_move_is_grounded(lane, target, ctx):::#2": {
+  "note": "In _tighten_overwide_movable_lanes: the tighter slot is abandoned when it enters a section or overruns a claim band. The corpus's one tightening move (riboseq_inter_row_corridor's rnaseq) is grounded, so the not-grounded abandon arm is never taken. Defensive against a bundle whose inner slot is blocked by a section or reservation.",
   "status": "defensive"
  },
  "normalize.py::if not reference_fits(lower):::#2": {
