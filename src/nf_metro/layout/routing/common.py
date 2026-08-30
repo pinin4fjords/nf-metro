@@ -1015,6 +1015,16 @@ class PeeloffTail(NamedTuple):
         return max(self.trunk_start_x, self.peel_x)
 
 
+def is_side_entry_port(graph: MetroGraph, port_id: str) -> bool:
+    """Whether *port_id* names a LEFT or RIGHT entry port."""
+    port = graph.ports.get(port_id)
+    return (
+        port is not None
+        and port.is_entry
+        and port.side in (PortSide.LEFT, PortSide.RIGHT)
+    )
+
+
 def port_peeloff_tail(rp: RoutedPath) -> PeeloffTail | None:
     """The peel-off tail ending at an entry port, or ``None``.
 

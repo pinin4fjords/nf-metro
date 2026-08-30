@@ -62,6 +62,7 @@ from nf_metro.layout.routing.common import (
     Direction,
     HTrunkSeg,
     OffsetRegime,
+    PeeloffTail,
     RoutedPath,
     _vert_horiz_cross,
     apply_route_offsets,
@@ -74,6 +75,7 @@ from nf_metro.layout.routing.common import (
     horizontal_direction,
     initial_fanout_descent_span,
     is_orthogonal_turn,
+    is_side_entry_port,
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_opposing_entry_confluences,
@@ -85,7 +87,10 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
+    planner_owns_segment,
+    port_peeloff_tail,
     resolve_section,
+    route_system_owns_segment_boundary,
     same_destination_approach_slots,
     segments_properly_cross,
     tail_on_slot,
@@ -425,6 +430,139 @@ def check_shared_run_turn_preserves_bundle_order(
                 flip = _shared_run_turn_flip(source_id, la, lb, single[la], single[lb])
                 if flip is not None:
                     violations.append(flip)
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Merge-fed confluence band/descent order
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MergeConfluenceBandCross:
+    """Two lines converging on one side port cross where the band turns down.
+
+    Distinct lines sharing one horizontal band into a common side entry port must
+    nest concentrically all the way in: the band's outer-to-inner Y order has to
+    agree with the descent's outer-to-inner X order.  When the band is reordered
+    downstream of the descent, or a merge-fed leg's descent is stacked against a
+    direct leg's on the opposite convention, the two swap sides and cross at the
+    corner where the shared band turns down.
+    """
+
+    port_id: str
+    line_a: str
+    line_b: str
+    crossing_xy: tuple[float, float]
+
+    def message(self) -> str:
+        """Human-readable summary suitable for the engine error message."""
+        x, y = self.crossing_xy
+        return (
+            f"lines {self.line_a!r} and {self.line_b!r} converging into port "
+            f"{self.port_id!r} cross at ({x:.1f}, {y:.1f}): their shared band and "
+            f"their descent into the port disagree on nesting order"
+        )
+
+
+def _descent_is_plan_owned(route: RoutedPath) -> bool:
+    """Whether a plan owns the final descent riser (``points[-3]``) of a tail."""
+    riser_rank = len(route.points) - 3
+    return planner_owns_segment(
+        route, riser_rank
+    ) or route_system_owns_segment_boundary(route, riser_rank)
+
+
+def _terminal_entry_port_id(graph: MetroGraph, route: RoutedPath) -> str | None:
+    """The side entry port a route reaches, resolving through merge junctions.
+
+    A merge-fed leg ends at a junction whose own edge carries it on into the
+    port; follow that chain to the port so the leg joins the port's confluence.
+    Returns ``None`` when the chain leaves no side entry port.
+    """
+    current = route.edge.target
+    seen: set[str] = set()
+    while current not in seen:
+        seen.add(current)
+        port = graph.ports.get(current)
+        if port is not None:
+            return current if port.is_entry else None
+        if current not in graph.junction_ids:
+            return None
+        onward = {
+            edge.target
+            for edge in graph.edges_from(current)
+            if edge.line_id == route.edge.line_id
+        }
+        if len(onward) != 1:
+            return None
+        current = next(iter(onward))
+    return None
+
+
+def check_merge_confluence_band_order(
+    routes: list[RoutedPath], graph: MetroGraph
+) -> list[MergeConfluenceBandCross]:
+    """Return each distinct-line pair that crosses converging into one side port.
+
+    :func:`check_bundle_order_preserved` compares routes sharing one
+    ``(source, target)`` edge, and :func:`check_peeloff_concentric` groups by the
+    route's literal target, so neither pairs a line entering a port directly with
+    one arriving through a merge junction -- the two land in different buckets.
+    A pass reordering their shared band into the port after the descent it feeds
+    is settled leaves the two on opposite nesting conventions.
+
+    Resolve each peel-off tail's port through the merge chain, group the tails by
+    their turn-direction triple so only concentric-family members compare, then
+    flag a distinct-line pair that co-travels one band into one descent corridor
+    yet ranks outer-to-inner one way on the band and the other on the descent: the
+    band's Y order and the descent's X order carry opposite signs across the turn,
+    so the two swap sides and cross where the band drops.  A pair on separate
+    bands or descents, or nesting correctly, is left alone.
+    """
+    violations: list[MergeConfluenceBandCross] = []
+    by_group: dict[tuple[str, int, int, int], list[tuple[RoutedPath, PeeloffTail]]] = (
+        defaultdict(list)
+    )
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        tail = port_peeloff_tail(rp)
+        if tail is None:
+            continue
+        port_id = _terminal_entry_port_id(graph, rp)
+        if port_id is None or not is_side_entry_port(graph, port_id):
+            continue
+        by_group[
+            (port_id, tail.trunk_sign, tail.vertical_sign, tail.port_lead_sign)
+        ].append((rp, tail))
+
+    for (port_id, trunk_sign, vertical_sign, _lead_sign), members in by_group.items():
+        for ai in range(len(members)):
+            for bi in range(ai + 1, len(members)):
+                (ra, ta), (rb, tb) = members[ai], members[bi]
+                if ra.line_id == rb.line_id:
+                    continue
+                if _descent_is_plan_owned(ra) and _descent_is_plan_owned(rb):
+                    continue  # a crossing both plans state is the plans' to fix
+                band_overlap = min(ta.x_hi, tb.x_hi) - max(ta.x_lo, tb.x_lo)
+                if band_overlap <= COORD_TOLERANCE:
+                    continue
+                if (
+                    abs(ta.trunk_y - tb.trunk_y) > EDGE_TO_BUNDLE_CLEARANCE
+                    or abs(ta.peel_x - tb.peel_x) > EDGE_TO_BUNDLE_CLEARANCE
+                ):
+                    continue
+                run_cmp = vertical_sign * (ta.trunk_y - tb.trunk_y)
+                turn_cmp = trunk_sign * (ta.peel_x - tb.peel_x)
+                if abs(run_cmp) <= COORD_TOLERANCE or abs(turn_cmp) <= COORD_TOLERANCE:
+                    continue
+                if (run_cmp > 0) == (turn_cmp > 0):
+                    violations.append(
+                        MergeConfluenceBandCross(
+                            port_id, ra.line_id, rb.line_id, (ta.peel_x, ta.trunk_y)
+                        )
+                    )
     return violations
 
 
@@ -6870,6 +7008,20 @@ CHECK_REGISTRY: tuple[GuardSpec, ...] = (
             "that covers the same structure at hang scale."
         ),
     ),
+    _check_spec(
+        check_merge_confluence_band_order,
+        "C",
+        issue_pin=("#1835",),
+        narrow_reason=(
+            "A corpus oracle over the confluence nesting rather than a render "
+            "guard: a crossed pair renders without aborting. Restricted to "
+            "distinct lines whose peel-off tails co-travel one band into one "
+            "descent corridor reaching a common side entry port, resolving merge "
+            "chains. A pair whose two descents are both plan-owned is excluded: "
+            "nothing on the render path may move either, so the crossing belongs "
+            "to the plan, exactly as `check_no_fused_cotravelling_lines` reasons."
+        ),
+    ),
 )
 
 
@@ -6909,6 +7061,7 @@ __all__ = [
     "RegimeOffsetMisapplied",
     "RightEntryNeedlessDive",
     "SameLineParallelRun",
+    "MergeConfluenceBandCross",
     "SeamApproachDepartureMismatch",
     "SharedRunTurnFlip",
     "SectionLineRecrossing",
@@ -6937,6 +7090,7 @@ __all__ = [
     "check_no_distinct_line_fanout_crossing",
     "check_stacked_split_no_line_recrossing",
     "check_merge_branches_meet_trunk",
+    "check_merge_confluence_band_order",
     "check_merge_feeders_land_on_trunk",
     "check_merge_port_approach_side",
     "check_no_hanging_routes",
