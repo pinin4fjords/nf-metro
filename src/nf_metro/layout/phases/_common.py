@@ -843,7 +843,7 @@ def _linear_entry_pill_lines(
     if station is None or station.section_id is None or station.is_port:
         return None
     inherited = graph._linear_entry_pill_lines_cache.get(sid)
-    if inherited is None:
+    if inherited is None or len(inherited) < 2:
         return None
     inherited_set = set(inherited)
     served = tuple(graph.station_lines(sid))

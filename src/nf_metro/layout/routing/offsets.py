@@ -4509,6 +4509,12 @@ def _cache_linear_entry_pill_lines(
     cache = ctx.graph._linear_entry_pill_lines_cache
     for frame in frames:
         continuing = tuple(line_id for line_id, _offset in frame.continuing)
+        # The end-cap only redundantly covers the lane one step beyond a
+        # narrowed span when the inherited cohort itself spans >=2 lanes; a
+        # single-line cohort's neighbour is a genuine bundle member, so
+        # narrowing would drop it from the marker.
+        if len(continuing) < 2:
+            continue
         continuing_set = set(continuing)
         for station_id in frame.carrier_ids:
             station = ctx.graph.stations[station_id]
