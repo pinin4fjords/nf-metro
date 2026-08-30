@@ -622,7 +622,7 @@ graph LR
     ctx.offsets[("first", "line")] = 0.0
     calls = 0
 
-    def transient_frame(_ctx, section):
+    def transient_frame(_ctx, section, snapshot=None):
         nonlocal calls
         calls += 1
         if calls > 1:
