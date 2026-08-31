@@ -1586,5 +1586,29 @@
  "offsets.py::if abs(consumer_perp - hub_perp) > COORD_TOLERANCE_FINE:::#1": {
   "note": "Guard in _is_flat_handover_hub: the hub's originating lines must run flat, so a consumer off the hub's trunk row (a peel-off, drawing a real turn) is refused. The corpus's one relaxed section hands over on a level row, so the off-row refusal stays un-exercised. Defensive.",
   "status": "defensive"
+ },
+ "normalize.py::if not is_side_entry_port(ctx.graph, port_id):::#1": {
+  "note": "A peel-off tail whose merge-resolved terminal port is not a LEFT/RIGHT entry is skipped in _align_merge_fed_confluence_to_band. Every corpus peel-off tail resolves to a side entry port, so the reject arm has no fixture; it needs a tail whose merge chain ends at a top/bottom or exit port.",
+  "status": "needs-review"
+ },
+ "normalize.py::if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:::#1": {
+  "note": "Equal-depth guard on a merge-fed confluence: every corpus confluence rides its shared band at distinct depths, so the same-Y reject arm has no fixture.",
+  "status": "needs-review"
+ },
+ "normalize.py::if not trunk_depths_contiguous(trunk_ys, n, step):::#1": {
+  "note": "Non-contiguous-depth guard on a merge-fed confluence: corpus confluences seat their bands one offset step apart, so the gapped-depth reject arm has no fixture.",
+  "status": "needs-review"
+ },
+ "normalize.py::if len(deltas) != 1:::#1": {
+  "note": "Anchor-disagreement guard: every corpus merge-fed confluence carries a single plan-owned anchor, so the arm where two anchors imply different rigid ladder offsets has no fixture.",
+  "status": "needs-review"
+ },
+ "normalize.py::if _descent_crosses_section(ctx.graph, ch, slot.peel_x):::#1": {
+  "note": "Feasibility guard: re-seating the free descent outboard of the anchors clears every section in the corpus, so the section-intrusion reject arm has no fixture.",
+  "status": "needs-review"
+ },
+ "normalize.py::if blocked or settled:::#1": {
+  "note": "A merge-fed confluence is re-seated only when a free leg is off its band-earned slot and unblocked. The move arm (rather than this skip) is reachable and is reached by test_merge_confluence_band_order_1835's inlined riboseq annotation/riboseq bundle into orf_calling, where _restack_channel fires and resolves the crossing. That map is excluded from the corpus fixture roots because it trips an unrelated symmetric-diamond centreline abort under validate=True (#1836), so no corpus fixture exercises this arm yet; committing that map as a real topology fixture is blocked on #1836.",
+  "status": "needs-review"
  }
 }

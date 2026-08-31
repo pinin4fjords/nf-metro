@@ -38,6 +38,8 @@ from nf_metro.layout.routing.common import (
     GapSlot,
     HTrunkSeg,
     PeeloffSlot,
+    PeeloffTail,
+    PortPeeloffBundle,
     RoutedPath,
     _grid_row_bands,
     _h_segment_penetrates_section,
@@ -53,6 +55,7 @@ from nf_metro.layout.routing.common import (
     initial_fanout_descent_span,
     inter_row_gap_upper_row,
     is_orthogonal_turn,
+    is_side_entry_port,
     iter_eligible_destination_tail_bundles,
     iter_horizontal_trunks,
     iter_inter_row_gaps,
@@ -65,6 +68,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    port_peeloff_tail,
     route_system_owns_segment_boundary,
     same_destination_approach_slots,
     seat_peeloff_port_y,
@@ -2128,14 +2132,7 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
         settled = True
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            ch = _VChannel(
-                route=rp,
-                idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
-                x=tail.peel_x,
-                y_lo=min(tail.trunk_y, tail.port_y),
-                y_hi=max(tail.trunk_y, tail.port_y),
-                down=tail.port_y > tail.trunk_y,
-            )
+            ch = _confluence_descent_channel(rp)
             if _planner_owns_channel(ch):
                 continue
             seats.append((rp, ch, slot))
@@ -2152,6 +2149,139 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
                 ctx.curve_radius,
             )
             seat_peeloff_port_y(rp, slot.port_y)
+
+
+def _align_merge_fed_confluence_to_band(
+    routes: list[RoutedPath], ctx: _RoutingCtx
+) -> None:
+    """Nest a merge-fed convergence's free descent onto its reordered band.
+
+    Distinct lines converging into one side entry port ride a shared horizontal
+    band into a common descent corridor.  :func:`_reconcile_port_peeloff_risers`
+    keeps such a bundle concentric by seating each line's descent-X and port-Y on
+    the slot its band depth earns, but it groups by the route's literal target, so
+    a line entering the port directly is never paired with one arriving through a
+    merge junction: the two land in separate buckets and it leaves each alone.
+
+    Their band is reordered by the co-travelling separation pass, which lifts one
+    run past another when the header of the next row closes the gap below it, and
+    that reorder rewrites only the band Y.  The flanking descent-X and port-Y keep
+    the order their handlers emitted, so the band reads outer-to-inner one way and
+    the descent the other and the two lines cross where the band turns down.
+
+    A merge-fed leg's descent is owned by the convergence plan the closing
+    validators check, so it is a fixed anchor; only a handler-placed free leg
+    moves.  Resolve each route's port through the merge map to gather the bundle,
+    take the concentric ladder :func:`peeloff_target_slots` implies for it, then
+    slide that ladder rigidly until the anchors sit on their fixed columns and
+    re-seat the free legs on the slots left over -- outboard of the anchors when
+    the band ranks them there.  Bundles reachable without a merge are left to
+    :func:`_reconcile_port_peeloff_risers`.
+    """
+    step = ctx.offset_step
+    entry_port_for = ctx.merge.entry_port_for
+    by_shape: dict[tuple[str, int, int, int], list[tuple[RoutedPath, PeeloffTail]]] = (
+        defaultdict(list)
+    )
+    for rp in routes:
+        if not rp.is_inter_section:
+            continue
+        tail = port_peeloff_tail(rp)
+        if tail is None:
+            continue
+        port_id = entry_port_for.get(rp.edge.target, rp.edge.target)
+        if not is_side_entry_port(ctx.graph, port_id):
+            continue
+        by_shape[
+            (port_id, tail.trunk_sign, tail.vertical_sign, tail.port_lead_sign)
+        ].append((rp, tail))
+
+    for (
+        port_id,
+        trunk_sign,
+        vertical_sign,
+        port_lead_sign,
+    ), entries in by_shape.items():
+        if all(rp.edge.target == port_id for rp, _tail in entries):
+            continue  # a wholly-direct bundle is _reconcile_port_peeloff_risers' own
+        per_line: dict[str, PeeloffTail] = {}
+        for rp, tail in entries:
+            per_line.setdefault(rp.edge.line_id, tail)
+        n = len(per_line)
+        if n < 2:
+            continue
+        overlap_lo = max(tail.x_lo for tail in per_line.values())
+        overlap_hi = min(tail.x_hi for tail in per_line.values())
+        if overlap_hi - overlap_lo < 2 * ctx.curve_radius - COORD_TOLERANCE:
+            continue
+        trunk_ys = sorted(tail.trunk_y for tail in per_line.values())
+        if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:
+            continue
+        if not trunk_depths_contiguous(trunk_ys, n, step):
+            continue
+
+        channels = {id(rp): _confluence_descent_channel(rp) for rp, _tail in entries}
+        anchor_lines = {
+            rp.edge.line_id
+            for rp, _tail in entries
+            if _planner_owns_channel(channels[id(rp)])
+        }
+        movable_lines = set(per_line) - anchor_lines
+        if not anchor_lines or not movable_lines:
+            continue
+
+        bundle = PortPeeloffBundle(
+            port_id, entries, per_line, trunk_sign, vertical_sign, port_lead_sign
+        )
+        slots = peeloff_target_slots(bundle, step)
+        deltas = {
+            (
+                round(per_line[lid].peel_x - slots[lid].peel_x, 3),
+                round(per_line[lid].port_y - slots[lid].port_y, 3),
+            )
+            for lid in anchor_lines
+        }
+        if len(deltas) != 1:
+            continue  # anchors disagree on the ladder offset; not one rigid bundle
+        dx, dy = next(iter(deltas))
+
+        targets = {
+            lid: PeeloffSlot(
+                slots[lid].peel_x + dx, slots[lid].port_y + dy, slots[lid].rank
+            )
+            for lid in movable_lines
+        }
+        seats: list[tuple[RoutedPath, _VChannel, PeeloffSlot]] = []
+        settled = True
+        blocked = False
+        for rp, tail in entries:
+            if rp.edge.line_id not in movable_lines:
+                continue
+            slot = targets[rp.edge.line_id]
+            ch = channels[id(rp)]
+            if _descent_crosses_section(ctx.graph, ch, slot.peel_x):
+                blocked = True
+                break
+            seats.append((rp, ch, slot))
+            settled = settled and tail_on_slot(tail, slot)
+        if blocked or settled:
+            continue
+        for rp, ch, slot in seats:
+            _restack_channel(ch, slot.peel_x, slot.rank, n, step, ctx.curve_radius)
+            seat_peeloff_port_y(rp, slot.port_y)
+
+
+def _confluence_descent_channel(rp: RoutedPath) -> _VChannel:
+    """The vertical descent riser of a peel-off-into-port tail (``points[-3]``)."""
+    pts = rp.points
+    return _VChannel(
+        route=rp,
+        idx=len(pts) - 3,
+        x=pts[-3][0],
+        y_lo=min(pts[-3][1], pts[-2][1]),
+        y_hi=max(pts[-3][1], pts[-2][1]),
+        down=pts[-2][1] > pts[-3][1],
+    )
 
 
 def _stagger_convergent_distinct_lines(
