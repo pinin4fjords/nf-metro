@@ -38,6 +38,7 @@ from nf_metro.layout.phases._common import (
 from nf_metro.layout.route_topology import divergence_junction_exit_ports
 from nf_metro.layout.routing.arranger import BoundaryConfig, lane_order
 from nf_metro.layout.routing.common import (
+    merge_junction_ids,
     needs_perp_approach_fan,
     perp_entry_consumer,
     tb_right_entry_sections,
@@ -3715,6 +3716,20 @@ def _left_entry_feeder_rows(
     return line_row
 
 
+def _port_fed_through_merge_junction(graph: MetroGraph, port_id: str) -> bool:
+    """Whether a line reaches *port_id* through a merge (reconvergence) junction.
+
+    Such a port is a merge-fed confluence: one leg arrives through the merge
+    junction while another descends from a higher row.  The descent geometry of
+    that confluence is owned by ``_align_merge_fed_confluence_to_band`` at
+    routing time, which seats the descent onto the band's nesting order; a
+    port-offset reorder here would fight it and land the descending line on the
+    inner internal lane its outer band contradicts.
+    """
+    merges = merge_junction_ids(graph)
+    return any(edge.source in merges for edge in graph.edges_to(port_id))
+
+
 def _order_top_descent_over_left_entry(ctx: _OffsetCtx) -> None:
     """Put a line descending into a LEFT entry port from above on the top lane.
 
@@ -3771,6 +3786,8 @@ def _order_top_descent_over_left_entry(ctx: _OffsetCtx) -> None:
         if not any(
             abs(new_offs[lid] - cur[lid]) > _OFFSET_EQ_TOLERANCE for lid in new_offs
         ):
+            continue
+        if _port_fed_through_merge_junction(graph, port_id):
             continue
         _apply_offsets_along_bundle(ctx, port_id, port.section_id, new_offs)
         for lid in ordered:
