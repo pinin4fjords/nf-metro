@@ -5241,6 +5241,74 @@ def _straight_frame_fault(
     return None
 
 
+def _fan_plan_contract_fault(graph: MetroGraph) -> str | None:
+    """Which whole-graph fan-plan contract the set of plans breaks, if any.
+
+    Each of these faults is settled once the plans are built and before any
+    frame is realised, so they read the plan set rather than the coordinates.
+    """
+    from nf_metro.layout.fan_plans import heads_its_own_fork
+    from nf_metro.layout.route_plan import FanAppearancePolicy
+
+    invalid_policy = next(
+        (
+            plan
+            for plan in graph.fan_plans
+            if not isinstance(plan.appearance_policy, FanAppearancePolicy)
+        ),
+        None,
+    )
+    if invalid_policy is not None:
+        return (
+            f"fan {invalid_policy.id!s} has non-canonical appearance "
+            f"policy {invalid_policy.appearance_policy!r}"
+        )
+
+    reconvergences = [
+        plan
+        for plan in graph.fan_plans
+        if plan.owns_geometry and plan.authored_join_station_id is not None
+    ]
+    missing_join = next(
+        (plan for plan in reconvergences if plan.join_station_id is None), None
+    )
+    if missing_join is not None:
+        return f"planned reconvergence {missing_join.id!s} has no resolved join"
+
+    unsupported = next(
+        (
+            plan
+            for plan in reconvergences
+            if plan.appearance_policy is FanAppearancePolicy.STRAIGHT
+        ),
+        None,
+    )
+    if unsupported is not None:
+        return (
+            f"planned fan {unsupported.id!s} claims geometry for frozen "
+            f"appearance policy {unsupported.appearance_policy.value!r}"
+        )
+
+    # Trunk followers ride the fan's centreline, and a fork apex already holds
+    # the centre of the fan below it: one lane, seated twice.
+    claimed_apex = next(
+        (
+            (plan, station_id)
+            for plan in graph.fan_plans
+            for station_id in plan.trunk_follower_ids
+            if heads_its_own_fork(graph, station_id)
+        ),
+        None,
+    )
+    if claimed_apex is not None:
+        apex_plan, apex_id = claimed_apex
+        return (
+            f"fan {apex_plan.id!s} takes {apex_id!r} as a trunk follower, but it "
+            "heads a fan of its own and holds that fan's centre"
+        )
+    return None
+
+
 def _guard_planned_fan_frame_realised(
     graph: MetroGraph,
     phase: str,
@@ -5256,50 +5324,9 @@ def _guard_planned_fan_frame_realised(
     from nf_metro.layout.route_plan import FanAppearancePolicy, fan_lane_seat_keys
     from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
-    invalid_policy = next(
-        (
-            plan
-            for plan in graph.fan_plans
-            if not isinstance(plan.appearance_policy, FanAppearancePolicy)
-        ),
-        None,
-    )
-    if invalid_policy is not None:
-        raise PhaseInvariantError(
-            f"{phase}: fan {invalid_policy.id!s} has non-canonical appearance "
-            f"policy {invalid_policy.appearance_policy!r}"
-        )
-
-    missing_join = next(
-        (
-            plan
-            for plan in graph.fan_plans
-            if plan.owns_geometry
-            and plan.authored_join_station_id is not None
-            and plan.join_station_id is None
-        ),
-        None,
-    )
-    if missing_join is not None:
-        raise PhaseInvariantError(
-            f"{phase}: planned reconvergence {missing_join.id!s} has no resolved join"
-        )
-
-    unsupported = next(
-        (
-            plan
-            for plan in graph.fan_plans
-            if plan.owns_geometry
-            and plan.authored_join_station_id is not None
-            and plan.appearance_policy is FanAppearancePolicy.STRAIGHT
-        ),
-        None,
-    )
-    if unsupported is not None:
-        raise PhaseInvariantError(
-            f"{phase}: planned fan {unsupported.id!s} claims geometry for frozen "
-            f"appearance policy {unsupported.appearance_policy.value!r}"
-        )
+    contract_fault = _fan_plan_contract_fault(graph)
+    if contract_fault is not None:
+        raise PhaseInvariantError(f"{phase}: {contract_fault}")
 
     offset_step = graph_offset_step(graph)
     section_layers: dict[str, dict[str, int]] = {}
