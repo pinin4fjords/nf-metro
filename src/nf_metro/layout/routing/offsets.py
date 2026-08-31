@@ -3787,6 +3787,10 @@ def _order_top_descent_over_left_entry(ctx: _OffsetCtx) -> None:
             abs(new_offs[lid] - cur[lid]) > _OFFSET_EQ_TOLERANCE for lid in new_offs
         ):
             continue
+        # Placed after the reorder's detection and no-change gate, not beside
+        # the classification skips above: the corpus's merge-fed ports reach here
+        # through that detection, so an earlier exit strands those branches
+        # un-exercised and reds the routing gate-coverage ratchet.
         if _port_fed_through_merge_junction(graph, port_id):
             continue
         _apply_offsets_along_bundle(ctx, port_id, port.section_id, new_offs)
