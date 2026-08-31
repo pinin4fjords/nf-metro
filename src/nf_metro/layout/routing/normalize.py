@@ -2132,14 +2132,7 @@ def _reconcile_port_peeloff_risers(routes: list[RoutedPath], ctx: _RoutingCtx) -
         settled = True
         for rp, tail in bundle.entries:
             slot = targets[rp.edge.line_id]
-            ch = _VChannel(
-                route=rp,
-                idx=len(rp.points) - 3,  # riser leg points[-3] -> points[-2]
-                x=tail.peel_x,
-                y_lo=min(tail.trunk_y, tail.port_y),
-                y_hi=max(tail.trunk_y, tail.port_y),
-                down=tail.port_y > tail.trunk_y,
-            )
+            ch = _confluence_descent_channel(rp)
             if _planner_owns_channel(ch):
                 continue
             seats.append((rp, ch, slot))
@@ -2227,10 +2220,11 @@ def _align_merge_fed_confluence_to_band(
         if not trunk_depths_contiguous(trunk_ys, n, step):
             continue
 
+        channels = {id(rp): _confluence_descent_channel(rp) for rp, _tail in entries}
         anchor_lines = {
             rp.edge.line_id
             for rp, _tail in entries
-            if _planner_owns_channel(_confluence_descent_channel(rp))
+            if _planner_owns_channel(channels[id(rp)])
         }
         movable_lines = set(per_line) - anchor_lines
         if not anchor_lines or not movable_lines:
@@ -2264,7 +2258,7 @@ def _align_merge_fed_confluence_to_band(
             if rp.edge.line_id not in movable_lines:
                 continue
             slot = targets[rp.edge.line_id]
-            ch = _confluence_descent_channel(rp)
+            ch = channels[id(rp)]
             if _descent_crosses_section(ctx.graph, ch, slot.peel_x):
                 blocked = True
                 break

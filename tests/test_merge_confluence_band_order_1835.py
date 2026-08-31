@@ -3,17 +3,14 @@
 On the nf-core/riboseq map the ``annotation`` and ``riboseq`` lines converge into
 ``orf_calling``'s LEFT entry port from different sources -- ``annotation`` around
 the section as an exempt wrap, ``riboseq`` through a merge junction -- sharing one
-inter-row band and one descent column.  The co-travelling separation pass reorders
-the band (the next row's header blocks the downward move), rewriting only the band
-Y; the flanking descent-X and port-Y keep the handlers' order, so the band read
-outer-to-inner one way and the descent the other and the two crossed at the corner
-where the band turned down (issue #1835).
+inter-row band and one descent column.  ``check_merge_confluence_band_order``
+resolves each peel-off tail's port through the merge chain and flags a
+co-travelling distinct-line pair that ranks one way on the band and the other
+on the descent.
 
-The full map is inlined rather than committed as a fixture: it also trips the
-unrelated symmetric-diamond centreline abort under ``validate=True`` (#1836), which
-would red every corpus invariant that renders it.  ``check_merge_confluence_band_order``
-resolves each peel-off tail's port through the merge chain and flags a co-travelling
-distinct-line pair that ranks one way on the band and the other on the descent.
+The full map is inlined rather than committed as a fixture: it also trips a
+symmetric-diamond centreline abort under ``validate=True`` in an unrelated
+section, which would red every corpus invariant that renders it.
 """
 
 from __future__ import annotations
@@ -214,7 +211,7 @@ def test_check_catches_a_planted_confluence_crossing() -> None:
         if rp.line_id == "riboseq" and rp.edge.target.startswith("__merge")
     )
     # Re-seat the exempt annotation descent inboard of the riboseq column, onto the
-    # port Y riboseq holds, recreating the pre-fix crossing at the band's turn.
+    # port Y riboseq holds, so the band and descent orders disagree at the band's turn.
     rib_peel_x = riboseq.points[-3][0]
     rib_port_y = riboseq.points[-1][1]
     pts = list(annotation.points)

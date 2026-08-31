@@ -1608,7 +1608,7 @@
   "status": "needs-review"
  },
  "normalize.py::if blocked or settled:::#1": {
-  "note": "A merge-fed confluence is re-seated only when a free leg is off its band-earned slot and unblocked; every corpus confluence is already settled, so the move arm (rather than this skip) has no fixture.",
+  "note": "A merge-fed confluence is re-seated only when a free leg is off its band-earned slot and unblocked. The move arm (rather than this skip) is reachable and is reached by test_merge_confluence_band_order_1835's inlined riboseq annotation/riboseq bundle into orf_calling, where _restack_channel fires and resolves the crossing. That map is excluded from the corpus fixture roots because it trips an unrelated symmetric-diamond centreline abort under validate=True (#1836), so no corpus fixture exercises this arm yet; committing that map as a real topology fixture is blocked on #1836.",
   "status": "needs-review"
  }
 }
