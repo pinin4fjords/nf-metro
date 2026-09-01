@@ -777,6 +777,7 @@ _FINAL_RENDER_PLAN_FINGERPRINT_SOURCES = {
     "debug": "published.debug",
     "chrome_css": "published.chrome_css",
     "bare": "published.bare",
+    "inactive_line_ids": "inactive_line_ids",
 }
 
 
