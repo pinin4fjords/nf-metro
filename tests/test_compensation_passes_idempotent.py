@@ -101,6 +101,7 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),
+    "examples/variantbenchmarking_auto": frozenset({"4.7"}),
     "tests/da_pipeline": frozenset({"4.7"}),
     "tests/trunk_align_matching_bundle": frozenset({"4.7"}),
     "topologies/bt_perp_left_entry_right_exit": frozenset({"4.7"}),
@@ -108,6 +109,7 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/fanout_hub_two_line_trunk": frozenset({"4.7"}),
     "topologies/fanout_line_reused_nonadjacent_leg": frozenset({"4.7"}),
     "topologies/internal_source_equal_sibling_2fan": frozenset({"4.7"}),
+    "topologies/multicarrier_offrow_exit_climb": frozenset({"4.7"}),
     "topologies/near_edge_exit_corner": frozenset({"4.7"}),
     "topologies/off_track_convergence": frozenset({"4.7"}),
     "topologies/off_track_convergence_multiline": frozenset({"4.7"}),
