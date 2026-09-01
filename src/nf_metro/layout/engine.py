@@ -194,6 +194,7 @@ from nf_metro.layout.phases.guards import (  # noqa: F401
     _guard_off_track_not_hub,
     _guard_off_track_output_clears_non_producer,
     _guard_partial_branch_offset_gaps,
+    _guard_partial_trunk_descent_seated,
     _guard_perp_entry_boundary_consistent,
     _guard_perp_entry_feed_not_collinear,
     _guard_perp_exit_over_leadin_no_overdip,

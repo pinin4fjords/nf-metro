@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict
 
 from nf_metro.errors import NfMetroError
 from nf_metro.parser.provenance import LayoutProvenance
@@ -27,6 +27,19 @@ class RowGridInfo(TypedDict):
     slot_count: int
     slot_spacing: float
     max_y_pad: float
+
+
+class PartialTrunkDescent(NamedTuple):
+    """A partial row-mate's Stage 4.8 handover descent and its two endpoint ports.
+
+    Stage 6.4 re-seats the partial's handover port ``descent`` below the carrier
+    port it hands to; carrying both port IDs lets that restore work from the
+    carrier's post-snap Y instead of blindly re-adding the descent.
+    """
+
+    partial_port: str
+    carrier_port: str
+    descent: float
 
 
 class LayoutGeometryWarning(UserWarning):
@@ -644,6 +657,16 @@ class MetroGraph:
     # (``_snap_all_y_to_grid``) skips them rather than dragging them onto the row
     # group's grid origin, which a rowspan neighbour can leave fractional.
     symfan_trunk_station_ids: set[str] = field(default_factory=set, repr=False)
+    # Cross-phase channel: {section_id: PartialTrunkDescent} for a partial
+    # row-mate whose trunk Stage 4.8 (``_align_row_trunk_ys``) seats one handover
+    # lane below the row carrier so a direct port-to-port connector runs flat.
+    # Stage 6.4 (``_snap_all_y_to_grid``) may snap that sub-grid offset onto the
+    # carrier slot; the restore re-seats the partial's handover port from the
+    # carrier port's post-snap Y, so it lands right whether the snap collapsed the
+    # descent (shared row grid) or preserved it (explicit-grid solo section).
+    _partial_trunk_descents: dict[str, PartialTrunkDescent] = field(
+        default_factory=dict, repr=False
+    )
     # Precondition flag for the off-track reanchor: set True right after the
     # Stage 6.4 grid snap so on-track consumer Ys are final.  The reanchor
     # (``_reanchor_off_track_to_consumer``) refuses to run while False,

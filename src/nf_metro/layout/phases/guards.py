@@ -1326,6 +1326,31 @@ def _guard_flow_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
     )
 
 
+def _guard_partial_trunk_descent_seated(graph: MetroGraph, phase: str) -> None:
+    """A recorded partial-trunk descent seats its handover port below the carrier.
+
+    Stage 4.8 seats a partial row-mate ``descent`` below its carrier and records
+    the two endpoint ports; Stage 6.4 re-seats it from the carrier's post-snap Y.
+    The handover port must then sit exactly ``descent`` below the carrier port --
+    a double-applied restore lands it ``2 * descent`` below and jogs the
+    connector it exists to flatten.
+    """
+    for sec_id, record in graph._partial_trunk_descents.items():
+        partial_st = graph.stations.get(record.partial_port)
+        carrier_st = graph.stations.get(record.carrier_port)
+        if partial_st is None or carrier_st is None:
+            continue
+        expected = carrier_st.y + record.descent
+        if abs(partial_st.y - expected) > SAME_COORD_TOLERANCE:
+            raise PhaseInvariantError(
+                f"{phase}: partial section {sec_id!r} handover port "
+                f"{record.partial_port!r} at y={partial_st.y:.1f} must sit "
+                f"descent={record.descent:.1f} below carrier port "
+                f"{record.carrier_port!r} at y={carrier_st.y:.1f} "
+                f"(expected y={expected:.1f}); the handover connector will jog"
+            )
+
+
 def _guard_wrap_exit_anchored_to_carrier(graph: MetroGraph, phase: str) -> None:
     """A wrapping flow-aligned exit anchoring to a shared carrier row sits on it.
 
@@ -5715,6 +5740,18 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     ),
     GuardSpec(_guard_entry_port_fed_only_by_ports, "B"),
     GuardSpec(_guard_flow_exit_anchored_to_carrier, "B"),
+    GuardSpec(
+        _guard_partial_trunk_descent_seated,
+        "B",
+        issue_pin=("#1844",),
+        narrow_reason=(
+            "Scoped to sections Stage 4.8 recorded a partial-trunk descent for: "
+            "only those hand a through-line straight to an adjacent carrier and "
+            "carry the two endpoint ports to check the descent seating against.  "
+            "Every other section hands over on the shared trunk with no descent "
+            "to double-count."
+        ),
+    ),
     GuardSpec(_guard_wrap_exit_anchored_to_carrier, "B"),
     GuardSpec(_guard_fold_lr_exit_follows_target, "B"),
     GuardSpec(
