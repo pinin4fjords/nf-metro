@@ -67,9 +67,7 @@ from nf_metro.layout.routing.common import (
 from nf_metro.layout.routing.context import (
     _RoutingCtx,
     _tb_x_offset,
-)
-from nf_metro.layout.routing.context import (
-    slot_is_available as _slot_is_available,
+    slot_is_available,
 )
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
@@ -1642,7 +1640,7 @@ def _continuation_lane_ownership(
 
     stations = []
     transitions = []
-    if not _slot_is_available(graph, offsets, entry_id, line_id, desired):
+    if not slot_is_available(graph, offsets, entry_id, line_id, desired):
         source_lane_offset = desired
         target_lane_offset = offsets.get((entry_id, line_id), 0.0)
         source_offset = source_lane_offset
@@ -1702,7 +1700,7 @@ def _continuation_lane_ownership(
         candidate_port = graph.ports.get(candidate)
         if candidate_port is not None and not candidate_port.is_entry:
             break
-        if not _slot_is_available(graph, offsets, candidate, line_id, desired):
+        if not slot_is_available(graph, offsets, candidate, line_id, desired):
             source_lane_offset = desired
             target_lane_offset = offsets.get((candidate, line_id), 0.0)
             source_offset = source_lane_offset
