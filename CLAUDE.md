@@ -78,7 +78,7 @@ before changing that subsystem rather than reverse-engineering it from the code.
 %%metro title: Pipeline Name
 %%metro style: nfcore
 %%metro mode: light
-%%metro line: line_id | Display Name | #hexcolor | style
+%%metro line: line_id | Display Name | #hexcolor | style | inactive
 %%metro line_order: span
 %%metro compact_offsets: true
 %%metro legend_min_height: 72
@@ -98,6 +98,8 @@ graph LR
 Edges support comma-separated line IDs: `a -->|line1,line2,line3| b` creates one edge per line.
 
 Lines support an optional style (4th field): `solid` (default), `dashed`, or `dotted`. Dashed/dotted lines render with SVG `stroke-dasharray` on both edge paths and legend swatches.
+
+Lines support an optional inactive state (5th field): the literal `inactive` marks the line inactive-by-default, so it (and any station/label/icon touched only by inactive lines) renders in a muted grey. The `--inactive-lines <id1,id2,...>` render option overrides this per-render (fully replacing the declared set; an empty value forces every line active).
 
 `%%metro style:` picks the brand (`nfcore`, `seqera`; `dark` aliases nfcore) and `%%metro mode:` picks `light`/`dark` - independent axes (CLI: `--theme`, `--mode`). SVG output carries both palettes via `light-dark()` and adapts to the viewer's `color-scheme`, so mode only needs setting to bake a concrete PNG; an unset mode falls to a single global default.
 
