@@ -47,6 +47,7 @@ from nf_metro.render.constants import (
     LOGO_GAP,
     LOGO_SCALE_FACTOR,
     TEXT_VCENTER_DY,
+    effective_line_color,
     line_style_kwargs,
 )
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
@@ -314,6 +315,7 @@ def _render_swatch(
     x0: float,
     entry_y: float,
     swatch_width: float,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Draw the colour swatch for a row.
 
@@ -336,7 +338,7 @@ def _render_swatch(
                 entry_y + dy,
                 x0 + swatch_width,
                 entry_y + dy,
-                stroke=ml.color,
+                stroke=effective_line_color(ml, theme, inactive_line_ids),
                 stroke_width=theme.line_width,
                 stroke_linecap="round",
                 **dash_kw,
@@ -350,6 +352,7 @@ def render_legend(
     theme: Theme,
     x: float,
     y: float,
+    inactive_line_ids: frozenset[str] = frozenset(),
     logo_path: str | None = None,
     logo_path_light: str | None = None,
     logo_path_dark: str | None = None,
@@ -472,6 +475,7 @@ def render_legend(
             x + padding + logo_offset,
             entry_y,
             swatch_width,
+            inactive_line_ids,
         )
 
         # Label

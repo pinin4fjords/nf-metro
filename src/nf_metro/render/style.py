@@ -11,6 +11,7 @@ from nf_metro.layout.constants import (
     STATION_RADIUS_APPROX,
     TERMINUS_WIDTH,
 )
+from nf_metro.render.constants import FALLBACK_LINE_COLOR
 
 
 @dataclass(kw_only=True)
@@ -31,6 +32,10 @@ class Theme:
     station_radius: float = STATION_RADIUS_APPROX
     station_stroke_width: float
     line_width: float
+    # Fixed grey stroke for lines rendered inactive (via --inactive-lines) and
+    # for the stations/labels/icons touched only by inactive lines. A flat hex,
+    # never a light-dark() pair, so a baked --no-chrome-css raster keeps it.
+    muted_line_color: str = FALLBACK_LINE_COLOR
     label_color: str
     label_font_family: str
     label_font_size: float

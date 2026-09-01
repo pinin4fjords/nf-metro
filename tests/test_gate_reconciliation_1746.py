@@ -286,7 +286,9 @@ def test_render_plan_reuses_one_materialized_turnout_geometry(
     captured = {}
     real_render_edges = render_svg._render_edges
 
-    def capture_edges(drawing, graph, routes, polylines, radii, breaks, theme, *args):
+    def capture_edges(
+        drawing, graph, routes, polylines, radii, breaks, theme, *args, **kwargs
+    ):
         captured["polylines"] = tuple(tuple(points) for points in polylines)
         captured["radii"] = tuple(
             None if route_radii is None else tuple(route_radii) for route_radii in radii
@@ -300,6 +302,7 @@ def test_render_plan_reuses_one_materialized_turnout_geometry(
             breaks,
             theme,
             *args,
+            **kwargs,
         )
 
     monkeypatch.setattr(render_svg, "_render_edges", capture_edges)

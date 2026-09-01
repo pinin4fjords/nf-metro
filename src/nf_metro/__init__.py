@@ -8,7 +8,7 @@ from nf_metro.api import (
     render_graph_result,
     render_string,
 )
-from nf_metro.errors import NfMetroError
+from nf_metro.errors import NfMetroError, UnknownInactiveLineError
 
 __version__ = "1.1.0"
 
@@ -16,6 +16,7 @@ __all__ = [
     "__version__",
     "NfMetroError",
     "RenderConfig",
+    "UnknownInactiveLineError",
     "RenderResult",
     "prepare_graph",
     "render_graph",

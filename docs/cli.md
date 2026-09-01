@@ -20,34 +20,35 @@ non-zero if any failed.
 
 Every layout/render option below also has a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
-| Option                                     | Default                      | Description                                                                       |
-| ------------------------------------------ | ---------------------------- | --------------------------------------------------------------------------------- |
-| `-o`, `--output PATH`                      | `<input>.<format>`           | Output file path (only valid with a single `INPUT_FILE`)                          |
-| `--format [svg\|html]`                     | `svg`                        | Output format: `svg` or interactive `html`                                        |
-| `--theme [nfcore\|light]`                  | from `style:`, else `nfcore` | Visual theme                                                                      |
-| `--debug / --no-debug`                     | off                          | Show debug overlay                                                                |
-| `--from-nextflow`                          | off                          | Convert Nextflow `-with-dag` input before rendering                               |
-| `--logo PATH`                              | none                         | Logo image path (must exist; errors on a bad path, same as `%%metro logo:`)       |
-| `--title TEXT`                             | none                         | Pipeline title                                                                    |
-| `--legend TEXT`                            | auto                         | Legend+logo position (keyword, `keyword \| canvas`, `keyword \| dx,dy`, or `x,y`) |
-| `--line-spread [bundle\|centered\|rails]`  | `bundle`                     | How shared lines relate vertically                                                |
-| `--x-spacing FLOAT`                        | auto                         | Horizontal spacing between layers                                                 |
-| `--y-spacing FLOAT`                        | auto                         | Vertical spacing between tracks                                                   |
-| `--section-x-gap FLOAT`                    | 50                           | Horizontal gap between sections                                                   |
-| `--section-y-gap FLOAT`                    | 50                           | Vertical gap between sections                                                     |
-| `--fold-threshold INTEGER`                 | auto (15)                    | Max station-columns per row before folding                                        |
-| `--diamond-style [straight\|symmetric]`    | `straight`                   | Fork-join layout                                                                  |
-| `--line-order [definition\|span]`          | `definition`                 | Line ordering for track assignment                                                |
-| `--center-ports / --no-center-ports`       | off                          | Centre inter-section ports on the shorter section                                 |
-| `--compact-offsets / --no-compact-offsets` | off                          | Size stations only for the lines passing through                                  |
-| `--label-angle FLOAT`                      | theme default                | Station-label angle in degrees                                                    |
-| `--font-scale FLOAT`                       | 1.0                          | Scale text and label-driven layout spacing                                        |
-| `--logo-scale FLOAT`                       | 1.0                          | Scale the logo within the legend                                                  |
-| `--legend-min-height FLOAT`                | 0                            | Minimum legend content height in pixels                                           |
-| `--legend-logo-gap FLOAT`                  | auto                         | Gap between logo and legend entries                                               |
-| `--width INTEGER`                          | auto                         | Output width in pixels                                                            |
-| `--height INTEGER`                         | auto                         | Output height in pixels                                                           |
-| `--animate / --no-animate`                 | off                          | Add animated balls traveling along lines                                          |
+| Option                                     | Default                      | Description                                                                                                                                          |
+| ------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-o`, `--output PATH`                      | `<input>.<format>`           | Output file path (only valid with a single `INPUT_FILE`)                                                                                             |
+| `--format [svg\|html]`                     | `svg`                        | Output format: `svg` or interactive `html`                                                                                                           |
+| `--theme [nfcore\|light]`                  | from `style:`, else `nfcore` | Visual theme                                                                                                                                         |
+| `--debug / --no-debug`                     | off                          | Show debug overlay                                                                                                                                   |
+| `--from-nextflow`                          | off                          | Convert Nextflow `-with-dag` input before rendering                                                                                                  |
+| `--logo PATH`                              | none                         | Logo image path (must exist; errors on a bad path, same as `%%metro logo:`)                                                                          |
+| `--title TEXT`                             | none                         | Pipeline title                                                                                                                                       |
+| `--legend TEXT`                            | auto                         | Legend+logo position (keyword, `keyword \| canvas`, `keyword \| dx,dy`, or `x,y`)                                                                    |
+| `--line-spread [bundle\|centered\|rails]`  | `bundle`                     | How shared lines relate vertically                                                                                                                   |
+| `--x-spacing FLOAT`                        | auto                         | Horizontal spacing between layers                                                                                                                    |
+| `--y-spacing FLOAT`                        | auto                         | Vertical spacing between tracks                                                                                                                      |
+| `--section-x-gap FLOAT`                    | 50                           | Horizontal gap between sections                                                                                                                      |
+| `--section-y-gap FLOAT`                    | 50                           | Vertical gap between sections                                                                                                                        |
+| `--fold-threshold INTEGER`                 | auto (15)                    | Max station-columns per row before folding                                                                                                           |
+| `--diamond-style [straight\|symmetric]`    | `straight`                   | Fork-join layout                                                                                                                                     |
+| `--line-order [definition\|span]`          | `definition`                 | Line ordering for track assignment                                                                                                                   |
+| `--inactive-lines TEXT`                    | from `line:` directives      | Comma-separated line IDs to grey out (with the stations/labels/icons only they touch); replaces any `inactive`-marked lines, empty forces all active |
+| `--center-ports / --no-center-ports`       | off                          | Centre inter-section ports on the shorter section                                                                                                    |
+| `--compact-offsets / --no-compact-offsets` | off                          | Size stations only for the lines passing through                                                                                                     |
+| `--label-angle FLOAT`                      | theme default                | Station-label angle in degrees                                                                                                                       |
+| `--font-scale FLOAT`                       | 1.0                          | Scale text and label-driven layout spacing                                                                                                           |
+| `--logo-scale FLOAT`                       | 1.0                          | Scale the logo within the legend                                                                                                                     |
+| `--legend-min-height FLOAT`                | 0                            | Minimum legend content height in pixels                                                                                                              |
+| `--legend-logo-gap FLOAT`                  | auto                         | Gap between logo and legend entries                                                                                                                  |
+| `--width INTEGER`                          | auto                         | Output width in pixels                                                                                                                               |
+| `--height INTEGER`                         | auto                         | Output height in pixels                                                                                                                              |
+| `--animate / --no-animate`                 | off                          | Add animated balls traveling along lines                                                                                                             |
 
 ### Embedding options
 

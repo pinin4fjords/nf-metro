@@ -50,6 +50,15 @@ gallery:
       Per-station marker shapes & fills encoding tool attributes (mandatory/optional/accelerated/expanded-elsewhere)
       with a marker key alongside the line legend. Demonstrates `%%metro marker:` and `%%metro
       marker_legend:`.
+  - id: inactive_lines
+    source_dir: examples
+    category: Feature Showcase
+    description:
+      "Grey out optional routes to highlight what actually ran. The two optional
+      subworkflows carry the `inactive` fifth field on their `%%metro line:` directive, so they
+      (and the stations, labels, and legend swatches only they touch) render muted while the default
+      STAR path stays full colour. Override per-render with `--inactive-lines` (an empty value
+      forces every line active)."
   - id: diagonal_labels
     source_dir: examples
     category: Feature Showcase

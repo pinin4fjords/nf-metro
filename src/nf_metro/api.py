@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from nf_metro.errors import UnknownInactiveLineError
 from nf_metro.layout import PhaseInvariantError, compute_layout
 from nf_metro.options import LAYOUT_OPTIONS, is_line_order
 from nf_metro.parser import parse_metro_mermaid
@@ -68,6 +69,11 @@ class RenderConfig:
     baked_mode: str | None = None
     bare: bool = False
     embed_basename: str = "metro_map.html"
+    # ``None`` means "no caller override": the render uses whichever lines the
+    # map itself marks inactive by directive. A concrete set (including the empty
+    # set) replaces that default outright, so ``frozenset()`` forces every line
+    # active regardless of the directive.
+    inactive_line_ids: frozenset[str] | None = None
 
     @property
     def font_portability(self) -> Literal["embed", "paths"] | None:
@@ -126,6 +132,16 @@ def render_graph_result(
     graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig
 ) -> RenderResult:
     """Render a laid-out graph and return its content and plan."""
+    if cfg.inactive_line_ids is not None:
+        bad = cfg.inactive_line_ids - graph.lines.keys()
+        if bad:
+            raise UnknownInactiveLineError(
+                f"--inactive-lines: unknown line ID(s) {sorted(bad)}; "
+                f"known lines are {sorted(graph.lines)}"
+            )
+        effective_inactive = cfg.inactive_line_ids
+    else:
+        effective_inactive = graph.default_inactive_line_ids()
     if cfg.output_format == "html":
         plan = build_render_plan(
             graph,
@@ -133,6 +149,7 @@ def render_graph_result(
             debug=cfg.debug,
             legend_position="none",
             metrics_face=cfg.metrics_face,
+            inactive_line_ids=effective_inactive,
         )
         content = emit_render_plan_html(
             plan,
@@ -151,6 +168,7 @@ def render_graph_result(
         chrome_css=cfg.chrome_css,
         bare=cfg.bare,
         metrics_face=cfg.metrics_face,
+        inactive_line_ids=effective_inactive,
     )
     return RenderResult(_emit_svg_plan(graph, plan, cfg), plan)
 
@@ -362,6 +380,7 @@ def render_string(
     self_color_scheme: bool = True,
     bare: bool = False,
     embed_basename: str = "metro_map.html",
+    inactive_line_ids: frozenset[str] | None = None,
 ) -> str:
     """Render *text* to an SVG (default) or interactive HTML string.
 
@@ -374,9 +393,9 @@ def render_string(
     When supplied, the individual render-side keyword arguments (``output_format``,
     ``debug``, ``responsive``, ``embed_font``, ``text_to_paths``,
     ``svg_class_prefix``, ``inject_dark_mode_css``, ``chrome_css``,
-    ``self_color_scheme``, ``bare``, ``embed_basename``) are ignored in favour of
-    *config*, and passing any of them with a non-default value alongside
-    *config* warns. Pass one or the other, not both.
+    ``self_color_scheme``, ``bare``, ``embed_basename``, ``inactive_line_ids``)
+    are ignored in favour of *config*, and passing any of them with a non-default
+    value alongside *config* warns. Pass one or the other, not both.
 
     *self_color_scheme* — when ``True`` (default) the root ``<svg>`` element
     declares ``color-scheme: light dark`` so ``light-dark()`` custom properties
@@ -429,6 +448,7 @@ def render_string(
         baked_mode=(mode or "").strip() or None,
         bare=bare,
         embed_basename=embed_basename,
+        inactive_line_ids=inactive_line_ids,
     )
     if config is not None:
         defaults = RenderConfig()

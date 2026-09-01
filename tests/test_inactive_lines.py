@@ -1,0 +1,259 @@
+"""Tests for the --inactive-lines / inactive_line_ids muting feature."""
+
+import xml.etree.ElementTree as ET
+
+import pytest
+
+from nf_metro import RenderConfig, UnknownInactiveLineError, render_string
+from nf_metro.errors import NfMetroError
+from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.render.constants import (
+    FALLBACK_LINE_COLOR,
+    effective_line_color,
+    station_is_muted,
+)
+from nf_metro.themes import NFCORE_THEME
+
+MUTED = NFCORE_THEME.muted_line_color
+
+# Two lines, three stations: x touches only line a, z only line b, y both.
+TWO_LINE_MAP = (
+    "%%metro line: a | Line A | #ff0000\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "graph LR\n"
+    "    x[X] -->|a| y[Y]\n"
+    "    y -->|b| z[Z]\n"
+)
+
+
+def _svg(src, **kwargs):
+    return render_string(src, **kwargs)
+
+
+def _rects_by_station(svg):
+    """Map station id -> set of stroke colours on its ``rect`` glyphs."""
+    root = ET.fromstring(svg)
+    out: dict[str, set[str]] = {}
+    for el in root.iter():
+        if not el.tag.endswith("rect"):
+            continue
+        sid = el.get("data-station-id")
+        if sid is not None:
+            out.setdefault(sid, set()).add(el.get("stroke"))
+    return out
+
+
+def _label_fill_by_station(svg):
+    """Map station id -> fill colour of its name label text."""
+    root = ET.fromstring(svg)
+    out: dict[str, str] = {}
+    for el in root.iter():
+        if not el.tag.endswith("text"):
+            continue
+        sid = el.get("data-station-id")
+        cls = el.get("class") or ""
+        if sid is not None and "label" in cls:
+            out[sid] = el.get("fill")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def test_muted_line_color_defaults_to_fallback_grey():
+    assert NFCORE_THEME.muted_line_color == FALLBACK_LINE_COLOR
+
+
+def test_effective_line_color_mutes_inactive_only():
+    graph = parse_metro_mermaid(TWO_LINE_MAP)
+    a = graph.lines["a"]
+    b = graph.lines["b"]
+    inactive = frozenset({"a"})
+    assert effective_line_color(a, NFCORE_THEME, inactive) == MUTED
+    assert effective_line_color(b, NFCORE_THEME, inactive) == b.color
+    assert effective_line_color(None, NFCORE_THEME, inactive) == FALLBACK_LINE_COLOR
+
+
+def test_station_is_muted_guards_zero_line_station():
+    graph = parse_metro_mermaid(TWO_LINE_MAP)
+    # y touches both lines; x only a; a station with no edges is vacuously empty.
+    assert station_is_muted(graph, "x", frozenset({"a"})) is True
+    assert station_is_muted(graph, "y", frozenset({"a"})) is False
+    assert station_is_muted(graph, "z", frozenset({"a"})) is False
+    assert station_is_muted(graph, "x", frozenset({"a", "b"})) is True
+    # An isolated / unknown station has no touching lines and is never muted.
+    assert station_is_muted(graph, "__nonexistent__", frozenset({"a"})) is False
+
+
+# ---------------------------------------------------------------------------
+# Edge / chevron / legend strokes
+# ---------------------------------------------------------------------------
+
+
+def test_inactive_line_edge_and_legend_muted_active_line_kept():
+    svg = _svg(TWO_LINE_MAP, config=RenderConfig(inactive_line_ids=frozenset({"a"})))
+    # The active line keeps its own colour somewhere in the render.
+    assert "#0000ff" in svg
+    # The inactive line's own colour never appears as a stroke.
+    assert 'stroke="#ff0000"' not in svg
+    # The muted grey does appear (edge + legend swatch for line a).
+    assert f'stroke="{MUTED}"' in svg
+
+
+def test_inactive_chevron_muted():
+    src = TWO_LINE_MAP + "%%metro directional: true\n"
+    svg = _svg(src, config=RenderConfig(inactive_line_ids=frozenset({"a"})))
+    root = ET.fromstring(svg)
+    a_chevron_strokes = set()
+    for el in root.iter():
+        cls = el.get("class") or ""
+        if "metro-direction-a" in cls:
+            a_chevron_strokes.add(el.get("stroke"))
+    assert a_chevron_strokes == {MUTED}
+
+
+# ---------------------------------------------------------------------------
+# Station / label muting
+# ---------------------------------------------------------------------------
+
+
+def test_station_touched_by_active_line_not_muted():
+    svg = _svg(TWO_LINE_MAP, config=RenderConfig(inactive_line_ids=frozenset({"a"})))
+    rects = _rects_by_station(svg)
+    labels = _label_fill_by_station(svg)
+    # x is touched only by the inactive line -> muted stroke + label.
+    assert rects["x"] == {MUTED}
+    assert labels["x"] == MUTED
+    # y and z each touch an active line -> full-strength stroke + label.
+    assert MUTED not in rects["y"]
+    assert MUTED not in rects["z"]
+    assert labels["y"] == NFCORE_THEME.label_color
+    assert labels["z"] == NFCORE_THEME.label_color
+
+
+def test_muted_station_keeps_fill():
+    svg = _svg(TWO_LINE_MAP, config=RenderConfig(inactive_line_ids=frozenset({"a"})))
+    root = ET.fromstring(svg)
+    for el in root.iter():
+        if el.tag.endswith("rect") and el.get("data-station-id") == "x":
+            # Fill is the theme station fill, not the muted grey.
+            assert el.get("fill") == NFCORE_THEME.station_fill
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_inactive_line_raises():
+    with pytest.raises(UnknownInactiveLineError) as exc:
+        _svg(TWO_LINE_MAP, config=RenderConfig(inactive_line_ids=frozenset({"nope"})))
+    assert "nope" in str(exc.value)
+    assert isinstance(exc.value, (NfMetroError, ValueError))
+
+
+def test_unknown_inactive_line_raises_before_html_render():
+    # The unknown-ID check must fire even for --format html, which is otherwise
+    # not muted, so it runs ahead of the html early-return in the pipeline.
+    with pytest.raises(UnknownInactiveLineError):
+        _svg(
+            TWO_LINE_MAP,
+            config=RenderConfig(
+                output_format="html", inactive_line_ids=frozenset({"nope"})
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Additive: empty / default is inert
+# ---------------------------------------------------------------------------
+
+
+def test_default_none_matches_empty_when_no_declared_inactive():
+    baseline = _svg(TWO_LINE_MAP)
+    forced_active = _svg(
+        TWO_LINE_MAP, config=RenderConfig(inactive_line_ids=frozenset())
+    )
+    assert baseline == forced_active
+
+
+def test_example_render_byte_identical_with_empty_override():
+    src = (
+        "%%metro title: Example\n"
+        "%%metro line: main | Main | #ff6600 | solid\n"
+        "%%metro line: alt | Alt | #3366cc\n"
+        "graph LR\n"
+        "    subgraph s1 [First]\n"
+        "        a[Alpha] -->|main| b[Beta]\n"
+        "        a -->|alt| c[Gamma]\n"
+        "    end\n"
+        "    b -->|main| d[Delta]\n"
+        "    c -->|alt| d\n"
+    )
+    baseline = _svg(src)
+    empty = _svg(src, config=RenderConfig(inactive_line_ids=frozenset()))
+    assert baseline == empty
+
+
+# ---------------------------------------------------------------------------
+# .mmd directive + precedence
+# ---------------------------------------------------------------------------
+
+
+def test_line_directive_fifth_field_sets_default_inactive():
+    graph = parse_metro_mermaid(
+        "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+        "%%metro line: b | Line B | #0000ff\n"
+        "graph LR\n"
+        "    x[X] -->|a| y[Y]\n"
+        "    y -->|b| z[Z]\n"
+    )
+    assert graph.lines["a"].default_inactive is True
+    assert graph.lines["b"].default_inactive is False
+
+
+DECLARED_INACTIVE_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "graph LR\n"
+    "    x[X] -->|a| y[Y]\n"
+    "    y -->|b| z[Z]\n"
+)
+
+
+def test_declared_inactive_muted_without_cli_override():
+    svg = _svg(DECLARED_INACTIVE_MAP)  # no override -> use map's declared set
+    assert 'stroke="#ff0000"' not in svg
+    assert f'stroke="{MUTED}"' in svg
+    assert _rects_by_station(svg)["x"] == {MUTED}
+
+
+def test_cli_override_replaces_declared_set():
+    # Map declares 'a' inactive; overriding with 'b' must mute only 'b' and
+    # restore 'a' to full colour (full-replace, not union).
+    svg = _svg(
+        DECLARED_INACTIVE_MAP, config=RenderConfig(inactive_line_ids=frozenset({"b"}))
+    )
+    assert 'stroke="#ff0000"' in svg  # line a is active again
+    assert 'stroke="#0000ff"' not in svg  # line b muted
+    rects = _rects_by_station(svg)
+    assert MUTED not in rects["x"]  # x (line a) full strength
+    assert rects["z"] == {MUTED}  # z (line b) muted
+
+
+def test_cli_empty_override_forces_all_active():
+    svg = _svg(
+        DECLARED_INACTIVE_MAP, config=RenderConfig(inactive_line_ids=frozenset())
+    )
+    assert 'stroke="#ff0000"' in svg
+    assert 'stroke="#0000ff"' in svg
+    rects = _rects_by_station(svg)
+    assert MUTED not in rects["x"]
+    assert MUTED not in rects["z"]
+
+
+def test_render_string_flat_kwarg_overrides():
+    svg = _svg(TWO_LINE_MAP, inactive_line_ids=frozenset({"a"}))
+    assert _rects_by_station(svg)["x"] == {MUTED}

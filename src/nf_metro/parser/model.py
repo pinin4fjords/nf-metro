@@ -106,6 +106,9 @@ class LineSpread(str, Enum):
 
 VALID_LINE_STYLES = ("solid", "dashed", "dotted")
 
+LINE_INACTIVE_KEYWORD = "inactive"
+"""Literal fifth ``%%metro line:`` field marking a line inactive by default."""
+
 FLOW_DIRECTIONS: tuple[str, ...] = ("LR", "RL", "TB", "BT")
 """Every flow direction a section may declare, paired by axis.
 
@@ -145,6 +148,11 @@ class MetroLine:
     display_name: str
     color: str
     style: str = "solid"
+    # Marked inactive by the ``%%metro line:`` directive's optional ``inactive``
+    # field. A render greys such lines unless a caller override (the
+    # ``--inactive-lines`` flag / ``inactive_line_ids`` config) supplies its own
+    # set, which replaces this default outright.
+    default_inactive: bool = False
 
 
 @dataclass(frozen=True)
@@ -720,6 +728,16 @@ class MetroGraph:
 
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line
+
+    def default_inactive_line_ids(self) -> frozenset[str]:
+        """Line IDs the map declares inactive via the ``line:`` directive.
+
+        The render-time default when no ``--inactive-lines`` / ``inactive_line_ids``
+        override is supplied; an override replaces this set outright.
+        """
+        return frozenset(
+            line_id for line_id, line in self.lines.items() if line.default_inactive
+        )
 
     def add_station(self, station: Station) -> None:
         self.stations[station.id] = station

@@ -203,6 +203,7 @@ class RenderPlan:
     debug: bool
     chrome_css: bool
     bare: bool
+    inactive_line_ids: frozenset[str] = frozenset()
 
     @property
     def edge_routes(self) -> tuple[FrozenRecord, ...]:

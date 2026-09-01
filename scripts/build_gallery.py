@@ -211,7 +211,12 @@ def render_mmd(
     graph = prepare_graph(text, from_nextflow=from_nextflow)
     graph.embed_manifest = False
     theme = resolve_theme(None, graph)
-    plan = build_render_plan(graph, theme, debug=debug)
+    plan = build_render_plan(
+        graph,
+        theme,
+        debug=debug,
+        inactive_line_ids=graph.default_inactive_line_ids(),
+    )
     svg_str = emit_render_plan(
         plan,
         self_color_scheme=self_color_scheme,
