@@ -643,7 +643,7 @@ class _Handover(NamedTuple):
 def _partial_handovers(
     graph: MetroGraph,
     partial: Section,
-    carriers: set[str],
+    carrier_ports: set[str],
     offsets: dict[tuple[str, str], float],
 ) -> list[_Handover]:
     """Direct port-to-port through-line hand-overs from *partial* to a carrier.
@@ -651,7 +651,8 @@ def _partial_handovers(
     A hand-over qualifies when it runs port to port to a carrier one grid column
     away with no junction between them and no cell-mate forcing a bypass -- the
     cases a level connector can be drawn for.  Each carries the offset step
-    (destination lane minus source lane) at the current frame.
+    (destination lane minus source lane) at the current frame.  *carrier_ports*
+    is the union of every carrier section's port IDs.
     """
     from nf_metro.layout.routing.context import (
         HopEnd,
@@ -659,8 +660,7 @@ def _partial_handovers(
         _resolve_section_colrow,
     )
 
-    junction_ids = set(graph.junction_ids)
-    carrier_ports = {pid for cid in carriers for pid in graph.sections[cid].port_ids}
+    junction_ids = graph.junction_ids
     handovers: list[_Handover] = []
     for pid in partial.port_ids:
         p_port = graph.ports.get(pid)
@@ -749,7 +749,7 @@ def _descent_step_is_stable(
 def _partial_trunk_descent(
     graph: MetroGraph,
     partial: Section,
-    carriers: set[str],
+    carrier_ports: set[str],
     offsets: dict[tuple[str, str], float],
 ) -> PartialTrunkDescent | None:
     """Extra downward offset seating a partial's trunk on its handover lane.
@@ -768,7 +768,7 @@ def _partial_trunk_descent(
     under :func:`_descent_step_is_stable`, else ``None`` (the partial stays on the
     carrier trunk).
     """
-    handovers = _partial_handovers(graph, partial, carriers, offsets)
+    handovers = _partial_handovers(graph, partial, carrier_ports, offsets)
     steps = {h.step for h in handovers}
     if len(steps) != 1:
         return None
@@ -779,6 +779,14 @@ def _partial_trunk_descent(
         return None
     rep = handovers[0]
     return PartialTrunkDescent(rep.partial_port, rep.carrier_port, step)
+
+
+def _descent_of(
+    partial_descents: dict[str, PartialTrunkDescent], section_id: str
+) -> float:
+    """The descent recorded for *section_id*, or ``0`` when it is not a partial."""
+    record = partial_descents.get(section_id)
+    return record.descent if record is not None else 0.0
 
 
 def _row_trunk_alignment(
@@ -811,7 +819,7 @@ def _row_trunk_alignment(
         return None
 
     partial = [s for s in group if through[s.id] and s.id not in carriers]
-    partial_offsets: dict[str, PartialTrunkDescent] = {}
+    partial_descents: dict[str, PartialTrunkDescent] = {}
     if not partial:
         target_y = max(trunks.values())
     else:
@@ -835,10 +843,14 @@ def _row_trunk_alignment(
         from nf_metro.layout.routing.offsets import compute_station_offsets
 
         offsets = compute_station_offsets(graph)
-        partial_offsets = {
+        carrier_ports = {
+            pid for cid in carriers for pid in graph.sections[cid].port_ids
+        }
+        partial_descents = {
             s.id: d
             for s in partial
-            if (d := _partial_trunk_descent(graph, s, carriers, offsets)) is not None
+            if (d := _partial_trunk_descent(graph, s, carrier_ports, offsets))
+            is not None
         }
 
     # The trunk must already hand over between sections at target_y.  A
@@ -853,7 +865,7 @@ def _row_trunk_alignment(
         and port.side in (PortSide.LEFT, PortSide.RIGHT)
     ):
         return None
-    return target_y, trunks, partial_offsets
+    return target_y, trunks, partial_descents
 
 
 def _align_row_trunk_ys(graph: MetroGraph) -> None:
@@ -907,14 +919,14 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             alignment = _row_trunk_alignment(graph, group)
             if alignment is None:
                 continue
-            target_y, trunks, partial_offsets = alignment
-            descents.update(partial_offsets)
+            target_y, trunks, partial_descents = alignment
+            descents.update(partial_descents)
             shifted: set[str] = set()
             for section in group:
                 ty = trunks.get(section.id)
                 if ty is None:
                     continue
-                sec_target = target_y + _descent_of(partial_offsets, section.id)
+                sec_target = target_y + _descent_of(partial_descents, section.id)
                 delta = sec_target - ty
                 if delta < SAME_COORD_TOLERANCE:
                     continue
@@ -938,7 +950,7 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             for section in group:
                 if section.id not in shifted:
                     continue
-                sec_target = target_y + _descent_of(partial_offsets, section.id)
+                sec_target = target_y + _descent_of(partial_descents, section.id)
                 bundle = _section_bundle_lines(graph, section)
                 port_set = section.port_ids
                 internal_ids = set(section.station_ids) - port_set
@@ -981,14 +993,6 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
                         _set_port_y(graph, pid, sec_target)
 
     graph._partial_trunk_descents = descents
-
-
-def _descent_of(
-    partial_offsets: dict[str, PartialTrunkDescent], section_id: str
-) -> float:
-    """The descent recorded for *section_id*, or ``0`` when it is not a partial."""
-    record = partial_offsets.get(section_id)
-    return record.descent if record is not None else 0.0
 
 
 def _perp_port_lead_edge_reserve(
