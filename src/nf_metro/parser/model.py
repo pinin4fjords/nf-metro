@@ -145,6 +145,11 @@ class MetroLine:
     display_name: str
     color: str
     style: str = "solid"
+    # Marked inactive by the ``%%metro line:`` directive's optional ``inactive``
+    # field. A render greys such lines unless a caller override (the
+    # ``--inactive-lines`` flag / ``inactive_line_ids`` config) supplies its own
+    # set, which replaces this default outright.
+    default_inactive: bool = False
 
 
 @dataclass(frozen=True)

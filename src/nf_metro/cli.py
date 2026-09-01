@@ -50,6 +50,22 @@ def cli() -> None:
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
+def _parse_inactive_lines(value: object) -> frozenset[str] | None:
+    """Normalise an ``--inactive-lines`` value to a set of line IDs, or ``None``.
+
+    Accepts a comma-separated string (the CLI form) or a JSON list of strings
+    (the ``render-many`` manifest form). ``None`` (option absent) stays ``None``,
+    meaning "no override, use the map's own defaults"; an empty string or list
+    yields an empty set, forcing every line active for this render.
+    """
+    if value is None:
+        return None
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, Iterable):
+        raise ValueError("inactive_lines must be a string or list of line IDs")
+    return frozenset(s for s in (str(i).strip() for i in items) if s)
+
+
 def _layout_cli_option(opt: LayoutOption) -> Callable[..., Any]:
     """Build the ``click.option`` decorator for a registry option.
 
@@ -289,6 +305,19 @@ def _run_batch(items: list[tuple[str, Callable[[], None]]]) -> None:
         "lifts) and fail if any defect is found. SVG output only."
     ),
 )
+@click.option(
+    "--inactive-lines",
+    "inactive_lines",
+    default=None,
+    help=(
+        "Comma-separated %%metro line: IDs to render inactive: their strokes, "
+        "chevrons, and legend swatches grey out, as do the stations, labels, and "
+        "terminus icons touched only by inactive lines. Unlisted lines stay "
+        "full-colour. Unknown IDs error. Fully replaces any lines the map marks "
+        "inactive by directive; pass an empty value to force every line active. "
+        "Does not edit the .mmd."
+    ),
+)
 @layout_cli_options
 def render(
     input_files: tuple[Path, ...],
@@ -311,6 +340,7 @@ def render(
     no_chrome_css: bool,
     bare: bool,
     validate_geometry: bool,
+    inactive_lines: str | None,
     **layout_opts: object,
 ) -> None:
     """Render one or more Mermaid metro map definitions to SVG or interactive HTML.
@@ -327,6 +357,8 @@ def render(
     """
     if len(input_files) > 1 and output is not None:
         raise click.UsageError("-o/--output can only be used with a single INPUT_FILE.")
+
+    inactive_line_ids = _parse_inactive_lines(inactive_lines)
 
     def _job(input_file: Path, *, quiet: bool) -> Callable[[], None]:
         out_path = (
@@ -353,6 +385,7 @@ def render(
             no_chrome_css=no_chrome_css,
             bare=bare,
             validate_geometry=validate_geometry,
+            inactive_line_ids=inactive_line_ids,
             layout_opts=layout_opts,
             quiet=quiet,
         )
@@ -386,6 +419,7 @@ def _render_one(
     no_chrome_css: bool,
     bare: bool,
     validate_geometry: bool,
+    inactive_line_ids: frozenset[str] | None,
     layout_opts: dict[str, object],
     quiet: bool,
 ) -> None:
@@ -411,6 +445,7 @@ def _render_one(
             no_chrome_css=no_chrome_css,
             bare=bare,
             validate_geometry=validate_geometry,
+            inactive_line_ids=inactive_line_ids,
             layout_opts=layout_opts,
             quiet=quiet,
         )
@@ -444,6 +479,7 @@ def _render_one_unsafe(
     no_chrome_css: bool,
     bare: bool,
     validate_geometry: bool,
+    inactive_line_ids: frozenset[str] | None,
     layout_opts: dict[str, object],
     quiet: bool,
 ) -> None:
@@ -529,6 +565,7 @@ def _render_one_unsafe(
                     baked_mode=(mode or graph.mode).strip() or None,
                     bare=bare,
                     embed_basename=output.name,
+                    inactive_line_ids=inactive_line_ids,
                 ),
             )
             content = rendered.content
@@ -599,6 +636,10 @@ def render_many(manifest_file: Path) -> None:
       no_chrome_css         Omit chrome CSS custom-properties (default: false).
       bare                  Omit title and outer padding (default: false).
       validate              Run render-geometry guards (default: false).
+      inactive_lines        Line IDs to render inactive: a comma-separated
+                            string or JSON list.  Omit the key to use the map's
+                            own inactive-by-directive lines; give [] to force
+                            every line active.
       layout_options        Object of layout overrides, e.g.
                             {"manifest": false, "x_spacing": 60}.
 
@@ -664,6 +705,7 @@ def render_many(manifest_file: Path) -> None:
                 no_chrome_css=bool(job.get("no_chrome_css", False)),
                 bare=bool(job.get("bare", False)),
                 validate_geometry=bool(job.get("validate", False)),
+                inactive_line_ids=_parse_inactive_lines(job.get("inactive_lines")),
                 layout_opts=dict(lo_raw) if isinstance(lo_raw, dict) else {},
                 quiet=True,
             )

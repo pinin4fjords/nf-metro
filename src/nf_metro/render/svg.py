@@ -21,7 +21,7 @@ import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, cast
 
 import drawsvg as draw
 
@@ -195,7 +195,9 @@ from nf_metro.render.constants import (
     WATERMARK_FONT_SIZE,
     WATERMARK_PADDING_RATIO,
     WATERMARK_Y_INSET,
+    effective_line_color,
     line_style_kwargs,
+    station_is_muted,
     title_baseline_y,
 )
 from nf_metro.render.icons import (
@@ -221,6 +223,7 @@ from nf_metro.render.path_geometry import materialize_source_turnout_paths
 from nf_metro.render.plan import (
     _RENDER_GRAPH_EXCLUDED_FIELDS,
     FrozenGraph,
+    FrozenMap,
     FrozenRecord,
     RenderPlan,
     freeze_render_value,
@@ -790,6 +793,7 @@ def _build_render_plan_result(
     chrome_css: bool = True,
     bare: bool = False,
     metrics_face: MetricsFace = MetricsFace.FALLBACK,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> tuple[RenderPlan, RoutePlan]:
     """Build a render plan alongside the routing observation that settled it."""
     scaled_theme = _scale_theme_strokes(
@@ -811,6 +815,7 @@ def _build_render_plan_result(
                 legend_position=legend_position,
                 chrome_css=chrome_css,
                 bare=bare,
+                inactive_line_ids=inactive_line_ids,
             )
         except (
             ConvergenceInvariantError,
@@ -844,6 +849,7 @@ def build_render_plan(
     chrome_css: bool = True,
     bare: bool = False,
     metrics_face: MetricsFace = MetricsFace.FALLBACK,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> RenderPlan:
     """Build an immutable render plan without changing the caller's graph."""
     plan, _route_plan = _build_render_plan_result(
@@ -857,6 +863,7 @@ def build_render_plan(
         chrome_css=chrome_css,
         bare=bare,
         metrics_face=metrics_face,
+        inactive_line_ids=inactive_line_ids,
     )
     return plan
 
@@ -2217,6 +2224,7 @@ def _build_render_plan_scaled(
     legend_position: str | None,
     chrome_css: bool = True,
     bare: bool = False,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> tuple[RenderPlan, RoutePlan]:
     """Finish render geometry on a private graph copy and freeze the result."""
     effective_legend_position = (
@@ -2511,6 +2519,7 @@ def _build_render_plan_scaled(
         debug=published_geometry.debug,
         chrome_css=published_geometry.chrome_css,
         bare=published_geometry.bare,
+        inactive_line_ids=inactive_line_ids,
     ), route_plan
 
 
@@ -2563,6 +2572,7 @@ def _emit_render_plan(
     header_placements: Any = plan.header_placements
     group_bands: Any = plan.group_bands
     positive_fan: Any = plan.positive_fan_sections
+    inactive_line_ids = plan.inactive_line_ids
     svg_width, svg_height = plan.svg_width, plan.svg_height
     padding = plan.padding
     legend_x, legend_y = plan.legend_x, plan.legend_y
@@ -2659,11 +2669,14 @@ def _emit_render_plan(
         edge_radii,
         bridge_breaks,
         theme,
+        inactive_line_ids=inactive_line_ids,
     )
 
     # Directional chevrons ride on top of the lines but behind stations.
     if graph.directional:
-        _render_directional_markers(d, graph, routes, station_offsets, theme)
+        _render_directional_markers(
+            d, graph, routes, station_offsets, theme, inactive_line_ids
+        )
 
     # Animation (after edges, before stations so balls travel behind station markers)
     if animate:
@@ -2672,10 +2685,10 @@ def _emit_render_plan(
         render_animation(d, graph, routes, station_offsets, theme)
 
     # Draw stations (all circles, skip ports)
-    _render_stations(d, graph, theme, station_offsets, positive_fan)
+    _render_stations(d, graph, theme, station_offsets, positive_fan, inactive_line_ids)
 
     # Draw labels
-    _render_labels(d, labels, theme)
+    _render_labels(d, labels, theme, graph, inactive_line_ids)
 
     # Annotative intra-section group captions.
     if group_bands:
@@ -2694,6 +2707,7 @@ def _emit_render_plan(
             theme,
             legend_x,
             legend_y,
+            inactive_line_ids=inactive_line_ids,
             logo_path=effective_logo if (_in_legend and not adaptive_logo) else None,
             logo_path_light=(
                 resolved_logo_light if (adaptive_logo and _in_legend) else None
@@ -3260,6 +3274,8 @@ def _render_edges(
     bridge_breaks: tuple[tuple[BridgeBreak, ...], ...],
     theme: Theme,
     curve_radius: float = SVG_CURVE_RADIUS,
+    *,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Render metro line edges with smooth curves at direction changes."""
 
@@ -3269,7 +3285,7 @@ def _render_edges(
         pts = list(pts)
         route_radii = None if route_radii is None else list(route_radii)
         line = graph.lines.get(route.line_id)
-        color = line.color if line else FALLBACK_LINE_COLOR
+        color = effective_line_color(line, theme, inactive_line_ids)
         style_kw = line_style_kwargs(line.style) if line else {}
         class_name = _ns(f"metro-line-{route.line_id}")
 
@@ -3336,6 +3352,7 @@ def _render_directional_markers(
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
     theme: Theme,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Draw static chevrons along each route, pointing source to target.
 
@@ -3356,9 +3373,12 @@ def _render_directional_markers(
         if len(pts) < 2:
             continue
         line = graph.lines.get(route.line_id)
-        color = theme.directional_marker_color or (
-            line.color if line else FALLBACK_LINE_COLOR
-        )
+        if line is not None and line.id in inactive_line_ids:
+            color = theme.muted_line_color
+        else:
+            color = theme.directional_marker_color or (
+                line.color if line else FALLBACK_LINE_COLOR
+            )
         class_name = _ns(f"metro-direction-{route.line_id}")
         for point, heading in _chevron_samples(pts, spacing, min_length):
             _draw_chevron(
@@ -3952,12 +3972,45 @@ def _station_group_attrs(
     }
 
 
+def _muted_line_theme(theme: Theme) -> Theme:
+    """Return *theme* with every line-identity stroke/text set to the muted grey.
+
+    Station stroke, marker outline, terminus icon stroke, and label/terminus
+    text resolve to ``muted_line_color`` so a station touched only by inactive
+    lines reads as greyed; fills are deliberately untouched (they carry
+    background, not line identity).
+
+    A render plan carries its theme as a :class:`FrozenRecord`, which cannot be
+    :func:`dataclasses.replace`-d, so that case rebuilds the record directly.
+    """
+    muted = theme.muted_line_color
+    overrides = {
+        "station_stroke": muted,
+        "marker_stroke": muted,
+        "terminus_stroke": muted,
+        "terminus_font_color": muted,
+        "label_color": muted,
+    }
+    if isinstance(theme, FrozenRecord):
+        entries = tuple((k, overrides.get(k, v)) for k, v in theme.values.entries)
+        return cast(Theme, FrozenRecord(kind=theme.kind, values=FrozenMap(entries)))
+    return replace(
+        theme,
+        station_stroke=muted,
+        marker_stroke=muted,
+        terminus_stroke=muted,
+        terminus_font_color=muted,
+        label_color=muted,
+    )
+
+
 def _render_stations(
     d: draw.Drawing,
     graph: MetroGraph,
     theme: Theme,
     station_offsets: dict[tuple[str, str], float] | None = None,
     positive_fan: set[str] | None = None,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Render stations as pill shapes.
 
@@ -3976,18 +4029,23 @@ def _render_stations(
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
+        station_theme = (
+            _muted_line_theme(theme)
+            if station_is_muted(graph, station.id, inactive_line_ids)
+            else theme
+        )
         if graph.embed_manifest:
             attrs = _station_group_attrs(
                 graph, theme, station, station_offsets, positive_fan
             )
             g = draw.Group(**attrs)
             _render_station_into(
-                g, graph, theme, station, station_offsets, positive_fan
+                g, graph, station_theme, station, station_offsets, positive_fan
             )
             d.append(g)
         else:
             _render_station_into(
-                d, graph, theme, station, station_offsets, positive_fan
+                d, graph, station_theme, station, station_offsets, positive_fan
             )
 
 
@@ -4454,6 +4512,8 @@ def _render_labels(
     d: draw.Drawing,
     labels: list[LabelPlacement],
     theme: Theme,
+    graph: MetroGraph,
+    inactive_line_ids: frozenset[str] = frozenset(),
 ) -> None:
     """Render station name labels."""
     halo_color = _label_halo_color(theme)
@@ -4463,7 +4523,9 @@ def _render_labels(
         / theme.label_font_size
     )
 
-    def emit(text: str, x: float, y: float, **style: object) -> None:
+    def emit(
+        text: str, x: float, y: float, fill: str = theme.label_color, **style: object
+    ) -> None:
         # The halo is a stroked copy drawn underneath the glyph fill. A second
         # paint pass (rather than paint-order on a single element) keeps the
         # knockout correct in renderers that ignore the paint-order property.
@@ -4492,7 +4554,7 @@ def _render_labels(
                 theme.label_font_size,
                 x,
                 y,
-                fill=theme.label_color,
+                fill=fill,
                 font_family=theme.label_font_family,
                 font_weight=theme.label_font_weight,
                 line_height=line_height_ratio,
@@ -4525,6 +4587,13 @@ def _render_labels(
             label_data["data-station-id"] = label.station_id
             label_data["class_"] = _ns("nf-metro-station-label")
 
+        label_fill = (
+            theme.muted_line_color
+            if label.station_id
+            and station_is_muted(graph, label.station_id, inactive_line_ids)
+            else theme.label_color
+        )
+
         if label.angle:
             # Diagonal labels: anchor at the pill and rotate about
             # the anchor.  text-anchor=start so the tilted text trails
@@ -4533,6 +4602,7 @@ def _render_labels(
                 text,
                 label.x,
                 label.y,
+                fill=label_fill,
                 text_anchor=label.text_anchor or "start",
                 dominant_baseline="auto",
                 transform=f"rotate({label.angle},{label.x},{label.y})",
@@ -4543,6 +4613,7 @@ def _render_labels(
                 text,
                 label.x,
                 y,
+                fill=label_fill,
                 text_anchor=label.text_anchor,
                 dominant_baseline=label.dominant_baseline,
             )
@@ -4552,6 +4623,7 @@ def _render_labels(
                 text,
                 label.x,
                 y,
+                fill=label_fill,
                 text_anchor="middle",
                 dominant_baseline=baseline,
             )

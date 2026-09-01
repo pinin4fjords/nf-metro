@@ -4,6 +4,10 @@ Centralizes magic numbers from svg.py, legend.py, animate.py, and icons.py.
 Theme-dependent values remain in style.py.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     ICON_CAPTION_GAP,
@@ -19,6 +23,10 @@ from nf_metro.layout.constants import (
     RAIL_KNOB_RADIUS_RATIO as RAIL_KNOB_RADIUS_RATIO,  # re-export
 )
 from nf_metro.layout.constants import TERMINUS_WIDTH as TERMINUS_WIDTH  # re-export
+
+if TYPE_CHECKING:
+    from nf_metro.parser.model import MetroGraph, MetroLine
+    from nf_metro.render.style import Theme
 
 # ---------------------------------------------------------------------------
 # Canvas
@@ -263,6 +271,34 @@ CAPTION_FILL: str = "rgba(200, 200, 200, 0.85)"
 # ---------------------------------------------------------------------------
 FALLBACK_LINE_COLOR: str = "#888888"
 """Color used when a line has no explicit color defined."""
+
+
+def effective_line_color(
+    line: MetroLine | None, theme: Theme, inactive_line_ids: frozenset[str]
+) -> str:
+    """Stroke colour for a line, muted to grey when the line is inactive.
+
+    An inactive line resolves to ``theme.muted_line_color`` at every stroke
+    site (edge, chevron, legend swatch); every other line keeps its own colour,
+    falling back to :data:`FALLBACK_LINE_COLOR` when it has none.
+    """
+    if line is not None and line.id in inactive_line_ids:
+        return theme.muted_line_color
+    return line.color if line is not None else FALLBACK_LINE_COLOR
+
+
+def station_is_muted(
+    graph: MetroGraph, station_id: str, inactive_line_ids: frozenset[str]
+) -> bool:
+    """True when every line touching *station_id* is inactive.
+
+    A station carried by any active line stays full strength.
+    A station touched by no line at all (an isolated or connector-only node,
+    whose ``station_lines`` is empty) is never muted.
+    """
+    lines = graph.station_lines(station_id)
+    return bool(lines) and set(lines) <= inactive_line_ids
+
 
 TERMINUS_FONT_COLOR: str = "#000000"
 """Font color for terminus file icon labels."""

@@ -114,7 +114,7 @@ def _dir_process(value: str, graph: MetroGraph) -> None:
 def _dir_line(value: str, graph: MetroGraph) -> None:
     parts = _split_fields(value)
     if len(parts) < 3:
-        _warn_malformed("line", value, "'id | name | #color' [| style]")
+        _warn_malformed("line", value, "'id | name | #color' [| style [| inactive]]")
         return
     style = "solid"
     if len(parts) >= 4 and parts[3]:
@@ -123,12 +123,20 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
             style = raw_style
         else:
             _warn_malformed("line style", parts[3], "/".join(VALID_LINE_STYLES))
+    default_inactive = False
+    if len(parts) >= 5 and parts[4]:
+        raw_state = parts[4].lower()
+        if raw_state == "inactive":
+            default_inactive = True
+        else:
+            _warn_malformed("line state", parts[4], "inactive")
     graph.add_line(
         MetroLine(
             id=parts[0],
             display_name=parts[1],
             color=parts[2],
             style=style,
+            default_inactive=default_inactive,
         )
     )
 
