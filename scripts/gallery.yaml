@@ -1180,7 +1180,7 @@ gallery:
       cell-mate while its target entry Y runs straight through it. Both lines
       take the row-top corridor over the cell-mate; the one that also enters it
       shares that corridor before splitting off (issue #1766)."
-  - id: packed_cell_cellmate_bypass_own_descent
+  - id: packed_cell_cellmate_bypass_no_handoff
     source_dir: examples/topologies
     category: Serpentine Layout
     description:
