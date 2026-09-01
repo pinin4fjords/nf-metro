@@ -729,6 +729,16 @@ class MetroGraph:
     def add_line(self, line: MetroLine) -> None:
         self.lines[line.id] = line
 
+    def default_inactive_line_ids(self) -> frozenset[str]:
+        """Line IDs the map declares inactive via the ``line:`` directive.
+
+        The render-time default when no ``--inactive-lines`` / ``inactive_line_ids``
+        override is supplied; an override replaces this set outright.
+        """
+        return frozenset(
+            line_id for line_id, line in self.lines.items() if line.default_inactive
+        )
+
     def add_station(self, station: Station) -> None:
         self.stations[station.id] = station
 

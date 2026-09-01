@@ -141,9 +141,7 @@ def render_graph_result(
             )
         effective_inactive = cfg.inactive_line_ids
     else:
-        effective_inactive = frozenset(
-            line_id for line_id, line in graph.lines.items() if line.default_inactive
-        )
+        effective_inactive = graph.default_inactive_line_ids()
     if cfg.output_format == "html":
         plan = build_render_plan(
             graph,

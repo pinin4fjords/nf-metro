@@ -1,0 +1,23 @@
+%%metro title: Inactive Lines
+%%metro style: dark
+%%metro line: star | STAR alignment (default) | #2db572
+%%metro line: salmon | Salmon pseudo-alignment (optional) | #ff8c00 | solid | inactive
+%%metro line: sv | Structural variants (optional) | #e63946 | dashed | inactive
+
+graph LR
+    reads[Reads]
+    qc[QC]
+    star_align[STAR]
+    salmon_align[Salmon]
+    manta[Manta]
+    quant[tximport]
+    report[MultiQC]
+
+    reads -->|star,salmon| qc
+    qc -->|star| star_align
+    qc -->|salmon| salmon_align
+    star_align -->|star| quant
+    salmon_align -->|salmon| quant
+    star_align -->|sv| manta
+    manta -->|sv| report
+    quant -->|star,salmon| report
