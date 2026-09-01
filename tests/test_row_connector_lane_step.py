@@ -50,11 +50,13 @@ FIXTURE_IDS = [Path(f).stem for f in FIXTURES]
 STEP_FIXTURE = "examples/topologies/funcprofiler_upstream.mmd"
 STEP_EDGE = ("__junction_6", "profiling__entry_left_3", "db")
 
-SHARED_PORT_FIXTURE = "examples/variantbenchmarking_auto.mmd"
+SHARED_PORT_FIXTURE = (
+    "tests/fixtures/curve_invariant_repros/backward_right_entry_lane_handover.mmd"
+)
 SHARED_PORT_EDGE = (
-    "ensembl_truth__exit_left_4",
-    "benchmarking__entry_right_11",
-    "truth",
+    "level_src__exit_left_0",
+    "sink__entry_right_2",
+    "level",
 )
 
 _TOLERANCE = 0.5
@@ -170,13 +172,14 @@ def test_over_constrained_hand_over_steps_at_the_port() -> None:
 def test_shared_port_connector_vacates_its_source_lane_at_the_source() -> None:
     """A connector into a shared port reaches its own lane before the corridor.
 
-    ``variantbenchmarking_auto`` converges a two-tributary ``truth`` merge and a
-    ``test`` junction on one entry port.  ``truth`` is assigned the outer port
-    lane while ``test`` holds the port centre -- the same screen lane ``truth``
+    ``backward_right_entry_lane_handover`` shares one right entry port between a
+    ``level`` feeder arriving flat along the port's row and a ``descend`` line
+    dropping in from the row above.  ``level`` is assigned the outer port lane
+    while ``descend`` holds the port centre -- the same screen lane ``level``
     would hold if its hand-off were drawn against the port.  Placing the hand-off
     at the source instead keeps only a minimum runway on the source lane, so
-    ``truth`` descends to its own outer lane before entering the approach ``test``
-    already occupies.
+    ``level`` descends to its own outer lane before entering the approach
+    ``descend`` already occupies.
     """
     graph = parse_metro_mermaid(
         (ROOT / SHARED_PORT_FIXTURE).read_text(), max_station_columns=15
