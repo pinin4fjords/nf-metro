@@ -274,16 +274,24 @@ FALLBACK_LINE_COLOR: str = "#888888"
 
 
 def effective_line_color(
-    line: MetroLine | None, theme: Theme, inactive_line_ids: frozenset[str]
+    line: MetroLine | None,
+    theme: Theme,
+    inactive_line_ids: frozenset[str],
+    active_color: str | None = None,
 ) -> str:
     """Stroke colour for a line, muted to grey when the line is inactive.
 
     An inactive line resolves to ``theme.muted_line_color`` at every stroke
     site (edge, chevron, legend swatch); every other line keeps its own colour,
-    falling back to :data:`FALLBACK_LINE_COLOR` when it has none.
+    falling back to :data:`FALLBACK_LINE_COLOR` when it has none. *active_color*,
+    when given, is the colour for an *active* line, taking priority over the
+    line's own (the chevron site passes ``theme.directional_marker_color`` so a
+    themed marker colour wins); an inactive line mutes regardless.
     """
     if line is not None and line.id in inactive_line_ids:
         return theme.muted_line_color
+    if active_color:
+        return active_color
     return line.color if line is not None else FALLBACK_LINE_COLOR
 
 

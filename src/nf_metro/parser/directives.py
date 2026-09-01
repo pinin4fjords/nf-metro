@@ -23,6 +23,7 @@ from nf_metro.options import (
 from nf_metro.parser.grammar import _normalize_multiline_text, _split_csv, _unquote
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
+    LINE_INACTIVE_KEYWORD,
     MARKER_FILL_OPEN,
     MARKER_FILL_SOLID,
     MARKER_SHAPE_CIRCLE,
@@ -114,7 +115,11 @@ def _dir_process(value: str, graph: MetroGraph) -> None:
 def _dir_line(value: str, graph: MetroGraph) -> None:
     parts = _split_fields(value)
     if len(parts) < 3:
-        _warn_malformed("line", value, "'id | name | #color' [| style [| inactive]]")
+        _warn_malformed(
+            "line",
+            value,
+            f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
+        )
         return
     style = "solid"
     if len(parts) >= 4 and parts[3]:
@@ -126,10 +131,10 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
     default_inactive = False
     if len(parts) >= 5 and parts[4]:
         raw_state = parts[4].lower()
-        if raw_state == "inactive":
+        if raw_state == LINE_INACTIVE_KEYWORD:
             default_inactive = True
         else:
-            _warn_malformed("line state", parts[4], "inactive")
+            _warn_malformed("line state", parts[4], LINE_INACTIVE_KEYWORD)
     graph.add_line(
         MetroLine(
             id=parts[0],

@@ -159,7 +159,6 @@ from nf_metro.render.constants import (
     DEBUG_WAYPOINT_COLOR,
     DEBUG_WAYPOINT_COLOR_LIGHT,
     DEBUG_WAYPOINT_RADIUS,
-    FALLBACK_LINE_COLOR,
     FILES_ICON_OFFSET_RATIO,
     GROUP_LABEL_BAND_PADDING,
     GROUP_LABEL_FONT_SCALE,
@@ -3373,12 +3372,9 @@ def _render_directional_markers(
         if len(pts) < 2:
             continue
         line = graph.lines.get(route.line_id)
-        if line is not None and line.id in inactive_line_ids:
-            color = theme.muted_line_color
-        else:
-            color = theme.directional_marker_color or (
-                line.color if line else FALLBACK_LINE_COLOR
-            )
+        color = effective_line_color(
+            line, theme, inactive_line_ids, theme.directional_marker_color
+        )
         class_name = _ns(f"metro-direction-{route.line_id}")
         for point, heading in _chevron_samples(pts, spacing, min_length):
             _draw_chevron(
@@ -4026,11 +4022,12 @@ def _render_stations(
     """
     if positive_fan is None:
         positive_fan = tb_positive_fan_sections(graph)
+    muted_theme = _muted_line_theme(theme)
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
         station_theme = (
-            _muted_line_theme(theme)
+            muted_theme
             if station_is_muted(graph, station.id, inactive_line_ids)
             else theme
         )
@@ -4523,9 +4520,7 @@ def _render_labels(
         / theme.label_font_size
     )
 
-    def emit(
-        text: str, x: float, y: float, fill: str = theme.label_color, **style: object
-    ) -> None:
+    def emit(text: str, x: float, y: float, fill: str, **style: object) -> None:
         # The halo is a stroked copy drawn underneath the glyph fill. A second
         # paint pass (rather than paint-order on a single element) keeps the
         # knockout correct in renderers that ignore the paint-order property.

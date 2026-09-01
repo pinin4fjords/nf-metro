@@ -106,6 +106,9 @@ class LineSpread(str, Enum):
 
 VALID_LINE_STYLES = ("solid", "dashed", "dotted")
 
+LINE_INACTIVE_KEYWORD = "inactive"
+"""Literal fifth ``%%metro line:`` field marking a line inactive by default."""
+
 FLOW_DIRECTIONS: tuple[str, ...] = ("LR", "RL", "TB", "BT")
 """Every flow direction a section may declare, paired by axis.
 
