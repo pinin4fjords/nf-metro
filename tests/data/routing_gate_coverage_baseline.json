@@ -2,6 +2,7 @@
   "bundle.py::if abs(dx) > COORD_TOLERANCE and abs(dy) > COORD_TOLERANCE:::#1",
   "bundle.py::if len(centerline) < 2:::#1",
   "centrelines.py::if (::#1",
+  "centrelines.py::if lane_is_clear_in_corridor(::#1",
   "centrelines.py::if route.curve_radii is not None:::#1",
   "centrelines.py::or edge.target not in ctx.graph.ports::#1",
   "centrelines.py::or run_direction is None::#1",
