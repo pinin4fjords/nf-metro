@@ -1094,6 +1094,28 @@ def _grid_position(graph: MetroGraph, section_id: str) -> tuple[int, int]:
     return section.grid_col, section.grid_row
 
 
+def heads_its_own_fork(graph: MetroGraph, station_id: str) -> bool:
+    """Whether *station_id* stands at the head of a fan of its own.
+
+    Two or more on-track successors inside its own section make it the apex of
+    a fan ``assign_tracks`` has already centred it on, so its lane is settled
+    before any fan plan is built.  Ports, junctions, cross-section successors
+    and off-track outputs leave the apex free: none of them takes a lane out of
+    the section's own frame.
+    """
+    section_id = graph.section_for_station(station_id)
+    successors = {
+        edge.target
+        for edge in graph.edges_from(station_id)
+        if edge.target not in graph.ports
+        and edge.target not in graph.junction_ids
+        and graph.section_for_station(edge.target) == section_id
+        and (target := graph.stations.get(edge.target)) is not None
+        and not target.off_track
+    }
+    return len(successors) >= 2
+
+
 def _trunk_followers(
     graph: MetroGraph,
     fork_id: str,
@@ -1107,7 +1129,9 @@ def _trunk_followers(
     continues to after the join, and it stands on the fan's centreline.  Where a
     side reaches more than one station the trunk continues through none of them:
     those are the arms of a convergence or of a second fan, and putting them all
-    on one centreline would draw them in a single row.
+    on one centreline would draw them in a single row.  A station heading a fan
+    of its own is likewise no follower: it already holds the centre of that fan,
+    and this one's centreline is a branch lane away from it.
     """
 
     def _side(
@@ -1126,7 +1150,9 @@ def _trunk_followers(
                 if station_id not in found:
                     found.append(station_id)
                 break
-        return tuple(found) if len(found) == 1 else ()
+        if len(found) != 1 or heads_its_own_fork(graph, found[0]):
+            return ()
+        return tuple(found)
 
     return (
         *_side(fork_id, approach_paths, upstream=True),
