@@ -697,3 +697,88 @@ def test_render_many_trailing_newline(tmp_path):
     )
     CliRunner().invoke(cli, ["render-many", str(manifest)])
     assert out.read_text().endswith("\n")
+
+
+_INACTIVE_MMD = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "graph LR\n"
+    "    x[X] -->|a| y[Y]\n"
+    "    y -->|b| z[Z]\n"
+)
+
+
+def test_render_inactive_lines_flag_mutes(tmp_path):
+    """--inactive-lines greys the named line's stroke."""
+    src = tmp_path / "map.mmd"
+    src.write_text(
+        "%%metro line: a | Line A | #ff0000\n"
+        "%%metro line: b | Line B | #0000ff\n"
+        "graph LR\n"
+        "    x[X] -->|a| y[Y]\n"
+        "    y -->|b| z[Z]\n"
+    )
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(
+        cli, ["render", str(src), "-o", str(out), "--inactive-lines", "a"]
+    )
+    assert result.exit_code == 0, result.output
+    svg = out.read_text()
+    assert 'stroke="#ff0000"' not in svg
+    assert 'stroke="#888888"' in svg
+
+
+def test_render_unknown_inactive_line_errors(tmp_path):
+    """An unknown --inactive-lines id fails with a clear message."""
+    src = tmp_path / "map.mmd"
+    src.write_text(
+        "%%metro line: a | Line A | #ff0000\ngraph LR\n    x[X] -->|a| y[Y]\n"
+    )
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(
+        cli, ["render", str(src), "-o", str(out), "--inactive-lines", "nope"]
+    )
+    assert result.exit_code != 0
+    assert "nope" in result.output
+
+
+def test_render_declared_inactive_used_without_flag(tmp_path):
+    """A line declared inactive in the .mmd greys with no CLI flag."""
+    src = tmp_path / "map.mmd"
+    src.write_text(_INACTIVE_MMD)
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(cli, ["render", str(src), "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    svg = out.read_text()
+    assert 'stroke="#ff0000"' not in svg
+    assert 'stroke="#888888"' in svg
+
+
+def test_render_empty_flag_forces_all_active(tmp_path):
+    """--inactive-lines '' overrides a declared-inactive line back to full colour."""
+    src = tmp_path / "map.mmd"
+    src.write_text(_INACTIVE_MMD)
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(
+        cli, ["render", str(src), "-o", str(out), "--inactive-lines", ""]
+    )
+    assert result.exit_code == 0, result.output
+    svg = out.read_text()
+    assert 'stroke="#ff0000"' in svg
+    assert 'stroke="#0000ff"' in svg
+
+
+def test_render_many_inactive_lines_list(tmp_path):
+    """render-many accepts an inactive_lines job key as a JSON list."""
+    src = tmp_path / "map.mmd"
+    src.write_text(_INACTIVE_MMD)
+    out = tmp_path / "out.svg"
+    manifest = _write_manifest(
+        tmp_path,
+        [{"input": str(src), "output": str(out), "inactive_lines": ["b"]}],
+    )
+    result = CliRunner().invoke(cli, ["render-many", str(manifest)])
+    assert result.exit_code == 0, result.output
+    svg = out.read_text()
+    assert 'stroke="#ff0000"' in svg  # a restored to full colour
+    assert 'stroke="#0000ff"' not in svg  # b muted

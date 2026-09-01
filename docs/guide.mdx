@@ -17,7 +17,7 @@ The simplest metro map needs three things: **lines** (colored routes), **station
 
 A few things to notice:
 
-- **`%%metro line:`** defines a route as `id | Display Name | #hexcolor` with an optional fourth field for style (`solid`, `dashed`, or `dotted`). Every edge must reference one of these IDs.
+- **`%%metro line:`** defines a route as `id | Display Name | #hexcolor` with an optional fourth field for style (`solid`, `dashed`, or `dotted`) and an optional fifth field `inactive` to grey the line out by default. Every edge must reference one of these IDs.
 - **`graph LR`** starts the Mermaid graph. nf-metro always uses left-to-right flow at the top level.
 - **Stations** use Mermaid node syntax: `node_id[Label]`.
 - **Edges** carry a line ID: `source -->|line_id| target`. An edge can carry multiple lines at once: `a -->|line1,line2| b`.
@@ -212,7 +212,33 @@ The lines still fork at the same point, but there is no marker or label. This gi
 
 Use `--debug` to see hidden stations as dashed circles: `nf-metro render --debug pipeline.mmd -o debug.svg`
 
-## 8. Putting it all together
+## 8. Highlighting the active path
+
+A single map defines every line a pipeline _can_ run, but a given Nextflow run usually exercises only a subset (optional or parameter-dependent subworkflows). Rather than hand-editing the map to show "what actually ran", mark the lines that did not run as **inactive**: they, and any station, label, or legend swatch touched only by inactive lines, render in a muted grey so the active path stands out.
+
+Add a fifth field, the literal `inactive`, to a `%%metro line:` directive to grey it out by default:
+
+```metro
+%%metro line: star   | STAR alignment (default)          | #2db572
+%%metro line: salmon | Salmon pseudo-alignment (inactive) | #ff8c00 | solid  | inactive
+%%metro line: sv     | Structural variants (inactive)     | #e63946 | dashed | inactive
+```
+
+<Metro src="examples/inactive_lines.mmd" mmd={false} />
+
+The `salmon` and `sv` lines above are declared `inactive`, so they and their exclusive stations (`Salmon`, `Manta`) render grey, while the default `star` path keeps full colour. The stations both an active and an inactive line touch (`Reads`, `QC`, `STAR`, `tximport`, `MultiQC`) stay full-strength.
+
+To decide the inactive set per-render instead of in the map, pass `--inactive-lines` a comma-separated list of line IDs. This replaces any `inactive`-marked lines outright, so an empty value forces every line active:
+
+```bash frame="terminal"
+# Grey out just the pseudo-alignment line for this render
+nf-metro render pipeline.mmd -o run.svg --inactive-lines salmon
+
+# Show every line at full colour, ignoring the map's own inactive defaults
+nf-metro render pipeline.mmd -o run.svg --inactive-lines ""
+```
+
+## 9. Putting it all together
 
 The nf-core/rnaseq example at [`examples/rnaseq_auto.mmd`](https://github.com/seqeralabs/nf-metro/blob/main/examples/rnaseq_auto.mmd) combines all of these patterns in a real-world pipeline:
 
@@ -241,7 +267,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro logo: <path>`                                                     | Logo image, bundled into the legend (or top-left if there is no legend). The path is resolved relative to the `.mmd` file's directory; an unresolvable path is an error.                                                                                                                                                                                                                               |
 | `%%metro logo_scale: <factor>`                                             | Scale the logo within the legend block (`1.0` = default auto-size). Values above 1 grow the legend box to contain the logo.                                                                                                                                                                                                                                                                            |
 | `%%metro style: <name>`                                                    | Theme: `dark` (default, the nfcore theme) or `light`. Selects the render theme unless `--theme` is passed.                                                                                                                                                                                                                                                                                             |
-| `%%metro line: <id> \| <name> \| <color> [\| <style>]`                     | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted`                                                                                                                                                                                                                                                                                                                          |
+| `%%metro line: <id> \| <name> \| <color> [\| <style> [\| inactive]]`       | Define a metro line. Optional style: `solid` (default), `dashed`, or `dotted`. Optional fifth field `inactive` greys the line out by default (override per-render with `--inactive-lines`)                                                                                                                                                                                                             |
 | `%%metro grid: <sections> \| <col>,<row>[,<rowspan>[,<colspan>]]`          | Pin a section to a grid position. The first field may name several comma-separated sections; they share one cell and pack side-by-side along the flow axis, so a short+long pair aligns top-to-bottom with a long+short pair in the same column below it.                                                                                                                                              |
 | `%%metro legend: <position>`                                               | Position the legend (and its embedded logo). Keyword: `tl`, `tr`, `bl`, `br`, `bottom`, `right`, or `none` (a bare keyword auto-relocates if it would overlap a section or route). Add `\| canvas` to anchor the keyword to the canvas margin, or `\| <dx>,<dy>` to nudge it; both pin the block exactly (warning on overlap rather than relocating). Use `<x>,<y>` for absolute top-left coordinates. |
 | `%%metro line_order: <strategy>`                                           | Line ordering for track assignment: `definition` (default, preserves `.mmd` order) or `span` (longest-spanning lines get inner tracks)                                                                                                                                                                                                                                                                 |
