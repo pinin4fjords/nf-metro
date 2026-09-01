@@ -717,11 +717,16 @@ in pipeline order.
 - **Helpers**: `_align_row_trunk_ys` (`phases/row_align.py`), then
   `_reconcile_flow_exit_carrier_anchors` (`phases/ports.py`).
 - **Precondition**: Stage 4.7 done.
-- **Postcondition**: For sections in a row's contiguous column run,
-  the trunk Y is the row's deepest pre-pass trunk Y. A non-fold LR/RL
-  exit selected by `flow_exit_carrier_anchor` shares its carrier Y;
-  its downstream entry remains on the consumer row. Row-spanning
-  sections are skipped.
+- **Postcondition**: For sections in a row's contiguous column run that
+  all carry the same through-lines, the trunk Y is the row's deepest
+  pre-pass trunk Y. Where a row-mate carries only part of the row's
+  through-trunk, the target is instead the Y the full-bundle carriers
+  already share, so a partial member follows the trunk without
+  redefining it and anything deeper than that Y stays put. In both
+  cases the target is a Y at which some carrier's LEFT/RIGHT port
+  already sits. A non-fold LR/RL exit selected by
+  `flow_exit_carrier_anchor` shares its carrier Y; its downstream entry
+  remains on the consumer row. Row-spanning sections are skipped.
 - **Invariants preserved**: Bbox tops, downstream entry coordinates,
   perpendicular exits, and row-spanning sections.
 - **Lifecycle:** invariant - the per-row trunk Y is consistent at the

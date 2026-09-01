@@ -627,6 +627,66 @@ def _top_align_packed_row_bboxes(graph: MetroGraph) -> None:
         level_group_anchor_edges(graph, group, "y", 1.0)
 
 
+def _row_trunk_alignment(
+    graph: MetroGraph, group: list[Section]
+) -> tuple[float, dict[str, float]] | None:
+    """The Y a row group's trunks align on, with each member's current trunk Y.
+
+    ``None`` where the group has no single trunk to align to.
+    """
+    # Realigning a row needs one trunk that runs along it: the union of the
+    # sections' through-lines -- the lines crossing them horizontally within the
+    # row -- must be carried whole by at least one section.  Lines forking to
+    # another row via a junction ride a perpendicular runway rather than the
+    # trunk and are already excluded (see _section_row_through_lines).  With no
+    # such carrier no single trunk spans the group, and forcing a common Y just
+    # shifts content downward without geometric gain.
+    through = {s.id: _section_row_through_lines(graph, s) for s in group}
+    carried = [set(t) for t in through.values() if t]
+    if not carried:
+        return None
+    row_trunk = set().union(*carried)
+    carriers = {s.id for s in group if set(through[s.id]) == row_trunk}
+    if not carriers:
+        return None
+    trunks = {s.id: t for s in group if (t := _section_trunk_y(graph, s)) is not None}
+    if len(trunks) < 2:
+        return None
+
+    partial = [s for s in group if through[s.id] and s.id not in carriers]
+    if not partial:
+        target_y = max(trunks.values())
+    else:
+        # A section carrying only part of the row trunk may be pulled onto it
+        # but must not define where it sits: moving the full-bundle carriers to
+        # suit such a section shifts the row down without straightening any line
+        # that reaches them.  So the carriers must already have settled on one Y,
+        # that Y is the target, and anything deeper than it stays put.  The trunk
+        # also has to actually arrive at each partial section: one of its
+        # through-lines must tie it to a carrier, else the alignment would jump a
+        # row-mate that is off the trunk and sits between them.
+        carrier_ys = {trunks[sid] for sid in carriers if sid in trunks}
+        if len(carrier_ys) != 1:
+            return None
+        if any(not carriers & set().union(*through[s.id].values()) for s in partial):
+            return None
+        target_y = carrier_ys.pop()
+
+    # The trunk must already hand over between sections at target_y.  A
+    # carrier's LEFT/RIGHT ports are where it does, so a target none of them
+    # sits at would put a step into the very hand-over the alignment exists to
+    # straighten.
+    if not any(
+        abs(port.y - target_y) < SAME_COORD_TOLERANCE
+        for sid in carriers
+        for pid in graph.sections[sid].port_ids
+        if (port := graph.ports.get(pid)) is not None
+        and port.side in (PortSide.LEFT, PortSide.RIGHT)
+    ):
+        return None
+    return target_y, trunks
+
+
 def _align_row_trunk_ys(graph: MetroGraph) -> None:
     """Shift sections vertically so trunk Ys align within each grid row.
 
@@ -668,24 +728,10 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             group = [s for s in group if not _is_fan_branch_leaf(graph, s)]
             if len(group) < 2:
                 continue
-            # Only realign when every section in the group shares the same
-            # through-trunk -- the lines that cross it horizontally along the
-            # row.  A section may carry extra lines that fork off to another
-            # row via a junction; those ride a perpendicular runway, not the
-            # trunk, so they are excluded (see _section_row_through_lines).
-            # Differing through-trunks mean no single trunk crosses all
-            # sections, so forcing a common Y just shifts content downward
-            # without geometric gain.
-            through = [_section_row_through_lines(graph, s) for s in group]
-            non_empty = [t for t in through if t]
-            if not non_empty or any(t != non_empty[0] for t in non_empty):
+            alignment = _row_trunk_alignment(graph, group)
+            if alignment is None:
                 continue
-            trunks = {
-                s.id: t for s in group if (t := _section_trunk_y(graph, s)) is not None
-            }
-            if len(trunks) < 2:
-                continue
-            target_y = max(trunks.values())
+            target_y, trunks = alignment
             shifted: set[str] = set()
             for section in group:
                 ty = trunks.get(section.id)
