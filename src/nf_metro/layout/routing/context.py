@@ -586,6 +586,41 @@ def _max_offset_at(ctx: _RoutingCtx, station_id: str) -> float:
     return max(all_offs) if all_offs else 0.0
 
 
+def slot_is_available(
+    graph: MetroGraph,
+    offsets: Mapping[tuple[str, str], float],
+    station_id: str,
+    line_id: str,
+    desired: float,
+) -> bool:
+    """True when no other line at *station_id* holds a lane within tolerance of it."""
+    return not any(
+        other_line != line_id
+        and abs(offsets.get((station_id, other_line), 0.0) - desired) <= COORD_TOLERANCE
+        for other_line in graph.station_lines(station_id)
+    )
+
+
+def lane_is_clear_in_corridor(
+    graph: MetroGraph,
+    offsets: Mapping[tuple[str, str], float],
+    line_id: str,
+    corridor: Iterable[tuple[str, float]],
+) -> bool:
+    """True when *line_id*'s lane is unoccupied at every station spanning a run.
+
+    A straight connector holds a single screen lane across the run between two
+    stations whose base coordinates can differ, so that one lane is a different
+    per-station offset at each end.  Each ``(station_id, offset_at_that_station)``
+    pair states the held lane in that station's own offset frame; the run is
+    clear only when every station in the corridor has that lane free.
+    """
+    return all(
+        slot_is_available(graph, offsets, station_id, line_id, offset)
+        for station_id, offset in corridor
+    )
+
+
 def _section_lane_frame(
     graph: MetroGraph, section: Section, positive_fan: set[str] | None = None
 ) -> AxisFrame:

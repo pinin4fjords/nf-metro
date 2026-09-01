@@ -35,7 +35,11 @@ from nf_metro.layout.routing.common import (
     horizontal_direction,
     segment_direction,
 )
-from nf_metro.layout.routing.context import _get_offset, _RoutingCtx
+from nf_metro.layout.routing.context import (
+    _get_offset,
+    _RoutingCtx,
+    lane_is_clear_in_corridor,
+)
 from nf_metro.layout.routing.orientation import direction_axis
 from nf_metro.parser.model import Edge, MetroGraph, Station
 
@@ -482,8 +486,53 @@ def _lane_change_step(
         source_runway=MIN_STRAIGHT_EDGE,
         target_runway=MIN_STRAIGHT_EDGE,
         diagonal_run=diagonal_run,
-        place_at_source=False,
+        place_at_source=_place_hand_off_at_source(
+            ctx, edge, p_src, p_tgt, run_direction, source_offset, target_offset
+        ),
         is_inter_section=True,
+    )
+
+
+def _place_hand_off_at_source(
+    ctx: _RoutingCtx,
+    edge: Edge,
+    p_src: _Vec,
+    p_tgt: _Vec,
+    run_direction: Direction,
+    source_offset: float,
+    target_offset: float,
+) -> bool:
+    """Where along a straight connector's run its lane hand-off should sit.
+
+    A hand-off drawn against the target port holds the source lane across the
+    whole run, so it reads as a turn against the port -- the wanted default.  But
+    that source lane is carried straight into the port's shared approach, and if
+    another line already occupies that lane there the two run flush.  When that
+    happens the line must reach its target lane at the source end instead,
+    provided the target lane is itself clear across the run; flipping into an
+    occupied target lane would only relocate the clash.
+
+    With no offset regime every lane collapses to its station coordinate, so the
+    two corridors resolve identically and this keeps the default placement.
+    """
+    offsets = ctx.station_offsets or {}
+    primary_axis = direction_axis(run_direction).value
+    _, source_secondary = axis_split(primary_axis, p_src)
+    _, target_secondary = axis_split(primary_axis, p_tgt)
+    source_lane_corridor = (
+        (edge.source, source_offset),
+        (edge.target, source_secondary + source_offset - target_secondary),
+    )
+    if lane_is_clear_in_corridor(
+        ctx.graph, offsets, edge.line_id, source_lane_corridor
+    ):
+        return False
+    target_lane_corridor = (
+        (edge.source, target_secondary + target_offset - source_secondary),
+        (edge.target, target_offset),
+    )
+    return lane_is_clear_in_corridor(
+        ctx.graph, offsets, edge.line_id, target_lane_corridor
     )
 
 

@@ -64,7 +64,13 @@ from nf_metro.layout.routing.common import (
     segment_direction,
     vertical_direction,
 )
-from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.context import (
+    _RoutingCtx,
+    _tb_x_offset,
+)
+from nf_metro.layout.routing.context import (
+    slot_is_available as _slot_is_available,
+)
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
     RouteFamilyId,
@@ -1416,20 +1422,6 @@ def _roles(
     roles = set(_member_roles(graph, edge, family_id))
     roles.add(EmissionRole.CONTINUATION if continuation else EmissionRole.PEEL_OFF)
     return tuple(role for role in EmissionRole if role in roles)
-
-
-def _slot_is_available(
-    graph: MetroGraph,
-    offsets: Mapping[tuple[str, str], float],
-    station_id: str,
-    line_id: str,
-    desired: float,
-) -> bool:
-    return not any(
-        other_line != line_id
-        and abs(offsets.get((station_id, other_line), 0.0) - desired) <= COORD_TOLERANCE
-        for other_line in graph.station_lines(station_id)
-    )
 
 
 def _lane_transition(
