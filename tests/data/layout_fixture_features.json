@@ -92,6 +92,7 @@
     "topologies/mixed_port_sides.mmd",
     "topologies/multi_frame_exit_lane_settlement.mmd",
     "topologies/multi_section_cell.mmd",
+    "topologies/multicarrier_offrow_exit_climb.mmd",
     "topologies/multirow_source_stacked_fan.mmd",
     "topologies/near_edge_exit_corner.mmd",
     "topologies/off_track_input_above_consumer.mmd",

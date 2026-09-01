@@ -1655,7 +1655,9 @@ def _section_row_through_lines(
     return through
 
 
-def _is_fan_branch_leaf(graph: MetroGraph, section: Section) -> bool:
+def _is_fan_branch_leaf(
+    graph: MetroGraph, section: Section, full_carrier: bool
+) -> bool:
     """True for a terminal section reached purely as a fan-out branch.
 
     Such a section continues nothing horizontally along its row (a leaf), and
@@ -1668,10 +1670,15 @@ def _is_fan_branch_leaf(graph: MetroGraph, section: Section) -> bool:
     shares its feeder's exit port with a disjoint route to another section, so
     pulling it onto the trunk keeps that port there too; compacting it would
     drag the port off the trunk and lengthen the other route.  Such a leaf is
-    not a fan branch and stays aligned.  A sibling branch that leaves the row
-    entirely does not make the line shared: it rides a perpendicular runway
-    rather than the row's trunk, so it cannot hold the feeder's exit port
-    there.
+    not a fan branch and stays aligned.
+
+    ``full_carrier`` says the section carries the whole row trunk.  When it does,
+    a sibling branch that continues anywhere -- even off the row -- makes the
+    feeding line shared, because there is no richer trunk for the section to join
+    and pulling it on only wastes canvas.  A *partial* carrier rides a subset
+    lane of a richer trunk, so a sibling that leaves the row does not make the
+    line shared: the section is not a fan branch and aligns onto that trunk as a
+    follower.
     """
     row = section.grid_row
     junction_ids = graph.junction_ids
@@ -1702,6 +1709,17 @@ def _is_fan_branch_leaf(graph: MetroGraph, section: Section) -> bool:
             graph.sections[s].grid_row == row for s in forward_sections(start, line)
         )
 
+    def sibling_shares(start: str, line: str) -> bool:
+        # A sibling that leaves the row entirely does not hold the feeder's
+        # exit port on the row trunk, so for a partial carrier -- one riding a
+        # subset lane of a richer trunk -- it does not make the feeding line
+        # shared, and the section aligns onto that trunk as a follower.  A full
+        # carrier has no richer trunk to join, so any onward sibling, in-row or
+        # not, marks it a fan branch that only wastes canvas if pulled on.
+        if full_carrier:
+            return bool(forward_sections(start, line))
+        return continues_in_row(start, line)
+
     for pid in section.exit_ports:
         port = graph.ports.get(pid)
         if port is None or port.side not in (PortSide.LEFT, PortSide.RIGHT):
@@ -1722,7 +1740,7 @@ def _is_fan_branch_leaf(graph: MetroGraph, section: Section) -> bool:
                 if (
                     sibling.line_id == e.line_id
                     and sibling.target != pid
-                    and continues_in_row(sibling.target, sibling.line_id)
+                    and sibling_shares(sibling.target, sibling.line_id)
                 ):
                     shared.add(e.line_id)
                     break

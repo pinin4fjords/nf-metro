@@ -1373,4 +1373,6 @@ class TestRowTrunkPartialThroughLine:
 
     def test_partial_row_mate_is_not_a_fan_branch_leaf(self):
         graph = _load_and_layout(ROW_TRUNK_PARTIAL_FILE)
-        assert not _is_fan_branch_leaf(graph, graph.sections["novel_transcripts"])
+        assert not _is_fan_branch_leaf(
+            graph, graph.sections["novel_transcripts"], full_carrier=False
+        )

@@ -912,8 +912,17 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             # row trunk only wastes canvas -- keep it compact and let it fan
             # off (see _is_fan_branch_leaf).  A leaf fed by a private line stays
             # in, else compacting it would drag a shared exit port off the
-            # trunk.
-            group = [s for s in group if not _is_fan_branch_leaf(graph, s)]
+            # trunk.  Whether an off-row fan makes a section a leaf turns on it
+            # carrying the whole row trunk: a partial carrier rides a subset
+            # lane of a richer trunk and must align onto it, so it is not a leaf.
+            through = {s.id: set(_section_row_through_lines(graph, s)) for s in group}
+            carried = [t for t in through.values() if t]
+            row_trunk = set().union(*carried) if carried else set()
+            group = [
+                s
+                for s in group
+                if not _is_fan_branch_leaf(graph, s, through[s.id] == row_trunk)
+            ]
             if len(group) < 2:
                 continue
             alignment = _row_trunk_alignment(graph, group)
