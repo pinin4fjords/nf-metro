@@ -3,10 +3,6 @@
   "note": "Single enforcement point for the bundle-centreline contract: a fanned bundle needs at least one leg, i.e. a >=2-vertex centreline. All three public builders (build_concentric_bundle / build_tapered_bundle / build_offset_bundle) funnel through _fan_bundle, which owns this one guard in place of the four per-builder re-checks the corpus never took (#1438). Every caller builds a >=2-vertex polyline by construction, so the raise arm stays un-exercised.",
   "status": "defensive"
  },
- "centrelines.py::if lane_is_clear_in_corridor(::#1": {
-  "note": "The straight connector's lane hand-off is placed at the source end when its source lane is already occupied in the target's approach corridor: the source-corridor test returns False and falls through to the target-corridor test at line 534. Only variantbenchmarking_auto reached this False arm, via its ensembl_truth->benchmarking 'truth' connector whose source lane the 'test' line shared in the entry corridor. #1844 seats that partial row-mate one handover lane deeper so the connector runs flat, so its run is no longer a lane transition and _place_hand_off_at_source is not reached. The arm stays reachable for a same-Y port-to-port straight connector whose source lane a co-arriving line occupies without a partial-trunk descent flattening it; no swept fixture currently presents one.",
-  "status": "needs-review"
- },
  "centrelines.py::or edge.target not in ctx.graph.ports::#1": {
   "note": "The lane-change step declines a run whose target is not the port the connector is drawn to: a run into a merge ends where the convergence planner re-seats it, so spending a target runway there leaves a zero-length tail. tests/fixtures/hash_seed_determinism/seed_41.mmd reaches the arm (its __junction_33 hands lines into __merge_11 and __merge_15 a lane out, with room to step), but the sweep's corpus roots do not include tests/fixtures/hash_seed_determinism, so no swept fixture evaluates it.",
   "status": "needs-review"
