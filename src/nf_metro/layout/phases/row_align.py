@@ -26,8 +26,8 @@ from nf_metro.layout.phases._common import (
     _is_fan_branch_leaf,
     _max_stations_per_layer,
     _row_contiguous_column_groups,
+    _row_through_and_carrier_lines,
     _section_bundle_lines,
-    _section_row_through_lines,
     _section_trunk_y,
     iter_stacked_rows_in_rowspan_band,
 )
@@ -806,12 +806,10 @@ def _row_trunk_alignment(
     # trunk and are already excluded (see _section_row_through_lines).  With no
     # such carrier no single trunk spans the group, and forcing a common Y just
     # shifts content downward without geometric gain.
-    through = {s.id: _section_row_through_lines(graph, s) for s in group}
-    carried = [set(t) for t in through.values() if t]
-    if not carried:
+    through, carrier_lines = _row_through_and_carrier_lines(graph, group)
+    if not carrier_lines:
         return None
-    row_trunk = set().union(*carried)
-    carriers = {s.id for s in group if set(through[s.id]) == row_trunk}
+    carriers = {s.id for s in group if set(through[s.id]) == carrier_lines}
     if not carriers:
         return None
     trunks = {s.id: t for s in group if (t := _section_trunk_y(graph, s)) is not None}
@@ -910,18 +908,17 @@ def _align_row_trunk_ys(graph: MetroGraph) -> None:
             # A terminal section reached purely as a fan-out branch rides its
             # feeding line's trunk through a junction, so pulling it onto the
             # row trunk only wastes canvas -- keep it compact and let it fan
-            # off (see _is_fan_branch_leaf).  A leaf fed by a private line stays
-            # in, else compacting it would drag a shared exit port off the
-            # trunk.  Whether an off-row fan makes a section a leaf turns on it
-            # carrying the whole row trunk: a partial carrier rides a subset
-            # lane of a richer trunk and must align onto it, so it is not a leaf.
-            through = {s.id: set(_section_row_through_lines(graph, s)) for s in group}
-            carried = [t for t in through.values() if t]
-            row_trunk = set().union(*carried) if carried else set()
+            # off (see _is_fan_branch_leaf, whose full_carrier argument is
+            # this section's own through-lines matching the row's carrier
+            # lines exactly).  A leaf fed by a private line stays in, else
+            # compacting it would drag a shared exit port off the trunk.
+            through, carrier_lines = _row_through_and_carrier_lines(graph, group)
             group = [
                 s
                 for s in group
-                if not _is_fan_branch_leaf(graph, s, through[s.id] == row_trunk)
+                if not _is_fan_branch_leaf(
+                    graph, s, full_carrier=set(through[s.id]) == carrier_lines
+                )
             ]
             if len(group) < 2:
                 continue

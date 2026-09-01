@@ -1655,8 +1655,24 @@ def _section_row_through_lines(
     return through
 
 
+def _row_through_and_carrier_lines(
+    graph: MetroGraph, group: Sequence[Section]
+) -> tuple[dict[str, dict[str, set[str]]], set[str]]:
+    """Per-section through-lines for a row group, and the row's carrier line ids.
+
+    The second element is the union of every through-line id across the
+    group. A section whose own through-line ids equal this union carries the
+    row's entire trunk (see :func:`_is_fan_branch_leaf`'s ``full_carrier``);
+    one whose ids are a strict subset rides a partial lane of a richer trunk.
+    """
+    through = {s.id: _section_row_through_lines(graph, s) for s in group}
+    carried = [set(t) for t in through.values() if t]
+    carrier_lines = set().union(*carried) if carried else set()
+    return through, carrier_lines
+
+
 def _is_fan_branch_leaf(
-    graph: MetroGraph, section: Section, full_carrier: bool
+    graph: MetroGraph, section: Section, *, full_carrier: bool
 ) -> bool:
     """True for a terminal section reached purely as a fan-out branch.
 
@@ -1710,12 +1726,7 @@ def _is_fan_branch_leaf(
         )
 
     def sibling_shares(start: str, line: str) -> bool:
-        # A sibling that leaves the row entirely does not hold the feeder's
-        # exit port on the row trunk, so for a partial carrier -- one riding a
-        # subset lane of a richer trunk -- it does not make the feeding line
-        # shared, and the section aligns onto that trunk as a follower.  A full
-        # carrier has no richer trunk to join, so any onward sibling, in-row or
-        # not, marks it a fan branch that only wastes canvas if pulled on.
+        # full_carrier semantics: see the docstring above.
         if full_carrier:
             return bool(forward_sections(start, line))
         return continues_in_row(start, line)
