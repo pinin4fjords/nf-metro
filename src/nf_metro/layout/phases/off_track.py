@@ -928,11 +928,28 @@ def _layer_gap_for(
             direction,
         )
 
+    # A layer that both forks and joins has this gap charged into the column on
+    # each side of it, once as its join gap and once as its fork gap.  Where the
+    # layer across each of those boundaries also contributes a gap there, the
+    # one-sided dip reservation is booked twice for room the neighbour already
+    # opens; without such a neighbour it is the only reservation the boundary
+    # gets and must stay.  The interior-branch floor is the two-sided term by
+    # design (equal divergence and reconvergence runs keep an interior branch
+    # centred), so a layer carrying that floor keeps the dip room as well.
+    double_counts_dip_reservation = (
+        layer in fork_layers
+        and layer in join_layers
+        and layer - 1 in fork_layers
+        and layer + 1 in join_layers
+        and interior_floor <= 0.0
+    )
+
     # The bare label-half over-reserves by x_spacing - routing_clearance; keep it
     # only where an off-track branch dips through the loop and needs that room.
     dip_label_half = (
         fj_label_half
-        if _off_track_branch_needs_loop_room(
+        if not double_counts_dip_reservation
+        and _off_track_branch_needs_loop_room(
             layer,
             fork_layers,
             join_layers,
