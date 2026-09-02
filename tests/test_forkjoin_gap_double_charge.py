@@ -2,12 +2,15 @@
 
 ``_compute_fork_join_gaps`` charges a fork layer's gap into the column after it
 and a join layer's gap into the column before it.  A layer that does both has
-its gap charged on each side, so a one-sided reservation - the fork/join
-station's own label half-width, kept for an off-track branch's dip - is booked
-into both boundaries even though the layer across each boundary already opens
-them.  The symmetric interior-branch loop floor is the deliberate exception: it
-is applied to both sides so an interior branch keeps equal divergence and
-reconvergence runs, so a layer carrying that floor keeps its full gap.
+its gap charged on each side, so where the layer across each of those boundaries
+contributes a gap there too, the one-sided reservation - the fork/join station's
+own label half-width, kept for an off-track branch's dip - is booked twice for
+room the neighbour already opens.
+
+Two shapes must keep the full gap: a layer with no such neighbour, whose own gap
+is all the boundary gets, and a layer carrying the interior-branch loop floor,
+which is applied to both sides so an interior branch keeps equal divergence and
+reconvergence runs.
 """
 
 from __future__ import annotations
@@ -207,6 +210,38 @@ def _interior_branch_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]
     return graph, layers, tracks
 
 
+def _solo_fork_join_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]]:
+    """A hub joining two off-track feeders and forking to two branches.
+
+    Neither neighbouring layer forks or joins, so the hub's own gap is the whole
+    reservation each of its two boundaries gets.
+    """
+    graph = _two_line_graph(
+        {
+            "feed_top": "Feed top",
+            "feed_bottom": "Feed bottom",
+            "hub": INTERIOR_LABEL,
+            "top": "Top branch",
+            "bottom": "Bottom branch",
+        },
+        [
+            ("feed_top", "hub"),
+            ("feed_bottom", "hub"),
+            ("hub", "top"),
+            ("hub", "bottom"),
+        ],
+    )
+    layers = {"feed_top": 0, "feed_bottom": 0, "hub": 1, "top": 2, "bottom": 2}
+    tracks = {
+        "feed_top": 0.0,
+        "feed_bottom": 2.0,
+        "hub": 1.0,
+        "top": 0.0,
+        "bottom": 2.0,
+    }
+    return graph, layers, tracks
+
+
 def _te_span(source: str) -> float:
     """Flow-axis span of the ``te`` section laid out from ``source``."""
     with warnings.catch_warnings():
@@ -240,6 +275,19 @@ def test_interior_branch_floor_survives_on_a_fork_and_join_layer() -> None:
     assert gap == pytest.approx(_interior_floor()), (
         f"fork-and-join layer reserves {gap}px, not its interior-branch floor "
         f"{_interior_floor()}px"
+    )
+
+
+def test_solo_fork_and_join_layer_keeps_its_dip_reservation() -> None:
+    """A fork-and-join layer with no fork or join on either neighbouring layer
+    keeps the dip reservation: it is the only room its boundaries get."""
+    gap, forks, joins = _gap_at(*_solo_fork_join_fan(), layer=1)
+
+    dip = _flow_axis_label_half(INTERIOR_LABEL, "LR")
+    assert forks and joins, "fixture no longer exercises a fork-and-join layer"
+    assert dip > BASE_GAP, "fixture no longer exercises the dip reservation"
+    assert gap == pytest.approx(dip), (
+        f"solo fork-and-join layer reserves {gap}px, not its {dip}px dip"
     )
 
 
