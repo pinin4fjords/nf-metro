@@ -3,15 +3,24 @@
 A section's mixed full-bundle + homogeneous-subset fan-in column must receive
 the same symmetric top padding as an all-full row-mate, and the shared
 inter-section trunk lane must stay fixed for every row-mate in the row.
+
+The shared-boundary-port continuation that keeps those columns' feeders on one
+track must also decline to pull a feeder onto a lane its entry port already
+occupies: a feeder between that port and its consumer on the port's lane forces
+the port's line to bow around it instead of running flat.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
+
+_EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 _RIBOSEQ = """\
 %%metro title: nf-core/riboseq
@@ -173,6 +182,14 @@ def graph():
     return laid_out
 
 
+@pytest.fixture(scope="module")
+def variantbenchmarking_graph():
+    text = (_EXAMPLES / "variantbenchmarking.mmd").read_text()
+    laid_out = parse_metro_mermaid(text)
+    compute_layout(laid_out, validate=False)
+    return laid_out
+
+
 def _top_pad(graph, section_id: str) -> float:
     section = graph.sections[section_id]
     internal = [
@@ -215,3 +232,19 @@ def test_shared_row_trunk_lane_is_preserved(graph):
     for sid in ("orf_calling", "psite_id", "te", "reporting"):
         lanes |= _lr_port_ys(graph, sid)
     assert len(lanes) == 1, lanes
+
+
+def test_feeder_sharing_its_entry_port_lane_keeps_its_own_track(
+    variantbenchmarking_graph,
+):
+    graph = variantbenchmarking_graph
+    entry = graph.stations["preprocess__entry_left_6"]
+    subsample = graph.stations["subsample"]
+    liftover = graph.stations["liftover"]
+    # subsample sits on its entry port's lane, between that port and liftover:
+    # the collision setup the shared-port continuation must not walk into.
+    assert abs(entry.y - subsample.y) < _TOL, (entry.y, subsample.y)
+    assert entry.x < subsample.x < liftover.x, (entry.x, subsample.x, liftover.x)
+    # liftover must keep its own lane rather than inherit subsample's; pulling it
+    # onto the port lane bows the port's line around subsample between them.
+    assert abs(liftover.y - subsample.y) > _TOL, (liftover.y, subsample.y)
