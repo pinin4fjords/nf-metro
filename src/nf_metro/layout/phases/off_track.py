@@ -936,7 +936,7 @@ def _layer_gap_for(
     # gets and must stay.  The interior-branch floor is the two-sided term by
     # design (equal divergence and reconvergence runs keep an interior branch
     # centred), so a layer carrying that floor keeps the dip room as well.
-    charged_both_sides = (
+    double_counts_dip_reservation = (
         layer in fork_layers
         and layer in join_layers
         and layer - 1 in fork_layers
@@ -948,7 +948,7 @@ def _layer_gap_for(
     # only where an off-track branch dips through the loop and needs that room.
     dip_label_half = (
         fj_label_half
-        if not charged_both_sides
+        if not double_counts_dip_reservation
         and _off_track_branch_needs_loop_room(
             layer,
             fork_layers,

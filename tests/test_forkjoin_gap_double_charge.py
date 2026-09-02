@@ -245,7 +245,7 @@ def _solo_fork_join_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]]
 def _te_span(source: str) -> float:
     """Flow-axis span of the ``te`` section laid out from ``source``."""
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=UserWarning)
         graph = parse_metro_mermaid(source)
         compute_layout(graph, validate=True)
     return graph.stations["te_out"].x - graph.stations["te_prep_gene"].x
