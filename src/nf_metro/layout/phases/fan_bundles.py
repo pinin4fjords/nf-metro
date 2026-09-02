@@ -947,14 +947,20 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
         for x, sids in col_eligible.items():
             full = full_by_col[x]
             non_full = [s for s in sids if s not in full]
-            # Strict all-full columns always fire (the original
-            # behaviour).  Mixed columns (full + non-source siblings)
-            # only fire when another column in the section is
-            # all-full, so we have a consistent trunk_y for the row
-            # and don't accidentally fan single trunk + 1 sibling
-            # cases that belong to ``_redistribute_fanout_siblings``.
+            # Strict all-full columns always fire.  A mixed column (full +
+            # non-source siblings) fires when it carries its own trunk anchor
+            # -- two or more full-bundle stations define the trunk locally --
+            # and its non-full siblings are homogeneous (one shared line-set),
+            # so the minor branch slots symmetrically without splitting the
+            # column's convergence into ambiguous per-line channels.  A mixed
+            # column with a single full-bundle station, or heterogeneous
+            # subset siblings, is left for ``_redistribute_fanout_siblings``
+            # unless a separate all-full column fixes the row anchor.
             all_full = not non_full
-            if not all_full and not any_all_full_col:
+            subset_line_sets = {frozenset(graph.station_lines(s)) for s in non_full}
+            own_trunk_anchor = len(full) >= 2 and len(subset_line_sets) <= 1
+            should_fire = all_full or own_trunk_anchor or any_all_full_col
+            if not should_fire:
                 continue
             participants = list(sids)
             # Trunk Y is the section's LR port Y when available (the
