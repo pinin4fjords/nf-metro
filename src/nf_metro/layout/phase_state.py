@@ -148,6 +148,19 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
         ),
         run_condition_attr="center_ports",
     ),
+    "_partial_trunk_descents": PhaseFieldSpec(
+        name="_partial_trunk_descents",
+        writer_stage="4.8",
+        reader_stages=("6.4",),
+        enforcement=FieldEnforcement.REQUIRE_WRITER,
+        why=(
+            "per-section handover descents Stage 4.8's _align_row_trunk_ys seats "
+            "on a partial row-mate so its direct connector to the row carrier runs "
+            "flat; each record carries its two endpoint ports so Stage 6.4's grid "
+            "snap re-seats the partial from the carrier port's post-snap Y, right "
+            "whether the snap collapsed the sub-grid offset or preserved it"
+        ),
+    ),
     "_consumers_grid_snapped": PhaseFieldSpec(
         name="_consumers_grid_snapped",
         writer_stage="6.4",

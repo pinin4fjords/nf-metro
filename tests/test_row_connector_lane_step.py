@@ -31,7 +31,11 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.centrelines import _lane_change_step
 from nf_metro.layout.routing.common import RoutedPath, apply_route_offsets
-from nf_metro.layout.routing.context import _build_routing_context, _get_offset
+from nf_metro.layout.routing.context import (
+    _build_routing_context,
+    _get_offset,
+    lane_is_clear_in_corridor,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,6 +49,15 @@ FIXTURE_IDS = [Path(f).stem for f in FIXTURES]
 
 STEP_FIXTURE = "examples/topologies/funcprofiler_upstream.mmd"
 STEP_EDGE = ("__junction_6", "profiling__entry_left_3", "db")
+
+SHARED_PORT_FIXTURE = (
+    "tests/fixtures/curve_invariant_repros/backward_right_entry_lane_handover.mmd"
+)
+SHARED_PORT_EDGE = (
+    "level_src__exit_left_0",
+    "sink__entry_right_2",
+    "level",
+)
 
 _TOLERANCE = 0.5
 
@@ -154,6 +167,86 @@ def test_over_constrained_hand_over_steps_at_the_port() -> None:
     assert tail == pytest.approx(MIN_STRAIGHT_EDGE)
     assert points[0][1] == points[1][1]
     assert points[2][1] == points[3][1]
+
+
+def test_shared_port_connector_vacates_its_source_lane_at_the_source() -> None:
+    """A connector into a shared port reaches its own lane before the corridor.
+
+    ``backward_right_entry_lane_handover`` shares one right entry port between a
+    ``level`` feeder arriving flat along the port's row and a ``descend`` line
+    dropping in from the row above.  ``level`` is assigned the outer port lane
+    while ``descend`` holds the port centre -- the same screen lane ``level``
+    would hold if its hand-off were drawn against the port.  Placing the hand-off
+    at the source instead keeps only a minimum runway on the source lane, so
+    ``level`` descends to its own outer lane before entering the approach
+    ``descend`` already occupies.
+    """
+    graph = parse_metro_mermaid(
+        (ROOT / SHARED_PORT_FIXTURE).read_text(), max_station_columns=15
+    )
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
+    edge = ctx.edge_by_key[SHARED_PORT_EDGE]
+    source = graph.stations[edge.source]
+    target = graph.stations[edge.target]
+    p_src = (source.x, source.y)
+    p_tgt = (target.x, target.y)
+    route = _lane_change_step(edge, ctx, p_src, p_tgt)
+    assert route is not None
+    points = route.points
+    assert len(points) == 4, points
+
+    source_lane_y = p_src[1] + _get_offset(ctx, edge.source, edge.line_id)
+    target_lane_y = p_tgt[1] + _get_offset(ctx, edge.target, edge.line_id)
+    assert points[0][1] == pytest.approx(source_lane_y)
+    assert points[1][1] == pytest.approx(source_lane_y)
+    assert abs(points[1][0] - points[0][0]) == pytest.approx(MIN_STRAIGHT_EDGE)
+    assert points[2][1] == pytest.approx(target_lane_y)
+    assert points[3][1] == pytest.approx(target_lane_y)
+
+    rival_lanes = {
+        target.y + offsets.get((edge.target, line), 0.0)
+        for line in graph.station_lines(edge.target)
+        if line != edge.line_id
+    }
+    assert any(abs(y - source_lane_y) <= COORD_TOLERANCE for y in rival_lanes)
+
+
+def test_corridor_clearance_separates_the_rival_and_own_lanes() -> None:
+    """The corridor check reports the source lane taken and the target lane free.
+
+    The placement decision keeps a straight connector's source lane only when it
+    is free through the shared approach and otherwise moves it to the target lane
+    only when *that* lane is free -- so the check must distinguish the rival's
+    lane (taken) from the connector's own assigned lane (free) at the port.
+    """
+    graph = parse_metro_mermaid(
+        (ROOT / SHARED_PORT_FIXTURE).read_text(), max_station_columns=15
+    )
+    compute_layout(graph)
+    offsets = dict(compute_station_offsets(graph))
+    source_id, target_id, line_id = SHARED_PORT_EDGE
+    source = graph.stations[source_id]
+    target = graph.stations[target_id]
+    source_offset = offsets.get((source_id, line_id), 0.0)
+    target_offset = offsets.get((target_id, line_id), 0.0)
+
+    source_lane_in_target_frame = source.y + source_offset - target.y
+    assert not lane_is_clear_in_corridor(
+        graph,
+        offsets,
+        line_id,
+        ((source_id, source_offset), (target_id, source_lane_in_target_frame)),
+    )
+
+    target_lane_in_source_frame = target.y + target_offset - source.y
+    assert lane_is_clear_in_corridor(
+        graph,
+        offsets,
+        line_id,
+        ((source_id, target_lane_in_source_frame), (target_id, target_offset)),
+    )
 
 
 def test_lane_change_step_declines_a_run_too_short_for_two_runways() -> None:

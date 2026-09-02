@@ -64,7 +64,11 @@ from nf_metro.layout.routing.common import (
     segment_direction,
     vertical_direction,
 )
-from nf_metro.layout.routing.context import _RoutingCtx, _tb_x_offset
+from nf_metro.layout.routing.context import (
+    _RoutingCtx,
+    _tb_x_offset,
+    slot_is_available,
+)
 from nf_metro.layout.routing.families import (
     BYPASS_ROUTE_FAMILY_VALUES,
     RouteFamilyId,
@@ -1418,20 +1422,6 @@ def _roles(
     return tuple(role for role in EmissionRole if role in roles)
 
 
-def _slot_is_available(
-    graph: MetroGraph,
-    offsets: Mapping[tuple[str, str], float],
-    station_id: str,
-    line_id: str,
-    desired: float,
-) -> bool:
-    return not any(
-        other_line != line_id
-        and abs(offsets.get((station_id, other_line), 0.0) - desired) <= COORD_TOLERANCE
-        for other_line in graph.station_lines(station_id)
-    )
-
-
 def _lane_transition(
     graph: MetroGraph,
     edge: ResolvedEdge,
@@ -1650,7 +1640,7 @@ def _continuation_lane_ownership(
 
     stations = []
     transitions = []
-    if not _slot_is_available(graph, offsets, entry_id, line_id, desired):
+    if not slot_is_available(graph, offsets, entry_id, line_id, desired):
         source_lane_offset = desired
         target_lane_offset = offsets.get((entry_id, line_id), 0.0)
         source_offset = source_lane_offset
@@ -1710,7 +1700,7 @@ def _continuation_lane_ownership(
         candidate_port = graph.ports.get(candidate)
         if candidate_port is not None and not candidate_port.is_entry:
             break
-        if not _slot_is_available(graph, offsets, candidate, line_id, desired):
+        if not slot_is_available(graph, offsets, candidate, line_id, desired):
             source_lane_offset = desired
             target_lane_offset = offsets.get((candidate, line_id), 0.0)
             source_offset = source_lane_offset

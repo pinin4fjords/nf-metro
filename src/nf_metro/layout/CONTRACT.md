@@ -276,6 +276,11 @@ pass:
   read by the Stage 6.4 grid snap, which must skip these source/trunk stations
   so they stay on the symfan's local frame instead of snapping to a rowspan
   neighbour's fractional row-grid origin.
+- `graph._partial_trunk_descents` - `{section_id: PartialTrunkDescent}` (the two
+  endpoint ports and the descent) written by Stage 4.8 (`_align_row_trunk_ys`),
+  reassigned in full each pass (empty when nothing descends); read by the Stage
+  6.4 grid snap, which re-seats each partial from the carrier port's post-snap Y,
+  and by the `_guard_partial_trunk_descent_seated` postcondition.
 - `graph._consumers_grid_snapped` - set right after the Stage 6.4 snap; the
   Stage 6.6 off-track reanchor carries its own always-on guard on it.
 
@@ -717,11 +722,33 @@ in pipeline order.
 - **Helpers**: `_align_row_trunk_ys` (`phases/row_align.py`), then
   `_reconcile_flow_exit_carrier_anchors` (`phases/ports.py`).
 - **Precondition**: Stage 4.7 done.
-- **Postcondition**: For sections in a row's contiguous column run,
-  the trunk Y is the row's deepest pre-pass trunk Y. A non-fold LR/RL
-  exit selected by `flow_exit_carrier_anchor` shares its carrier Y;
-  its downstream entry remains on the consumer row. Row-spanning
-  sections are skipped.
+- **Postcondition**: For sections in a row's contiguous column run that
+  all carry the same through-lines, the trunk Y is the row's deepest
+  pre-pass trunk Y. Where a row-mate carries only part of the row's
+  through-trunk, the target is instead the Y the full-bundle carriers
+  already share, so a partial member follows the trunk without
+  redefining it and anything deeper than that Y stays put. In both
+  cases the target is a Y at which some carrier's LEFT/RIGHT port
+  already sits. A partial that hands a through-line straight to a carrier
+  one grid column away -- port to port, no junction between them and no
+  cell-mate forcing a bypass -- is seated an extra `s` below that shared
+  target, where `s = off(port_on_carrier, lid) - off(port_on_partial, lid)`
+  is the line's lane on the destination port minus its lane on the source
+  port (`compute_station_offsets`); this descent makes the connector run
+  level at the line's own lane instead of jogging into it. The descent
+  fires only when every qualifying handover agrees on one positive `s` that
+  is *stable*: re-derived on a frame where the partial section is shifted so
+  its handover port lands level with the carrier port, `s` must survive
+  unchanged. A carrier's exit port mid-pass has not yet settled onto the
+  level its exiting lines live at, so a raw `s` can be a transient that the
+  levelled re-derivation collapses to zero; seating a descent on that phantom
+  step corrupts the exit geometry, so a step that does not survive is
+  suppressed. The descent is recorded in `graph._partial_trunk_descents`
+  (reassigned in full each pass) with its two endpoint ports, because it is a
+  sub-grid offset the Stage 6.4 grid snap can round onto the carrier slot --
+  Stage 6.4 re-seats it. A non-fold LR/RL exit selected by
+  `flow_exit_carrier_anchor` shares its carrier Y; its downstream entry
+  remains on the consumer row. Row-spanning sections are skipped.
 - **Invariants preserved**: Bbox tops, downstream entry coordinates,
   perpendicular exits, and row-spanning sections.
 - **Lifecycle:** invariant - the per-row trunk Y is consistent at the
@@ -977,15 +1004,24 @@ in pipeline order.
   its unbranched trunk to the branch midpoint. This keeps the complete
   centreline straight. A restored station joins
   `graph.half_grid_station_ids` if it sits half a pitch from the branch
-  grid.
+  grid. Finally it re-seats each `graph._partial_trunk_descents` entry:
+  the whole partial section -- every internal station, every LR/RL port
+  and its bbox -- is shifted so its handover port lands `descent` below
+  the carrier port's post-snap Y. Working from that carrier reference
+  lands it right whether the snap collapsed the Stage 4.8 handover descent
+  onto the carrier slot (shared row grid) or left it in place (explicit-grid
+  solo section), and finds zero gap on a re-run, so a preserved descent is
+  never double-counted.
 - **Helper**: `_snap_all_y_to_grid`, with
   `_restore_convergence_midpoints` / `_restore_divergence_midpoints`
   and `_centreline_trunk_followers` (`phases/fan_bundles.py`) for the
-  restores.
+  midpoint restores, and `_restore_partial_trunk_descents` for the
+  handover descents.
 - **Precondition**: All semantic Y shifts done. If Stage 6.3 ran,
   `graph.half_grid_station_ids` is populated.
 - **Postcondition**: Every station and port Y is a grid slot of the
-  per-section / per-row pitch (except marked half-grid stations). A
+  per-section / per-row pitch (except marked half-grid stations and
+  partial row-mates re-seated a handover lane below their carrier). A
   symmetric diamond's fork hub, join and trunk run share one Y.
 - **Invariants preserved**: X coordinates (tested by
   `test_grid_snap_does_not_mutate_x`). Half-grid station Ys.

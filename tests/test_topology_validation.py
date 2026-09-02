@@ -6,6 +6,7 @@ for layout defects. Also includes topology-specific assertions.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -30,9 +31,11 @@ from layout_validator import (
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.geometry import perpendicular_port_sides
+from nf_metro.layout.phases._common import _is_fan_branch_leaf
 from nf_metro.layout.routing.common import row_bottom_edge
 from nf_metro.layout.routing.context import _resolve_section_row
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import PortSide
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
@@ -1284,3 +1287,92 @@ def test_fan_bypass_no_fan_weave():
     graph = _load_and_layout(FAN_BYPASS_NESTING_FILE)
     weaves = _bypass_fan_weaves(graph)
     assert not weaves, "\n".join(weaves)
+
+
+# --- #1844: a row-mate carrying part of the row trunk stays on it ---
+
+ROW_TRUNK_PARTIAL_FILE = TOPOLOGIES_DIR / "row_trunk_partial_through_line.mmd"
+RIBOSEQ_CORRIDOR_FILE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "curve_invariant_repros"
+    / "riboseq_inter_row_corridor.mmd"
+)
+
+_PARTIAL_TRUNK_FIXTURES = [
+    pytest.param(ROW_TRUNK_PARTIAL_FILE, id="row_trunk_partial_through_line"),
+    pytest.param(RIBOSEQ_CORRIDOR_FILE, id="riboseq_inter_row_corridor"),
+]
+
+
+def _modal_station_y(graph, section_id: str) -> float:
+    """The Y that most of a section's own on-trunk stations sit on."""
+    ys = [
+        graph.stations[sid].y
+        for sid in graph.sections[section_id].station_ids
+        if not graph.stations[sid].is_port and not graph.stations[sid].off_track
+    ]
+    return Counter(round(y, 1) for y in ys).most_common(1)[0][0]
+
+
+def _sole_lr_port_y(graph, section_id: str, side: PortSide) -> float:
+    """The Y of the section's only port on *side*."""
+    ys = {
+        round(port.y, 1)
+        for pid in graph.sections[section_id].port_ids
+        if (port := graph.ports.get(pid)) is not None and port.side is side
+    }
+    assert len(ys) == 1, f"{section_id} has {len(ys)} {side.name} ports, expected 1"
+    return ys.pop()
+
+
+def _lane_step(graph, section_id: str) -> float:
+    """The vertical pitch between adjacent lanes inside a section."""
+    ys = sorted(
+        {
+            round(graph.stations[sid].y, 1)
+            for sid in graph.sections[section_id].station_ids
+        }
+    )
+    return min(b - a for a, b in zip(ys, ys[1:]) if b > a)
+
+
+class TestRowTrunkPartialThroughLine:
+    """A row-mate fed by part of the row trunk keeps its interior on that trunk.
+
+    ``novel_transcripts`` is entered by a single line that the same junction
+    also fans into another grid row, so it carries only a subset of the lines
+    crossing its row.  The trunk still arrives at its boundary, so its interior
+    belongs on the row's trunk Y rather than centred in its own shorter box,
+    and its off-track output rides one lane above rather than being paid for by
+    dropping the trunk.
+    """
+
+    @pytest.mark.parametrize("path", _PARTIAL_TRUNK_FIXTURES)
+    def test_trunk_runs_unbroken_into_the_partial_row_mate(self, path):
+        graph = _load_and_layout(path)
+        chain = {
+            "alignment trunk": _modal_station_y(graph, "alignment"),
+            "alignment exit port": _sole_lr_port_y(graph, "alignment", PortSide.RIGHT),
+            "discovery entry port": _sole_lr_port_y(
+                graph, "novel_transcripts", PortSide.LEFT
+            ),
+            "discovery trunk": _modal_station_y(graph, "novel_transcripts"),
+        }
+        assert len(set(chain.values())) == 1, (
+            "the row trunk steps between alignment and novel_transcripts: "
+            + ", ".join(f"{name}={y}" for name, y in chain.items())
+        )
+
+    def test_off_track_output_rides_one_lane_above_the_trunk(self):
+        graph = _load_and_layout(ROW_TRUNK_PARTIAL_FILE)
+        trunk_y = _modal_station_y(graph, "novel_transcripts")
+        gtf_out = graph.stations["gtf_out"]
+        assert gtf_out.off_track
+        assert trunk_y - gtf_out.y == pytest.approx(_lane_step(graph, "alignment"))
+
+    def test_partial_row_mate_is_not_a_fan_branch_leaf(self):
+        graph = _load_and_layout(ROW_TRUNK_PARTIAL_FILE)
+        assert not _is_fan_branch_leaf(
+            graph, graph.sections["novel_transcripts"], full_carrier=False
+        )

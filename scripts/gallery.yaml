@@ -1032,6 +1032,16 @@ gallery:
       the trunk in line with the preceding exit, and peels the coverage dead-end
       off below -- rather than letting the dead-end seize the trunk and kink the
       through-line at the boundary."
+  - id: row_trunk_partial_through_line
+    source_dir: examples/topologies
+    category: Inter-section Routing
+    description:
+      "Three sections share one grid cell along a row. The last of them is
+      entered by a single line of the row's three-line bundle, and the junction
+      feeding it fans that same line into a section in the row below. The
+      section still carries part of the row's trunk, so its interior sits on the
+      row's trunk Y and its hybrid-GTF output peels one lane above, rather than
+      the whole trunk being recentred in the shorter box (issue #1844)."
   - id: riboseq_fold_two_dir_entry_hintless
     source_dir: examples/topologies
     category: Serpentine Layout
@@ -1179,6 +1189,14 @@ gallery:
       cell-mate while its target entry Y runs straight through it. Both lines
       take the row-top corridor over the cell-mate; the one that also enters it
       shares that corridor before splitting off (issue #1766)."
+  - id: packed_cell_cellmate_bypass_no_handoff
+    source_dir: examples/topologies
+    category: Serpentine Layout
+    description:
+      "A packed cell's far member and the section past the pack are both entered
+      over an intervening cell-mate. Neither hop's sibling reaches its target
+      through a plain multi-column bypass, so no shared descent can be handed
+      over and each hop draws its own corridor (issue #1844)."
   - id: bypass_left_entry_from_right
     source_dir: examples/topologies
     category: Serpentine Layout

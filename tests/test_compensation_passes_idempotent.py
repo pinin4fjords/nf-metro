@@ -101,6 +101,7 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),
+    "examples/variantbenchmarking_auto": frozenset({"4.7"}),
     "tests/da_pipeline": frozenset({"4.7"}),
     "tests/trunk_align_matching_bundle": frozenset({"4.7"}),
     "topologies/bt_perp_left_entry_right_exit": frozenset({"4.7"}),
