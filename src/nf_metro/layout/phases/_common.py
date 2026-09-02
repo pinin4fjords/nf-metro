@@ -305,14 +305,24 @@ def continuation_track_predecessors(graph: MetroGraph) -> dict[str, str]:
         # imposes no independent Y constraint.  Confined to authored-grid
         # layouts, where the inter-section port resnap re-anchors the shifted
         # carrier's port; auto-layout freezes ports for routing stability, so a
-        # lifted continuation there would strand its port off the station.
+        # lifted continuation there would strand its port off the station.  A
+        # port sitting on the predecessor's own track is excluded: it feeds the
+        # node along that track straight through the predecessor (which lies
+        # between them), which would bow around the predecessor rather than run
+        # flat, so the track cannot be inherited.
         if port_predecessors:
             shares_port_with_predecessor = not (
                 port_predecessors - predecessors[predecessor]
             )
+            predecessor_y = graph.stations[predecessor].y
+            port_off_predecessor_track = all(
+                abs(graph.stations[p].y - predecessor_y) >= SAME_COORD_TOLERANCE
+                for p in port_predecessors
+            )
             if not (
                 graph.layout_provenance.has_authored_grids()
                 and shares_port_with_predecessor
+                and port_off_predecessor_track
             ):
                 continue
         if predecessor not in visible:
