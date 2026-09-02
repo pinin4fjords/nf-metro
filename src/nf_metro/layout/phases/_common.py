@@ -294,9 +294,23 @@ def continuation_track_predecessors(graph: MetroGraph) -> dict[str, str]:
         if node not in visible:
             continue
         node_predecessors = predecessors[node]
-        if len(node_predecessors) != 1:
+        non_port_predecessors = {p for p in node_predecessors if p not in graph.ports}
+        if len(non_port_predecessors) != 1:
             continue
-        predecessor = next(iter(node_predecessors))
+        predecessor = next(iter(non_port_predecessors))
+        port_predecessors = node_predecessors - non_port_predecessors
+        # A node fed by a section-boundary port alongside its sole internal
+        # predecessor inherits that predecessor's track when the same port also
+        # feeds the predecessor: they share one boundary source, so the port
+        # imposes no independent Y constraint.  Confined to authored-grid
+        # layouts, where the inter-section port resnap re-anchors the shifted
+        # carrier's port; auto-layout freezes ports for routing stability, so a
+        # lifted continuation there would strand its port off the station.
+        if port_predecessors and (
+            not graph.layout_provenance.has_authored_grids()
+            or port_predecessors - predecessors[predecessor]
+        ):
+            continue
         if predecessor not in visible:
             continue
         predecessor_station = graph.stations[predecessor]
