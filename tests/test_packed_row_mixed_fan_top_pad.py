@@ -1,14 +1,13 @@
 """Row-mate top-padding fairness for a packed row with a mixed fan-in column.
 
-Regression lock for #1849: a section whose above-trunk-eligible entry column is
-a mixed full-bundle + homogeneous-subset fan-in (``orf_calling``) must receive
-the same symmetric top padding as its all-full row-mate (``te``) instead of
-cascading entirely below the shared trunk and carrying a row-pitch of dead band
-above its first station.  The shared inter-section trunk lane must stay put so
-fixing one row-mate does not strand another (the #1771 failure mode).
+A section's mixed full-bundle + homogeneous-subset fan-in column must receive
+the same symmetric top padding as an all-full row-mate, and the shared
+inter-section trunk lane must stay fixed for every row-mate in the row.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.parser.mermaid import parse_metro_mermaid
@@ -167,10 +166,11 @@ graph LR
 _TOL = 1.0
 
 
-def _laid_out():
-    graph = parse_metro_mermaid(_RIBOSEQ)
-    compute_layout(graph, validate=False)
-    return graph
+@pytest.fixture(scope="module")
+def graph():
+    laid_out = parse_metro_mermaid(_RIBOSEQ)
+    compute_layout(laid_out, validate=False)
+    return laid_out
 
 
 def _top_pad(graph, section_id: str) -> float:
@@ -194,8 +194,7 @@ def _lr_port_ys(graph, section_id: str) -> set[float]:
     return ys
 
 
-def test_mixed_fan_in_column_gets_row_mate_top_padding():
-    graph = _laid_out()
+def test_mixed_fan_in_column_gets_row_mate_top_padding(graph):
     orf_pad = _top_pad(graph, "orf_calling")
     te_pad = _top_pad(graph, "te")
     # orf_calling's mixed fan-in must not carry a row-pitch of dead band that
@@ -203,17 +202,15 @@ def test_mixed_fan_in_column_gets_row_mate_top_padding():
     assert abs(orf_pad - te_pad) < _TOL, (orf_pad, te_pad)
 
 
-def test_continuation_stays_on_its_fanned_predecessors_track():
-    graph = _laid_out()
+def test_continuation_stays_on_its_fanned_predecessors_track(graph):
     # star_hybrid -> ribocode is a direct edge; ribocode also takes annotation
     # from the shared entry port, yet must ride star_hybrid's lifted track.
     assert abs(graph.stations["star_hybrid"].y - graph.stations["ribocode"].y) < _TOL
 
 
-def test_shared_row_trunk_lane_is_preserved():
-    graph = _laid_out()
-    # Every row-mate shares one inter-section trunk lane; the orf_calling fix
-    # must not shift it (which would strand te with the dead band instead).
+def test_shared_row_trunk_lane_is_preserved(graph):
+    # the trunk lane is shared across row-mates and must not move when one
+    # section's padding is corrected.
     lanes = set()
     for sid in ("orf_calling", "psite_id", "te", "reporting"):
         lanes |= _lr_port_ys(graph, sid)

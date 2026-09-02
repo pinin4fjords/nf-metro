@@ -306,11 +306,15 @@ def continuation_track_predecessors(graph: MetroGraph) -> dict[str, str]:
         # layouts, where the inter-section port resnap re-anchors the shifted
         # carrier's port; auto-layout freezes ports for routing stability, so a
         # lifted continuation there would strand its port off the station.
-        if port_predecessors and (
-            not graph.layout_provenance.has_authored_grids()
-            or port_predecessors - predecessors[predecessor]
-        ):
-            continue
+        if port_predecessors:
+            shares_port_with_predecessor = not (
+                port_predecessors - predecessors[predecessor]
+            )
+            if not (
+                graph.layout_provenance.has_authored_grids()
+                and shares_port_with_predecessor
+            ):
+                continue
         if predecessor not in visible:
             continue
         predecessor_station = graph.stations[predecessor]

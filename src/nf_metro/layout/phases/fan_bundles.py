@@ -959,7 +959,8 @@ def _redistribute_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> No
             all_full = not non_full
             subset_line_sets = {frozenset(graph.station_lines(s)) for s in non_full}
             own_trunk_anchor = len(full) >= 2 and len(subset_line_sets) <= 1
-            if not all_full and not own_trunk_anchor and not any_all_full_col:
+            should_fire = all_full or own_trunk_anchor or any_all_full_col
+            if not should_fire:
                 continue
             participants = list(sids)
             # Trunk Y is the section's LR port Y when available (the
