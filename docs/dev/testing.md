@@ -32,7 +32,7 @@ Many tests auto-discover fixtures by globbing these directories — adding a `.m
 
 `tests/test_topology_validation.py` parametrizes over every
 `examples/topologies/*.mmd` fixture (via `TOPOLOGY_FILES`). Each fixture
-is parsed and laid out, then the `TestTopologyValidation` methods run the
+is parsed and laid out, then `test_topology_validation` runs the
 programmatic checks from `tests/layout_validator.py` against it
 (section overlap, station containment, port boundary, edge waypoints,
 edge/section crossing, and so on).
@@ -181,7 +181,7 @@ coordinates are not altered by phases that should not touch them.
 **How it's wired**: `GUARD_REGISTRY` and `INLINE_GUARD_REGISTRY` record every
 guard with its classification (always-on, defensive, or issue-pinned) and
 narrow reason. Always-on guards execute every time their phase runs.
-Issue-pinned guards fire once per corpus run via `tests/test_guard_coverage.py`
+Issue-pinned guards fire once per corpus run via `tests/test_guard_registry.py`
 and are marked `XFAIL`; when the underlying issue is fixed, CI turns red until
 the pin is removed.
 

@@ -139,10 +139,10 @@ needs-review-linked.
   defect class - this is exactly how the `clear_channel_of_section_edge` graze arm
   was once misjudged.
 - **Validators have blind spots; the human eyeball is load-bearing.**
-  `probe_layout.py` only sees `validate=True`-block guards, and route crossings are
-  warnings, not failures. The validator and the test suite cannot catch every class
-  of defect. Always run the _full_ suite **and** put the new fixtures in front of a
-  human via the review page.
+  `nf-metro validate --with-layout` only sees `validate=True`-block guards, and
+  route crossings are warnings, not failures. The validator and the test suite
+  cannot catch every class of defect. Always run the _full_ suite **and** put the
+  new fixtures in front of a human via the review page.
 - **The arc model is CPython-version-specific.** The script pins
   `BASELINE_PYTHON = (3, 11)`; the ratchet tests skip on any other interpreter.
   Regenerate the baseline only under the pinned version.
