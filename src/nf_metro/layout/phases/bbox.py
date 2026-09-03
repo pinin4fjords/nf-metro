@@ -509,6 +509,29 @@ def _bundle_edge_padding(
     )
 
 
+def _bypass_v_lane_reach(
+    graph: MetroGraph,
+    sid: str,
+    offsets: dict[tuple[str, str], float],
+    is_horizontal: bool,
+) -> tuple[float, float]:
+    """How far above and below its anchor lane the curve drawn through
+    bypass-V helper ``sid`` reaches, as two non-negative distances.
+
+    A helper has no marker pill, but the diversion curve through it is drawn
+    on its line's offset lane (:func:`_station_bundle_offset_span`), which a
+    multi-line bundle can put a whole offset step off the anchor.  The
+    curve-clearance the section edge owes the helper is owed to that lane --
+    the bypass counterpart of what :func:`_bundle_edge_padding` does for a
+    marker's drawn pill.  A vertical-flow section separates its lines in X
+    instead, so both reaches are 0 there.
+    """
+    if not is_horizontal:
+        return 0.0, 0.0
+    min_off, max_off = _station_bundle_offset_span(graph, sid, offsets)
+    return max(0.0, -min_off), max(0.0, max_off)
+
+
 def _predict_section_content_bottom(
     graph: MetroGraph,
     section: Section,
@@ -528,6 +551,8 @@ def _predict_section_content_bottom(
     bottom-edge case of the bundle-span correction: how far a station's
     drawn bundle pill extends below its anchor lane
     (:func:`_station_bundle_offset_span`) folded into the padding target.
+    A bypass helper takes the same correction against its drawn curve
+    (:func:`_bypass_v_lane_reach`) under the smaller curve clearance.
     Pass a pre-computed ``offsets``
     (:func:`nf_metro.layout.routing.compute_station_offsets`) to avoid
     recomputing it once per section in a per-section caller's loop.
@@ -590,6 +615,7 @@ def _predict_section_content_bottom(
     content_bot = max(content_bots)
     bypass_max_ys = [
         graph.stations[sid].y
+        + _bypass_v_lane_reach(graph, sid, offsets, is_horizontal)[1]
         for sid in section.station_ids
         if sid in graph.stations and is_bypass_v(sid)
     ]
@@ -773,7 +799,9 @@ def _section_content_hug_top(
     bundle-span correction (see :func:`_bundle_edge_padding`): how far a
     multi-line bundle's drawn pill extends above its anchor lane
     (:func:`_station_bundle_offset_span`), which can be nonzero even when
-    no fan-out lifted the station itself.  Pass a pre-computed ``offsets``
+    no fan-out lifted the station itself.  A bypass helper takes the same
+    correction against its drawn curve (:func:`_bypass_v_lane_reach`) under
+    the smaller curve clearance.  Pass a pre-computed ``offsets``
     (:func:`nf_metro.layout.routing.compute_station_offsets`) to avoid
     recomputing it once per section in a per-section caller's loop.
 
@@ -818,6 +846,7 @@ def _section_content_hug_top(
     content_min_ys = [_content_min_y(sid) for sid in content_ids]
     bypass_min_ys = [
         graph.stations[sid].y
+        - _bypass_v_lane_reach(graph, sid, offsets, is_horizontal)[0]
         for sid in section.station_ids
         if sid in graph.stations and is_bypass_v(sid)
     ]
