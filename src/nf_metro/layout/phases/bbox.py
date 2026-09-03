@@ -512,7 +512,7 @@ def _bundle_edge_padding(
 def _bypass_v_lane_reach(
     graph: MetroGraph,
     sid: str,
-    offsets: dict[tuple[str, str], float] | None,
+    offsets: dict[tuple[str, str], float],
     is_horizontal: bool,
 ) -> tuple[float, float]:
     """How far above and below its anchor lane the curve drawn through
@@ -526,7 +526,7 @@ def _bypass_v_lane_reach(
     marker's drawn pill.  A vertical-flow section separates its lines in X
     instead, so both reaches are 0 there.
     """
-    if not is_horizontal or offsets is None:
+    if not is_horizontal:
         return 0.0, 0.0
     min_off, max_off = _station_bundle_offset_span(graph, sid, offsets)
     return max(0.0, -min_off), max(0.0, max_off)
