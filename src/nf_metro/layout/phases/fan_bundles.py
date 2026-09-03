@@ -157,33 +157,47 @@ def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
         return {}
     joins: dict[str, list[str]] = {}
     for _port_id, section, direct_targets in _trunkless_entry_fans(graph):
-        # Per-arm in-section descendant sets; their union bounds the fan and
-        # their intersection names the stations every arm reaches.  A genuine
-        # merge among those is one with two or more real predecessors - a
-        # position-independent test, unlike an off-track flag that only settles
-        # once the arms have been placed.  The fan's join is the terminal such
-        # merge (no further common merge downstream), so a parallel mid-fan
-        # branch flowing onward to the real join is not mistaken for it.
-        reach = {
-            tgt: _in_section_descendants(graph, tgt, section) for tgt in direct_targets
-        }
-        fan = set(direct_targets).union(*reach.values())
-        candidates = set.intersection(*reach.values())
-        preds_by_id = {
-            cid: _nonport_real_predecessors(graph, cid) for cid in candidates
-        }
-        common = {cid for cid in candidates if len(preds_by_id[cid]) >= 2}
-        for cand in common:
-            if _in_section_descendants(graph, cand, section) & common:
-                continue
-            # An ancestor in ``common`` means the fan already fully reconverged
-            # upstream; this candidate is a later partial re-merge after the
-            # trunk re-diverged, not the fan's centreline.
-            if _in_section_ancestors(graph, cand, section) & common:
-                continue
-            preds = preds_by_id[cand]
-            if cand not in preds and preds <= fan:
-                joins[cand] = sorted(preds)
+        joins.update(_fan_reconvergence_joins(graph, section, direct_targets))
+    return joins
+
+
+def _fan_reconvergence_joins(
+    graph: MetroGraph, section: Section, direct_targets: set[str]
+) -> dict[str, list[str]]:
+    """Return {join_id: [source_ids]} for one trunkless entry fan's reconvergence.
+
+    Shared by :func:`_entry_fan_reconvergence_joins` (which seats the join on the
+    fan midpoint) and :func:`_entry_fan_centre_ports` (which only centres a port
+    whose fan reconverges on exactly one join).  Carries no ``diamond_style``
+    gate: it is pure reconvergence detection, and each caller applies its own
+    opt-in.
+    """
+    # Per-arm in-section descendant sets; their union bounds the fan and
+    # their intersection names the stations every arm reaches.  A genuine
+    # merge among those is one with two or more real predecessors - a
+    # position-independent test, unlike an off-track flag that only settles
+    # once the arms have been placed.  The fan's join is the terminal such
+    # merge (no further common merge downstream), so a parallel mid-fan
+    # branch flowing onward to the real join is not mistaken for it.
+    reach = {
+        tgt: _in_section_descendants(graph, tgt, section) for tgt in direct_targets
+    }
+    fan = set(direct_targets).union(*reach.values())
+    candidates = set.intersection(*reach.values())
+    preds_by_id = {cid: _nonport_real_predecessors(graph, cid) for cid in candidates}
+    common = {cid for cid in candidates if len(preds_by_id[cid]) >= 2}
+    joins: dict[str, list[str]] = {}
+    for cand in common:
+        if _in_section_descendants(graph, cand, section) & common:
+            continue
+        # An ancestor in ``common`` means the fan already fully reconverged
+        # upstream; this candidate is a later partial re-merge after the
+        # trunk re-diverged, not the fan's centreline.
+        if _in_section_ancestors(graph, cand, section) & common:
+            continue
+        preds = preds_by_id[cand]
+        if cand not in preds and preds <= fan:
+            joins[cand] = sorted(preds)
     return joins
 
 
@@ -210,6 +224,13 @@ def _entry_fan_centre_ports(graph: MetroGraph) -> dict[str, list[str]]:
     targets it serves, through the same protect-and-restore the grid snap already
     applies to a fan-in convergence.
 
+    Restricted to a fan that reconverges on exactly one in-section join
+    (:func:`_fan_reconvergence_joins`): only a genuine diverge-then-reconverge
+    shape has a single well-defined centreline to seat the port on.  A trunkless
+    fan whose arms never reconverge, or reconverge on several independent joins,
+    has no such centre, so centring its port would drag it off the row's shared
+    port lane for no geometric gain.
+
     Gated on ``graph.center_ports``, the opt-in for boundary-port centring: a
     map that only sets ``diamond_style`` keeps its entry ports where the
     boundary seating put them.
@@ -218,7 +239,8 @@ def _entry_fan_centre_ports(graph: MetroGraph) -> dict[str, list[str]]:
         return {}
     return {
         port_id: sorted(direct_targets)
-        for port_id, _section, direct_targets in _trunkless_entry_fans(graph)
+        for port_id, section, direct_targets in _trunkless_entry_fans(graph)
+        if len(_fan_reconvergence_joins(graph, section, direct_targets)) == 1
     }
 
 

@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.phases.fan_bundles import _entry_fan_centre_ports
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import PortSide
 
@@ -200,17 +201,6 @@ def _top_pad(graph, section_id: str) -> float:
     return min(internal) - section.bbox_y
 
 
-def _lr_port_ys(graph, section_id: str) -> set[float]:
-    section = graph.sections[section_id]
-    ys = set()
-    for pid in section.port_ids:
-        port = graph.ports.get(pid)
-        st = graph.stations.get(pid)
-        if port and st and port.side in (PortSide.LEFT, PortSide.RIGHT):
-            ys.add(round(st.y, 1))
-    return ys
-
-
 def test_mixed_fan_in_column_gets_row_mate_top_padding(graph):
     orf_pad = _top_pad(graph, "orf_calling")
     te_pad = _top_pad(graph, "te")
@@ -226,12 +216,26 @@ def test_continuation_stays_on_its_fanned_predecessors_track(graph):
 
 
 def test_shared_row_trunk_lane_is_preserved(graph):
-    # the trunk lane is shared across row-mates and must not move when one
-    # section's padding is corrected.
+    # Packed-column row-mates share one inter-section trunk lane. The single
+    # exception is a port that center_ports seats on its own fan's vertical
+    # midpoint (_entry_fan_centre_ports): its fan geometry outranks the shared
+    # lane. Such a port is excluded from the lane set; every other port must
+    # coincide on the one shared lane.
+    centred = set(_entry_fan_centre_ports(graph))
     lanes = set()
     for sid in ("orf_calling", "psite_id", "te", "reporting"):
-        lanes |= _lr_port_ys(graph, sid)
+        section = graph.sections[sid]
+        for pid in section.port_ids:
+            if pid in centred:
+                continue
+            port = graph.ports.get(pid)
+            st = graph.stations.get(pid)
+            if port and st and port.side in (PortSide.LEFT, PortSide.RIGHT):
+                lanes.add(round(st.y, 1))
     assert len(lanes) == 1, lanes
+    orf_entry = "orf_calling__entry_left_7"
+    assert orf_entry in centred
+    assert round(graph.stations[orf_entry].y, 1) not in lanes
 
 
 def test_feeder_sharing_its_entry_port_lane_keeps_its_own_track(
