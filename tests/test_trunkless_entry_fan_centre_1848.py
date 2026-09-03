@@ -9,8 +9,9 @@ of targets it serves rather than pinned to the topmost row.
 
 The station where those fan arms reconverge is likewise the fan's centreline
 join under ``diamond_style: symmetric``; it belongs on that same midpoint
-instead of on whatever grid row its topological layer happened to occupy. One
-arm reaching the join through an extra internal hop is why the exact
+instead of on whatever grid row its topological layer happened to occupy. The
+arms reach the join through an intermediate relay, so the join's source set is
+those relays rather than the port's direct targets, which is why the exact
 fork-hub/join-source-set diamond detection misses this shape (issue #1848).
 """
 
