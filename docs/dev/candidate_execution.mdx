@@ -11,6 +11,9 @@ generate candidates, rank them, choose one, or retry a normal render.
 
 The normal CLI and Python rendering APIs never call the executor.
 
+The executor module is not shipped in the nf-metro wheel. Drive it from a
+source checkout.
+
 ## What a candidate contains
 
 A candidate is an immutable set of typed commitments. It may pin section grid

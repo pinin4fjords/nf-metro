@@ -60,13 +60,13 @@ dev = [
     "types-networkx",
     "numpy<2.5",
     "jsonschema>=4.0",
-    "cairosvg==2.8.2",
+    "cairosvg==2.9.0",
 ]
 # Docs site is Astro/Starlight (see website/package.json). This extra only provides
 # cairosvg, used by scripts/build_render_diff.py and the PR render-diff workflow
 # to rasterise gallery SVGs to PNG.
 docs = [
-    "cairosvg==2.8.2",
+    "cairosvg==2.9.0",
     "pyyaml>=6.0",
 ]
 font = [
@@ -85,6 +85,9 @@ skill-checks = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
+# The candidate executor is a development harness with no importer in the
+# package: it is driven from the test suite and a source checkout only.
+exclude = ["src/nf_metro/candidate_executor.py"]
 
 [tool.hatch.build.targets.sdist]
 # Ship what is needed to build and audit the package: src, packaging metadata,
