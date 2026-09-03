@@ -1,6 +1,6 @@
 ---
 name: release
-description: End-to-end release workflow for nf-metro. Checks the bioconda recipe for missing deps and bumps its build number if needed, bumps version in pyproject.toml and __init__.py, drafts a docs/releases/<version>.md page from the git log since the last tag (with illustrations where relevant), wires it into mkdocs.yml nav and the releases index table, then opens a PR. After merge, reminds you to create the GitHub Release. Trigger on phrases like "cut a release", "release X.Y.Z", "prepare release", "bump version to X.Y.Z".
+description: End-to-end release workflow for nf-metro. Checks the bioconda recipe for missing deps and bumps its build number if needed, bumps version in pyproject.toml and __init__.py, drafts a docs/releases/<version>.md page from the git log since the last tag (with illustrations where relevant), adds the releases index row and the condensed CHANGELOG.md section, then opens a PR. After merge, reminds you to create the GitHub Release. Trigger on phrases like "cut a release", "release X.Y.Z", "prepare release", "bump version to X.Y.Z".
 ---
 
 # nf-metro Release Workflow
@@ -24,7 +24,10 @@ Call the new version `NEW_VERSION` (e.g. `0.8.0`) and find the last
 release tag:
 
 ```bash
-LAST_TAG=$(git -C ~/projects/nf-metro describe --tags --abbrev=0)
+# The repo carries non-version tags (wip/*, savepoint-*, backup-*), so
+# `git describe` picks the wrong one. Select the newest `X.Y.Z` tag instead.
+LAST_TAG=$(git -C ~/projects/nf-metro tag --sort=-creatordate \
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 echo "Last tag: $LAST_TAG"
 ```
 
@@ -123,37 +126,42 @@ grep '__version__' /tmp/nf-metro-release-$NEW_VERSION/src/nf_metro/__init__.py
 
 ### CI-integration version references
 
-The composite action, reusable workflow, and pre-commit hook ship from this
-repo, so they inherit the release tag automatically. But the *example* refs and
-the reusable workflow's `nf-metro-ref` default are pinned to the previous
-version and must be bumped to `$NEW_VERSION` so consumers copy the current one:
+The composite action (`action.yml`) ships from this repo, so it inherits the
+release tag automatically. Its *example* refs in the docs are pinned to the
+previous version and must be bumped to `$NEW_VERSION` so consumers copy the
+current one:
 
 ```bash
 cd /tmp/nf-metro-release-$NEW_VERSION
 OLD_VERSION=${LAST_TAG}
-grep -rl "@${OLD_VERSION}\|rev: ${OLD_VERSION}\|nf-metro.*\"${OLD_VERSION}\"" \
-    docs/automation.mdx README.md .github/workflows/render-metro-map.yml
-# Replace the pinned refs (action `@X.Y.Z`, workflow `@X.Y.Z`, pre-commit
-# `rev: X.Y.Z`) and the workflow's `nf-metro-ref` default with $NEW_VERSION.
+grep -rn "${OLD_VERSION}" docs/automation.mdx README.md action.yml
+# Bump the `- uses: seqeralabs/nf-metro@X.Y.Z` ref in docs/automation.mdx and
+# the `(e.g. X.Y.Z)` example in the action's `version` input description.
 ```
 
-`action.yml` needs **no** edit — with an empty `version` input it reads the
-bumped `pyproject.toml` at runtime, so `@$NEW_VERSION` installs
-`nf-metro==$NEW_VERSION` automatically. After editing, confirm no stale refs
-remain:
+The action's `runs:` block needs **no** version edit — with an empty `version`
+input it reads the bumped `pyproject.toml` at runtime, so `@$NEW_VERSION`
+installs `nf-metro==$NEW_VERSION` automatically. After editing, confirm no
+stale refs remain:
 
 ```bash
-grep -rn "${OLD_VERSION}" docs/automation.mdx README.md .github/workflows/render-metro-map.yml || echo "clean"
+grep -rn "${OLD_VERSION}" docs/automation.mdx README.md action.yml || echo "clean"
 ```
 
 ## Step 5: Draft the release page
 
 Create `/tmp/nf-metro-release-$NEW_VERSION/docs/releases/$NEW_VERSION.md`.
 
-```markdown
-# v$NEW_VERSION
+The page is a Starlight content file: the title comes from frontmatter, not
+from a heading in the body.
 
-*<YYYY-MM-DD>* · [GitHub release](https://github.com/seqeralabs/nf-metro/releases/tag/$NEW_VERSION) · [Diff](https://github.com/seqeralabs/nf-metro/compare/$LAST_TAG...$NEW_VERSION)
+```markdown
+---
+title: "v$NEW_VERSION"
+slug: releases/$NEW_VERSION
+---
+
+_<YYYY-MM-DD>_ · [GitHub release](https://github.com/seqeralabs/nf-metro/releases/tag/$NEW_VERSION) · [Diff](https://github.com/seqeralabs/nf-metro/compare/$LAST_TAG...$NEW_VERSION)
 
 <one-sentence summary>
 
@@ -162,18 +170,23 @@ Create `/tmp/nf-metro-release-$NEW_VERSION/docs/releases/$NEW_VERSION.md`.
 <prose for a user who hasn't read the PRs — what it does, why it matters,
 how to use it>
 
-![Description](../assets/renders/<relevant_render>.svg)
+<Metro src="examples/guide/<relevant_example>.mmd" />
 ```
 
 **Illustration guidance:**
 
-- Check what's available: `ls ~/projects/nf-metro/docs/assets/renders/`
-  (these are the current rendered examples; the builds are gitignored but
-  the main checkout has a local copy from the last dev build).
-- For feature releases, prefer versioned GitHub Pages URLs so readers see
+- Prefer the `<Metro>` component over a static image: it renders the map live
+  at build time from a `.mmd` in the repo, so the page never goes stale. Its
+  options are documented in `docs/contributing.mdx`; `mmd={false}` hides the
+  source panel.
+- Check what maps exist: `ls ~/projects/nf-metro/examples/`,
+  `ls ~/projects/nf-metro/examples/guide/`.
+- For a static image instead, use a versioned GitHub Pages URL so readers see
   the exact shipped render:
   `https://seqeralabs.github.io/nf-metro/$NEW_VERSION/assets/renders/<file>.svg`
   These resolve once the GitHub Release is published and the docs deploy runs.
+  `docs/assets/renders/` itself is generated by `scripts/build_gallery.py` and
+  gitignored, so list it in the main checkout to see what is available.
 - For patch releases fixing a visual issue, describe the before/after even
   if you can only show the after state.
 - Patch releases with no visual impact (CI fixes, permission fixes) can be
@@ -182,43 +195,40 @@ how to use it>
 Present the draft. Ask: "Does this look right? Any changes before I commit?"
 Wait for approval.
 
-## Step 6: Wire the new page into the nav
+## Step 6: Wire the new page into the index and changelog
 
-### mkdocs.yml
+### Sidebar nav — nothing to do
 
-Find the `Releases:` nav section near the bottom of
-`/tmp/nf-metro-release-$NEW_VERSION/mkdocs.yml`.
-
-**Patch of an existing minor** (e.g. `0.8.1` when `v0.8.x` already exists):
-insert the new entry at the **top** of that block:
-
-```yaml
-    - v0.8.x:
-      - v0.8.1: releases/0.8.1.md   # ← insert at top
-      - v0.8.0: releases/0.8.0.md
-```
-
-**New minor version** (e.g. `0.8.0` when there is no `v0.8.x` block yet):
-insert a new block at the top of the version list, immediately after the
-`- Overview: releases/index.md` line:
-
-```yaml
-  - Releases:
-    - Overview: releases/index.md
-    - v0.8.x:              # ← new block
-      - v0.8.0: releases/0.8.0.md
-    - v0.7.x:
-      ...
-```
+The docs site is Astro / Starlight under `website/`. Its
+`buildReleasesSidebar()` in `website/astro.config.mjs` reads
+`docs/releases/*.md*` off disk and builds the `v<major>.<minor>.x` groups
+itself, so the new page appears in the sidebar with no config edit.
 
 ### releases/index.md
 
 Insert a new row at the **top** of the table (below the header row) in
-`/tmp/nf-metro-release-$NEW_VERSION/docs/releases/index.md`:
+`/tmp/nf-metro-release-$NEW_VERSION/docs/releases/index.md`, matching the
+site-absolute link form the other rows use:
 
 ```markdown
-| [v$NEW_VERSION]($NEW_VERSION.md) | <YYYY-MM-DD> | <one-line summary> |
+| [v$NEW_VERSION](/nf-metro/releases/$NEW_VERSION/) | <YYYY-MM-DD> | <one-line summary> |
 ```
+
+### CHANGELOG.md
+
+`CHANGELOG.md` carries a condensed Keep-a-Changelog history; the release page is
+the full account. At the top of
+`/tmp/nf-metro-release-$NEW_VERSION/CHANGELOG.md`:
+
+- Retitle `## [Unreleased]` to `## [$NEW_VERSION] — <YYYY-MM-DD>` if the
+  release's entries were accumulated there.
+- Otherwise add a `## [$NEW_VERSION] — <YYYY-MM-DD>` section, condensed from the
+  release page into `### Added` / `### Changed` / `### Fixed` groups — a few
+  bullets each, not the whole page — and separated from the section below it by
+  a `---` rule.
+- Leave a fresh, empty `## [Unreleased]` at the top for the next cycle.
+
+Headings in this file use an em-dash date separator; match it.
 
 ## Step 7: Commit and push
 
@@ -227,12 +237,11 @@ cd /tmp/nf-metro-release-$NEW_VERSION
 
 git add pyproject.toml \
         src/nf_metro/__init__.py \
+        action.yml \
         docs/automation.mdx \
-        README.md \
-        .github/workflows/render-metro-map.yml \
         docs/releases/$NEW_VERSION.md \
         docs/releases/index.md \
-        mkdocs.yml
+        CHANGELOG.md
 
 git commit -m "chore: release $NEW_VERSION"
 # No [skip ci] — CI must run on this commit when the PR lands.
@@ -250,7 +259,8 @@ gh pr create \
 ## Summary
 
 - Bumps version to $NEW_VERSION in \`pyproject.toml\` and \`__init__.py\`
-- Adds \`docs/releases/$NEW_VERSION.md\` and wires it into the nav and index
+- Adds \`docs/releases/$NEW_VERSION.md\` and its \`docs/releases/index.md\` row
+- Adds the condensed \`CHANGELOG.md\` section for $NEW_VERSION
 
 <paste the highlights from the release page here>
 
@@ -274,8 +284,8 @@ Remind the user:
 > - **Tag:** `$NEW_VERSION`
 > - **Title:** `$NEW_VERSION - <short description>`
 > - **Body:** paste the content of `docs/releases/$NEW_VERSION.md`
->   (drop the `# v$NEW_VERSION` heading and the GitHub links line — GitHub
->   generates those itself)
+>   (drop the frontmatter block and the GitHub links line — GitHub generates
+>   those itself, and `<Metro>` components will not render there)
 >
 > Publishing triggers:
 > - `publish.yml` → builds and uploads to PyPI
