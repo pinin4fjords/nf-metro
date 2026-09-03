@@ -18,7 +18,6 @@ from nf_metro.layout.phases.fan_bundles import (
     _entry_fan_centre_ports,
     _evenly_spaced_ys,
     _fan_reconvergence_joins,
-    _section_lr_entry_port,
     _station_rooted_fans,
     _symmetric_reconvergence_joins,
 )
@@ -141,7 +140,15 @@ def _register_half_grid_reconvergence_branches(graph: MetroGraph) -> None:
     flag: a branch already at a half-pitch offset is recorded, none is moved.
     """
     for _hub, section, targets in _station_rooted_fans(graph):
-        anchor_id = _section_lr_entry_port(graph, section)
+        anchor_id = next(
+            (
+                pid
+                for pid in section.entry_ports
+                if (p := graph.ports.get(pid)) is not None
+                and p.side in (PortSide.LEFT, PortSide.RIGHT)
+            ),
+            None,
+        )
         anchor_st = graph.stations.get(anchor_id) if anchor_id is not None else None
         if anchor_st is None:
             continue
