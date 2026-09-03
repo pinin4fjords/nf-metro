@@ -572,13 +572,14 @@ against a plan that already exists: the disposition does not change across the
 sweep. Because a lane is measured from the trunk that arrived first rather than
 from a boundary edge, widening the boundary does not move it.
 
-A grant goes through `translate_boundaries`, which widens _and_ re-derives the
-junctions the widened sections carry. Widening alone measures the probe rather
-than the pipeline: a junction's coordinates are a function of the ports it joins,
-so a section translation that skips `reanchor_junctions` strands every junction
-behind its sections, and a stranded junction that sets a shared opening turn
-separates two fan arms past `COORD_TOLERANCE` until the conflict predicate stops
-matching them at all.
+A grant widens _and_ re-derives the junctions the widened sections carry.
+`settle_route_envelopes` translates the whole row or column, and `_resettle` in
+`render/svg.py` calls `reanchor_junctions` before it observes the routes again.
+Widening alone is not enough: a junction's coordinates are a function of the
+ports it joins, so a section translation that skips the re-anchor strands every
+junction behind its sections, and a stranded junction that sets a shared opening
+turn separates two fan arms past `COORD_TOLERANCE` until the conflict predicate
+stops matching them at all.
 
 The symbolic record gets its complete span from authored connector endpoints,
 including connectors rewritten through synthetic fan and merge nodes. Final
