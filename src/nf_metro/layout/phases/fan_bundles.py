@@ -1001,12 +1001,25 @@ def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bo
             set(graph.station_lines(s)) >= trunk for s in sids
         ):
             continue
+        if not _branches_share_fork_hub(graph, sids[0], sids[1]):
+            # Two column-mates fed by different stations (e.g. a producer's
+            # output file beside an unrelated one) are not a fork off a single
+            # hub, so the empty-trunk-row compaction has no hub centreline to
+            # mirror about.
+            continue
         if _branches_reconverge(graph, section, sids[0], sids[1]):
             continue
         if _fork_hub_bypasses_trunk_to_exit(graph, section, sids[0], sids[1]):
             continue
         return True
     return False
+
+
+def _branches_share_fork_hub(graph: MetroGraph, a: str, b: str) -> bool:
+    """True when *a* and *b* have a common direct predecessor - one fork hub."""
+    return bool(
+        {e.source for e in graph.edges_to(a)} & {e.source for e in graph.edges_to(b)}
+    )
 
 
 def _fork_hub_bypasses_trunk_to_exit(
@@ -1453,8 +1466,18 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
             # A ``diamond_style: symmetric`` two-way fork compacts onto
             # half-pitch offsets (trunk +/- 0.5 pitch) so it consumes one grid
             # unit rather than straddling a full empty trunk row; the branches
-            # are marked so the grid snap leaves the half-offsets intact.
-            half = graph.diamond_style == "symmetric" and n == 2
+            # are marked so the grid snap leaves the half-offsets intact.  A fork
+            # whose hub runs a line straight down the trunk row to a section exit
+            # keeps full pitch: that bypass bundle occupies the row the
+            # compaction would empty, so squeezing the branches half a unit apart
+            # would crowd it (see :func:`_fork_hub_bypasses_trunk_to_exit`).
+            half = (
+                graph.diamond_style == "symmetric"
+                and n == 2
+                and not _fork_hub_bypasses_trunk_to_exit(
+                    graph, section, participants[0], participants[1]
+                )
+            )
             if half:
                 # Orient so a branch bearing an off-track file above the trunk
                 # fans to the bottom slot (and one below the trunk to the top).
