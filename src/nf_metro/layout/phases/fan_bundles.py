@@ -148,17 +148,21 @@ def _station_rooted_fans(
     targets.  Its reconvergence join is found by
     :func:`_fan_reconvergence_joins` exactly as an entry port's is, so a genuine
     diverge-then-reconverge shape rooted at an internal station - not at a
-    section boundary port - is discovered too.  No trunk test is applied: a hub
-    arm that continued past the merge instead of reconverging would leave the
-    fan without a common join, which :func:`_fan_reconvergence_joins` already
-    rejects.  :func:`_symmetric_reconvergence_joins` keeps only the hidden-node
-    joins these fans reach; a visible internal join is left to the general
-    placement pipeline that already seats it.
+    section boundary port - is discovered too.  The three-target minimum matches
+    :func:`_trunkless_entry_fans` and rests on the same backing: a two-branch
+    fork, whichever kind of hub roots it, is compacted onto half-pitch offsets
+    by :func:`_recenter_full_bundle_columns`, so leaving it out here defers to
+    that mechanism rather than dropping it on the floor.  No trunk test is
+    applied: a hub arm that continued past the merge instead of reconverging
+    would leave the fan without a common join, which
+    :func:`_fan_reconvergence_joins` already rejects.
+    :func:`_symmetric_reconvergence_joins` keeps only the hidden-node joins
+    these fans reach; a visible internal join is left to the general placement
+    pipeline that already seats it.
     """
     for section in graph.sections.values():
         for sid in section.station_ids:
-            st = graph.stations.get(sid)
-            if st is None or st.is_port or st.is_hidden or st.off_track:
+            if not _is_in_section_on_track(graph.stations.get(sid), section.id):
                 continue
             targets = set(_in_section_ontrack_successors(graph, section, sid))
             if len(targets) >= 3:
@@ -203,17 +207,18 @@ def _symmetric_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
     for _port_id, section, direct_targets in _trunkless_entry_fans(graph):
         joins.update(_fan_reconvergence_joins(graph, section, direct_targets))
     for _hub_id, section, direct_targets in _station_rooted_fans(graph):
-        for join_id, srcs in _fan_reconvergence_joins(
-            graph, section, direct_targets
-        ).items():
-            join = graph.stations.get(join_id)
-            if join is not None and join.is_hidden:
-                joins.setdefault(join_id, srcs)
+        joins.update(
+            _fan_reconvergence_joins(graph, section, direct_targets, hidden_only=True)
+        )
     return joins
 
 
 def _fan_reconvergence_joins(
-    graph: MetroGraph, section: Section, direct_targets: set[str]
+    graph: MetroGraph,
+    section: Section,
+    direct_targets: set[str],
+    *,
+    hidden_only: bool = False,
 ) -> dict[str, list[str]]:
     """Return {join_id: [source_ids]} for one trunkless entry fan's reconvergence.
 
@@ -222,6 +227,11 @@ def _fan_reconvergence_joins(
     port whose fan reconverges on exactly one join).  Carries no
     ``diamond_style`` gate: it is pure reconvergence detection, and each caller
     applies its own opt-in.
+
+    ``hidden_only`` keeps only a join that is a hidden merge node; a
+    station-rooted fan passes it so a visible internal join, which the general
+    placement pipeline already seats, is left alone (see
+    :func:`_symmetric_reconvergence_joins`).
     """
     # Per-arm in-section descendant sets; their union bounds the fan and
     # their intersection names the stations every arm reaches.  A genuine
@@ -245,6 +255,8 @@ def _fan_reconvergence_joins(
         # upstream; this candidate is a later partial re-merge after the
         # trunk re-diverged, not the fan's centreline.
         if _in_section_ancestors(graph, cand, section) & common:
+            continue
+        if hidden_only and not graph.stations[cand].is_hidden:
             continue
         preds = preds_by_id[cand]
         if cand not in preds and preds <= fan:
