@@ -152,41 +152,6 @@ def test_stacked_sections_serpentine_no_backtrack(path):
     assert not errors, "\n".join(v.message for v in errors)
 
 
-# --- Layout-quality warning reporter ---
-#
-# The intra-section-chain and exit-port-feeder validators emit WARNING-level
-# violations because legitimate fork-join layouts also produce them. Tests
-# above gate CI on ERRORs only. This block prints the warning count per
-# fixture so CI logs surface candidates for layout improvement without
-# failing the build.
-
-
-def _layout_quality_warning_count(graph) -> tuple[int, int, int]:
-    chain = check_intra_section_chain_alignment(graph)
-    port = check_exit_port_feeder_alignment(graph)
-    diag = check_single_segment_diagonals(graph)
-    return (
-        sum(1 for v in chain if v.severity == Severity.WARNING),
-        sum(1 for v in port if v.severity == Severity.WARNING),
-        sum(1 for v in diag if v.severity == Severity.WARNING),
-    )
-
-
-@pytest.mark.parametrize("path", TOPOLOGY_FILES, ids=TOPOLOGY_IDS)
-def test_layout_quality_warnings_report(path, capsys):
-    """Report warning counts for each topology - never fails."""
-    graph = _load_and_layout(path)
-    chain_warns, port_warns, diag_warns = _layout_quality_warning_count(graph)
-    if chain_warns or port_warns or diag_warns:
-        with capsys.disabled():
-            print(
-                f"\n  {path.stem}: "
-                f"intra_section_chain_alignment={chain_warns}, "
-                f"exit_port_feeder_alignment={port_warns}, "
-                f"single_segment_diagonals={diag_warns}"
-            )
-
-
 # --- Regression guard: funcprofiler_upstream reporting line ---
 #
 # funcprofiler_upstream is a real upstream pipeline (11 lines, 7 parallel
@@ -256,41 +221,35 @@ class TestExitRunThreeDropColumnsMergeFeeder:
         assert not violations, "\n".join(v.message for v in violations)
 
 
-# --- Failing regression: variant_calling ---
+# --- variant_calling layout guards ---
 #
-# variant_calling.mmd had three confirmed visible defects (verified
-# manually with the user as part of validator development):
+# variant_calling.mmd pins three layout properties confirmed by eye with the
+# user during validator development:
 #
-# 1. Section 2 (Alignment) chain alignment - bwa_index, bwa_mem,
-#    samtools_sort, samtools_index alternated rows in a 4-station zigzag
-#    on the Main line. FIXED in #420: bwa_mem is a fan-in (the bwa_index
-#    branch plus the fastp entry both carry Main into it), so the entry
-#    phantom now anchors the through-trunk while bwa_index fans in above
+# 1. Section 2 (Alignment) chain alignment - bwa_mem is a fan-in (the
+#    bwa_index branch and the fastp entry both carry Main into it), so the
+#    entry phantom anchors the through-trunk while bwa_index fans in above
 #    it, keeping bwa_mem -> samtools_sort -> samtools_index straight.
-# 2. Section 3 (Variant Calling) excessive column gap - GATK
-#    HaplotypeCaller and DeepVariant share column x=772 but are 80px
-#    apart with one empty grid row between them. STILL OPEN (#453).
-# 3. Section 1 -> Section 2/4 inter-section line crossing - Main and
-#    QC Reporting both fanned out from junction __junction_6 and crossed
-#    on the way to their respective targets. FIXED as a side effect of
-#    #420 (the straight Alignment trunk removes the crossing).
-#
-# Defects 1 and 3 now pass; defect 2 remains xfail until the column-gap
-# layout is fixed.
+# 2. Section 3 (Variant Calling) column gaps - GATK HaplotypeCaller and
+#    DeepVariant share column x=772 but sit 80px apart with one empty grid
+#    row between them.  A live defect, held below as a strict xfail.
+# 3. Section 1 -> Section 2/4 inter-section crossings - Main and QC
+#    Reporting both fan out from junction __junction_6, and the straight
+#    Alignment trunk keeps them from crossing en route to their targets.
 
 VARIANT_CALLING_FILE = EXAMPLES_DIR / "variant_calling.mmd"
 
 
 _VARIANT_CALLING_XFAIL = pytest.mark.xfail(
     strict=True,
-    reason="known variant_calling layout defect; tracked in #453",
+    reason="known variant_calling layout defect; tracked in #1863",
 )
 
 
 class TestVariantCallingDefects:
     """Lock in known variant_calling layout defects via strict xfail.
 
-    Each remaining defect is currently present; when an engine fix lands
+    Each defect held here is currently present; when an engine fix lands
     the matching xfail flips to XPASS and reds CI, prompting the marker
     removal.
     """

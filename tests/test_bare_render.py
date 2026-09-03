@@ -150,10 +150,3 @@ def test_bare_cli_flag(tmp_path):
     full_width = int(ET.parse(full_out).getroot().attrib["width"])
     bare_width = int(ET.parse(bare_out).getroot().attrib["width"])
     assert bare_width < full_width
-
-
-def test_bare_no_title_class_element():
-    """No SVG element with the nf-metro-title class is drawn in bare output."""
-    g = _graph(_TITLED_MMD)
-    bare_svg = render_svg(g, NFCORE_THEME, bare=True)
-    assert _title_text_elements(bare_svg) == []

@@ -2318,8 +2318,8 @@ def test_symmetric_style_keeps_planned_two_way_fan_on_shared_centreline() -> Non
             marks=pytest.mark.xfail(
                 strict=True,
                 reason=(
-                    "the column seats the stopping station on the fork's row and "
-                    "sends the passing line around it"
+                    "issue #1863: the column seats the stopping station on the "
+                    "fork's row and sends the passing line around it"
                 ),
             ),
         ),

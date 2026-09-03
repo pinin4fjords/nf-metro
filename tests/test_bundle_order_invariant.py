@@ -42,11 +42,6 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures"
 TOPOLOGIES = FIXTURES / "topologies"
 EXAMPLES = REPO_ROOT / "examples"
 
-# Fixtures with KNOWN bundle-order violations that the criterion
-# correctly surfaces.  These are real bugs we xfail rather than blunt
-# the criterion to hide them.
-_KNOWN_VIOLATION_FIXTURES: frozenset[str] = frozenset()
-
 
 # ---------------------------------------------------------------------------
 # Happy-path: every fixture and example must pass the invariant
@@ -72,17 +67,7 @@ def test_no_bundle_order_violations_in_gallery(path: Path) -> None:
     This is the corpus-level happy-path check.  A regression to a
     routing handler that creates a flipped concentric bundle would
     cause exactly one fixture to start failing here.
-
-    Fixtures listed in :data:`_KNOWN_VIOLATION_FIXTURES` are
-    xfailed: they have real bundle-order bugs at the Plots-entry
-    corner that the criterion correctly catches, and we'd rather
-    track those as known failures than silently blunt the criterion.
     """
-    if path.name in _KNOWN_VIOLATION_FIXTURES:
-        pytest.xfail(
-            f"{path.name} has a known bundle-order violation at the "
-            "Plots-entry corner; the criterion correctly catches it."
-        )
     graph = parse_metro_mermaid(path.read_text())
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
