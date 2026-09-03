@@ -84,7 +84,8 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
         convergence_sources.setdefault(join_id, src_ids)
     # Under center_ports a trunkless fan-in entry port rides the same
     # protect-and-restore onto the midpoint of the targets it serves.
-    for port_id, target_ids in _entry_fan_centre_ports(graph).items():
+    entry_fan_ports = _entry_fan_centre_ports(graph)
+    for port_id, target_ids in entry_fan_ports.items():
         convergence_sources.setdefault(port_id, target_ids)
     # Same idea for the diverging side: record each fork hub's target set
     # pre-snap so its midpoint can be restored once the targets have moved.
@@ -116,6 +117,34 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     _restore_convergence_midpoints(graph, convergence_sources)
     _restore_divergence_midpoints(graph, divergence_targets, trunk_followers)
     _restore_partial_trunk_descents(graph)
+    _register_half_grid_entry_fan_ports(graph, entry_fan_ports)
+
+
+def _register_half_grid_entry_fan_ports(
+    graph: MetroGraph, entry_fan_ports: dict[str, list[str]]
+) -> None:
+    """Register a centred entry port that lands on a half-pitch centreline.
+
+    An even branch count seats the port midway between two grid rows - the same
+    genuine half-pitch offset a fork hub takes (see
+    :func:`_restore_divergence_midpoints`).  Recording it in
+    ``graph.half_grid_station_ids`` tells the grid-alignment invariants the
+    section's real rows are the branches, half a slot from the port centreline
+    the reconvergence join and any pass-through legitimately ride.
+    """
+    for port_id, target_ids in entry_fan_ports.items():
+        port_st = graph.stations.get(port_id)
+        if port_st is None:
+            continue
+        branch_ys = _evenly_spaced_ys(
+            [graph.stations[t].y for t in target_ids if t in graph.stations]
+        )
+        if branch_ys is None:
+            continue
+        pitch = branch_ys[1] - branch_ys[0]
+        residue = (port_st.y - branch_ys[0]) % pitch
+        if min(residue, pitch - residue) > 1.0:
+            graph.half_grid_station_ids.add(port_id)
 
 
 def _slot_snap(y: float, origin: float, pitch: float, half: float) -> float:
