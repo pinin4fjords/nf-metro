@@ -524,12 +524,12 @@ def test_rnaseq_auto_renders():
     """rnaseq_auto.mmd (no directives) parses and renders without errors."""
     from nf_metro.layout.engine import compute_layout
     from nf_metro.render.svg import render_svg
-    from nf_metro.themes.nfcore import NFCORE_THEME
+    from nf_metro.themes import NFCORE_DARK_THEME
 
     text = (EXAMPLES / "rnaseq_auto.mmd").read_text()
     graph = parse_metro_mermaid(text)
     compute_layout(graph)
-    svg = render_svg(graph, NFCORE_THEME)
+    svg = render_svg(graph, NFCORE_DARK_THEME)
 
     # Should produce valid SVG with all sections
     assert "<svg" in svg

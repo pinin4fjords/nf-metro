@@ -12,9 +12,9 @@ from nf_metro.render.constants import (
     effective_line_color,
     station_is_muted,
 )
-from nf_metro.themes import NFCORE_THEME
+from nf_metro.themes import NFCORE_DARK_THEME
 
-MUTED = NFCORE_THEME.muted_line_color
+MUTED = NFCORE_DARK_THEME.muted_line_color
 
 # Two lines, three stations: x touches only line a, z only line b, y both.
 TWO_LINE_MAP = (
@@ -63,7 +63,7 @@ def _label_fill_by_station(svg):
 
 
 def test_muted_line_color_defaults_to_fallback_grey():
-    assert NFCORE_THEME.muted_line_color == FALLBACK_LINE_COLOR
+    assert NFCORE_DARK_THEME.muted_line_color == FALLBACK_LINE_COLOR
 
 
 def test_effective_line_color_mutes_inactive_only():
@@ -71,9 +71,11 @@ def test_effective_line_color_mutes_inactive_only():
     a = graph.lines["a"]
     b = graph.lines["b"]
     inactive = frozenset({"a"})
-    assert effective_line_color(a, NFCORE_THEME, inactive) == MUTED
-    assert effective_line_color(b, NFCORE_THEME, inactive) == b.color
-    assert effective_line_color(None, NFCORE_THEME, inactive) == FALLBACK_LINE_COLOR
+    assert effective_line_color(a, NFCORE_DARK_THEME, inactive) == MUTED
+    assert effective_line_color(b, NFCORE_DARK_THEME, inactive) == b.color
+    assert (
+        effective_line_color(None, NFCORE_DARK_THEME, inactive) == FALLBACK_LINE_COLOR
+    )
 
 
 def test_station_is_muted_guards_zero_line_station():
@@ -129,8 +131,8 @@ def test_station_touched_by_active_line_not_muted():
     # y and z each touch an active line -> full-strength stroke + label.
     assert MUTED not in rects["y"]
     assert MUTED not in rects["z"]
-    assert labels["y"] == NFCORE_THEME.label_color
-    assert labels["z"] == NFCORE_THEME.label_color
+    assert labels["y"] == NFCORE_DARK_THEME.label_color
+    assert labels["z"] == NFCORE_DARK_THEME.label_color
 
 
 def test_muted_station_keeps_fill():
@@ -139,7 +141,7 @@ def test_muted_station_keeps_fill():
     for el in root.iter():
         if el.tag.endswith("rect") and el.get("data-station-id") == "x":
             # Fill is the theme station fill, not the muted grey.
-            assert el.get("fill") == NFCORE_THEME.station_fill
+            assert el.get("fill") == NFCORE_DARK_THEME.station_fill
 
 
 # ---------------------------------------------------------------------------

@@ -241,7 +241,7 @@ so no ball restarts while another is mid-track.
 
 ## Theming (`style.py`)
 
-`Theme` is a frozen dataclass of visual properties: colours, font sizes,
+`Theme` is a keyword-only dataclass of visual properties: colours, font sizes,
 line widths, station radii, animation speed, and legend layout.
 
 Brand identity and display mode are orthogonal axes. Built-in themes live in
