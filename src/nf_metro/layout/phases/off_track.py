@@ -1041,12 +1041,27 @@ def _compute_fork_join_gaps(
 
     cumulative = 0.0
     layer_extra: dict[int, float] = {}
+    pending_fork_gap = 0.0
     for layer in range(max_layer + 1):
-        if layer in join_layers:
-            cumulative += layer_gap.get(layer, base_gap)
+        join_gap = layer_gap.get(layer, base_gap) if layer in join_layers else 0.0
+        # The boundary entering this layer reserves the previous layer's fork
+        # spread and this layer's join gather.  When one of them is a hub that
+        # both forks and joins, the fan across this boundary is that hub's single
+        # set of diagonals reserved from both sides at once, so its gap covers
+        # the whole column and summing books the same room twice, leaving dead
+        # flat track before the hub.  Where the fork and join are distinct
+        # single-role layers the two gaps reserve two separate diagonal sets - a
+        # divergence and a reconvergence - and must both stand, or an interior
+        # branch loses the reconvergence run that keeps it centred.
+        hub_spans_boundary = (layer - 1) in join_layers or layer in fork_layers
+        if pending_fork_gap > 0.0 and join_gap > 0.0 and hub_spans_boundary:
+            cumulative += max(pending_fork_gap, join_gap)
+        else:
+            cumulative += pending_fork_gap + join_gap
         layer_extra[layer] = cumulative
-        if layer in fork_layers:
-            cumulative += layer_gap.get(layer, base_gap)
+        pending_fork_gap = (
+            layer_gap.get(layer, base_gap) if layer in fork_layers else 0.0
+        )
 
     return layer_extra
 
