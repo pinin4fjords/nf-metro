@@ -178,13 +178,6 @@ def _append_icon_banner_band(
     )
 
 
-def train_icon_path(x: float, y: float, size: float = 12.0) -> str:
-    """Generate an SVG path string for a small train icon. Placeholder for future."""
-    # Simple diamond shape as placeholder
-    hs = size / 2
-    return f"M {x} {y - hs} L {x + hs} {y} L {x} {y + hs} L {x - hs} {y} Z"
-
-
 def render_file_icon(
     d: draw.Drawing,
     cx: float,
