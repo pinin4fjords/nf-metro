@@ -16,8 +16,8 @@ from nf_metro.layout.phases.fan_bundles import (
     _convergence_source_ys,
     _divergence_midpoint_targets,
     _entry_fan_centre_ports,
-    _entry_fan_reconvergence_joins,
     _evenly_spaced_ys,
+    _symmetric_reconvergence_joins,
 )
 from nf_metro.layout.phases.junctions import _position_junctions
 from nf_metro.layout.phases.ports import _set_port_y
@@ -80,7 +80,7 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # A trunkless symmetric entry fan's reconvergence join is a convergence the
     # midpoint restore must also protect and recentre, even though one arm's
     # extra hop keeps it out of the ordinary source-midpoint set above.
-    for join_id, src_ids in _entry_fan_reconvergence_joins(graph).items():
+    for join_id, src_ids in _symmetric_reconvergence_joins(graph).items():
         convergence_sources.setdefault(join_id, src_ids)
     # Under center_ports a trunkless fan-in entry port rides the same
     # protect-and-restore onto the midpoint of the targets it serves.
@@ -392,7 +392,7 @@ def _snap_canvas_y_to_grid(
     # both held off the grid on the fan centreline; they must stay excluded from
     # the residue vote on this second pass too, or the pass reads them as
     # off-grid and pulls them back onto a slot.
-    for join_id, src_ids in _entry_fan_reconvergence_joins(graph).items():
+    for join_id, src_ids in _symmetric_reconvergence_joins(graph).items():
         convergence_sources.setdefault(join_id, src_ids)
     for port_id, target_ids in _entry_fan_centre_ports(graph).items():
         convergence_sources.setdefault(port_id, target_ids)

@@ -138,32 +138,77 @@ def _trunkless_entry_fans(
                 yield port_id, section, targets
 
 
-def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
-    """Return {join_id: [source_ids]} for a trunkless entry-fan's reconvergence.
+def _station_rooted_fans(
+    graph: MetroGraph,
+) -> Iterator[tuple[str, Section, set[str]]]:
+    """Yield ``(hub_id, section, direct_targets)`` for a station-rooted fan.
 
-    The join of a trunkless entry fan (see :func:`_trunkless_entry_fans`) is the
-    station where *every* arm reconverges - reachable within the section from
-    all of the direct targets.  The exact fork-hub/join-source-set detection in
+    The internal-station analogue of :func:`_trunkless_entry_fans`: a non-port,
+    non-hidden station that fans directly to three or more distinct in-section
+    targets.  Its reconvergence join is found by
+    :func:`_fan_reconvergence_joins` exactly as an entry port's is, so a genuine
+    diverge-then-reconverge shape rooted at an internal station - not at a
+    section boundary port - is discovered too.  No trunk test is applied: a hub
+    arm that continued past the merge instead of reconverging would leave the
+    fan without a common join, which :func:`_fan_reconvergence_joins` already
+    rejects.  :func:`_symmetric_reconvergence_joins` keeps only the hidden-node
+    joins these fans reach; a visible internal join is left to the general
+    placement pipeline that already seats it.
+    """
+    for section in graph.sections.values():
+        for sid in section.station_ids:
+            st = graph.stations.get(sid)
+            if st is None or st.is_port or st.is_hidden or st.off_track:
+                continue
+            targets = set(_in_section_ontrack_successors(graph, section, sid))
+            if len(targets) >= 3:
+                yield sid, section, targets
+
+
+def _symmetric_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
+    """Return {join_id: [source_ids]} for a trunkless symmetric fan's reconvergence.
+
+    The join of a trunkless fan is the station where *every* arm reconverges -
+    reachable within the section from all of the fan's direct targets.  The
+    exact fork-hub/join-source-set detection in
     :func:`_divergence_midpoint_targets` cannot see it because one arm reaches
-    it through an extra internal hop, so the port's direct-target set never
+    it through an extra internal hop, so the fan's direct-target set never
     equals the join's source set.  It is recorded here for
     :func:`_restore_convergence_midpoints` to seat on the fan midpoint alongside
     the ordinary convergences.  A local merge on only some of the arms is
     deliberately excluded: it is not the whole fan's centreline and recentring
     it perturbs the branches that do not pass through it.
 
+    An entry-port fan's join is seated whether it is visible or a hidden merge
+    node: the boundary crossing roots the fan off the section frame, not the
+    fan's own centreline, so nothing else places it.  A station-rooted fan
+    (:func:`_station_rooted_fans`) is only seated when its join is a hidden
+    merge node.  A visible internal join already sits on its midpoint by the
+    time the general placement pipeline settles, and re-seating it here from the
+    grid-snap's intermediate coordinates displaces it; a hidden node carries no
+    glyph and is skipped by every on-track placement mechanism, so it stays on
+    its raw topological row unless seated here.  The reconvergence traversal
+    keeps a hidden node in view to find it (see
+    :func:`_in_section_track_or_hidden_successors`).
+
     Gated on ``graph.diamond_style == "symmetric"`` - the same author opt-in
-    that scopes every other centreline compaction in this module; an entry
-    port's rooting is an accident of section boundaries, not of symmetry, so an
-    ungated version would recentre unrelated joins across the corpus.  Line
-    membership is deliberately not part of the gate: the qualifying fans carry
-    more than one line, and a single-line gate would pass over them.
+    that scopes every other centreline compaction in this module; an ungated
+    version would recentre unrelated joins across the corpus.  Line membership
+    is deliberately not part of the gate: the qualifying fans carry more than
+    one line, and a single-line gate would pass over them.
     """
     if graph.diamond_style != "symmetric":
         return {}
     joins: dict[str, list[str]] = {}
     for _port_id, section, direct_targets in _trunkless_entry_fans(graph):
         joins.update(_fan_reconvergence_joins(graph, section, direct_targets))
+    for _hub_id, section, direct_targets in _station_rooted_fans(graph):
+        for join_id, srcs in _fan_reconvergence_joins(
+            graph, section, direct_targets
+        ).items():
+            join = graph.stations.get(join_id)
+            if join is not None and join.is_hidden:
+                joins.setdefault(join_id, srcs)
     return joins
 
 
@@ -172,11 +217,11 @@ def _fan_reconvergence_joins(
 ) -> dict[str, list[str]]:
     """Return {join_id: [source_ids]} for one trunkless entry fan's reconvergence.
 
-    Shared by :func:`_entry_fan_reconvergence_joins` (which seats the join on the
-    fan midpoint) and :func:`_entry_fan_centre_ports` (which only centres a port
-    whose fan reconverges on exactly one join).  Carries no ``diamond_style``
-    gate: it is pure reconvergence detection, and each caller applies its own
-    opt-in.
+    Shared by :func:`_symmetric_reconvergence_joins` (which seats the join on
+    the fan midpoint) and :func:`_entry_fan_centre_ports` (which only centres a
+    port whose fan reconverges on exactly one join).  Carries no
+    ``diamond_style`` gate: it is pure reconvergence detection, and each caller
+    applies its own opt-in.
     """
     # Per-arm in-section descendant sets; their union bounds the fan and
     # their intersection names the stations every arm reaches.  A genuine
@@ -250,21 +295,62 @@ def _entry_fan_centre_ports(graph: MetroGraph) -> dict[str, list[str]]:
     }
 
 
+def _in_section_track_or_hidden_successors(
+    graph: MetroGraph, section: Section, sid: str
+) -> list[str]:
+    """Direct in-section successors of ``sid``, keeping hidden merge stations.
+
+    Like :func:`_in_section_ontrack_successors` but keeps a hidden station in
+    the result, so a fan that reconverges onto a ``_``-prefixed hidden merge
+    node (standing in for several converging arms, per the hidden-station
+    convention) is discovered.  Ports, off-track stations, and anything outside
+    ``section`` bound the walk.
+    """
+    return sorted(
+        {
+            e.target
+            for e in graph.edges_from(sid)
+            if _is_in_section_track_or_hidden(
+                graph.station_for_edge_target(e), section.id
+            )
+        }
+    )
+
+
+def _in_section_track_or_hidden_predecessors(
+    graph: MetroGraph, section: Section, sid: str
+) -> list[str]:
+    """Direct in-section predecessors of ``sid``, keeping hidden merge stations.
+
+    The reverse-direction twin of
+    :func:`_in_section_track_or_hidden_successors`.
+    """
+    return sorted(
+        {
+            e.source
+            for e in graph.edges_to(sid)
+            if _is_in_section_track_or_hidden(
+                graph.station_for_edge_source(e), section.id
+            )
+        }
+    )
+
+
 def _in_section_descendants(
     graph: MetroGraph, start_id: str, section: Section
 ) -> set[str]:
-    """On-track in-section stations forward-reachable from ``start_id``.
+    """In-section stations forward-reachable from ``start_id``.
 
     ``start_id`` itself is excluded.  Traversal follows
-    :func:`_in_section_ontrack_successors`, so ports, hidden and off-track
-    stations, and anything outside ``section`` bound the walk and a fan's
-    reconvergence is measured only among its real branch stations.
+    :func:`_in_section_track_or_hidden_successors`, so ports, off-track
+    stations, and anything outside ``section`` bound the walk, while a hidden
+    merge node stays in it so a fan reconverging onto one is discovered.
     """
     seen: set[str] = set()
     queue = deque([start_id])
     while queue:
         node = queue.popleft()
-        for succ in _in_section_ontrack_successors(graph, section, node):
+        for succ in _in_section_track_or_hidden_successors(graph, section, node):
             if succ not in seen:
                 seen.add(succ)
                 queue.append(succ)
@@ -274,16 +360,17 @@ def _in_section_descendants(
 def _in_section_ancestors(
     graph: MetroGraph, start_id: str, section: Section
 ) -> set[str]:
-    """On-track in-section stations backward-reachable from ``start_id``.
+    """In-section stations backward-reachable from ``start_id``.
 
     The reverse-direction twin of :func:`_in_section_descendants`, walking
-    :func:`_in_section_ontrack_predecessors`; ``start_id`` itself is excluded.
+    :func:`_in_section_track_or_hidden_predecessors`; ``start_id`` itself is
+    excluded.
     """
     seen: set[str] = set()
     queue = deque([start_id])
     while queue:
         node = queue.popleft()
-        for pred in _in_section_ontrack_predecessors(graph, section, node):
+        for pred in _in_section_track_or_hidden_predecessors(graph, section, node):
             if pred not in seen:
                 seen.add(pred)
                 queue.append(pred)
@@ -641,6 +728,21 @@ def _is_in_section_on_track(st: Station | None, section_id: str | None) -> bool:
         st is not None
         and not st.is_port
         and not st.is_hidden
+        and not st.off_track
+        and st.section_id == section_id
+    )
+
+
+def _is_in_section_track_or_hidden(st: Station | None, section_id: str | None) -> bool:
+    """True when ``st`` is an on-track or hidden member of ``section_id``.
+
+    A hidden merge node carries no glyph but is a real convergence point in the
+    topology, so reconvergence traversal counts it while the rest of the layout
+    (which keys off :func:`_is_in_section_on_track`) leaves it invisible.
+    """
+    return (
+        st is not None
+        and not st.is_port
         and not st.off_track
         and st.section_id == section_id
     )
