@@ -322,6 +322,14 @@ runtime check either:
 - `graph._defer_final_guards` / `graph._after_final_deferred` - pass-control
   flags `compute_layout` uses so the final-geometry guards defer while the
   pre-bypass passes run, then validate the settled post-bypass geometry once.
+- `graph._final_route_guards_deferred` - set in `phases/guards.py` when the
+  observed route plan carries boundary clearance requirements or reservations,
+  so the routes the final route guards would judge are not settled yet.
+  `compute_layout(validate=True)` then builds the settled render plan itself and
+  re-raises a curve, fan, convergence, exit-turn, or section-header failure as
+  `SettledRouteValidationError`, clearing the flag either way. `render/svg.py`
+  reads the same flag, passing `include_deferred_final` and forcing strict
+  judgement so those guards run on the geometry the renderer is handed.
 
 ## Stage overview
 

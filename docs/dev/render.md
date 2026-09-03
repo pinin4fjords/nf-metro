@@ -97,7 +97,7 @@ It uses the per-station offsets from `compute_station_offsets` in
    line-wrapping; positioned above or beside their station.
 6. **Legend** - drawn by `legend.py`, auto-positioned to avoid overlapping
    section boxes and routes. Position can be overridden via
-   `%%metro legend_position:` or set to `"none"` (suppressed) for the HTML
+   `%%metro legend:` or set to `"none"` (suppressed) for the HTML
    output mode.
 
 ### Canvas sizing
@@ -150,7 +150,8 @@ already applied) and:
 3. Groups nearby crossings into clusters and assigns "over" and "under" by
    2-colouring the cluster graph.
 4. Returns a list of `BridgeBreak` objects, one per under-route segment,
-   recording the `t_start`/`t_end` parametric range on that segment to omit.
+   recording the segment index and the `cut_a`/`cut_b` endpoints of the span to
+   omit.
 
 The drawing half lives in `svg.py`: `_render_bridged_edge` splits the
 polyline at the gap span and renders each piece separately.
@@ -243,27 +244,53 @@ so no ball restarts while another is mid-track.
 `Theme` is a frozen dataclass of visual properties: colours, font sizes,
 line widths, station radii, animation speed, and legend layout.
 
-Built-in themes live in `src/nf_metro/themes/`:
+Brand identity and display mode are orthogonal axes. Built-in themes live in
+`src/nf_metro/themes/`:
 
-- `nfcore.py` - dark theme (default), matching nf-core visual style.
-- `light.py` - light theme variant.
+- `nfcore.py` - the nf-core brand as a light/dark pair (`NFCORE_LIGHT_THEME`,
+  `NFCORE_DARK_THEME`), sharing one set of fonts and line/station geometry and
+  differing only in the chrome palette.
+- `seqera.py` - the Seqera Platform brand, likewise a light/dark pair.
+- `light.py` - `LIGHT_THEME`, the transparent embed theme
+  (`background_color="none"`). It belongs to no brand family, so it has no mode
+  counterpart.
 
-To add a theme: create a `Theme` instance and register it in
-`themes/__init__.py`'s `THEMES` dict under a string key; it then becomes
-selectable via `%%metro style: <key>` or `--style`.
+`themes/__init__.py` holds two registries. `THEME_MODES` maps a brand name to
+its `{light, dark}` pair. `THEMES` is the flat by-name registry that direct
+selection looks up: the bare brand names (resolved at `DEFAULT_MODE`), the
+mode-suffixed names (`nfcore-light`, `seqera-dark`, ...), and `light`.
+`resolve_theme(theme, graph, mode)` combines the two axes - brand from the
+explicit name or the graph's `style` (where `dark` is an alias for `nfcore`),
+mode from the explicit argument, `%%metro mode:`, or `DEFAULT_MODE`.
+
+Because the axes are separable, one render carries both palettes:
+`mode_pair(theme)` recovers a brand's light and dark variants and the chrome
+colours emit as CSS `light-dark(<light>, <dark>)`, so a single SVG adapts to the
+viewer's `color-scheme`. `--no-chrome-css` bakes one concrete palette instead,
+for consumers that cannot parse `light-dark()`.
+
+To add a brand: define a light and a dark `Theme` sharing one `brand` value,
+register the pair under `THEME_MODES`, and add its names to `THEMES`. It is then
+selectable via `%%metro style: <brand>` / `%%metro mode: <mode>` or the `--theme`
+and `--mode` options.
 
 ## Module map
 
-| Module         | Responsibility                                                                                                                     |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `plan.py`      | Immutable `RenderPlan` data and conversion helpers                                                                                 |
-| `svg.py`       | `render_svg`, plan construction, SVG output, and drawing passes                                                                    |
-| `bridges.py`   | `compute_bridges` - detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`              |
-| `html.py`      | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                       |
-| `manifest.py`  | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                     |
-| `validate.py`  | `validate_render` - render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle             |
-| `animate.py`   | `render_animation` - animated balls via CSS `offset-path` + `@keyframes`                                                           |
-| `style.py`     | `Theme` dataclass                                                                                                                  |
-| `legend.py`    | `render_legend`, `compute_legend_dimensions`                                                                                       |
-| `icons.py`     | `render_file_icon`, `render_files_icon`, `render_folder_icon`                                                                      |
-| `constants.py` | render magic numbers (canvas padding, legend sizing, animation params, debug overlay); theme-dependent values remain in `style.py` |
+| Module              | Responsibility                                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `plan.py`           | Immutable `RenderPlan` data and conversion helpers                                                                                    |
+| `svg.py`            | `render_svg`, plan construction, SVG output, and drawing passes                                                                       |
+| `bridges.py`        | `compute_bridges` - detects genuine non-merging crossings and returns `BridgeBreak` gap spans; drawing is in `svg.py`                 |
+| `html.py`           | `render_html` - standalone HTML page and inline embed snippet around the SVG                                                          |
+| `manifest.py`       | nf-metro adapter for the embedded-manifest standard; `build_manifest`, `manifest_metadata_svg`                                        |
+| `validate.py`       | `validate_render` - render-geometry guards that read the drawn SVG (markers, route ink, label ink) as their own oracle                |
+| `animate.py`        | `render_animation` - animated balls via CSS `offset-path` + `@keyframes`                                                              |
+| `style.py`          | `Theme` dataclass                                                                                                                     |
+| `legend.py`         | `render_legend`, `compute_legend_dimensions`                                                                                          |
+| `icons.py`          | `render_file_icon`, `render_files_icon`, `render_folder_icon`                                                                         |
+| `driver.py`         | `get_driver_js` - the versioned `attachMetroMap` embed driver shared by the standalone page and the inline snippet                    |
+| `font_embed.py`     | `embed_font` (inline an Inter subset as base64 `@font-face`) and `text_to_paths` (convert `<text>` to `<path>`) for font-portable SVG |
+| `ns.py`             | `ns`, `class_prefix_context`, `adaptive_logo_mask_ids` - SVG class-namespace helpers shared across render modules                     |
+| `path_geometry.py`  | render-time path geometry derived from the frozen route decisions                                                                     |
+| `section_header.py` | `resolve_section_header_placement` - keeps a section's number badge and title clear of routes without moving a route                  |
+| `constants.py`      | render magic numbers (canvas padding, legend sizing, animation params, debug overlay); theme-dependent values remain in `style.py`    |
