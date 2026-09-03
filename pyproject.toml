@@ -85,6 +85,9 @@ skill-checks = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nf_metro"]
+# The candidate executor is a development harness with no importer in the
+# package: it is driven from the test suite and a source checkout only.
+exclude = ["src/nf_metro/candidate_executor.py"]
 
 [tool.hatch.build.targets.sdist]
 # Ship what is needed to build and audit the package: src, packaging metadata,
