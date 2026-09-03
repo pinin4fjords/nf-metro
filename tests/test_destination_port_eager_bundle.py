@@ -161,14 +161,17 @@ def test_same_destination_port_tail_keeps_three_axis_order(port_id: str) -> None
     assert port_order == expected_port
 
 
-def test_destination_tail_runtime_guard_is_not_vacuous() -> None:
-    """The guard reports a destination-tail bundle stacked in the wrong order.
+def test_destination_tail_guard_reports_a_depth_inverted_bundle() -> None:
+    """``check_peeloff_concentric`` names every line stacked against its order.
 
     Two lines converge on ``qc__entry_left_6`` from below-row trunks at
-    different depths, and their peel order earns them exactly that depth order.
-    Exchanging the two trunk Ys puts each line on the depth the other earns,
-    which is the defect the settling passes exist to prevent, so the guard must
-    name both lines.
+    different depths, and the settled routes put each on the depth its peel
+    order earns.  Exchanging the two trunk Ys constructs the inversion the
+    settling passes exist to prevent; the guard must then report both lines.
+
+    This is detector arithmetic over a hand-built input.  No corpus fixture
+    reaches the inversion through the routing pipeline, so the guard's ability
+    to see one is not otherwise exercised.
     """
     graph = parse_metro_mermaid(FIXTURE.read_text())
     compute_layout(graph)

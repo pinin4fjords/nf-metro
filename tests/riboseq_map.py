@@ -3,6 +3,10 @@
 Three grid-row-0 sections feed a four-section row 1 whose members have very
 different depths, which is what makes this map a dense source of row-mate
 padding, band-order and confluence cases.
+
+It lives here rather than in the committed ``.mmd`` corpus because it also
+trips a symmetric-diamond centreline abort under ``validate=True`` in an
+unrelated section, which would red every corpus invariant that renders it.
 """
 
 from __future__ import annotations
