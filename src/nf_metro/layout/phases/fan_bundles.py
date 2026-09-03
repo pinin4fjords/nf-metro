@@ -176,6 +176,11 @@ def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
         for cand in common:
             if _in_section_descendants(graph, cand, section) & common:
                 continue
+            # An ancestor in ``common`` means the fan already fully reconverged
+            # upstream; this candidate is a later partial re-merge after the
+            # trunk re-diverged, not the fan's centreline.
+            if _in_section_ancestors(graph, cand, section) & common:
+                continue
             preds = preds_by_id[cand]
             if cand not in preds and preds <= fan:
                 joins[cand] = sorted(preds)
@@ -235,6 +240,25 @@ def _in_section_descendants(
             if succ not in seen:
                 seen.add(succ)
                 queue.append(succ)
+    return seen
+
+
+def _in_section_ancestors(
+    graph: MetroGraph, start_id: str, section: Section
+) -> set[str]:
+    """On-track in-section stations backward-reachable from ``start_id``.
+
+    The reverse-direction twin of :func:`_in_section_descendants`, walking
+    :func:`_in_section_ontrack_predecessors`; ``start_id`` itself is excluded.
+    """
+    seen: set[str] = set()
+    queue = deque([start_id])
+    while queue:
+        node = queue.popleft()
+        for pred in _in_section_ontrack_predecessors(graph, section, node):
+            if pred not in seen:
+                seen.add(pred)
+                queue.append(pred)
     return seen
 
 
