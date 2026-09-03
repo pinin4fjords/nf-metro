@@ -54,7 +54,7 @@ docker pull community.wave.seqera.io/library/pip_nf-metro:611b1ba39c6007f1
 pip install -e ".[dev]"
 ```
 
-Requires Python 3.10+.
+Requires Python 3.11+.
 
 ## Quick start
 
