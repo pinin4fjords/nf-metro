@@ -650,46 +650,37 @@ def _shrink_bboxes_to_content_bottom(
     still bisects to a meaningful intermediate state.
     """
 
-    def _row_mate_bottoms(section: Section) -> list[float]:
-        # Two policies depending on this section's direction:
+    def _shares_bottom_with_row_mate(section: Section) -> bool:
+        # A bottom edge shared with a row-mate is deliberate -- Stage 6.5
+        # bottom-aligns row-mates, a TB fold's bbox is grown by
+        # ``section_y_gap`` so it reaches its target's bottom, and a rowspan
+        # section meets the bottom of the row it spans into -- so the shrink
+        # must leave it intact.  A row-mate that is merely deeper shares no
+        # edge with this section and must not hold its bottom off its content.
         #
-        # TB sections (folds) get their bbox grown by ``section_y_gap``
-        # in section_placement so they visually span into the next row's
-        # target.  Their intended bottom is the target row-mate's bottom,
-        # which is in a different grid row but Y-overlapping.  Honour
-        # Y-overlap for these so the bottom-alignment from Stage 6.5 /
-        # the fold extension survives.
-        #
-        # LR/RL sections use ONLY their STARTING grid row to find
-        # row-mates.  Counting this section's rowspan would pull in
+        # Membership itself has two policies.  LR/RL sections use ONLY their
+        # STARTING grid row: counting this section's rowspan would pull in
         # sections from rows the rowspan claims but doesn't fill -- a
-        # rowspan=2 LR sidebar whose content fits in row 0 must not be
-        # pinned to a row-1 neighbour just because its declared span
-        # overlaps row 1.  Y-overlap is intentionally excluded for
-        # LR/RL: a stale pre-shrink bbox would otherwise be
-        # self-protecting (the overlap blocks the shrink that would
-        # remove the overlap).
+        # rowspan=2 LR sidebar whose content fits in row 0 must not be pinned
+        # to a row-1 neighbour just because its declared span overlaps row 1.
+        # TB sections (folds), and any section without grid coords, take any
+        # section at the shared bottom: a fold's partner is by design in the
+        # next grid row down.
         my_grid_row = section.grid_row if section.grid_row >= 0 else None
-        my_y_top = section.bbox_y
         my_y_bot = section.bbox_y + section.bbox_h
-        # LR/RL sections with grid coords match on starting row only;
-        # TB sections (and any unplaced section) fall back to bbox-Y
-        # overlap.  See block comment above for the why.
         use_grid = section.direction != "TB" and my_grid_row is not None
-        out: list[float] = []
         for other in graph.sections.values():
             if other.id == section.id or other.bbox_h <= 0:
                 continue
             o_y_bot = other.bbox_y + other.bbox_h
-            if use_grid and my_grid_row is not None and other.grid_row >= 0:
-                o_grid_top = other.grid_row
-                o_grid_bot = other.grid_row + max(1, other.grid_row_span)
-                mate = o_grid_top <= my_grid_row < o_grid_bot
-            else:
-                mate = other.bbox_y < my_y_bot and o_y_bot > my_y_top
-            if mate:
-                out.append(o_y_bot)
-        return out
+            if abs(o_y_bot - my_y_bot) > SAME_COORD_TOLERANCE:
+                continue
+            if not use_grid or my_grid_row is None or other.grid_row < 0:
+                return True
+            o_grid_bot = other.grid_row + max(1, other.grid_row_span)
+            if other.grid_row <= my_grid_row < o_grid_bot:
+                return True
+        return False
 
     from nf_metro.layout.routing import compute_station_offsets
 
@@ -709,11 +700,9 @@ def _shrink_bboxes_to_content_bottom(
                 graph, section, PortSide.BOTTOM, section.bbox_y + section.bbox_h
             )
             continue
-        desired_bot = content_bot
-        mate_bots = _row_mate_bottoms(section)
-        if mate_bots:
-            desired_bot = max(desired_bot, max(mate_bots))
-        new_h = desired_bot - section.bbox_y
+        if _shares_bottom_with_row_mate(section):
+            continue
+        new_h = content_bot - section.bbox_y
         if new_h < section.bbox_h - SAME_COORD_TOLERANCE:
             section.bbox_h = max(0.0, new_h)
             _pull_section_ports_to_edge(

@@ -3252,6 +3252,18 @@ def _bypass_geometry(
         ):
             base_y = corridor.bypass_band_y
 
+    # The step off the source leg down onto the trunk is two formed corners
+    # with a vertical run between them, so it needs a full radius of runway at
+    # each end.  A section bottom that leaves less than that -- the source
+    # already sitting most of the way down to the traverse's clearance lane --
+    # is deepened to exactly ``2 * curve_radius``, the shallowest step the
+    # corners can be drawn at without the bundle builder halving their radius.
+    src_leg_y = sy + src_off
+    step_runway = 2 * ctx.curve_radius
+    step = base_y + nest_offset - src_leg_y
+    if COORD_TOLERANCE < step < step_runway - COORD_TOLERANCE:
+        base_y = src_leg_y + step_runway - nest_offset
+
     # Determine actual vertical direction at each gap from the geometry.
     # Gap1 goes from source Y to trunk Y; gap2 from trunk Y to target Y.
     # Normally gap1 goes down and gap2 goes up, but when the source is
