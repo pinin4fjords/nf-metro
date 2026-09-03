@@ -406,6 +406,44 @@ def _is_chain_predecessor(graph: MetroGraph, ctx: _BubbleCtx, sid: str) -> bool:
     return sid not in ctx.divergence_anchors
 
 
+def _fork_join_centerable(
+    graph: MetroGraph, ctx: _BubbleCtx, sid: str, station: Station
+) -> bool:
+    """Whether a fork/join hub is an asymmetric one-sided join safe to centre.
+
+    Fork/join hubs are normally left on the trunk: a symmetric fan or diamond
+    is centred on its branches' midpoint by the placement stages, and shifting
+    its hub off that midpoint would tilt the divergence and break the siblings'
+    shared column.  A hub whose branches all peel to one side at unequal drops
+    (a steep leg beside a shallow one) has no such midpoint to protect -- it sits
+    off-centre in its own run with dead flat on one side -- so it is the one
+    fork/join shape the flat-equalising pass should reach.  Requiring the drops
+    to differ excludes a uniform one-sided fan, whose equal legs are already
+    balanced.
+    """
+    for neighbours in (
+        ctx.all_sources.get(sid, set()),
+        ctx.all_targets.get(sid, set()),
+    ):
+        if len(neighbours) <= 1:
+            continue
+        offsets = []
+        for nid in neighbours:
+            st = graph.stations.get(nid)
+            if st is None or st.is_port:
+                continue
+            dy = st.y - station.y
+            if abs(dy) > COORD_TOLERANCE_FINE:
+                offsets.append(dy)
+        if len(offsets) < 2:
+            continue
+        if not (all(o > 0 for o in offsets) or all(o < 0 for o in offsets)):
+            continue
+        if len({round(abs(o), 1) for o in offsets}) >= 2:
+            return True
+    return False
+
+
 def _classify_centering_routes(
     ctx: _BubbleCtx,
     sid: str,
@@ -413,6 +451,7 @@ def _classify_centering_routes(
     out_routes: list[RoutedPath],
     flat_in: list[RoutedPath],
     flat_out: list[RoutedPath],
+    fork_join_centerable: bool,
 ) -> (
     tuple[
         RoutedPath | None, RoutedPath | None, RoutedPath | None, RoutedPath | None, bool
@@ -421,7 +460,10 @@ def _classify_centering_routes(
 ):
     """Pick the routes bounding the flat segment, or None if not centerable.
 
-    Returns ``(in_rp, out_rp, flat_in_rp, flat_out_rp, multi_diag)``.
+    Returns ``(in_rp, out_rp, flat_in_rp, flat_out_rp, multi_diag)``.  A
+    fork/join hub only reaches the flat-equalising path when
+    *fork_join_centerable* marks it an asymmetric one-sided join; every other
+    fork/join hub stays on the trunk.
     """
     is_fork_join = (
         len(ctx.all_targets.get(sid, set())) > 1
@@ -440,8 +482,9 @@ def _classify_centering_routes(
     n_unique_flat_out = len(set((rp.edge.source, rp.edge.target) for rp in flat_out))
 
     multi_diag = False
-    if not is_fork_join and (
-        (n_unique_in + n_unique_flat_in) >= 1
+    if (
+        (not is_fork_join or fork_join_centerable)
+        and (n_unique_in + n_unique_flat_in) >= 1
         and n_unique_out >= 1
         and (
             n_unique_in > 1
@@ -620,7 +663,13 @@ def _centering_candidate(
     flat_out = ctx.flat_outgoing.get(sid, [])
 
     classified = _classify_centering_routes(
-        ctx, sid, in_routes, out_routes, flat_in, flat_out
+        ctx,
+        sid,
+        in_routes,
+        out_routes,
+        flat_in,
+        flat_out,
+        _fork_join_centerable(graph, ctx, sid, station),
     )
     if classified is None:
         return None

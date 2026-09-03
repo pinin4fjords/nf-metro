@@ -17,9 +17,12 @@ from nf_metro.layout.constants import (
     COORD_TOLERANCE_FINE,
     CROSS_ROW_THRESHOLD,
     CURVE_RADIUS,
+    DIAGONAL_LABEL_OFFSET,
+    DIAGONAL_RUN,
     FOLD_MARGIN,
     ICON_TERMINUS_FORK_LEAD,
     LABEL_BBOX_MARGIN,
+    LABEL_OFFSET,
     MIN_STATION_FLAT_LENGTH,
     MIN_STRAIGHT_EDGE,
     MIN_STRAIGHT_PORT,
@@ -31,6 +34,7 @@ from nf_metro.layout.geometry import (
     single_corner_centreline,
 )
 from nf_metro.layout.labels import (
+    _label_text_height,
     label_text_width,
 )
 from nf_metro.layout.pass_metrics import station_radius_approx
@@ -671,6 +675,147 @@ def _fused_opening_legs(
     return fused
 
 
+def _sibling_label_box(
+    sib: Station, label_angle: float
+) -> tuple[float, float, float, float]:
+    """Approximate ``(xlo, xhi, ylo, yhi)`` of a sibling station's name label.
+
+    Wider than the drawn glyph ink (the full reserved label width plus the bbox
+    margin), so a run capped to clear this box clears the tighter ink box the
+    strike guard measures.  An angled label hangs to the lower-right of its
+    marker; a horizontal one is centred on it.
+    """
+    half_w = label_text_width(sib.label) / 2
+    if label_angle:
+        cos_a = abs(math.cos(math.radians(label_angle)))
+        sin_a = abs(math.sin(math.radians(label_angle)))
+        return (
+            sib.x - LABEL_BBOX_MARGIN,
+            sib.x + 2 * half_w * cos_a + LABEL_BBOX_MARGIN,
+            sib.y,
+            sib.y + 2 * half_w * sin_a + LABEL_OFFSET + DIAGONAL_LABEL_OFFSET,
+        )
+    half_h = _label_text_height(sib.label) / 2
+    return (
+        sib.x - half_w - LABEL_BBOX_MARGIN,
+        sib.x + half_w + LABEL_BBOX_MARGIN,
+        sib.y - half_h,
+        sib.y + half_h,
+    )
+
+
+def _leg_label_clear_run(
+    hub: Station,
+    branch: Station,
+    obstacle: Station,
+    fixed_x: float,
+    sign: float,
+    is_fork: bool,
+    label_angle: float,
+) -> float | None:
+    """Run at which one leg's diagonal just clears an interior sibling's label.
+
+    The leg runs between the hub's track and *branch*'s track; *obstacle* is a
+    sibling whose track lies inside that band, with its marker and label at the
+    branch column the diagonal reaches.  Returns the run where the diagonal meets
+    the label's near edge, or ``None`` when the label's y-band does not overlap
+    the leg.
+    """
+    sy, ty = (hub.y, branch.y) if is_fork else (branch.y, hub.y)
+    span = ty - sy
+    if abs(span) <= COORD_TOLERANCE_FINE:
+        return None
+    box_xlo, box_xhi, box_ylo, box_yhi = _sibling_label_box(obstacle, label_angle)
+    lo_y, hi_y = min(sy, ty), max(sy, ty)
+    yl = max(box_ylo, lo_y)
+    yh = min(box_yhi, hi_y)
+    if yl > yh:
+        return None
+    g_lo = (yl - sy) / span
+    g_hi = (yh - sy) / span
+    gmin, gmax = min(g_lo, g_hi), max(g_lo, g_hi)
+    if is_fork:
+        # Diagonal starts at ``fixed_x`` and grows toward the branch column;
+        # clear the label on the hub (approach) side.
+        g_eff = gmax
+        edge_x = box_xlo if sign > 0 else box_xhi
+        flow = sign
+    else:
+        # Diagonal ends at ``fixed_x`` (the hub) and grows back toward the
+        # source column; clear the label on the hub (target) side.
+        g_eff = 1.0 - gmin
+        edge_x = box_xhi if sign > 0 else box_xlo
+        flow = -sign
+    if g_eff <= COORD_TOLERANCE_FINE:
+        return None
+    return flow * (edge_x - fixed_x) / g_eff
+
+
+def _fork_join_common_run(
+    edge: Edge,
+    src: Station,
+    tgt: Station,
+    is_fork: bool,
+    ctx: _RoutingCtx,
+    src_min: float,
+    tgt_min: float,
+) -> float:
+    """Common diagonal run for every leg of one fork/join fan.
+
+    All legs of a fan cross the same column gap and must peel off at one
+    divergence seat, or the convergence stops reading as a single fan (see
+    ``check_diamond_fan_in_diverges_together``).  So the fan takes one run: long
+    enough to flatten its deepest leg toward 45 degrees, but capped by the column
+    room every leg shares and by the clearance every leg needs from its interior
+    siblings' labels.  Applied uniformly the run seats all legs together; where
+    room or a label holds it at the base :data:`DIAGONAL_RUN` the fan keeps its
+    established geometry.
+
+    A steep leg beside a shallow one fills its runway to 45 degrees while the
+    shallow sibling flattens onto the same seat, so neither carries dead flat and
+    the fan still diverges at one point.
+    """
+    if is_fork:
+        hub = src
+        branch_ids = ctx.fork_targets.get(edge.source, ())
+        fixed_x_offset = src_min
+    else:
+        hub = tgt
+        branch_ids = ctx.join_sources.get(edge.target, ())
+        fixed_x_offset = -tgt_min
+    sign = 1.0 if tgt.x >= src.x else -1.0
+    fixed_x = hub.x + sign * fixed_x_offset
+    label_angle = ctx.graph.label_angle or 0.0
+
+    branches = [
+        b
+        for bid in branch_ids
+        if (b := ctx.graph.stations.get(bid)) is not None
+        and abs(b.y - hub.y) > COORD_TOLERANCE_FINE
+    ]
+    if not branches:
+        return DIAGONAL_RUN
+
+    fill = DIAGONAL_RUN
+    run = math.inf
+    for b in branches:
+        drop = abs(b.y - hub.y)
+        room = abs(b.x - hub.x) - src_min - tgt_min
+        fill = max(fill, min(drop, room))
+        run = min(run, room)
+        lo_y, hi_y = min(hub.y, b.y), max(hub.y, b.y)
+        for c in branches:
+            if c is b or not c.label.strip():
+                continue
+            if not (lo_y + COORD_TOLERANCE_FINE < c.y < hi_y - COORD_TOLERANCE_FINE):
+                continue
+            cap = _leg_label_clear_run(hub, b, c, fixed_x, sign, is_fork, label_angle)
+            if cap is not None:
+                run = min(run, cap)
+    run = min(run, fill)
+    return max(DIAGONAL_RUN, run)
+
+
 def _route_diagonal(
     edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
 ) -> RoutedPath:
@@ -802,6 +947,11 @@ def _route_diagonal(
         src_min = max(min_straight, abs(dx) - diagonal_run - OFF_TRACK_OUTPUT_TAIL)
         is_fork_flag = True
         is_join_flag = False
+
+    if (is_fork_flag or is_join_flag) and not is_bypass_edge and not tgt.off_track:
+        diagonal_run = _fork_join_common_run(
+            edge, src, tgt, is_fork_flag, ctx, src_min, tgt_min
+        )
 
     diag_start_x, diag_end_x = _compute_diagonal_placement(
         sx,
