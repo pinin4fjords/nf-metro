@@ -23,7 +23,6 @@ from nf_metro.layout.constants import (
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
     SECTION_HEADER_PROTRUSION,
-    SECTION_ROUTE_CLEARANCE,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
@@ -418,7 +417,7 @@ def header_corridor_y(
     full :data:`INTER_ROW_HEADER_CLEARANCE` applies only when a section
     occupies the gap above the row (contributing a header badge); the topmost
     row has only the canvas-top title band, so the smaller
-    :data:`SECTION_ROUTE_CLEARANCE` keeps the channel from overshooting it.
+    :data:`EDGE_TO_BUNDLE_CLEARANCE` keeps the channel from overshooting it.
 
     When *col* is given the channel clears only that grid column's sections, so
     a corridor leg confined to one column isn't pushed past a tall section
@@ -427,13 +426,13 @@ def header_corridor_y(
     if below:
         return (
             row_bottom_edge(graph, row, default=default, col=col)
-            + SECTION_ROUTE_CLEARANCE
+            + EDGE_TO_BUNDLE_CLEARANCE
             + base_radius
         )
     clearance = (
         INTER_ROW_HEADER_CLEARANCE
         if section_exists_above_row(graph, row)
-        else SECTION_ROUTE_CLEARANCE
+        else EDGE_TO_BUNDLE_CLEARANCE
     )
     return row_top_edge(graph, row, default=default, col=col) - clearance - base_radius
 
