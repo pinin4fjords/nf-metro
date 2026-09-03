@@ -9,7 +9,65 @@ nf-metro uses [semantic versioning](https://semver.org/spec/v2.0.0.html) from
 `DRIVER_CONTRACT_VERSION` and `MANIFEST_SCHEMA_VERSION`) are the public API. The
 Python modules are not a semver-stable public API.
 
-## [Unreleased] — 1.0.0
+The full notes for each release live in `docs/releases/` and on the docs site at
+<https://seqeralabs.github.io/nf-metro/>; this file carries the condensed
+history.
+
+## [Unreleased]
+
+---
+
+## [1.1.0] — 2026-07-01
+
+A routing-focused follow-up to 1.0.0, plus a new spacing control and several
+playground fixes. Existing `.mmd` files render with no changes.
+
+### Added
+
+- **`%%metro track_gap: <pixels>`** / **`--track-gap`** — sets the visual gap
+  between adjacent line strokes in a bundle: the empty space between their
+  edges, not their centres. Defaults to 1 px; `0` brings strokes flush, and up
+  to 3 px gives co-running lines more breathing room.
+- **Packed grid cells** — hand-placed sections can share one cell
+  (`%%metro grid: gatk, variant_calling | 1,0`) instead of taking one each. The
+  named sections pack side by side along the flow axis and the cell sizes to fit
+  them; each keeps its own direction, ports, and internal layout.
+- Playground **"+ Logo"** button, reading a chosen image client-side and writing
+  it into `%%metro logo:` as a `data:` URI. The playground runs in-browser via
+  Pyodide, where a local file path cannot resolve.
+- nf-core/seqinspector on the pipelines gallery page, showing a `%%metro grid:`
+  stack of two single-row sections beside a rowspan-2 section.
+
+### Changed
+
+- Playground **Line gap** moved from Advanced options to the main toolbar, wired
+  to the new `track_gap` directive.
+- The playground shows its build's commit SHA beside **Report a bug** and
+  pre-fills it into the report.
+- Stacked single-row sections sharing a rowspan band distribute across the full
+  band rather than leaving the bottom rows empty.
+
+### Fixed
+
+- Fold-back routing: serpentine multi-line folds under `direction: RL`, fold
+  reversal through peel-off junctions, and a kink in the TB-exit-to-return-row
+  connector.
+- Bypass routing: same-row bypasses route around a packed cell-mate or an
+  intervening section rather than through it, and clear exit rows run straight.
+- Convergence sinks: entry lanes order by feeder approach direction, and
+  interchange labels clear their connector bridge and the enlarged end-knob.
+- Sectionless graphs: skip-lines with no subgraph detour around non-consumer
+  markers instead of breezing through them.
+- 2-way fans with an internal source centre on their equal siblings.
+- `--mode` baked output selects the correct logo variant and pins
+  `color-scheme`, keeping raster exports independent of the viewer's theme.
+- `--embed-font` output falls back to a generic font family after `Inter`.
+- The playground service worker served returning visitors a stale build after
+  every deploy, because the dev wheel's filename never changed between builds.
+
+---
+
+## [1.0.0] — 2026-06-30
 
 418 commits since 0.7.2, touching every layer of the stack. Existing `.mmd`
 files render with no changes unless you opt in to a new rendering feature.

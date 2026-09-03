@@ -24,7 +24,7 @@ keywords = [
     "diagram",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -62,7 +62,7 @@ dev = [
     "jsonschema>=4.0",
     "cairosvg==2.8.2",
 ]
-# Docs site is Astro/Starlight (see docs/package.json). This extra only provides
+# Docs site is Astro/Starlight (see website/package.json). This extra only provides
 # cairosvg, used by scripts/build_render_diff.py and the PR render-diff workflow
 # to rasterise gallery SVGs to PNG.
 docs = [
