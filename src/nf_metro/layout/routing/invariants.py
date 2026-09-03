@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import inspect
 import math
-import os
 import warnings
 from collections import defaultdict, deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
@@ -6668,10 +6667,8 @@ def assert_render_curve_invariants(
     reached the renderer built some other way, and the fix is to route it
     through the builder too -- not to relax the check.
 
-    Set ``NF_METRO_ALLOW_BAD_CURVES=1`` to downgrade to a warning (debugging a
-    work-in-progress handler only; not a supported render mode). ``graph.permissive``
-    (``--permissive`` / ``%%metro permissive:``) downgrades the same way, as a
-    supported best-effort render mode.
+    ``graph.permissive`` (``--permissive`` / ``%%metro permissive:``) downgrades
+    the abort to a warning, as a supported best-effort render mode.
 
     A layout that bridges a perpendicular connection across grid columns (a
     ``direction:`` override -- explicit or inferred -- that feeds a section's
@@ -6806,7 +6803,7 @@ def assert_render_curve_invariants(
         "concentric_corner_radius_at and fan every leg consistently.\n  "
         f"{detail}"
     )
-    if graph.permissive or os.environ.get("NF_METRO_ALLOW_BAD_CURVES"):
+    if graph.permissive:
         warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
         return
     bridged = sorted(graph._cross_column_perp_bridges)
