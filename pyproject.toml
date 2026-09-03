@@ -60,13 +60,13 @@ dev = [
     "types-networkx",
     "numpy<2.5",
     "jsonschema>=4.0",
-    "cairosvg==2.8.2",
+    "cairosvg==2.9.0",
 ]
 # Docs site is Astro/Starlight (see website/package.json). This extra only provides
 # cairosvg, used by scripts/build_render_diff.py and the PR render-diff workflow
 # to rasterise gallery SVGs to PNG.
 docs = [
-    "cairosvg==2.8.2",
+    "cairosvg==2.9.0",
     "pyyaml>=6.0",
 ]
 font = [
