@@ -178,6 +178,20 @@ def test_seed_72_linux_cairosvg_png_is_frozen() -> None:
     )
 
 
+OFF_TRACK_PHANTOM_TIEBREAK = ROOT / "tests" / "data" / "off_track_phantom_tiebreak.mmd"
+
+
+def test_off_track_phantom_tiebreak_is_hash_seed_deterministic() -> None:
+    """Off-track phantom pass-through target choice must not depend on hash seed.
+
+    This riboseq-shaped map has an entry line whose off-track phantom
+    pass-through sees two candidate targets tied on earliest layer.  The chosen
+    target feeds fan ordering and section sizing, so a hash-order-dependent pick
+    makes some seeds render and others abort in routing (issue #1811).
+    """
+    _assert_identical((OFF_TRACK_PHANTOM_TIEBREAK,))
+
+
 def test_same_destination_topologies_render_and_plan_across_hash_seeds() -> None:
     paths = tuple(
         ROOT / "examples" / "topologies" / f"{stem}.mmd"

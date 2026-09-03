@@ -82,19 +82,23 @@ def _insert_phantom_pass_throughs(
         return
     min_layer = min(layers.values())
 
-    entry_port_ids = set(section.entry_ports)
-
-    # Find lines entering from entry ports to deep-layer internal stations.
-    entry_targets: dict[str, set[str]] = {}
-    for pid in entry_port_ids:
+    # Scan entry ports in section order and collect each line's internal
+    # targets in encounter order, so the phantoms inserted below and the order
+    # they are inserted are hash-seed independent.
+    entry_targets: dict[str, list[str]] = {}
+    for pid in section.entry_ports:
         for edge in graph.edges_from(pid):
             if edge.target in sub.stations:
-                entry_targets.setdefault(edge.line_id, set()).add(edge.target)
+                targets = entry_targets.setdefault(edge.line_id, [])
+                if edge.target not in targets:
+                    targets.append(edge.target)
 
     for line_id, targets in entry_targets.items():
         target_layers = [layers.get(t, min_layer) for t in targets]
         if all(ly > min_layer for ly in target_layers):
-            earliest_target = min(targets, key=lambda t: layers.get(t, 0))
+            # Break a tie on earliest layer by station id, so the phantom anchor
+            # is chosen deterministically rather than by hash-seeded iteration.
+            earliest_target = min(targets, key=lambda t: (layers.get(t, 0), t))
             phantom_id = f"_phantom_{section.id}_{line_id}"
 
             sub.add_station(
