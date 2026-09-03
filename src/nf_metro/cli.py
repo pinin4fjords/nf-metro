@@ -936,7 +936,13 @@ def explain(
     help="Interface to bind. Default 127.0.0.1 (local only); "
     "use 0.0.0.0 to accept connections from other hosts.",
 )
-@click.option("--theme", type=str, default=None, help="Theme name (nfcore, light).")
+@click.option(
+    "--theme",
+    type=click.Choice(list(THEMES.keys())),
+    default=None,
+    help="Visual theme (default: from the %%metro style: directive, else nfcore). "
+    "Applies to a .mmd input; an SVG input is served as drawn.",
+)
 @click.option(
     "--overlay",
     type=click.Choice(OVERLAY_STYLES),
@@ -1069,7 +1075,13 @@ def serve(
     help="Interface to bind. Default 127.0.0.1 (local only); "
     "use 0.0.0.0 to accept connections from other hosts.",
 )
-@click.option("--theme", type=str, default="nfcore", help="Theme name (nfcore, light).")
+@click.option(
+    "--theme",
+    type=click.Choice(list(THEMES.keys())),
+    default="nfcore",
+    show_default=True,
+    help="Visual theme applied to every map registered with this server.",
+)
 @click.option(
     "--overlay",
     type=click.Choice(OVERLAY_STYLES),
@@ -1101,10 +1113,6 @@ def serve_multi_cmd(
     """
     from nf_metro.live.server import serve_multi
 
-    if theme not in THEMES:
-        raise click.ClickException(
-            f"unknown theme {theme!r}; choose from {list(THEMES)}"
-        )
     if host == "0.0.0.0":  # noqa: S104 - explicit opt-in, warned
         click.echo(
             "Binding 0.0.0.0: reachable from other hosts; "
