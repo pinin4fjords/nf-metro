@@ -1007,6 +1007,8 @@ def _compute_fork_join_gaps(
     if not fork_layers and not join_layers:
         return {}
 
+    hub_layers = fork_layers & join_layers
+
     max_layer = max(layers.values()) if layers else 0
     base_gap = x_spacing * EXIT_GAP_MULTIPLIER
 
@@ -1053,7 +1055,9 @@ def _compute_fork_join_gaps(
         # single-role layers the two gaps reserve two separate diagonal sets - a
         # divergence and a reconvergence - and must both stand, or an interior
         # branch loses the reconvergence run that keeps it centred.
-        hub_spans_boundary = (layer - 1) in join_layers or layer in fork_layers
+        fork_side_is_hub = (layer - 1) in hub_layers
+        join_side_is_hub = layer in hub_layers
+        hub_spans_boundary = fork_side_is_hub or join_side_is_hub
         if pending_fork_gap > 0.0 and join_gap > 0.0 and hub_spans_boundary:
             cumulative += max(pending_fork_gap, join_gap)
         else:

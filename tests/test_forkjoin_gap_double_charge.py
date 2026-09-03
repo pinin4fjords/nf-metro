@@ -305,10 +305,10 @@ def test_fork_layer_feeding_a_join_layer_books_one_boundary_gap() -> None:
         join_gap, _, joins = _gap_at(graph, layers, tracks, layer + 1)
         assert forks and joins
         booked = layer_extra[layer + 1] - layer_extra[layer]
-        assert booked <= max(fork_gap, join_gap) + SETTLEMENT_FLOOR, (
-            f"boundary {layer}->{layer + 1} books {booked}px for one set of "
-            f"diagonals, over the {max(fork_gap, join_gap)}px the wider of its "
-            f"fork ({fork_gap}px) and join ({join_gap}px) gaps needs"
+        assert booked == pytest.approx(max(fork_gap, join_gap), abs=SETTLEMENT_FLOOR), (
+            f"boundary {layer}->{layer + 1} books {booked}px, not the "
+            f"{max(fork_gap, join_gap)}px the wider of its fork ({fork_gap}px) "
+            f"and join ({join_gap}px) gaps needs"
         )
 
 
