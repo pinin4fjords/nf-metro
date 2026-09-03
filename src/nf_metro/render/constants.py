@@ -61,9 +61,6 @@ LEGEND_ROUTE_CLEARANCE: float = 6.0
 LOGO_Y_STANDALONE: float = 5.0
 """Y offset for standalone logo (no legend)."""
 
-LOGO_HEIGHT_DEFAULT: float = 80.0
-"""Default logo display height."""
-
 # ---------------------------------------------------------------------------
 # Legend
 # ---------------------------------------------------------------------------
@@ -114,11 +111,8 @@ SVG_CURVE_RADIUS: float = CURVE_RADIUS
 
 Derived from the layout CURVE_RADIUS so routing and rendering agree."""
 
-SECTION_NUM_CIRCLE_R: int = 8
-"""Radius of section number circle background (small variant)."""
-
 SECTION_NUM_CIRCLE_R_LARGE: int = 11
-"""Radius of section number circle background (large variant)."""
+"""Radius of the section number circle background."""
 
 SECTION_NUM_FONT_SIZE: int = 12
 """Font size for section number text inside the circle."""
@@ -187,12 +181,6 @@ MIN_ANIMATION_DURATION: float = 2.0
 
 EDGE_CONNECT_TOLERANCE: float = 1.0
 """Tolerance for detecting connected edge endpoints."""
-
-# ---------------------------------------------------------------------------
-# Icons
-# ---------------------------------------------------------------------------
-TRAIN_ICON_SIZE: float = 12.0
-"""Default size of train icon placeholder."""
 
 # ---------------------------------------------------------------------------
 # Debug overlay

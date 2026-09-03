@@ -137,7 +137,13 @@ class CoordinateRegime(str, Enum):
 
 
 class SettlementStage(str, Enum):
-    """Stable vocabulary for observing settlement progress."""
+    """Stable vocabulary for observing settlement progress.
+
+    A render emits only ``DISCOVERY``, ``GENERAL_SETTLEMENT``, ``COHORT_FINAL``
+    and ``VALIDATION``.  The other four members are reserved vocabulary that no
+    production path may emit, which
+    ``tests/test_corridor_cohort_integration.py`` asserts.
+    """
 
     DISCOVERY = "discovery"
     GENERAL_SETTLEMENT = "general-settlement"
