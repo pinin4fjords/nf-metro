@@ -112,11 +112,17 @@ def _trunkless_entry_fans(
 ) -> Iterator[tuple[str, Section, set[str]]]:
     """Yield ``(port_id, section, direct_targets)`` for trunkless entry fans.
 
-    A qualifying entry port fans directly to two or more distinct in-section
+    A qualifying entry port fans directly to three or more distinct in-section
     targets and has no unique trunk arm (:func:`_entry_fan_trunk_station` is
     ``None``).  A single-target port, or one whose targets carry a unique
     trunk, has a 1:1 crossing to align against and no fan to centre, so it is
     skipped.
+
+    A two-target fan is skipped too: it is a minimal diamond whose symmetric
+    layout the two-branch half-grid mechanism (``_section_symfan_uses_half_grid``)
+    already owns, and forcing its midpoint here pulls a branch that continues as
+    the section's on-grid inter-section trunk off that trunk.  The multi-target
+    spread this yields is the shape with no such canonical single-branch trunk.
     """
     for section in graph.sections.values():
         for port_id in section.entry_ports:
@@ -128,7 +134,7 @@ def _trunkless_entry_fans(
                 if not (st := graph.station_for_edge_target(edge)).is_port
                 and st.section_id == section.id
             }
-            if len(targets) >= 2:
+            if len(targets) >= 3:
                 yield port_id, section, targets
 
 
