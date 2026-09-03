@@ -11,6 +11,7 @@ section's internal handlers run.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 
 from nf_metro.layout.constants import (
     COORD_TOLERANCE,
@@ -675,15 +676,25 @@ def _fused_opening_legs(
     return fused
 
 
+_STEEP_FAN_RUN_RATIO: float = 0.5
+"""Least run-to-drop ratio a fork/join fan flattens to before it stays on base.
+
+Below this the deepest leg's diagonal is steeper than ~63 degrees: the flatten
+reclaims little dead flat and pushes a multi-line bundle's perpendicular
+separation under its floor."""
+
+
 def _sibling_label_box(
     sib: Station, label_angle: float
 ) -> tuple[float, float, float, float]:
-    """Approximate ``(xlo, xhi, ylo, yhi)`` of a sibling station's name label.
+    """Conservative ``(xlo, xhi, ylo, yhi)`` covering a sibling's name label.
 
-    Wider than the drawn glyph ink (the full reserved label width plus the bbox
+    Wider than the drawn glyph ink (full reserved label width plus the bbox
     margin), so a run capped to clear this box clears the tighter ink box the
-    strike guard measures.  An angled label hangs to the lower-right of its
-    marker; a horizontal one is centred on it.
+    strike guard measures.  The label side is decided after routing, so the box
+    spans both offsets a horizontal name can take -- a text height above and
+    below its pill -- rather than assuming one.  An angled label hangs to the
+    lower-right, so its box reaches down-right from the marker.
     """
     half_w = label_text_width(sib.label) / 2
     if label_angle:
@@ -695,37 +706,36 @@ def _sibling_label_box(
             sib.y,
             sib.y + 2 * half_w * sin_a + LABEL_OFFSET + DIAGONAL_LABEL_OFFSET,
         )
-    half_h = _label_text_height(sib.label) / 2
+    reach_y = LABEL_OFFSET + _label_text_height(sib.label) + LABEL_BBOX_MARGIN
     return (
         sib.x - half_w - LABEL_BBOX_MARGIN,
         sib.x + half_w + LABEL_BBOX_MARGIN,
-        sib.y - half_h,
-        sib.y + half_h,
+        sib.y - reach_y,
+        sib.y + reach_y,
     )
 
 
 def _leg_label_clear_run(
     hub: Station,
     branch: Station,
-    obstacle: Station,
+    box: tuple[float, float, float, float],
     fixed_x: float,
     sign: float,
     is_fork: bool,
-    label_angle: float,
 ) -> float | None:
     """Run at which one leg's diagonal just clears an interior sibling's label.
 
-    The leg runs between the hub's track and *branch*'s track; *obstacle* is a
-    sibling whose track lies inside that band, with its marker and label at the
-    branch column the diagonal reaches.  Returns the run where the diagonal meets
-    the label's near edge, or ``None`` when the label's y-band does not overlap
-    the leg.
+    The leg runs between the hub's track and *branch*'s track; *box* is the label
+    box of a sibling whose track lies inside that band, with its marker and label
+    at the branch column the diagonal reaches.  Returns the run where the diagonal
+    meets the label's near edge, or ``None`` when the label's y-band does not
+    overlap the leg.
     """
     sy, ty = (hub.y, branch.y) if is_fork else (branch.y, hub.y)
     span = ty - sy
     if abs(span) <= COORD_TOLERANCE_FINE:
         return None
-    box_xlo, box_xhi, box_ylo, box_yhi = _sibling_label_box(obstacle, label_angle)
+    box_xlo, box_xhi, box_ylo, box_yhi = box
     lo_y, hi_y = min(sy, ty), max(sy, ty)
     yl = max(box_ylo, lo_y)
     yh = min(box_yhi, hi_y)
@@ -751,6 +761,92 @@ def _leg_label_clear_run(
     return flow * (edge_x - fixed_x) / g_eff
 
 
+def _one_sided(hub: Station, branch_ids: Iterable[str], graph: MetroGraph) -> bool:
+    """Whether every branch of *hub* (excluding on-track legs) peels to one side.
+
+    A one-sided fan is the off-centre shape a flatten helps: its legs all drop
+    the same way at unequal depths, so a steep one leaves reserved runway empty.
+    A fan straddling the hub is a symmetric diamond, balanced about it already.
+    """
+    ys = [
+        st.y
+        for bid in branch_ids
+        if (st := graph.stations.get(bid)) is not None
+        and abs(st.y - hub.y) > COORD_TOLERANCE_FINE
+    ]
+    if len(ys) < 2:
+        return len(ys) == 1
+    return all(y > hub.y for y in ys) or all(y < hub.y for y in ys)
+
+
+def _steep_run(run: float, deepest_drop: float) -> float:
+    """Base run when flattening leaves the deepest leg near-vertical.
+
+    Below :data:`_STEEP_FAN_RUN_RATIO` the flatten reclaims little dead flat and
+    drives a multi-line bundle's perpendicular separation under its floor.
+    """
+    if run < deepest_drop * _STEEP_FAN_RUN_RATIO:
+        return DIAGONAL_RUN
+    return max(DIAGONAL_RUN, run)
+
+
+def _interior_clear_run(
+    hub: Station,
+    branch: Station,
+    branches: list[Station],
+    fixed_x: float,
+    sign: float,
+    is_fork: bool,
+    run: float,
+    label_angle: float,
+) -> float:
+    """Cap *run* so *branch*'s diagonal clears every interior sibling's label."""
+    lo_y, hi_y = min(hub.y, branch.y), max(hub.y, branch.y)
+    for c in branches:
+        if c is branch or not c.label.strip():
+            continue
+        if not (lo_y + COORD_TOLERANCE_FINE < c.y < hi_y - COORD_TOLERANCE_FINE):
+            continue
+        cap = _leg_label_clear_run(
+            hub, branch, _sibling_label_box(c, label_angle), fixed_x, sign, is_fork
+        )
+        if cap is not None:
+            run = min(run, cap)
+    return run
+
+
+def _uniform_fan_run(
+    hub: Station,
+    branches: list[Station],
+    fixed_x: float,
+    sign: float,
+    is_fork: bool,
+    src_min: float,
+    tgt_min: float,
+    label_angle: float,
+) -> float:
+    """One run for every leg of a fan, seating them at a single divergence.
+
+    Long enough to flatten the deepest leg toward 45 degrees, capped by the
+    column room every leg shares, each leg's interior-sibling label clearance,
+    and the near-vertical floor.  Applied uniformly it keeps the fan reading as
+    one fan.
+    """
+    fill = DIAGONAL_RUN
+    run = math.inf
+    for b in branches:
+        room = abs(b.x - hub.x) - src_min - tgt_min
+        fill = max(fill, min(abs(b.y - hub.y), room))
+        run = min(
+            run,
+            room,
+            _interior_clear_run(
+                hub, b, branches, fixed_x, sign, is_fork, math.inf, label_angle
+            ),
+        )
+    return _steep_run(min(run, fill), max(abs(b.y - hub.y) for b in branches))
+
+
 def _fork_join_common_run(
     edge: Edge,
     src: Station,
@@ -760,60 +856,90 @@ def _fork_join_common_run(
     src_min: float,
     tgt_min: float,
 ) -> float:
-    """Common diagonal run for every leg of one fork/join fan.
+    """Diagonal run that flattens a fork/join leg toward 45 degrees.
 
-    All legs of a fan cross the same column gap and must peel off at one
-    divergence seat, or the convergence stops reading as a single fan (see
-    ``check_diamond_fan_in_diverges_together``).  So the fan takes one run: long
-    enough to flatten its deepest leg toward 45 degrees, but capped by the column
-    room every leg shares and by the clearance every leg needs from its interior
-    siblings' labels.  Applied uniformly the run seats all legs together; where
-    room or a label holds it at the base :data:`DIAGONAL_RUN` the fan keeps its
-    established geometry.
+    The flatten fills the dead flat a steep fixed-length diagonal leaves in its
+    reserved runway, but must not scatter the fan it belongs to (see
+    ``check_diamond_fan_in_diverges_together``).
 
-    A steep leg beside a shallow one fills its runway to 45 degrees while the
-    shallow sibling flattens onto the same seat, so neither carries dead flat and
-    the fan still diverges at one point.
+    A one-sided fan -- the off-centre shape a flatten helps -- takes one uniform
+    run so its legs still peel at one divergence.  A fork leg whose own fan
+    straddles the hub but that feeds a one-sided join carries its dead flat on
+    the join side, and its peel-off is the fixed fork seat regardless of run, so
+    it flattens to its own drop alone (a port source is excluded: its fan is
+    seated by the entry machinery, not here).  Every other fan -- a symmetric
+    diamond -- stays on the base run so its two sides open equally.
     """
-    if is_fork:
-        hub = src
-        branch_ids = ctx.fork_targets.get(edge.source, ())
-        fixed_x_offset = src_min
-    else:
-        hub = tgt
-        branch_ids = ctx.join_sources.get(edge.target, ())
-        fixed_x_offset = -tgt_min
-    sign = 1.0 if tgt.x >= src.x else -1.0
-    fixed_x = hub.x + sign * fixed_x_offset
-    label_angle = ctx.graph.label_angle or 0.0
+    # A port target collects everything leaving the section at the boundary
+    # rather than gathering a fan, so its convergence is seated by the exit
+    # machinery and authored corridors; a flatten there would run the diagonal
+    # into that reserved band.
+    if tgt.is_port:
+        return DIAGONAL_RUN
 
+    sign = 1.0 if tgt.x >= src.x else -1.0
+    label_angle = ctx.graph.label_angle or 0.0
+    graph = ctx.graph
+
+    def _same_section(ids: Iterable[str], hub: Station) -> list[str]:
+        # An inter-section feeder crosses the boundary through a port and an
+        # authored corridor, not an in-section diagonal, so only same-section
+        # legs make the fan this flattens.
+        return [
+            bid
+            for bid in ids
+            if (b := graph.stations.get(bid)) is not None
+            and b.section_id == hub.section_id
+        ]
+
+    if is_fork:
+        branch_ids = _same_section(ctx.fork_targets.get(edge.source, ()), src)
+        branches = [
+            b
+            for bid in branch_ids
+            if (b := graph.stations.get(bid)) is not None
+            and abs(b.y - src.y) > COORD_TOLERANCE_FINE
+        ]
+        if not branches:
+            return DIAGONAL_RUN
+        fixed_x = src.x + sign * src_min
+        if _one_sided(src, branch_ids, graph):
+            return _uniform_fan_run(
+                src, branches, fixed_x, sign, True, src_min, tgt_min, label_angle
+            )
+        target_sources = _same_section(ctx.join_sources.get(edge.target, ()), tgt)
+        if (
+            not src.is_port
+            and len(target_sources) >= 2
+            and _one_sided(tgt, target_sources, graph)
+        ):
+            drop = abs(tgt.y - src.y)
+            run = _interior_clear_run(
+                src,
+                tgt,
+                branches,
+                fixed_x,
+                sign,
+                True,
+                min(drop, abs(tgt.x - src.x) - src_min - tgt_min),
+                label_angle,
+            )
+            return _steep_run(run, drop)
+        return DIAGONAL_RUN
+
+    branch_ids = _same_section(ctx.join_sources.get(edge.target, ()), tgt)
     branches = [
         b
         for bid in branch_ids
-        if (b := ctx.graph.stations.get(bid)) is not None
-        and abs(b.y - hub.y) > COORD_TOLERANCE_FINE
+        if (b := graph.stations.get(bid)) is not None
+        and abs(b.y - tgt.y) > COORD_TOLERANCE_FINE
     ]
-    if not branches:
+    if len(branches) < 2 or not _one_sided(tgt, branch_ids, graph):
         return DIAGONAL_RUN
-
-    fill = DIAGONAL_RUN
-    run = math.inf
-    for b in branches:
-        drop = abs(b.y - hub.y)
-        room = abs(b.x - hub.x) - src_min - tgt_min
-        fill = max(fill, min(drop, room))
-        run = min(run, room)
-        lo_y, hi_y = min(hub.y, b.y), max(hub.y, b.y)
-        for c in branches:
-            if c is b or not c.label.strip():
-                continue
-            if not (lo_y + COORD_TOLERANCE_FINE < c.y < hi_y - COORD_TOLERANCE_FINE):
-                continue
-            cap = _leg_label_clear_run(hub, b, c, fixed_x, sign, is_fork, label_angle)
-            if cap is not None:
-                run = min(run, cap)
-    run = min(run, fill)
-    return max(DIAGONAL_RUN, run)
+    fixed_x = tgt.x - sign * tgt_min
+    return _uniform_fan_run(
+        tgt, branches, fixed_x, sign, False, src_min, tgt_min, label_angle
+    )
 
 
 def _route_diagonal(

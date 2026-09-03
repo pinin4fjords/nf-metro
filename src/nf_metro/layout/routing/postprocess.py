@@ -787,12 +787,17 @@ def _apply_station_moves(
     candidates: dict[str, _StationMoveCandidate],
     original_x: dict[str, float],
     moves: dict[str, float],
+    companion_exempt: set[str],
 ) -> None:
     """Second pass: record station-move requests with companion consensus.
 
     Only moves a station when all column companions (visible stations at
     the same original X in the same section) are also candidates.  This
     preserves column alignment when only some stations want to centre.
+
+    A station in *companion_exempt* skips that check: an asymmetric one-sided
+    fork/join hub is centred to correct its own off-centre run, a deliberate
+    move its column-mates (symmetric hubs the pass leaves put) should not veto.
 
     The X-target is recorded in ``moves`` (a request the render path applies);
     the routes bounding the station are adjusted here, since those are routing
@@ -809,7 +814,7 @@ def _apply_station_moves(
         # Hidden bypass V helpers have no marker, so column alignment
         # with visible companions isn't a visible concern - centre them
         # without requiring companion consensus.
-        skip_companion_check = is_bypass_v(sid)
+        skip_companion_check = is_bypass_v(sid) or sid in companion_exempt
         if not skip_companion_check and abs(new_x - station.x) > STATION_MOVE_TOLERANCE:
             ox = original_x.get(sid, station.x)
             companions = []
@@ -950,7 +955,12 @@ def _center_bubble_stations(
     ctx = _build_bubble_ctx(routes, graph)
     candidates = _collect_centering_candidates(graph, ctx)
     moves: dict[str, float] = {}
-    _apply_station_moves(graph, candidates, ctx.original_x, moves)
+    companion_exempt = {
+        sid
+        for sid in candidates
+        if _fork_join_centerable(graph, ctx, sid, graph.stations[sid])
+    }
+    _apply_station_moves(graph, candidates, ctx.original_x, moves, companion_exempt)
     _align_uncentered_siblings(routes, graph, ctx.original_x, moves)
     return moves
 
