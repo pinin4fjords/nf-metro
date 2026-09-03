@@ -1513,13 +1513,24 @@ def _carry_seated_run(
 def _seat_claimed_segments_before_freeze(
     candidates: tuple[_MemberCandidate, ...], ctx: _RoutingCtx
 ) -> None:
-    """Seat reservation-owned interior runs before their member plan freezes."""
+    """Seat reservation-owned interior runs before their member plan freezes.
+
+    A member carrying an exit-turn plan has its turn column pinned by that plan,
+    which the closing validator checks the emission against; the clearance band
+    a shared gap corridor realises can be tighter than the nested ladder the
+    plan seated outside it, so seating such a member to the band would slide it
+    off its planned axis (and, where the corridor is shared with a bundle bound
+    elsewhere, onto that bundle's lane).  Those members are left where their
+    plan placed them.
+    """
     grouped: defaultdict[
         tuple[RouteSystemId, str, int, int],
         list[tuple[RoutedPath, int, float, ReservedBand]],
     ] = defaultdict(list)
     for candidate in candidates:
         route = candidate.route
+        if route.exit_turn_plan_id is not None:
+            continue
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
                 continue
