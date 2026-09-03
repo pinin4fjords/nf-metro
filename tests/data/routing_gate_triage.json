@@ -111,10 +111,6 @@
   "note": "Span test in _positive_collinear_overlap; the un-exercised arm is the positive-overlap one that goes on to compute the overlap endpoints. Reached only from the same-destination conflict scans, so its only witnesses are the two corpus maps that move a tail (same_destination_short_overlap and same_destination_vertical_convergence), and every collinear pair they scan meets in at most a point, leaving the helper to return None each time. The arm wants a proposal whose moved riser runs alongside a collinear neighbour over a real length. Exercised synthetically by tests/test_same_destination_vertical_bundle.py; needs-review because an in-corpus witness is authorable, not because the arm is unreachable.",
   "status": "needs-review"
  },
- "common.py::if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:::#1": {
-  "note": "A complete destination bundle receives one contiguous n-slot channel band from gap materialization, so its peel-X extent cannot exceed (n-1)*step. The wider-band arm protects hand-built or corrupted route geometry and is exercised by test_invalid_opposing_candidate_is_rejected[noncontiguous-channel-band].",
-  "status": "defensive"
- },
  "common.py::if moves and _section_intrudes(::#1": {
   "note": "Refusal when the slot column's riser would run within EDGE_TO_BUNDLE_CLEARANCE of a section box that is neither the route's source nor its target section. `moves` is live here: same_destination_short_overlap moves the assembly tail 13px and 17px across proposals and the audit tail 4px, and same_destination_vertical_convergence moves the upper tail 4px. The refusal is un-exercised because those risers run inside open inter-section corridor, not because no corpus tail moves. The arm wants a cohort whose tighter slot column pushes a riser up against a neighbouring section's bbox.",
   "status": "needs-review"

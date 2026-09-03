@@ -359,9 +359,12 @@ def _snap_canvas_y_to_grid(
     require_phase_field(graph, "half_grid_station_ids")
     half_grid_ids = graph.half_grid_station_ids
     convergence_sources = _convergence_source_ys(graph)
-    # A center_ports fan-in entry port is held off the grid at its targets'
-    # midpoint; it must stay excluded from the residue vote on this second pass
-    # too, or the pass reads it as off-grid and pulls it back onto a slot.
+    # An entry-fan reconvergence join and a center_ports fan-in entry port are
+    # both held off the grid on the fan centreline; they must stay excluded from
+    # the residue vote on this second pass too, or the pass reads them as
+    # off-grid and pulls them back onto a slot.
+    for join_id, src_ids in _entry_fan_reconvergence_joins(graph).items():
+        convergence_sources.setdefault(join_id, src_ids)
     for port_id, target_ids in _entry_fan_centre_ports(graph).items():
         convergence_sources.setdefault(port_id, target_ids)
     residues: Counter[float] = Counter()
