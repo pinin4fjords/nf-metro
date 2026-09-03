@@ -159,8 +159,7 @@ def _register_half_grid_reconvergence_branches(graph: MetroGraph) -> None:
                 st = graph.stations.get(sid)
                 if st is None:
                     continue
-                offset = (st.y - trunk_y) / pitch
-                if abs(offset - round(offset)) * pitch > 1.0:
+                if _off_grid_line(st.y, trunk_y, pitch):
                     graph.half_grid_station_ids.add(sid)
 
 
@@ -186,9 +185,14 @@ def _register_half_grid_entry_fan_ports(
         if branch_ys is None:
             continue
         pitch = branch_ys[1] - branch_ys[0]
-        residue = (port_st.y - branch_ys[0]) % pitch
-        if min(residue, pitch - residue) > 1.0:
+        if _off_grid_line(port_st.y, branch_ys[0], pitch):
             graph.half_grid_station_ids.add(port_id)
+
+
+def _off_grid_line(y: float, origin: float, pitch: float, tol: float = 1.0) -> bool:
+    """True when ``y`` sits more than ``tol`` from the nearest ``origin + k*pitch``."""
+    residue = (y - origin) % pitch
+    return min(residue, pitch - residue) > tol
 
 
 def _slot_snap(y: float, origin: float, pitch: float, half: float) -> float:

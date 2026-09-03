@@ -607,11 +607,10 @@ def compute_layout(
             finally:
                 graph._final_route_guards_deferred = False
 
-        # A station-rooted reconvergence fan seats its branches on a half-pitch
-        # spine.  Recorded once all layout and re-layout passes have settled, so
-        # the bookkeeping mark cannot feed a subsequent pass's placement (Stage
-        # 6.4's grid snap, Stage 6.18's orphan expansion) and so stays purely
-        # observational for the post-layout grid-alignment invariants.
+        # Must run after every layout/re-layout pass has settled: it only marks
+        # half-grid station ids for post-layout invariants. Moving it earlier lets
+        # the mark feed a subsequent pass's placement decisions (Stage 6.4's grid
+        # snap, Stage 6.18's orphan expansion), corrupting their geometry.
         _register_half_grid_reconvergence_branches(graph)
 
 

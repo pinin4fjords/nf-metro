@@ -1015,11 +1015,14 @@ def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bo
     return False
 
 
+def _fork_hubs(graph: MetroGraph, a: str, b: str) -> set[str]:
+    """Direct predecessors shared by *a* and *b* - the fork hubs feeding both."""
+    return {e.source for e in graph.edges_to(a)} & {e.source for e in graph.edges_to(b)}
+
+
 def _branches_share_fork_hub(graph: MetroGraph, a: str, b: str) -> bool:
     """True when *a* and *b* have a common direct predecessor - one fork hub."""
-    return bool(
-        {e.source for e in graph.edges_to(a)} & {e.source for e in graph.edges_to(b)}
-    )
+    return bool(_fork_hubs(graph, a, b))
 
 
 def _fork_hub_bypasses_trunk_to_exit(
@@ -1048,9 +1051,10 @@ def _fork_hub_bypasses_trunk_to_exit(
     }
     if not exit_ports:
         return False
-    hubs = {e.source for e in graph.edges_to(a)} & {e.source for e in graph.edges_to(b)}
     return any(
-        edge.target in exit_ports for hub in hubs for edge in graph.edges_from(hub)
+        edge.target in exit_ports
+        for hub in _fork_hubs(graph, a, b)
+        for edge in graph.edges_from(hub)
     )
 
 
