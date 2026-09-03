@@ -82,9 +82,8 @@ def _insert_phantom_pass_throughs(
         return
     min_layer = min(layers.values())
 
-    # Scan entry ports in section order and collect each line's internal
-    # targets in encounter order, so the phantoms inserted below and the order
-    # they are inserted are hash-seed independent.
+    # Scan entry ports in section order so each line's targets follow port
+    # declaration order.
     entry_targets: dict[str, list[str]] = {}
     for pid in section.entry_ports:
         for edge in graph.edges_from(pid):
@@ -96,8 +95,9 @@ def _insert_phantom_pass_throughs(
     for line_id, targets in entry_targets.items():
         target_layers = [layers.get(t, min_layer) for t in targets]
         if all(ly > min_layer for ly in target_layers):
-            # Break a tie on earliest layer by station id, so the phantom anchor
-            # is chosen deterministically rather than by hash-seeded iteration.
+            # Tie-break earliest layer by station id: for at least one real map
+            # the other candidate deterministically fails the routing
+            # curve-invariant check, so id order is the safe deterministic pick.
             earliest_target = min(targets, key=lambda t: (layers.get(t, 0), t))
             phantom_id = f"_phantom_{section.id}_{line_id}"
 
