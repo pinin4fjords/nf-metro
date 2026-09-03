@@ -188,11 +188,11 @@ def test_marker_station_renders_valid_svg():
 
 
 def test_no_marker_directives_byte_identical():
-    # A diagram with no marker directives must render exactly as before the
-    # feature: markers default-off.
+    # Markers are default-off: a diagram that declares none must render
+    # byte-identically to one whose declared marker was cleared.
     g_plain = _parse()
     g_with = _parse("%%metro marker: n2 | square, solid\n")
-    # Remove the marker so the only difference is the (now-cleared) directive.
+    # Clear the marker so the parsed directive is the only difference left.
     g_with.stations["n2"].marker = None
     compute_layout(g_plain)
     compute_layout(g_with)

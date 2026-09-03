@@ -300,9 +300,10 @@ def test_explicit_grid_section_keeps_lr_against_auto_successor_below():
     successor lands in a lower grid row.
 
     Regression lock for #446: during auto-layout an explicit-grid section
-    still reads grid_col == -1, so comparing it against an auto neighbour
-    (row >= 0) used to fire the "all successors below" TB branch and reorient
-    the section vertically.
+    reads grid_col == -1, so a naive comparison against an auto neighbour
+    (row >= 0) reads every successor as below and takes the "all successors
+    below" TB branch.  Direction inference must not draw that conclusion from
+    a placeholder column.
     """
     graph = _make_graph_with_sections(
         ["manual", "downstream"],
