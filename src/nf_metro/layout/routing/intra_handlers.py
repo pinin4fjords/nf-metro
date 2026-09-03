@@ -884,11 +884,12 @@ def _fork_join_common_run(
     def _same_section(ids: Iterable[str], hub: Station) -> list[str]:
         # An inter-section feeder crosses the boundary through a port and an
         # authored corridor, not an in-section diagonal, so only same-section
-        # legs make the fan this flattens.
+        # non-port legs make the fan this flattens.
         return [
             bid
             for bid in ids
             if (b := graph.stations.get(bid)) is not None
+            and not b.is_port
             and b.section_id == hub.section_id
         ]
 
