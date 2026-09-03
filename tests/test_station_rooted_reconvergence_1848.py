@@ -75,3 +75,32 @@ def test_visible_station_rooted_join_is_excluded():
     midpoint = _fan_midpoint(graph, _VISIBLE_BRANCHES)
     join_y = graph.stations[_VISIBLE_JOIN].y
     assert abs(join_y - midpoint) < TOL, (join_y, midpoint)
+
+
+def test_hidden_station_rooted_branches_registered_half_grid():
+    """The branches of a station-rooted reconvergence on a half-pitch spine are
+    recorded in ``graph.half_grid_station_ids``.
+
+    The join's section carries a half-grid LR entry port, so the spine the join
+    sits on - and the branch column mirrored about it - lands half a pitch off
+    the section's trunk grid.  The entry-port form of this fan records its
+    centred port there (``_register_half_grid_entry_fan_ports``); the
+    station-rooted form must likewise record its branches, so the grid-alignment
+    invariants read the offsets as the fan's spine grid rather than stray
+    off-grid placement (issue #1848).
+    """
+    graph = _layout(_HIDDEN_FIXTURE)
+    trunk_anchor = graph.stations[_HIDDEN_JOIN].y
+    pitch = graph.stations["dotseq"].y - graph.stations["deltate"].y
+    for branch in _HIDDEN_BRANCHES:
+        st = graph.stations[branch]
+        offset = (st.y - trunk_anchor) / pitch
+        rides_spine_grid = abs(offset - round(offset)) * pitch < TOL
+        assert rides_spine_grid, (
+            f"{branch} y={st.y} does not sit a whole pitch from spine "
+            f"{trunk_anchor}; the fixture no longer exercises the half-grid gap"
+        )
+        assert branch in graph.half_grid_station_ids, (
+            f"{branch} rides the reconvergence spine at half pitch but is not "
+            f"registered in graph.half_grid_station_ids"
+        )

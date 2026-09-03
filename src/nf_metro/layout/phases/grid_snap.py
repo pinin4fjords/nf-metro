@@ -17,6 +17,9 @@ from nf_metro.layout.phases.fan_bundles import (
     _divergence_midpoint_targets,
     _entry_fan_centre_ports,
     _evenly_spaced_ys,
+    _fan_reconvergence_joins,
+    _section_lr_entry_port,
+    _station_rooted_fans,
     _symmetric_reconvergence_joins,
 )
 from nf_metro.layout.phases.junctions import _position_junctions
@@ -118,6 +121,47 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     _restore_divergence_midpoints(graph, divergence_targets, trunk_followers)
     _restore_partial_trunk_descents(graph)
     _register_half_grid_entry_fan_ports(graph, entry_fan_ports)
+
+
+def _register_half_grid_reconvergence_branches(graph: MetroGraph) -> None:
+    """Register a station-rooted reconvergence fan's half-pitch branch tracks.
+
+    A fan rooted at an internal station reconverges onto a hidden merge node
+    seated on the branch midpoint (:func:`_symmetric_reconvergence_joins`).
+    When the section's trunk anchor port itself rides a half-grid centreline,
+    that midpoint - and the whole branch column mirrored about it - sits half a
+    pitch off the trunk grid, the same genuine half-pitch a fork hub takes.  The
+    entry-port form of this fan records its centred port in
+    ``graph.half_grid_station_ids`` (see
+    :func:`_register_half_grid_entry_fan_ports`); the station-rooted form must
+    likewise record its branches, so the grid-alignment invariants read those
+    offsets as the fan's spine grid rather than stray off-grid placement.
+
+    Runs after the branches have settled onto their spine, so it only sets a
+    flag: a branch already at a half-pitch offset is recorded, none is moved.
+    """
+    for _hub, section, targets in _station_rooted_fans(graph):
+        anchor_id = _section_lr_entry_port(graph, section)
+        anchor_st = graph.stations.get(anchor_id) if anchor_id is not None else None
+        if anchor_st is None:
+            continue
+        half_off_trunk = anchor_id in graph.half_grid_station_ids
+        joins = _fan_reconvergence_joins(graph, section, targets, hidden_only=True)
+        for src_ids in joins.values():
+            branch_ys = _evenly_spaced_ys(
+                [graph.stations[s].y for s in src_ids if s in graph.stations]
+            )
+            if branch_ys is None:
+                continue
+            pitch = branch_ys[1] - branch_ys[0]
+            trunk_y = anchor_st.y + (0.5 * pitch if half_off_trunk else 0.0)
+            for sid in src_ids:
+                st = graph.stations.get(sid)
+                if st is None:
+                    continue
+                offset = (st.y - trunk_y) / pitch
+                if abs(offset - round(offset)) * pitch > 1.0:
+                    graph.half_grid_station_ids.add(sid)
 
 
 def _register_half_grid_entry_fan_ports(
