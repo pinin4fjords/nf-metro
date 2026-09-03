@@ -763,12 +763,24 @@
   "note": "Entry-runway 'too tight' return cannot fire: |nearest_src - entry_port_x| is floored at SECTION_X_PADDING (50px, the entry port sits at section.bbox_x = min(internal_station_x) - SECTION_X_PADDING), while src_min + diagonal_run = CURVE_RADIUS(10) + MIN_STRAIGHT_PORT(5) + DIAGONAL_RUN(30) = 45px. Since 50 >= 45 the guard is always False.",
   "status": "defensive"
  },
+ "intra_handlers.py::if abs(span) <= COORD_TOLERANCE_FINE:::#1": {
+  "note": "_leg_label_clear_run's degenerate-span guard. Its only caller, _interior_clear_run, invokes it inside `lo_y + COORD_TOLERANCE_FINE < c.y < hi_y - COORD_TOLERANCE_FINE`, which is satisfiable only when hi_y - lo_y = |branch.y - hub.y| = |span| exceeds 2*COORD_TOLERANCE_FINE; so whenever the helper runs |span| > 0.02 and the return-None arm cannot fire. Confirmed by instrumenting the whole render corpus: 0 hits across 128489 calls over 374 fixtures.",
+  "status": "defensive"
+ },
  "intra_handlers.py::if abs(tgt.x - src.x) >= COORD_TOLERANCE:::#1": {
   "note": "_route_near_zero_gap_straight: a same-section, non-TB intra edge with |tgt.x - src.x| < COORD_TOLERANCE (1px) and non-zero dy is not constructible, so the straight-return (False) arm is never taken: layering assigns increasing X along edges so the minimum |dx| at _route_intra_section across the corpus is 50px (port spacing / off-track output lead). TB same-track edges that could reach |dx|=0 are intercepted by _route_tb_internal before this handler. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
  },
+ "intra_handlers.py::if cap is not None:::#1": {
+  "note": "The un-exercised arm is the cap-is-None fall-through in _interior_clear_run. _leg_label_clear_run returns None only through its three degenerate guards (abs(span) <= tol, yl > yh, g_eff <= tol), each of which the strict-interior call condition (an interior sibling c with `lo_y + tol < c.y < hi_y - tol`) makes unreachable -- see their sibling entries. So the helper always returns a finite cap and the no-cap arm never runs. Confirmed: 0 None returns across 128489 calls over 374 fixtures.",
+  "status": "defensive"
+ },
  "intra_handlers.py::if dy < -COORD_TOLERANCE_FINE:::#1": {
   "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
+  "status": "defensive"
+ },
+ "intra_handlers.py::if g_eff <= COORD_TOLERANCE_FINE:::#1": {
+  "note": "_leg_label_clear_run's near-zero-fraction guard. g_eff is the fraction of the leg's vertical span the diagonal must cover to clear an interior sibling's label; the sibling is strictly interior (`lo_y + tol < c.y < hi_y - tol`) and its label box reaches a full text height past its marker, so g_eff stays bounded well above the 0.01 tolerance and the return-None arm cannot fire. Confirmed: 0 hits across 128489 calls over 374 fixtures.",
   "status": "defensive"
  },
  "intra_handlers.py::if lead_end - sx < min_straight or tx - tail_start < min_straight:::#1": {
@@ -789,6 +801,10 @@
  },
  "intra_handlers.py::if not blockers:::#1": {
   "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
+  "status": "defensive"
+ },
+ "intra_handlers.py::if not branches:::#1": {
+  "note": "_fork_join_common_run's empty-fan guard on the fork path. It is reached only from _route_diagonal, which _route_intra_section calls after _route_same_track_straight has already claimed every edge with |src.y - tgt.y| < COORD_TOLERANCE_FINE; so the routed tgt is a non-flat, same-section, non-port fork target and is itself a member of `branches`, leaving the list non-empty. The all-flat-fan return arm cannot fire. Confirmed: 0 empty-branch hits across 6991 fork calls over 374 fixtures.",
   "status": "defensive"
  },
  "intra_handlers.py::if not preds or not succs:::#1": {
@@ -817,6 +833,10 @@
  },
  "intra_handlers.py::if st.id in blocker_ids:::#1": {
   "note": "Trunk-row entry bow (#1315). Exercised by tests/fixtures/regressions/entry_trunk_row_bow.mmd, which is kept out of the validate=True corpus and the gate-coverage corpus (it exercises the always-on render path only), so no clean corpus fixture takes this arm. The render-path invariant test test_entry_trunk_row_bow_clears_non_consumer covers the drawn detour.",
+  "status": "defensive"
+ },
+ "intra_handlers.py::if yl > yh:::#1": {
+  "note": "_leg_label_clear_run's empty-overlap guard. Reached only from _interior_clear_run for a sibling c strictly interior to (lo_y, hi_y); its label box spans c.y +/- reach_y, so yl = max(box_ylo, lo_y) <= c.y <= min(box_yhi, hi_y) = yh always. The no-overlap return-None arm cannot fire. Confirmed: 0 hits across 128489 calls over 374 fixtures.",
   "status": "defensive"
  },
  "member_geometry.py::and assignment.run_direction in {Direction.R, Direction.L}::#1": {
@@ -1436,35 +1456,15 @@
   "status": "defensive"
  },
  "postprocess.py::if any(_is_chain_predecessor(graph, ctx, r.edge.source) for r in flat_in):::#1": {
-  "note": "Inside the multi_diag block of _flat_connects_to_internal_chain, which is never entered because multi_diag is structurally unsatisfiable. Both arms unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
+  "note": "The flat-in-side chain check inside the multi_diag block of _flat_connects_to_internal_chain. The block is now entered by fork/join-centerable hubs (13 fixtures), but its any(...) True arm is un-exercised: no corpus multi_diag station carries a flat incoming route whose source is a chain predecessor, while the mirrored flat-out check on the following line is exercised. Reachable in principle; wants a multi_diag hub with a chain-predecessor flat-in.",
+  "status": "needs-review"
  },
- "postprocess.py::if any(_is_internal_station(graph, r.edge.target) for r in flat_out):::#1": {
-  "note": "Inside the multi_diag block of _flat_connects_to_internal_chain, never entered because multi_diag is structurally unsatisfiable. Both arms unreachable. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
+ "postprocess.py::if in_rp and len(ctx.diag_out_targets.get(in_rp.edge.source, set())) > 1:::#1": {
+  "note": "The divergence-source guard in the simple flat-equalising path: it declines to shift a pass-through station whose single incoming diagonal comes from a port that fans to several stations. Its sole covering fixture, examples/topologies/side_branch_ascent_label_strike.mmd, lost the arm to this issue's (#1852) fork/join diagonal widening: its port-divergence member (salmon) now has an exit flat of 74px against an entry flat of 15px, so it bails at the earlier shift-magnitude guard (|shift| > min(in_flat, out_flat)) rather than reaching this one. The arm stays reachable -- a narrower straddle fan whose solo-exit member keeps shift-feasible unequal flats reaches it (a witness renders return@746) -- but the natural witness shape peels its exit off-trunk and kinks its exit-port segment, so no fixture was authored for this narrow pre-existing guard.",
+  "status": "needs-review"
  },
  "postprocess.py::if majority_count <= len(moved) / 2:::#1": {
   "note": "The no-clear-majority arm. Movers in a column either converge to one consensus x or sit off it only via hub/exit-port collinearity at a fixed >=20px quantum; the consensus cluster is always the strict majority, so majority_count is never <= half (0 of corpus, no probe topology reproduces a split). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
- "postprocess.py::if max(moved_xs) - min(moved_xs) <= 1.0:::#1": {
-  "note": "Early-exit for the agree case: all movers land within 1px of each other. Unreachable for natural pipelines because the engine always seats one fan branch on the hub's trunk row, vetoing companion consensus for the whole column, so moved is empty and the outer guard fires first.",
-  "status": "defensive"
- },
- "postprocess.py::if multi_diag:::#1": {
-  "note": "multi_diag branch of _flat_connects_to_internal_chain; multi_diag is structurally unsatisfiable (see the _classify_centering_routes gate at the same line text), so the function is only ever called with multi_diag False. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
- "postprocess.py::if multi_diag:::#2": {
-  "note": "multi_diag branch selecting the flat-segment X extent in _centering_candidate; multi_diag is structurally unsatisfiable (see the _classify_centering_routes gate). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
- "postprocess.py::if not is_fork_join and (::#1": {
-  "note": "Enters the multi_diag block, which needs a non-fork-join station (<=1 distinct predecessor and successor) carrying both a 4-point diagonal and a 2-point flat incoming route. Raw route shape is a pure function of endpoint coordinates, so all lines on one edge share one shape: n_unique_in and n_unique_flat_in can never both be >=1 for a single-predecessor station, and n_unique_in/out are <=1 when not fork-join. multi_diag is unsatisfiable (0 of 6173 corpus calls). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
-  "status": "defensive"
- },
- "postprocess.py::if not multi_diag:::#1": {
-  "note": "The skip-this-block arm fires only when multi_diag is True, which is structurally unsatisfiable (see the _classify_centering_routes gate). Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"
  },
  "postprocess.py::if not outliers:::#1": {
