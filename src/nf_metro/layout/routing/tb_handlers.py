@@ -187,6 +187,11 @@ def _route_tb_diagonal(
     ``bias_to_source`` forces the diagonal to the source end regardless of the
     fork/join classification, for a feeder that must leave the merge's column at
     its source rather than run down it.
+
+    The responsive fork/join runway widening (``_fork_join_common_run`` in
+    ``intra_handlers``) is scoped to the LR/RL flow axis; TB/BT fans keep the
+    fixed ``ctx.diagonal_run`` here.  This is a deliberate boundary, not parity
+    waiting to be filled in.
     """
     diag_start_y, diag_end_y = _compute_diagonal_placement(
         sy,

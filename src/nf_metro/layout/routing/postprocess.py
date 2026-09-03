@@ -17,7 +17,11 @@ from nf_metro.layout.constants import (
     MIN_STRAIGHT_PORT,
     STATION_MOVE_TOLERANCE,
 )
-from nf_metro.layout.geometry import lanes_run_along_x, segment_intersects_bbox
+from nf_metro.layout.geometry import (
+    lanes_run_along_x,
+    quantize_coord,
+    segment_intersects_bbox,
+)
 from nf_metro.layout.routing.common import (
     OffsetRegime,
     RoutedPath,
@@ -439,7 +443,7 @@ def _fork_join_centerable(
             continue
         if not (all(o > 0 for o in offsets) or all(o < 0 for o in offsets)):
             continue
-        if len({round(abs(o), 1) for o in offsets}) >= 2:
+        if len({quantize_coord(abs(o), 1) for o in offsets}) >= 2:
             return True
     return False
 
@@ -638,7 +642,11 @@ def _symfan_sibling_diag_end_x(
 
 
 def _centering_candidate(
-    graph: MetroGraph, ctx: _BubbleCtx, sid: str, station: Station
+    graph: MetroGraph,
+    ctx: _BubbleCtx,
+    sid: str,
+    station: Station,
+    fork_join_centerable: bool,
 ) -> _StationMoveCandidate | None:
     """Centre one station's diagonals in place, or return a move candidate.
 
@@ -669,7 +677,7 @@ def _centering_candidate(
         out_routes,
         flat_in,
         flat_out,
-        _fork_join_centerable(graph, ctx, sid, station),
+        fork_join_centerable,
     )
     if classified is None:
         return None
@@ -760,15 +768,21 @@ def _centering_candidate(
 
 def _collect_centering_candidates(
     graph: MetroGraph, ctx: _BubbleCtx
-) -> dict[str, _StationMoveCandidate]:
+) -> tuple[dict[str, _StationMoveCandidate], set[str]]:
     """First pass: shift simple diagonals and collect station-move candidates.
 
     For stations with a single diagonal on each side and no bundle conflicts,
     shifts both diagonals to equalise the flat runs.  For more complex cases
     (shared bundles, flat+diagonal mixes), collects a station-move candidate
     for the second pass.
+
+    Returns the candidates and the subset of them that are asymmetric one-sided
+    fork/join hubs; the second pass exempts those from column-companion
+    consensus.  The fork/join-centerable verdict is computed once per station
+    here and reused for both the route classification and that exemption.
     """
     station_move_candidates: dict[str, _StationMoveCandidate] = {}
+    companion_exempt: set[str] = set()
     for sid, station in graph.stations.items():
         if sid in ctx.planned_geometry_stations:
             continue
@@ -776,10 +790,13 @@ def _collect_centering_candidates(
             continue
         if station.is_hidden and not is_bypass_v(sid):
             continue
-        candidate = _centering_candidate(graph, ctx, sid, station)
+        fork_join_centerable = _fork_join_centerable(graph, ctx, sid, station)
+        candidate = _centering_candidate(graph, ctx, sid, station, fork_join_centerable)
         if candidate is not None:
             station_move_candidates[sid] = candidate
-    return station_move_candidates
+            if fork_join_centerable:
+                companion_exempt.add(sid)
+    return station_move_candidates, companion_exempt
 
 
 def _apply_station_moves(
@@ -953,13 +970,8 @@ def _center_bubble_stations(
     render path to apply, so ``route_edges`` leaves ``graph.stations`` intact.
     """
     ctx = _build_bubble_ctx(routes, graph)
-    candidates = _collect_centering_candidates(graph, ctx)
+    candidates, companion_exempt = _collect_centering_candidates(graph, ctx)
     moves: dict[str, float] = {}
-    companion_exempt = {
-        sid
-        for sid in candidates
-        if _fork_join_centerable(graph, ctx, sid, graph.stations[sid])
-    }
     _apply_station_moves(graph, candidates, ctx.original_x, moves, companion_exempt)
     _align_uncentered_siblings(routes, graph, ctx.original_x, moves)
     return moves

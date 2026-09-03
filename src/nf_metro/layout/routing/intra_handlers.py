@@ -679,9 +679,7 @@ def _fused_opening_legs(
 _STEEP_FAN_RUN_RATIO: float = 0.5
 """Least run-to-drop ratio a fork/join fan flattens to before it stays on base.
 
-Below this the deepest leg's diagonal is steeper than ~63 degrees: the flatten
-reclaims little dead flat and pushes a multi-line bundle's perpendicular
-separation under its floor."""
+See :func:`_steep_run` for what falling below it costs."""
 
 
 def _sibling_label_box(
@@ -790,6 +788,16 @@ def _steep_run(run: float, deepest_drop: float) -> float:
     return max(DIAGONAL_RUN, run)
 
 
+def _flatten_toward_45(base_run: float, drop: float, room: float) -> float:
+    """Grow *base_run* toward *drop* (a 45-degree diagonal) within *room*.
+
+    A diagonal reads at 45 degrees when its horizontal run equals its vertical
+    drop, so filling the run up to the drop flattens it there -- but never past
+    the horizontal *room* its endpoints leave, and never below *base_run*.
+    """
+    return max(base_run, min(drop, room))
+
+
 def _interior_clear_run(
     hub: Station,
     branch: Station,
@@ -831,12 +839,24 @@ def _uniform_fan_run(
     column room every leg shares, each leg's interior-sibling label clearance,
     and the near-vertical floor.  Applied uniformly it keeps the fan reading as
     one fan.
+
+    ``src_min``/``tgt_min`` are the routed edge's own endpoint straights, reused
+    as the fan's shared margins: exact when the siblings share label-size bounds
+    (the common case, and the only shape where the run must be identical across
+    legs), and otherwise a cap the interior-label clearance and the near-vertical
+    floor bound further -- so a sibling with a wider target label is never
+    over-run into (confirmed by the corpus carrying zero fork/join label
+    strikes).
     """
+    drops = [abs(b.y - hub.y) for b in branches]
     fill = DIAGONAL_RUN
     run = math.inf
-    for b in branches:
-        room = abs(b.x - hub.x) - src_min - tgt_min
-        fill = max(fill, min(abs(b.y - hub.y), room))
+    for b, drop in zip(branches, drops):
+        # A short section with wide endpoint labels can leave less column than
+        # the two straights consume; floor the room at zero so a negative never
+        # reads as a run (the near-vertical floor then keeps the base run).
+        room = max(0.0, abs(b.x - hub.x) - src_min - tgt_min)
+        fill = _flatten_toward_45(fill, drop, room)
         run = min(
             run,
             room,
@@ -844,7 +864,7 @@ def _uniform_fan_run(
                 hub, b, branches, fixed_x, sign, is_fork, math.inf, label_angle
             ),
         )
-    return _steep_run(min(run, fill), max(abs(b.y - hub.y) for b in branches))
+    return _steep_run(min(run, fill), max(drops))
 
 
 def _fork_join_common_run(
@@ -915,6 +935,7 @@ def _fork_join_common_run(
             and _one_sided(tgt, target_sources, graph)
         ):
             drop = abs(tgt.y - src.y)
+            room = max(0.0, abs(tgt.x - src.x) - src_min - tgt_min)
             run = _interior_clear_run(
                 src,
                 tgt,
@@ -922,7 +943,7 @@ def _fork_join_common_run(
                 fixed_x,
                 sign,
                 True,
-                min(drop, abs(tgt.x - src.x) - src_min - tgt_min),
+                min(drop, room),
                 label_angle,
             )
             return _steep_run(run, drop)
@@ -1056,7 +1077,7 @@ def _route_diagonal(
         _, line_ids, _ = gather_member_edges(ctx.graph, edge)
         if len(line_ids) > 1:
             room = abs(dx) - src_min - tgt_min
-            diagonal_run = max(diagonal_run, min(drop, room))
+            diagonal_run = _flatten_toward_45(diagonal_run, drop, room)
 
     # An off-track output whose producer carries a strike-clearance lead lever
     # seats its divergence at the layout's reserved lead (icon offset minus the

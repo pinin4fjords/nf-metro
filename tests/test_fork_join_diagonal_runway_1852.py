@@ -1,4 +1,4 @@
-"""Regression locks for the fork/join diagonal runway (#1852).
+"""Regression locks for the fork/join diagonal runway.
 
 A fork/join leg whose drop exceeds ``DIAGONAL_RUN`` fills its runway so the
 diagonal flattens toward 45 degrees rather than reading near-vertical; its
