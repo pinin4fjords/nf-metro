@@ -704,9 +704,44 @@ def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bo
             set(graph.station_lines(s)) >= trunk for s in sids
         ):
             continue
-        if not _branches_reconverge(graph, section, sids[0], sids[1]):
-            return True
+        if _branches_reconverge(graph, section, sids[0], sids[1]):
+            continue
+        if _fork_hub_bypasses_trunk_to_exit(graph, section, sids[0], sids[1]):
+            continue
+        return True
     return False
+
+
+def _fork_hub_bypasses_trunk_to_exit(
+    graph: MetroGraph, section: Section, a: str, b: str
+) -> bool:
+    """True when the branches' shared fork hub also runs a line straight down the
+    trunk row, past the branch column, to a boundary exit of the section.
+
+    The half-pitch compaction leaves the trunk row empty between the two branches
+    so the bubble is one grid unit tall.  When the fork hub instead carries a line
+    straight on down that trunk row to the section's LR exit -- an edge from the
+    hub to the exit port itself, bypassing both branches -- the row is occupied,
+    and compacting would crowd that bypass bundle between the branches.  Such a
+    fork keeps full pitch.
+
+    The signal is a *direct* hub-to-exit-port edge, which lands on the trunk row
+    by construction; a hub output that instead threads through a third off-trunk
+    fan branch on its way out is not trunk traffic and does not disqualify the
+    pair.
+    """
+    exit_ports = {
+        pid
+        for pid in section.exit_ports
+        if (port := graph.ports.get(pid)) is not None
+        and port.side in (PortSide.LEFT, PortSide.RIGHT)
+    }
+    if not exit_ports:
+        return False
+    hubs = {e.source for e in graph.edges_to(a)} & {e.source for e in graph.edges_to(b)}
+    return any(
+        edge.target in exit_ports for hub in hubs for edge in graph.edges_from(hub)
+    )
 
 
 def _branches_reconverge(graph: MetroGraph, section: Section, a: str, b: str) -> bool:
