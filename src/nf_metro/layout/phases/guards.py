@@ -855,41 +855,13 @@ def _guard_symmetric_diamond_branches_half_pitch(graph: MetroGraph, phase: str) 
     Full pitch is read from the nearest off-trunk on-grid sibling in the
     section, so the magnitude check needs no ``y_spacing`` and is skipped
     for a solo diamond with no sibling fan (only symmetry is checked there).
-
-    A non-reconverging entry fork (branches that dead-end rather than rejoin,
-    which ``_iter_symmetric_diamonds`` does not yield) is compacted the same way
-    by ``_recenter_full_bundle_columns``; when both its branches carry the
-    half-grid mark they must sit one section-row unit apart, never the two units
-    a dropped compaction leaves.
     """
     if graph.diamond_style != "symmetric":
         return
-    from nf_metro.layout.phases.fan_bundles import (
-        _iter_symmetric_diamonds,
-        _section_row_pitch,
-        _symmetric_entry_fork_pairs,
-    )
+    from nf_metro.layout.phases.fan_bundles import _iter_symmetric_diamonds
 
     tol = SAME_COORD_TOLERANCE
     half_grid = graph.half_grid_station_ids
-    # The row pitch is settled before this final guard phase, so the entry-fork
-    # separation is read against it directly; the None branch is unreachable here
-    # and only keeps the magnitude check from running against an unset pitch.
-    y_spacing = graph._resolved_y_spacing
-    if y_spacing is not None:
-        for fork_section in graph.sections.values():
-            for a, b in _symmetric_entry_fork_pairs(graph, fork_section):
-                if a not in half_grid or b not in half_grid:
-                    continue
-                pitch = _section_row_pitch(graph, fork_section.id, y_spacing)
-                separation = abs(graph.stations[a].y - graph.stations[b].y)
-                if abs(separation - pitch) > 2.0:
-                    raise PhaseInvariantError(
-                        f"{phase}: symmetric entry-fork branches {a!r}/{b!r} sit "
-                        f"{separation:.1f}px apart, not the one grid unit "
-                        f"{pitch:.1f} of a compacted half-pitch fork; the "
-                        f"compaction was dropped"
-                    )
     for fork, lo, hi, _join in _iter_symmetric_diamonds(graph):
         trunk_y = fork.y
         d_lo = trunk_y - lo.y

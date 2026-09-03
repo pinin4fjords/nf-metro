@@ -1161,29 +1161,16 @@ def _compute_diamond_branch_siblings(graph: MetroGraph) -> dict[str, Station]:
 
     Narrowed to clean, column-aligned diamonds via :func:`_iter_symmetric_diamonds`
     so a hidden/port/off-track/cross-section branch never gets paired up as a
-    label-side sibling.  A non-reconverging symmetric entry fork (compacted onto
-    half-pitch, its branches straddling an empty trunk row) is paired the same
-    way: its labels also read best pointing out of the bubble rather than into
-    the trunk the branches straddle.
+    label-side sibling.
     """
-    from nf_metro.layout.phases.fan_bundles import (
-        _iter_symmetric_diamonds,
-        _symmetric_entry_fork_pairs,
-    )
+    from nf_metro.layout.phases.fan_bundles import _iter_symmetric_diamonds
 
     siblings: dict[str, Station] = {}
-
-    def _pair(lo: Station, hi: Station) -> None:
+    for _fork, lo, hi, _join in _iter_symmetric_diamonds(graph):
         if abs(lo.y - hi.y) < SAME_COORD_TOLERANCE:
-            return
+            continue
         siblings[lo.id] = hi
         siblings[hi.id] = lo
-
-    for _fork, lo, hi, _join in _iter_symmetric_diamonds(graph):
-        _pair(lo, hi)
-    for section in graph.sections.values():
-        for a, b in _symmetric_entry_fork_pairs(graph, section):
-            _pair(graph.stations[a], graph.stations[b])
     return siblings
 
 
