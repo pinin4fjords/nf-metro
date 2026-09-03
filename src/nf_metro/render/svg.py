@@ -49,7 +49,10 @@ from nf_metro.layout.labels import (
     place_labels,
 )
 from nf_metro.layout.pass_metrics import font_scale_context, stroke_scale_context
-from nf_metro.layout.phases._common import _station_bundle_offset_span
+from nf_metro.layout.phases._common import (
+    _section_lr_port_anchor_y,
+    _station_bundle_offset_span,
+)
 from nf_metro.layout.phases.bbox import measure_row_gap_clearance
 from nf_metro.layout.phases.canvas import translate_graph
 from nf_metro.layout.phases.guards import (
@@ -510,6 +513,50 @@ def _position_legend(
     return legend_x, legend_y, legend_w, legend_h, show_legend
 
 
+def _terminus_caption_above(
+    graph: MetroGraph,
+    section: Section | None,
+    station: Station,
+    icon_cy: float,
+) -> bool:
+    """Whether a terminus caption flips above its icon to clear the trunk.
+
+    A caption normally sits below its icon.  For a terminus riding a fork branch
+    compacted onto half-pitch above the section's horizontal trunk row, where a
+    line bypasses the fork straight along that trunk row, a below-caption would
+    cross the bypass bundle, so it flips above -- away from the trunk -- matching
+    the outward label of the fork branch itself.  A terminus lifted a full row
+    clear of its branch, or one whose trunk row is empty (no bypass), keeps its
+    caption below: the gap already fits it.
+    """
+    if section is None or lanes_run_along_x(section.direction):
+        return False
+    trunk_y = _section_lr_port_anchor_y(graph, section)
+    if trunk_y is None or icon_cy >= trunk_y - SAME_COORD_TOLERANCE:
+        return False
+    tol = SAME_COORD_TOLERANCE
+    for edge in graph.edges_to(station.id):
+        branch = graph.stations.get(edge.source)
+        if (
+            branch is None
+            or edge.source not in graph.half_grid_station_ids
+            or branch.y >= trunk_y - tol
+        ):
+            continue
+        for hub_edge in graph.edges_to(edge.source):
+            hub = graph.stations.get(hub_edge.source)
+            if hub is None or abs(hub.y - trunk_y) > tol:
+                continue
+            if any(
+                (through := graph.stations.get(out.target)) is not None
+                and through.id != edge.source
+                and abs(through.y - trunk_y) <= tol
+                for out in graph.edges_from(hub_edge.source)
+            ):
+                return True
+    return False
+
+
 def _icon_obstacles_by_station(
     graph: MetroGraph,
     theme: Theme,
@@ -559,14 +606,23 @@ def _icon_obstacles_by_station(
         y_min = min(cy for _, cy in centers) - icon_half_h
         y_max = max(cy for _, cy in centers) + icon_half_h
 
-        # Captions render below the icon row, so extend the box downward to
+        # Captions render beside the icon row (below by default, above when a
+        # below-caption would cross the trunk), so extend the box on that side to
         # cover them and keep neighbouring labels at a distance.
         caption_line_count = station.terminus_caption_line_count
         if caption_line_count:
             caption_height = (
                 caption_line_count * theme.label_font_size * ICON_NAME_FONT_SCALE
             )
-            y_max += ICON_NAME_GAP + caption_height
+            section = (
+                graph.sections.get(station.section_id) if station.section_id else None
+            )
+            if _terminus_caption_above(
+                graph, section, station, min(cy for _, cy in centers)
+            ):
+                y_min -= ICON_NAME_GAP + caption_height
+            else:
+                y_max += ICON_NAME_GAP + caption_height
 
         obstacles[station.id] = (
             x_min - margin,
@@ -4452,16 +4508,25 @@ def _render_terminus_icons(
                 d, **common, fold_size=theme.terminus_fold_size, banner=banner
             )
 
-        # Optional caption rendered below the icon so the type chip
-        # inside the icon stays readable.
+        # Optional caption rendered beside the icon so the type chip
+        # inside the icon stays readable -- below by default, flipped above
+        # when a below-caption would cross the section's trunk row.
         if name:
-            caption_y = icon_cy + theme.terminus_height / 2 + ICON_NAME_GAP
+            caption_above = _terminus_caption_above(graph, section, station, icon_cy)
+            half_step = theme.terminus_height / 2 + ICON_NAME_GAP
             # When adjacent icon captions would overlap horizontally
             # (their estimated width exceeds the per-icon X step), drop
             # odd-indexed captions to a second row so each name is
             # legible.
-            if stagger_captions and i % 2 == 1:
-                caption_y += caption_font_size * 1.4
+            stagger = (
+                caption_font_size * 1.4 if stagger_captions and i % 2 == 1 else 0.0
+            )
+            if caption_above:
+                caption_y = icon_cy - half_step - stagger
+                caption_baseline = "auto"
+            else:
+                caption_y = icon_cy + half_step + stagger
+                caption_baseline = "hanging"
             caption_cx = icon_cx
             if section and section.bbox_w > 0:
                 # Estimate caption width and clamp so it stays inside the
@@ -4483,7 +4548,7 @@ def _render_terminus_icons(
                     font_family=theme.label_font_family,
                     font_weight=theme.label_font_weight,
                     text_anchor="middle",
-                    dominant_baseline="hanging",
+                    dominant_baseline=caption_baseline,
                     class_=_ns("nf-metro-station-label"),
                 )
             )

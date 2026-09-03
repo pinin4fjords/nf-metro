@@ -674,9 +674,11 @@ def _section_symfan_uses_half_grid(graph: MetroGraph, section: Section) -> bool:
     return _symfan_branches_hub(graph, section) is not None
 
 
-def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bool:
-    """Return True when the section carries a ``diamond_style: symmetric``
-    two-way fork whose branches share a column and never reconverge.
+def _symmetric_entry_fork_pairs(
+    graph: MetroGraph, section: Section
+) -> list[tuple[str, str]]:
+    """Branch pairs of this section's ``diamond_style: symmetric`` two-way entry
+    forks -- column-mates that carry the full trunk bundle and never reconverge.
 
     This is the fork ``_recenter_full_bundle_columns`` compacts onto half-pitch
     (leaving the trunk row empty between the branches) and whose dead-end
@@ -686,10 +688,10 @@ def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bo
     not the empty trunk), which the per-diamond compaction handles instead.
     """
     if graph.diamond_style != "symmetric" or section.direction not in ("LR", "RL"):
-        return False
+        return []
     trunk = _section_fan_trunk_lines(graph, section)
     if not trunk:
-        return False
+        return []
     port_ids = section.port_ids
     cols: dict[float, list[str]] = defaultdict(list)
     for sid in section.station_ids:
@@ -699,14 +701,25 @@ def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bo
         if st is None or st.off_track:
             continue
         cols[round(st.x, 3)].append(sid)
+    pairs: list[tuple[str, str]] = []
     for sids in cols.values():
         if len(sids) != 2 or not all(
             set(graph.station_lines(s)) >= trunk for s in sids
         ):
             continue
         if not _branches_reconverge(graph, section, sids[0], sids[1]):
-            return True
-    return False
+            pairs.append((sids[0], sids[1]))
+    return pairs
+
+
+def _symmetric_entry_fork_pair_ids(graph: MetroGraph, section: Section) -> set[str]:
+    """Station ids forming this section's symmetric two-way entry fork pairs."""
+    return {sid for pair in _symmetric_entry_fork_pairs(graph, section) for sid in pair}
+
+
+def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bool:
+    """Return True when the section carries a symmetric two-way entry fork."""
+    return bool(_symmetric_entry_fork_pairs(graph, section))
 
 
 def _branches_reconverge(graph: MetroGraph, section: Section, a: str, b: str) -> bool:
@@ -1045,10 +1058,21 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
         # unrelated columns (e.g. a 5-way fan-in) symmetrically about their
         # trunk and inflates the section, so all other columns are left as the
         # section layout placed them.
-        if not graph.center_ports and not _section_has_symmetric_entry_fork(
-            graph, section
-        ):
+        fork_pairs = _symmetric_entry_fork_pairs(graph, section)
+        if not graph.center_ports and not fork_pairs:
             continue
+        # Rescue a plan-owned fork branch from the exclusion below only when its
+        # sibling is not plan-owned.  A plan that owns both branches places them
+        # as a unit at the right pitch, so it is left alone; a plan that owns just
+        # one leaves the pair split between two owners, and excluding the owned
+        # branch would leave a single station -- collapsing the pair back to full
+        # pitch on any pass where one branch happens to root a plan.
+        rescued_ids = {
+            sid
+            for a, b in fork_pairs
+            if (a in planned_ids) != (b in planned_ids)
+            for sid in (a, b)
+        }
         trunk = _section_fan_trunk_lines(graph, section)
         if not trunk:
             continue
@@ -1056,7 +1080,7 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
 
         cols: dict[float, list[str]] = defaultdict(list)
         for sid in section.station_ids:
-            if sid in port_ids or sid in planned_ids:
+            if sid in port_ids or (sid in planned_ids and sid not in rescued_ids):
                 continue
             st = graph.stations.get(sid)
             if st is None or st.off_track:
@@ -1124,18 +1148,28 @@ def _recenter_full_bundle_columns(graph: MetroGraph, y_spacing: float) -> None:
             # are marked so the grid snap leaves the half-offsets intact.
             half = graph.diamond_style == "symmetric" and n == 2
             if half:
-                # Orient so a branch bearing an off-track file above the trunk
-                # fans to the bottom slot (and one below the trunk to the top).
-                # The file is offset away from its producer, so an above-trunk
-                # file on an up-fanned branch protrudes past the row's top band
-                # and shifts the whole map off the trunk; fanning that branch
-                # down keeps the file within the section's existing band.
-                sides = [
-                    _fork_offtrack_side(graph, section, p, anchor_y)
-                    for p in participants
-                ]
-                if sides[0] == -1 or sides[1] == 1:
-                    participants.reverse()
+                # When the incoming layout already fans the branches onto
+                # opposite sides of the trunk, that orientation is deliberate and
+                # is preserved.  Otherwise orient so a branch bearing an off-track
+                # file above the trunk fans to the bottom slot (and one below the
+                # trunk to the top): a file offset a row away from its producer on
+                # an up-fanned branch protrudes past the row's top band and shifts
+                # the whole map off the trunk, so fanning that branch down keeps
+                # the file within the section's existing band.
+                ys = [graph.stations[p].y for p in participants]
+                straddles_trunk = (
+                    min(ys) < anchor_y - SAME_COORD_TOLERANCE
+                    and max(ys) > anchor_y + SAME_COORD_TOLERANCE
+                )
+                if straddles_trunk:
+                    participants.sort(key=lambda s: graph.stations[s].y)
+                else:
+                    sides = [
+                        _fork_offtrack_side(graph, section, p, anchor_y)
+                        for p in participants
+                    ]
+                    if sides[0] == -1 or sides[1] == 1:
+                        participants.reverse()
             scale = 0.5 if half else 1.0
             offsets = _fan_offsets(n)
             for sid, off in zip(participants, offsets):
