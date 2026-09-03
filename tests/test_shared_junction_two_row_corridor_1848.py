@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from nf_metro.api import prepare_graph, resolve_theme
+from nf_metro.layout.constants import MIN_CORRIDOR_Y_OVERLAP, OFFSET_STEP
 from nf_metro.render.svg import build_observed_render_plan
 
 _FIXTURES = (
@@ -28,10 +29,11 @@ _FIXTURES = (
     "examples/topologies/variant_calling.mmd",
 )
 
-# Two lanes closer than this along the descent axis read as one drawn stroke.
-_MIN_LANE_GAP = 3.0
-# Vertical runs overlapping by less than this do not co-travel.
-_MIN_SPAN_OVERLAP = 5.0
+# Two descent lanes nearer than one bundle step read as a single drawn stroke.
+_MIN_LANE_GAP = OFFSET_STEP - 1.0
+# Two vertical runs co-travel a corridor only past this much span overlap; also
+# the floor for a segment to count as a descent rather than an elbow.
+_MIN_SPAN_OVERLAP = MIN_CORRIDOR_Y_OVERLAP
 
 
 def _root() -> Path:
@@ -87,3 +89,73 @@ def test_shared_junction_fan_keeps_distinct_descent_lanes(fixture):
                         f"share descent x={x_i:.1f}/{x_j:.1f}"
                     )
     assert not fused, "fused co-travelling descents:\n" + "\n".join(fused)
+
+
+def _descent_route(target: str):
+    from nf_metro.layout.routing.common import OffsetRegime, RoutedPath
+    from nf_metro.parser.model import Edge
+
+    return RoutedPath(
+        edge=Edge(source="__junction_0", target=target, line_id="l"),
+        line_id="l",
+        points=[(0.0, 100.0), (850.0, 100.0), (850.0, 300.0), (950.0, 300.0)],
+        is_inter_section=True,
+        offset_regime=OffsetRegime.BAKED,
+        curve_radii=[12.0, 12.0],
+    )
+
+
+def test_seat_reads_the_pin_from_segment_rank_not_plan_id():
+    """Seating claimed segments reads the exit-turn pin from the segment rank.
+
+    The settled two-pass path clears a member's ``exit_turn_axis_id`` and
+    ``exit_turn_segment_rank`` -- leaving ``exit_turn_plan_id`` set -- to hand it
+    to seating, restoring them afterward.  A member the plan pins (segment rank
+    present) must be left on its planned column, which the closing validator
+    checks; a member the hand-off un-pinned must seat.  Keying the skip on the
+    plan id would strand the un-pinned member outside its corridor band.
+    """
+    from types import SimpleNamespace
+
+    from nf_metro.layout.route_plan import RouteSystemId
+    from nf_metro.layout.routing.families import RouteFamilyId
+    from nf_metro.layout.routing.member_geometry import (
+        _MemberCandidate,
+        _seat_claimed_segments_before_freeze,
+    )
+    from nf_metro.layout.routing.reserved_bands import ReservedBand, ReservedCorridors
+
+    unpinned = _descent_route("a")
+    unpinned.exit_turn_plan_id = "plan-x"
+    unpinned.exit_turn_axis_id = None
+    unpinned.exit_turn_segment_rank = None
+
+    pinned = _descent_route("b")
+    pinned.exit_turn_plan_id = "plan-x"
+    pinned.exit_turn_axis_id = "axis-x"
+    pinned.exit_turn_segment_rank = 1
+
+    band = ReservedBand(800.0, 820.0)
+    ctx = SimpleNamespace(
+        reserved_bands=ReservedCorridors(
+            per_claim={
+                ("__junction_0", "a", "l", 1): band,
+                ("__junction_0", "b", "l", 1): band,
+            }
+        )
+    )
+    candidates = tuple(
+        _MemberCandidate(
+            route, RouteFamilyId.STANDARD_L_SHAPE, RouteSystemId("sys"), carrier, ()
+        )
+        for route, carrier in ((unpinned, "carrier-a"), (pinned, "carrier-b"))
+    )
+
+    _seat_claimed_segments_before_freeze(candidates, ctx)
+
+    assert unpinned.points[1][0] == pytest.approx(820.0, abs=0.5), (
+        "an un-pinned member must seat into its corridor band"
+    )
+    assert pinned.points[1][0] == pytest.approx(850.0, abs=0.5), (
+        "a plan-pinned member must keep its planned column"
+    )
