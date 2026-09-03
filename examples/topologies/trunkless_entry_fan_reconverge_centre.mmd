@@ -1,0 +1,33 @@
+%%metro title: Trunkless entry fan reconvergence centreline
+%%metro center_ports: true
+%%metro diamond_style: symmetric
+%%metro line: x | Line X | #e6007e
+%%metro line: y | Line Y | #2db572
+
+graph LR
+    subgraph feeder [Feeder]
+        src_x[Source X]
+        src_y[Source Y]
+    end
+
+    subgraph calling [Calling]
+        n1[Node 1]
+        n2[Node 2]
+        n3[Node 3]
+        hop[Hop]
+        relay[Relay]
+        merge[Merge]
+
+        hop -->|y| relay
+        n1 -->|x,y| merge
+        n2 -->|x,y| merge
+        n3 -->|x| merge
+        relay -->|y| merge
+    end
+
+    src_x -->|x| n1
+    src_x -->|x| n2
+    src_x -->|x| n3
+    src_y -->|y| n1
+    src_y -->|y| n2
+    src_y -->|y| hop

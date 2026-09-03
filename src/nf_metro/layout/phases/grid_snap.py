@@ -15,6 +15,7 @@ from nf_metro.layout.phases.fan_bundles import (
     _centreline_trunk_followers,
     _convergence_source_ys,
     _divergence_midpoint_targets,
+    _entry_fan_reconvergence_joins,
     _evenly_spaced_ys,
 )
 from nf_metro.layout.phases.junctions import _position_junctions
@@ -75,6 +76,11 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # converges (recorded pre-snap so the midpoint can be restored
     # after sources move).
     convergence_sources = _convergence_source_ys(graph)
+    # A trunkless symmetric entry fan's reconvergence join is a convergence the
+    # midpoint restore must also protect and recentre, even though one arm's
+    # extra hop keeps it out of the ordinary source-midpoint set above.
+    for join_id, src_ids in _entry_fan_reconvergence_joins(graph).items():
+        convergence_sources.setdefault(join_id, src_ids)
     # Same idea for the diverging side: record each fork hub's target set
     # pre-snap so its midpoint can be restored once the targets have moved.
     # Narrowed to hubs already centred pre-snap (see

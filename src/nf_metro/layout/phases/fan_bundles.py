@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterator
 
 from nf_metro.layout.constants import (
@@ -31,7 +31,7 @@ from nf_metro.layout.phases.planned_fans import (
     planned_fan_layout_station_ids,
     planned_fan_port_ids,
 )
-from nf_metro.layout.phases.ports import _set_port_y
+from nf_metro.layout.phases.ports import _entry_fan_trunk_station, _set_port_y
 from nf_metro.parser.model import MetroGraph, PortSide, Section, Station
 
 
@@ -105,6 +105,101 @@ def _convergence_source_ys(graph: MetroGraph) -> dict[str, list[str]]:
         if abs(st.y - midpoint) < 1.0:
             convergence[target_id] = sorted(src_ids)
     return convergence
+
+
+def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
+    """Return {join_id: [source_ids]} for a trunkless entry-fan's reconvergence.
+
+    A section boundary entry port that fans directly to two or more distinct
+    internal targets with no unique trunk arm (:func:`_entry_fan_trunk_station`
+    is ``None``) describes a symmetric fan whose join the exact
+    fork-hub/join-source-set detection in :func:`_divergence_midpoint_targets`
+    cannot see: one arm reaches the join through an extra internal hop, so the
+    port's direct-target set never equals the join's source set.  The fan's join
+    is the station where *every* arm reconverges - reachable within the section
+    from all of the direct targets - so it is recorded here for
+    :func:`_restore_convergence_midpoints` to seat on the fan midpoint alongside
+    the ordinary convergences.  A local two-input merge on only some of the arms
+    is deliberately excluded: it is not the whole fan's centreline and
+    recentring it perturbs the branches that do not pass through it.
+
+    Gated on ``graph.diamond_style == "symmetric"`` - the same author opt-in
+    that scopes every other centreline compaction in this module; an entry
+    port's rooting is an accident of section boundaries, not of symmetry, so an
+    ungated version would recentre unrelated joins across the corpus.  Line
+    membership is deliberately not part of the gate: the qualifying fans carry
+    more than one line, and a single-line gate would pass over them.
+    """
+    if graph.diamond_style != "symmetric":
+        return {}
+    joins: dict[str, list[str]] = {}
+    for port_id, port in graph.ports.items():
+        if not port.is_entry:
+            continue
+        port_st = graph.stations.get(port_id)
+        if port_st is None or port_st.section_id is None:
+            continue
+        section = graph.sections.get(port_st.section_id)
+        if section is None:
+            continue
+        if _entry_fan_trunk_station(graph, port_id, section) is not None:
+            continue
+        direct_targets: set[str] = set()
+        for edge in graph.edges_from(port_id):
+            st = graph.station_for_edge_target(edge)
+            if not st.is_port and st.section_id == section.id:
+                direct_targets.add(st.id)
+        if len(direct_targets) < 2:
+            continue
+        # Per-arm in-section descendant sets; their union bounds the fan and
+        # their intersection names the on-track stations every arm reaches.  The
+        # fan's join is the terminal one of those - no further common on-track
+        # descendant - so a parallel mid-fan branch (common but flowing onward
+        # to the real join) is not mistaken for the reconvergence itself.
+        reach = {
+            tgt: _in_section_descendants(graph, tgt, section) for tgt in direct_targets
+        }
+        fan = set(direct_targets).union(*reach.values())
+        common = {
+            cid
+            for cid in set.intersection(*reach.values())
+            if not (cs := graph.stations.get(cid)) or not cs.off_track
+        }
+        for cand in common:
+            if _in_section_descendants(graph, cand, section) & common:
+                continue
+            preds: set[str] = set()
+            for pred_id in _real_predecessors(graph, {cand}):
+                pred_st = graph.stations.get(pred_id)
+                if pred_st is not None and not pred_st.is_port:
+                    preds.add(pred_id)
+            if len(preds) >= 2 and cand not in preds and preds <= fan:
+                joins[cand] = sorted(preds)
+    return joins
+
+
+def _in_section_descendants(
+    graph: MetroGraph, start_id: str, section: Section
+) -> set[str]:
+    """In-section, non-port stations forward-reachable from ``start_id``.
+
+    ``start_id`` itself is excluded; the walk stops at ports and at any station
+    outside ``section`` so a fan's reconvergence is measured within its own
+    section only.
+    """
+    seen: set[str] = set()
+    queue = deque([start_id])
+    while queue:
+        node = queue.popleft()
+        for edge in graph.edges_from(node):
+            desc_st = graph.stations.get(edge.target)
+            if desc_st is None or desc_st.is_port:
+                continue
+            if desc_st.section_id != section.id or edge.target in seen:
+                continue
+            seen.add(edge.target)
+            queue.append(edge.target)
+    return seen
 
 
 def _divergence_target_successors(graph: MetroGraph) -> dict[str, list[str]]:
