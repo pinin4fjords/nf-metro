@@ -15,6 +15,7 @@ from nf_metro.layout.phases.fan_bundles import (
     _centreline_trunk_followers,
     _convergence_source_ys,
     _divergence_midpoint_targets,
+    _entry_fan_centre_ports,
     _entry_fan_reconvergence_joins,
     _evenly_spaced_ys,
 )
@@ -81,6 +82,10 @@ def _snap_all_y_to_grid(graph: MetroGraph, y_spacing: float) -> None:
     # extra hop keeps it out of the ordinary source-midpoint set above.
     for join_id, src_ids in _entry_fan_reconvergence_joins(graph).items():
         convergence_sources.setdefault(join_id, src_ids)
+    # Under center_ports a trunkless fan-in entry port rides the same
+    # protect-and-restore onto the midpoint of the targets it serves.
+    for port_id, target_ids in _entry_fan_centre_ports(graph).items():
+        convergence_sources.setdefault(port_id, target_ids)
     # Same idea for the diverging side: record each fork hub's target set
     # pre-snap so its midpoint can be restored once the targets have moved.
     # Narrowed to hubs already centred pre-snap (see
@@ -354,6 +359,11 @@ def _snap_canvas_y_to_grid(
     require_phase_field(graph, "half_grid_station_ids")
     half_grid_ids = graph.half_grid_station_ids
     convergence_sources = _convergence_source_ys(graph)
+    # A center_ports fan-in entry port is held off the grid at its targets'
+    # midpoint; it must stay excluded from the residue vote on this second pass
+    # too, or the pass reads it as off-grid and pulls it back onto a slot.
+    for port_id, target_ids in _entry_fan_centre_ports(graph).items():
+        convergence_sources.setdefault(port_id, target_ids)
     residues: Counter[float] = Counter()
     for st in graph.stations.values():
         if st.is_port or st.off_track:

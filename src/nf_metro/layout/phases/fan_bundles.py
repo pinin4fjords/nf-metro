@@ -152,10 +152,12 @@ def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
         if len(direct_targets) < 2:
             continue
         # Per-arm in-section descendant sets; their union bounds the fan and
-        # their intersection names the on-track stations every arm reaches.  The
-        # fan's join is the terminal one of those - no further common on-track
-        # descendant - so a parallel mid-fan branch (common but flowing onward
-        # to the real join) is not mistaken for the reconvergence itself.
+        # their intersection names the stations every arm reaches.  A genuine
+        # merge among those is one with two or more real predecessors - a
+        # position-independent test, unlike an off-track flag that only settles
+        # once the arms have been placed.  The fan's join is the terminal such
+        # merge (no further common merge downstream), so a parallel mid-fan
+        # branch flowing onward to the real join is not mistaken for it.
         reach = {
             tgt: _in_section_descendants(graph, tgt, section) for tgt in direct_targets
         }
@@ -163,19 +165,66 @@ def _entry_fan_reconvergence_joins(graph: MetroGraph) -> dict[str, list[str]]:
         common = {
             cid
             for cid in set.intersection(*reach.values())
-            if not (cs := graph.stations.get(cid)) or not cs.off_track
+            if len(_nonport_real_predecessors(graph, cid)) >= 2
         }
         for cand in common:
             if _in_section_descendants(graph, cand, section) & common:
                 continue
-            preds: set[str] = set()
-            for pred_id in _real_predecessors(graph, {cand}):
-                pred_st = graph.stations.get(pred_id)
-                if pred_st is not None and not pred_st.is_port:
-                    preds.add(pred_id)
-            if len(preds) >= 2 and cand not in preds and preds <= fan:
+            preds = _nonport_real_predecessors(graph, cand)
+            if cand not in preds and preds <= fan:
                 joins[cand] = sorted(preds)
     return joins
+
+
+def _nonport_real_predecessors(graph: MetroGraph, node_id: str) -> set[str]:
+    """Real-station (non-port) predecessors of ``node_id``, seen through junctions.
+
+    Wraps :func:`_real_predecessors` for a single node and drops any port so the
+    count reflects merging branches rather than a boundary crossing.
+    """
+    return {
+        pred_id
+        for pred_id in _real_predecessors(graph, {node_id})
+        if (pred_st := graph.stations.get(pred_id)) is not None and not pred_st.is_port
+    }
+
+
+def _entry_fan_centre_ports(graph: MetroGraph) -> dict[str, list[str]]:
+    """Return {entry_port_id: [direct_target_ids]} for ``center_ports`` fan-in ports.
+
+    A section boundary entry port that fans directly to two or more distinct
+    internal targets with no unique trunk arm (:func:`_entry_fan_trunk_station`
+    is ``None``) has no 1:1 crossing for ``center_ports`` to align.  Recording it
+    here alongside the ordinary convergences seats it on the midpoint of the
+    targets it serves, through the same protect-and-restore the grid snap already
+    applies to a fan-in convergence.
+
+    Gated on ``graph.center_ports``, the opt-in for boundary-port centring: a
+    map that only sets ``diamond_style`` keeps its entry ports where the
+    boundary seating put them.
+    """
+    if not graph.center_ports:
+        return {}
+    ports: dict[str, list[str]] = {}
+    for port_id, port in graph.ports.items():
+        if not port.is_entry:
+            continue
+        port_st = graph.stations.get(port_id)
+        if port_st is None or port_st.section_id is None:
+            continue
+        section = graph.sections.get(port_st.section_id)
+        if section is None:
+            continue
+        if _entry_fan_trunk_station(graph, port_id, section) is not None:
+            continue
+        targets: set[str] = set()
+        for edge in graph.edges_from(port_id):
+            st = graph.station_for_edge_target(edge)
+            if not st.is_port and st.section_id == section.id:
+                targets.add(st.id)
+        if len(targets) >= 2:
+            ports[port_id] = sorted(targets)
+    return ports
 
 
 def _in_section_descendants(
