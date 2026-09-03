@@ -64,6 +64,7 @@ from nf_metro.layout.routing.common import (
     iter_same_destination_approach_bundles,
     iter_vertical_segments,
     merge_fanout_pivot_reference,
+    off_grid_gap_bundle_midpoint,
     opposing_entry_confluence_slots,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
@@ -4882,16 +4883,24 @@ def _gap_channel_base(
     takes priority over the column-level gap: the column edge can sit on the
     far side of a cell-mate, well past the section the channel is meant to
     hug.
+
+    A gap beyond the outermost column is bounded on one side only, and
+    :func:`off_grid_gap_bundle_midpoint` seats the bundle against that one
+    edge.  :func:`_materialize_gap_slots` names each channel's gap by the
+    stricter ``require_both_columns`` reading, which reports such a gap as
+    degenerate and passes over it, so what this returns for one is the
+    channel's final position rather than an initial placement.
     """
+    width = max(0, n - 1) * offset_step
     edges = None
     if anchor_section_id is not None and anchor_side is not None:
         edges = packed_cell_neighbor_edges(graph, anchor_section_id, anchor_side)
-    gap_left, gap_right = edges or column_gap_edges(
-        graph, lo, lo + 1, row=row, require_both_columns=False
-    )
-    return symmetric_bundle_midpoint(
-        gap_left, gap_right, [max(0, n - 1) * offset_step], 0
-    )
+    if edges is None:
+        off_grid = off_grid_gap_bundle_midpoint(graph, lo, row, width)
+        if off_grid is not None:
+            return off_grid
+        edges = column_gap_edges(graph, lo, lo + 1, row=row, require_both_columns=False)
+    return symmetric_bundle_midpoint(*edges, [width], 0)
 
 
 def _clear_channel_x_in_band(
