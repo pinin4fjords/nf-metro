@@ -872,6 +872,9 @@ def _guard_symmetric_diamond_branches_half_pitch(graph: MetroGraph, phase: str) 
 
     tol = SAME_COORD_TOLERANCE
     half_grid = graph.half_grid_station_ids
+    # The row pitch is settled before this final guard phase, so the entry-fork
+    # separation is read against it directly; the None branch is unreachable here
+    # and only keeps the magnitude check from running against an unset pitch.
     y_spacing = graph._resolved_y_spacing
     if y_spacing is not None:
         for fork_section in graph.sections.values():

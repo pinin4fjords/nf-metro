@@ -513,6 +513,29 @@ def _position_legend(
     return legend_x, legend_y, legend_w, legend_h, show_legend
 
 
+def _fork_hub_bypasses_trunk(
+    graph: MetroGraph, branch_id: str, trunk_y: float, tol: float
+) -> bool:
+    """Whether *branch_id*'s fork hub emits a line that stays on the trunk row.
+
+    The hub is a predecessor of the branch sitting on the trunk; a bypass is any
+    other output of that hub landing back on the trunk row (rather than fanning
+    off to a branch), i.e. a line running straight past the fork.
+    """
+    for hub_edge in graph.edges_to(branch_id):
+        hub = graph.stations.get(hub_edge.source)
+        if hub is None or abs(hub.y - trunk_y) > tol:
+            continue
+        if any(
+            (through := graph.stations.get(out.target)) is not None
+            and through.id != branch_id
+            and abs(through.y - trunk_y) <= tol
+            for out in graph.edges_from(hub_edge.source)
+        ):
+            return True
+    return False
+
+
 def _terminus_caption_above(
     graph: MetroGraph,
     section: Section | None,
@@ -535,26 +558,13 @@ def _terminus_caption_above(
     if trunk_y is None or icon_cy >= trunk_y - SAME_COORD_TOLERANCE:
         return False
     tol = SAME_COORD_TOLERANCE
-    for edge in graph.edges_to(station.id):
-        branch = graph.stations.get(edge.source)
-        if (
-            branch is None
-            or edge.source not in graph.half_grid_station_ids
-            or branch.y >= trunk_y - tol
-        ):
-            continue
-        for hub_edge in graph.edges_to(edge.source):
-            hub = graph.stations.get(hub_edge.source)
-            if hub is None or abs(hub.y - trunk_y) > tol:
-                continue
-            if any(
-                (through := graph.stations.get(out.target)) is not None
-                and through.id != edge.source
-                and abs(through.y - trunk_y) <= tol
-                for out in graph.edges_from(hub_edge.source)
-            ):
-                return True
-    return False
+    return any(
+        (branch := graph.stations.get(edge.source)) is not None
+        and edge.source in graph.half_grid_station_ids
+        and branch.y < trunk_y - tol
+        and _fork_hub_bypasses_trunk(graph, edge.source, trunk_y, tol)
+        for edge in graph.edges_to(station.id)
+    )
 
 
 def _icon_obstacles_by_station(

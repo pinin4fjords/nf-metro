@@ -712,11 +712,6 @@ def _symmetric_entry_fork_pairs(
     return pairs
 
 
-def _symmetric_entry_fork_pair_ids(graph: MetroGraph, section: Section) -> set[str]:
-    """Station ids forming this section's symmetric two-way entry fork pairs."""
-    return {sid for pair in _symmetric_entry_fork_pairs(graph, section) for sid in pair}
-
-
 def _section_has_symmetric_entry_fork(graph: MetroGraph, section: Section) -> bool:
     """Return True when the section carries a symmetric two-way entry fork."""
     return bool(_symmetric_entry_fork_pairs(graph, section))
