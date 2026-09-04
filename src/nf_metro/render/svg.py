@@ -604,6 +604,7 @@ def render_svg(
     self_color_scheme: bool = True,
     baked_mode: str | None = None,
     bare: bool = False,
+    inactive_line_ids: frozenset[str] | None = None,
 ) -> str:
     """Render a metro map graph to an SVG string.
 
@@ -662,12 +663,20 @@ def render_svg(
     hugs the diagram content.  The attribution watermark is kept.  Use for
     embedding the SVG inside a host page that supplies its own frame and
     heading.
+
+    ``inactive_line_ids``: the set of line IDs to render muted grey.  ``None``
+    (default) resolves the map's own declared-inactive set
+    (``graph.default_inactive_line_ids()``), so a ``%%metro line: ... inactive``
+    directive takes effect.  An explicit set overrides that declaration for this
+    render; an empty set forces every line active.
     """
     if not graph.stations:
         return '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
 
     if animate is None:
         animate = graph.animate
+
+    effective_inactive = graph.resolve_inactive_line_ids(inactive_line_ids)
 
     metrics_face = metrics_face_for_portability(font_portability)
     with class_prefix_context(svg_class_prefix):
@@ -682,6 +691,7 @@ def render_svg(
             chrome_css=chrome_css,
             bare=bare,
             metrics_face=metrics_face,
+            inactive_line_ids=effective_inactive,
         )
         svg = emit_render_plan(
             plan,

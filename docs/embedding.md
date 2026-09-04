@@ -136,7 +136,7 @@ stay baked as presentation attributes.
 
 The fallback behind each property isn't a single color - it's a `light-dark()`
 pair, so the map already adapts to the viewer's `color-scheme` even before any
-host override. See [Theming](/nf-metro/dev/theming/) for how that mechanism
+host override. See [Theming](/nf-metro/theming/) for how that mechanism
 works and how to reuse it in your own SVGs.
 
 ### Multiple maps on one page - `--svg-class-prefix`
@@ -169,7 +169,7 @@ nf-metro render pipeline.mmd -o pipeline.svg --no-self-color-scheme
 Your page then needs to actually set `color-scheme` where the map can inherit
 it - a class or `data-theme` attribute toggled by your theme switch, each
 setting `color-scheme: light` or `color-scheme: dark` (a single value, not
-`light dark`) on an ancestor. See [Theming](/nf-metro/dev/theming/) for why
+`light dark`) on an ancestor. See [Theming](/nf-metro/theming/) for why
 this flag exists and how the docs site itself uses it.
 
 ### Dark-mode opt-out - `--no-dark-mode-css`
@@ -185,7 +185,7 @@ nf-metro render pipeline.mmd -o pipeline.svg --no-dark-mode-css
 
 This block is a separate, coarser fallback from the `--nfm-*` custom
 properties above - it exists because a transparent background has no color of
-its own to carry a `light-dark()` pair. See [Theming](/nf-metro/dev/theming/)
+its own to carry a `light-dark()` pair. See [Theming](/nf-metro/theming/)
 for why the two mechanisms differ.
 
 ### Raster export (PNG) - `--mode` and `--no-chrome-css`
