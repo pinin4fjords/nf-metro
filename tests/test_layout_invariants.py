@@ -223,6 +223,7 @@ def _layout(fixture: str, *, _cache: bool = True, **kwargs) -> MetroGraph:
         return copy.deepcopy(_LAYOUT_CACHE[key])
     text = path.read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(path.parent)
     # Legacy fixtures under tests/fixtures/ were authored before the
     # parser parsed center_ports directly; preserve their implicit
     # center_ports=True default.  Examples set the directive in-file.
@@ -244,6 +245,7 @@ def _layout_example(name: str, *, _cache: bool = True, **kwargs) -> MetroGraph:
     if _cache and key in _LAYOUT_CACHE:
         return copy.deepcopy(_LAYOUT_CACHE[key])
     graph = parse_metro_mermaid(path.read_text())
+    graph.source_dir = str(path.parent)
     compute_layout(graph, **kwargs)
     if not _cache:
         return graph
@@ -2095,9 +2097,10 @@ _TITLE_TOGGLE_FIXTURES = [
 ]
 
 
-def _untitled_bbox_top(text: str) -> float | None:
+def _untitled_bbox_top(text: str, source_dir: str) -> float | None:
     """Lay out *text* with its title stripped and return the drawn top."""
     untitled = parse_metro_mermaid(text)
+    untitled.source_dir = source_dir
     untitled.title = ""
     compute_layout(untitled)
     return _min_drawn_section_bbox_top(untitled)
@@ -2112,15 +2115,18 @@ def test_title_only_moves_a_map_whose_header_would_overlap(fixture):
     title band (untitled top at or below ``TITLE_BAND_OVERLAP_FLOOR``) is left
     byte-for-byte where it was; one that would overlap is pushed down clear.
     """
-    text = _fixture_text(fixture)
+    path = _resolve_fixture(fixture)
+    text = path.read_text()
+    source_dir = str(path.parent)
 
     titled = parse_metro_mermaid(text)
+    titled.source_dir = source_dir
     if not titled.title:
         pytest.skip("fixture declares no title")
     compute_layout(titled)
     titled_top = _min_drawn_section_bbox_top(titled)
 
-    untitled_top = _untitled_bbox_top(text)
+    untitled_top = _untitled_bbox_top(text, source_dir)
 
     assert titled_top is not None and untitled_top is not None
     assert titled_top >= untitled_top - GUARD_TOLERANCE
@@ -2153,14 +2159,16 @@ def test_title_band_not_reserved_when_nothing_drawn_there(fixture):
     where an untitled map would, even when the header would otherwise
     overlap the title band.
     """
-    text = _fixture_text(fixture)
+    path = _resolve_fixture(fixture)
+    text = path.read_text()
+    source_dir = str(path.parent)
 
-    untitled_top = _untitled_bbox_top(text)
+    untitled_top = _untitled_bbox_top(text, source_dir)
     assert untitled_top is not None
     if untitled_top >= TITLE_BAND_OVERLAP_FLOOR - GUARD_TOLERANCE:
         pytest.skip("fixture's header does not overlap the title band")
 
-    bare_graph = prepare_graph(text, bare=True)
+    bare_graph = prepare_graph(text, bare=True, source_dir=source_dir)
     bare_top = _min_drawn_section_bbox_top(bare_graph)
     assert bare_top == pytest.approx(untitled_top, abs=GUARD_TOLERANCE), (
         f"{fixture}: --bare top y={bare_top:.1f} reserves title-band space "

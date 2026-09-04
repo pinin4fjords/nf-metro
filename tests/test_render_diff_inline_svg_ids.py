@@ -26,7 +26,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 def _render_adaptive_logo_svg() -> str:
     text = (EXAMPLES / "sarek_metro.mmd").read_text()
-    return render_string(text, self_color_scheme=False)
+    return render_string(text, source_dir=str(EXAMPLES), self_color_scheme=False)
 
 
 def test_url_referenced_ids_are_unique_across_inlined_panels(tmp_path):

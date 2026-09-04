@@ -55,6 +55,7 @@ def _load_and_layout(path: Path, max_station_columns: int = 15):
     """Parse a .mmd file and run layout."""
     text = path.read_text()
     graph = parse_metro_mermaid(text, max_station_columns=max_station_columns)
+    graph.source_dir = str(path.parent)
     compute_layout(graph)
     return graph
 
@@ -164,9 +165,6 @@ def test_stacked_sections_serpentine_no_backtrack(path):
 FUNCPROFILER_FIXTURE = TOPOLOGIES_DIR / "funcprofiler_upstream.mmd"
 
 
-@pytest.mark.skipif(
-    not FUNCPROFILER_FIXTURE.exists(), reason="funcprofiler_upstream fixture absent"
-)
 class TestFuncprofilerUpstreamReportingLine:
     """The reporting line rides the trunk through funcprofiler_upstream."""
 
@@ -198,10 +196,6 @@ class TestFuncprofilerUpstreamReportingLine:
 EXIT_RUN_THREE_DROP_FIXTURE = TOPOLOGIES_DIR / "exit_run_three_drop_columns.mmd"
 
 
-@pytest.mark.skipif(
-    not EXIT_RUN_THREE_DROP_FIXTURE.exists(),
-    reason="exit_run_three_drop_columns fixture absent",
-)
 class TestExitRunThreeDropColumnsMergeFeeder:
     """The adjacent merge feeder keeps its lane instead of sloping onto the trunk."""
 

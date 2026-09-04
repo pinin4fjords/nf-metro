@@ -310,10 +310,10 @@ These go at the top of the file, before `graph LR`.
 **Logos.** `%%metro logo: <path>` bundles one image into the legend, and that image is used whatever the display mode. `%%metro logo: <light-path> | <dark-path>` supplies a pair instead. Both assets are embedded, each behind a CSS `light-dark()` mask, so one rendered SVG shows the light asset to a viewer whose `color-scheme` is light and the dark asset to one whose scheme is dark - the same adaptation the palette gets, with no second render:
 
 ```metro
-%%metro logo: examples/nf-core-rnaseq_logo_light.png | examples/nf-core-rnaseq_logo_dark.png
+%%metro logo: nf-core-rnaseq_logo_light.png | nf-core-rnaseq_logo_dark.png
 ```
 
-`--mode` on its own still ships both assets and pins the SVG's own `color-scheme`, so the matching one is what shows. Baking a concrete palette (`--no-chrome-css`, which a PNG export needs) drops the masks instead and keeps only the asset for the resolved mode, so `--mode dark` bakes the dark logo and `--mode light` the light one. Either side of the pair may be left empty (`%%metro logo: light.png |`) for an asset that appears in one mode only; the other mode then shows no logo at all. Both paths resolve relative to the `.mmd` file, and either one failing to resolve is an error. `--logo` sets the single-path form only: it does not replace a pair declared in the file.
+`--mode` on its own still ships both assets and pins the SVG's own `color-scheme`, so the matching one is what shows. Baking a concrete palette (`--no-chrome-css`, which a PNG export needs) drops the masks instead and keeps only the asset for the resolved mode, so `--mode dark` bakes the dark logo and `--mode light` the light one. Either side of the pair may be left empty (`%%metro logo: light.png |`) for an asset that appears in one mode only; the other mode then shows no logo at all. Both paths resolve relative to the `.mmd` file, and either one failing to resolve is an error. `--logo` sets the single-path form only: it does not replace a pair declared in the file, and its argument is a path from the working directory rather than from the `.mmd`.
 
 **Compact offsets.** By default, each line reserves a fixed vertical slot across the whole map based on its declaration order. If you define three lines, every station that carries even one of them is sized to fit all three. This keeps bundles visually consistent but wastes space when most stations only carry one or two lines.
 

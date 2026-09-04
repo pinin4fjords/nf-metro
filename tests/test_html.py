@@ -14,6 +14,9 @@ from nf_metro.themes import THEMES
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 RNASEQ_MMD = EXAMPLES_DIR / "rnaseq_sections.mmd"
+# Copied into a temp directory below, so it must name no asset that resolves
+# relative to the map file.
+STANDALONE_MMD = EXAMPLES_DIR / "variant_calling.mmd"
 
 
 def _render_html_via_cli(tmp_path):
@@ -38,7 +41,7 @@ def test_render_html_exits_zero_and_writes_nonempty(tmp_path):
 def test_render_html_default_output_extension(tmp_path):
     """render --format html defaults the output filename to the input stem + .html."""
     mmd = tmp_path / "diagram.mmd"
-    mmd.write_text(RNASEQ_MMD.read_text())
+    mmd.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(mmd), "--format", "html"])
     assert result.exit_code == 0, result.output
@@ -122,10 +125,12 @@ def test_render_html_embedded_svg_matches_standalone_render():
     theme = THEMES["nfcore"]
 
     graph_html = parse_metro_mermaid(text)
+    graph_html.source_dir = str(EXAMPLES_DIR)
     compute_layout(graph_html)
     html_out = render_html(graph_html, theme)
 
     graph_svg = parse_metro_mermaid(text)
+    graph_svg.source_dir = str(EXAMPLES_DIR)
     compute_layout(graph_svg)
     expected_svg = render_svg(graph_svg, theme, legend_position="none")
 
@@ -136,6 +141,7 @@ def test_render_html_title_in_markup():
     """The graph title surfaces in the page header."""
     text = RNASEQ_MMD.read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(EXAMPLES_DIR)
     compute_layout(graph)
     html_out = render_html(graph, THEMES["nfcore"])
 
@@ -152,6 +158,7 @@ def test_render_html_forwards_font_portability_embed():
     """font_portability='embed' inlines the webfont into the page's SVG."""
     text = RNASEQ_MMD.read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(EXAMPLES_DIR)
     compute_layout(graph)
 
     plain = render_html(graph, THEMES["nfcore"])

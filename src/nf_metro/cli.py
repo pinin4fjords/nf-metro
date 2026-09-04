@@ -214,6 +214,9 @@ def _parse_reporting_warnings(
             if caught:
                 _echo_block(label, [str(w.message) for w in caught])
             _clean_error(e, f"{input_file}: ")
+    # A `%%metro logo:` path resolves against the directory the map came from,
+    # which only this function knows here.
+    graph.source_dir = str(input_file.resolve().parent)
     return graph, [str(w.message) for w in caught]
 
 

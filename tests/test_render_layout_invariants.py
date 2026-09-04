@@ -61,6 +61,7 @@ CLEAN_FIXTURES = [
 
 def _laid_out(name: str) -> MetroGraph:
     graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    graph.source_dir = str((EXAMPLES / name).parent)
     compute_layout(graph)
     return graph
 
@@ -443,6 +444,7 @@ def _laid_out_repro(fixture_dir: str, name: str, fold: int | None) -> MetroGraph
         "topologies": EXAMPLES / "topologies",
     }[fixture_dir]
     graph = parse_metro_mermaid((base / name).read_text(), max_station_columns=fold)
+    graph.source_dir = str((base / name).parent)
     compute_layout(graph)
     return graph
 
@@ -754,6 +756,7 @@ def test_label_grown_box_edge_carries_its_port(name: str) -> None:
     """A box edge grown to seat a label keeps the port anchored to it, and the
     runs landing on that port keep terminating on it."""
     graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    graph.source_dir = str((EXAMPLES / name).parent)
     compute_layout(graph)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

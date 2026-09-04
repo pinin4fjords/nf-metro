@@ -86,7 +86,10 @@ def render_file(
     try:
         text = mmd_path.read_text()
         graph = prepare_graph(
-            text, from_nextflow=is_nextflow, layout_options=layout_options
+            text,
+            from_nextflow=is_nextflow,
+            layout_options=layout_options,
+            source_dir=str(mmd_path.resolve().parent),
         )
     except _LAYOUT_ERRORS as e:
         return name, [f"LAYOUT ERROR: {e}"]

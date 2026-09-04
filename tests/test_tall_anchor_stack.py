@@ -46,8 +46,9 @@ def _section_columns(graph) -> set[int]:
     return cols
 
 
-def _render_width(text: str) -> int:
+def _render_width(text: str, source_dir: str = "") -> int:
     graph = parse_metro_mermaid(text)
+    graph.source_dir = source_dir
     compute_layout(graph)
     svg = render_svg(graph, NFCORE_DARK_THEME)
     match = re.search(r'width="(\d+)"', svg)
