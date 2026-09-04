@@ -283,8 +283,8 @@ it would turn such a line into a fatal error instead.
 
 <Aside type="danger" title="Do not switch the parser to lalr">
   Switching to `lalr` would turn any partly-matched unrecognised line into a
-  fatal parse error instead of a dropped `junk` statement. The leniency policy of
-  warning rather than crashing depends on Earley's ability to backtrack. The
+  fatal parse error instead of a dropped `junk` statement. The leniency policy
+  of warning rather than crashing depends on Earley's ability to backtrack. The
   parse runs once per render, so Earley's extra cost over `lalr` is not worth
   trading away for this behaviour change.
 </Aside>

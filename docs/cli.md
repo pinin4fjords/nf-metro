@@ -96,8 +96,7 @@ light/dark pair, so `--mode` does not apply to it.
 | `--width INTEGER`                          | auto              | Output width in pixels                                                                                                                                                                                                                                                              |
 | `--height INTEGER`                         | auto              | Output height in pixels                                                                                                                                                                                                                                                             |
 
-Spacings, scales, `--fold-threshold` and output dimensions must be greater than
-0. The section gaps, `--track-gap`, `--legend-min-height` and
+Spacings, scales, `--fold-threshold` and output dimensions must be greater than 0. The section gaps, `--track-gap`, `--legend-min-height` and
 `--legend-logo-gap` also accept 0. Every numeric option requires a finite
 number, so `nan` and `inf` are refused. Out of range, the flag exits with an
 error, while the equivalent `%%metro` directive warns and keeps the default.

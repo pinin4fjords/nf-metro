@@ -392,7 +392,7 @@ Event on `GET /stream`:
   `data-node-id` carry, so a consumer joins the two without any translation. A
   node the runtime hasn't reported on yet is absent from a hand-built snapshot.
   In nf-metro's own server it is present as `{state: "pending", done: 0,
-  total: 0}`, because the server pre-populates every mapped node so a fresh
+total: 0}`, because the server pre-populates every mapped node so a fresh
   subscriber never sees a missing key.
 - **`run`** is one lifecycle value for the whole snapshot, not one per node.
 
