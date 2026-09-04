@@ -21,6 +21,10 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges
 from nf_metro.layout.routing.common import RoutedPath
 from nf_metro.layout.routing.corners import curve_tangents, resolve_curve_radii
+from nf_metro.layout.routing.invariants import (
+    _ORTHOGONAL_TURN_FLOOR,
+    _ORTHOGONAL_TURN_TOL,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render import build_render_plan, emit_render_plan
 from nf_metro.render.animate import _points_to_svg_path
@@ -118,14 +122,28 @@ def _turning_corner_indices(points: list[tuple[float, float]]) -> list[int]:
     return turning
 
 
-class TestCurveRadiiLength:
-    """Every route carries one resolved radius per corner, and every corner
-    that changes direction resolves to a formed curve.
+def _requested_corner_radius(route: RoutedPath, corner_idx: int) -> float:
+    """The radius the route's handler asked for at *corner_idx*.
 
-    ``curve_radii`` is the per-corner request a handler may leave unset; the
-    resolved list is what the renderer draws, so both the explicit request and
-    the resolution are held to the corner count.  A direction change resolving
-    to a zero radius would draw as a mitre, not a curve.
+    Mirrors :func:`check_orthogonal_turns_form_curves`: an unset entry means the
+    handler expressed no preference and takes the default.
+    """
+    desired = route.curve_radii
+    if desired and corner_idx < len(desired) and desired[corner_idx] is not None:
+        return desired[corner_idx]
+    return CURVE_RADIUS
+
+
+class TestCurveRadiiLength:
+    """Every routed edge carries one radius per corner, and reaches the engine's
+    own formed-curve floor at each corner that changes direction.
+
+    ``curve_radii`` is the per-corner request a handler may leave unset, so both
+    it and the budget-clamped resolution of it are held to the corner count.
+    The floor is :func:`check_orthogonal_turns_form_curves`'s, imported so the
+    two cannot drift: below it a turn draws as a hard corner.  That guard polices
+    orthogonal inter-section turns only, and the bound is applied here to every
+    route and to diagonal turns as well.
     """
 
     def _check_routes(self, routes: list[RoutedPath]):
@@ -148,10 +166,15 @@ class TestCurveRadiiLength:
                 f"corners ({len(route.points)} points)"
             )
             for corner_idx in _turning_corner_indices(route.points):
-                assert resolved[corner_idx] > 0.0, (
+                requested = _requested_corner_radius(route, corner_idx)
+                # A corner asking for a tighter arc than the floor curves as
+                # designed, which is the exemption the guard itself makes.
+                floor = min(_ORTHOGONAL_TURN_FLOOR, requested) - _ORTHOGONAL_TURN_TOL
+                assert resolved[corner_idx] >= floor, (
                     f"{where}: direction change at point "
                     f"{route.points[corner_idx + 1]} resolves to radius "
-                    f"{resolved[corner_idx]}, so it draws as a mitre"
+                    f"{resolved[corner_idx]:.3f}, below the {floor:.3f} floor "
+                    f"for a requested {requested:.3f}, so it draws as a hard corner"
                 )
 
     def test_simple_diamond(self):

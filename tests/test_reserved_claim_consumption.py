@@ -52,8 +52,9 @@ _CORPUS = _corpus()
 # allow-list cannot quietly absorb a new one.
 KNOWN_NOT_RENDERING = frozenset(
     {
-        # Frozen fuzz seeds: abort on a routing invariant that
-        # tests/test_convergence_planner.py holds them to instead.
+        # Frozen fuzz seeds: tests/test_hash_seed_determinism.py holds each one
+        # to its exact set of defect classes and to a hash of the exception it
+        # raises, so the abort is pinned there rather than unexamined.
         "tests/fixtures/hash_seed_determinism/seed_15.mmd",
         "tests/fixtures/hash_seed_determinism/seed_41.mmd",
         "tests/fixtures/hash_seed_determinism/seed_77.mmd",
