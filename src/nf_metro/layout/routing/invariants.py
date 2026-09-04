@@ -336,12 +336,47 @@ class SharedRunTurnFlip:
 
 
 class _OpeningTurn(NamedTuple):
-    """A route's opening horizontal run and the vertical it turns onto."""
+    """A route's opening horizontal run and the vertical it turns onto.
+
+    ``corridor_y`` is the Y of a horizontal leg that immediately reverses the
+    run after the turn -- the bottom of a ``]``-shaped U-turn onto a corridor
+    running back against ``run_dir`` -- or ``None`` for a terminal turn or one
+    whose next leg continues in the run's own direction.
+    :func:`_shared_run_turn_flip` reads it to spot a translated fold, whose
+    reversal makes the pair's crossing structurally forced rather than a fixable
+    ordering bug; see that function for the geometric argument.
+    """
 
     run_y: float
     turn_x: float
     run_dir: Direction
     turn_dir: Direction
+    corridor_y: float | None
+
+
+def _reversed_corridor_y(
+    pts: Sequence[tuple[float, float]], run_dir: Direction
+) -> float | None:
+    """The Y of a corridor the route U-turns onto against ``run_dir``.
+
+    The leg right after the opening riser (``pts[2] -> pts[3]``): when it is
+    horizontal and travels opposite to ``run_dir`` the route has folded into a
+    ``]``-shape, and that leg's Y is the corridor the bundle re-forms on.  A
+    same-direction next leg is a staircase, not a U-turn, and yields ``None``.
+    """
+    if len(pts) < 4:
+        return None
+    (x2, y2), (x3, y3) = pts[2], pts[3]
+    if abs(y3 - y2) > COORD_TOLERANCE or abs(x3 - x2) <= COORD_TOLERANCE:
+        return None
+    if horizontal_direction(x3 - x2) is run_dir:
+        return None
+    return y2
+
+
+def _same_sign(a: float, b: float) -> bool:
+    """Whether two deltas point the same way -- one line on one side of another."""
+    return (a > 0) == (b > 0)
 
 
 def _opening_turn(pts: Sequence[tuple[float, float]]) -> _OpeningTurn | None:
@@ -350,11 +385,13 @@ def _opening_turn(pts: Sequence[tuple[float, float]]) -> _OpeningTurn | None:
     if opening is None:
         return None
     (x0, y0), (x1, y1), (_x2, y2) = opening
+    run_dir = horizontal_direction(x1 - x0)
     return _OpeningTurn(
         run_y=y0,
         turn_x=x1,
-        run_dir=horizontal_direction(x1 - x0),
+        run_dir=run_dir,
         turn_dir=vertical_direction(y2 - y1),
+        corridor_y=_reversed_corridor_y(pts, run_dir),
     )
 
 
@@ -366,12 +403,33 @@ def _shared_run_turn_flip(
     ``None`` also when either coordinate pair is within tolerance: two lines on
     one lane, or turning at one column, are a single track rather than a nesting
     to compare.
+
+    A ``]``-shaped U-turn folds the opening run down its turn column and back
+    onto a reversed corridor; each route's run->turn->corridor triple is one
+    bracket.  When both routes fold and their run-Y and corridor-Y order agree
+    -- concretely ``(a.run_y - b.run_y > 0) == (a.corridor_y - b.corridor_y > 0)``,
+    each line on the same side of the other on the run and on the corridor -- the
+    two brackets are congruent and translated the same way on both legs, so they
+    intersect wherever they are placed.  That crossing is inherent to the fold,
+    not a fixable bundle-order flip, so the pair is exempt.  A concentric fold
+    straddles a shared centre (the orders disagree), where the turn-column
+    comparison below reads the nesting correctly.
     """
+    if a.corridor_y is not None and b.corridor_y is not None:
+        run_dy = a.run_y - b.run_y
+        corridor_dy = a.corridor_y - b.corridor_y
+        is_forced_crossing = (
+            abs(run_dy) > COORD_TOLERANCE
+            and abs(corridor_dy) > COORD_TOLERANCE
+            and _same_sign(run_dy, corridor_dy)
+        )
+        if is_forced_crossing:
+            return None
     run_cmp = a.turn_dir.sign * (a.run_y - b.run_y)
     turn_cmp = a.run_dir.sign * (a.turn_x - b.turn_x)
     if abs(run_cmp) <= COORD_TOLERANCE or abs(turn_cmp) <= COORD_TOLERANCE:
         return None
-    if (run_cmp > 0) != (turn_cmp > 0):
+    if not _same_sign(run_cmp, turn_cmp):
         return None
     return SharedRunTurnFlip(
         source_id=source_id,
