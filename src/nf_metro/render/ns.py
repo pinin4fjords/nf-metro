@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
-import hashlib
 from collections.abc import Generator
 
 __all__ = ["ns", "class_prefix_context", "adaptive_logo_mask_ids"]
@@ -20,21 +19,19 @@ def ns(cls: str) -> str:
     return f"{p}-{cls}" if p else cls
 
 
-def adaptive_logo_mask_ids(key_path: str) -> tuple[str, str]:
-    """Return stable, unique SVG mask IDs for an adaptive logo pair.
+def adaptive_logo_mask_ids() -> tuple[str, str]:
+    """Return the SVG mask IDs for an adaptive logo pair.
 
-    IDs are derived from the final segment of *key_path* (dark logo if
-    available, else light) so the same asset always maps to the same IDs,
-    avoiding collisions when multiple SVGs are inlined on one page. Only the
-    final segment is keyed because *key_path* has been resolved against the
-    map's source directory and so carries the absolute location of the
-    checkout, which must not reach the rendered bytes. Two distinct assets
-    that share a final segment share a mask harmlessly: both masks are plain
-    ``light-dark()`` rects whose content does not depend on the asset.
-    Returns ``(dark_mask_id, light_mask_id)``.
+    There is one mask per display-mode role, not per asset: each is a
+    ``light-dark()`` rect sized in ``objectBoundingBox`` units, so its content
+    is a function of the role alone and it clips whatever element references it
+    to that element's own box. Two assets of different sizes therefore share a
+    mask correctly. Keying the ID on the asset would advertise a uniqueness the
+    mask does not have, and any key derived from the resolved path would put
+    the location of the checkout into the rendered bytes. ``ns()`` supplies the
+    per-render prefix that separates SVGs inlined on one page.
     """
-    h = hashlib.md5(key_path.rsplit("/", 1)[-1].encode()).hexdigest()[:8]
-    return ns(f"nfm-logo-mask-dark-{h}"), ns(f"nfm-logo-mask-light-{h}")
+    return ns("nfm-logo-mask-dark"), ns("nfm-logo-mask-light")
 
 
 @contextlib.contextmanager

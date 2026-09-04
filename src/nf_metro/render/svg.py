@@ -2974,8 +2974,7 @@ def _render_adaptive_logo(
     color-scheme from the host document so logos follow a page's dark/light
     toggle, not only the OS media preference.
     """
-    key_path = dark_path or light_path
-    dark_mask_id, light_mask_id = _adaptive_logo_mask_ids(key_path)
+    dark_mask_id, light_mask_id = _adaptive_logo_mask_ids()
     defs_parts = []
     if dark_path:
         defs_parts.append(

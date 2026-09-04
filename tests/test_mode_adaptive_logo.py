@@ -91,23 +91,90 @@ def test_effective_logo_path_honors_mode_independent_of_brand_style():
     assert _effective_logo_path(g, "dark") == "dark.png"
 
 
-def test_adaptive_logo_mask_ids_stable():
-    dark_id, light_id = _adaptive_logo_mask_ids("examples/logo_dark.png")
-    dark_id2, light_id2 = _adaptive_logo_mask_ids("examples/logo_dark.png")
-    assert dark_id == dark_id2
-    assert light_id == light_id2
-
-
-def test_adaptive_logo_mask_ids_different_paths():
-    dark_a, light_a = _adaptive_logo_mask_ids("examples/logo_a_dark.png")
-    dark_b, light_b = _adaptive_logo_mask_ids("examples/logo_b_dark.png")
-    assert dark_a != dark_b
-    assert light_a != light_b
-
-
 def test_adaptive_logo_mask_ids_dark_light_differ():
-    dark_id, light_id = _adaptive_logo_mask_ids("examples/logo_dark.png")
+    dark_id, light_id = _adaptive_logo_mask_ids()
     assert dark_id != light_id
+
+
+_LOGO_MAP = (
+    "%%metro logo: light.png | dark.png\n"
+    "%%metro line: a | A | #f00\n"
+    "graph LR\n  n1[N1] -->|a| n2[N2]\n"
+)
+
+
+def _map_dir(root: Path, name: str, *, size: tuple[int, int]) -> Path:
+    """Write a logo-bearing map and its asset pair into ``root/name``."""
+    d = root / name
+    d.mkdir(parents=True)
+    (d / "map.mmd").write_text(_LOGO_MAP)
+    for variant, colour in (("light", (255, 0, 0)), ("dark", (0, 0, 255))):
+        img = PILImage.new("RGB", size, color=colour)
+        img.save(d / f"{variant}.png", format="PNG")
+    return d
+
+
+def _mask_ids(svg: str) -> list[str]:
+    """Every mask ID the adaptive logo emits, whole rather than by prefix.
+
+    Matching a prefix would pass a keyed ID straight through: the part that
+    would carry the key is exactly the part a prefix match drops.
+    """
+    return sorted(re.findall(r'<mask id="([^"]+)"', _mask_defs(svg)))
+
+
+def _mask_defs(svg: str) -> str:
+    """The one ``<defs>`` block carrying the adaptive-logo masks.
+
+    The renderer emits other defs blocks, so this selects by content rather
+    than by position.
+    """
+    blocks = [
+        m.group(0)
+        for m in re.finditer(r"<defs>.*?</defs>", svg, re.S)
+        if "nfm-logo-mask" in m.group(0)
+    ]
+    assert len(blocks) == 1, f"expected one logo mask defs block, got {len(blocks)}"
+    return blocks[0]
+
+
+def test_mask_ids_do_not_depend_on_where_the_asset_lives(tmp_path):
+    """The same asset reached from two directories yields the same mask IDs.
+
+    A mask ID derived from the resolved path would put the location of the
+    checkout into the rendered bytes, so the same map rendered from two
+    checkouts would not agree.
+    """
+    here = _map_dir(tmp_path, "here", size=(100, 50))
+    there = _map_dir(tmp_path / "nested" / "deeper", "there", size=(100, 50))
+
+    ids_here = _mask_ids(
+        render_string((here / "map.mmd").read_text(), source_dir=str(here))
+    )
+    ids_there = _mask_ids(
+        render_string((there / "map.mmd").read_text(), source_dir=str(there))
+    )
+    assert ids_here == ids_there
+    assert ids_here == ["nfm-logo-mask-dark", "nfm-logo-mask-light"]
+
+
+def test_mask_defs_are_identical_for_two_different_assets(tmp_path):
+    """Two unrelated assets share one mask block, and that is correct.
+
+    Each mask is a ``light-dark()`` rect in ``objectBoundingBox`` units, so it
+    clips whichever element references it to that element's own box; nothing in
+    it depends on the asset. Keying an ID on the asset would therefore claim a
+    uniqueness the mask does not have.
+    """
+    wide = _map_dir(tmp_path, "wide", size=(200, 40))
+    tall = _map_dir(tmp_path, "tall", size=(40, 200))
+
+    wide_svg = render_string((wide / "map.mmd").read_text(), source_dir=str(wide))
+    tall_svg = render_string((tall / "map.mmd").read_text(), source_dir=str(tall))
+
+    assert _mask_defs(wide_svg) == _mask_defs(tall_svg)
+    # The assets themselves differ, so the shared defs are not a rendering fluke.
+    assert wide_svg != tall_svg
 
 
 def test_has_adaptive_logos_false_when_files_missing():

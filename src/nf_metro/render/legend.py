@@ -412,8 +412,7 @@ def render_legend(
         logo_x = x + padding
         logo_y = y + padding + (content_height - scaled_h) / 2
         if has_adaptive:
-            key_path = logo_path_dark or logo_path_light or ""
-            dark_mask_id, light_mask_id = _adaptive_logo_mask_ids(key_path)
+            dark_mask_id, light_mask_id = _adaptive_logo_mask_ids()
             defs_parts = []
             if logo_path_dark:
                 defs_parts.append(
