@@ -878,19 +878,18 @@ def convert(
             err=True,
         )
 
-    # Report the converter's own warning the way this command reports the one
-    # above, rather than leaving it to Python's default handler.
     with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", FeedbackEdgesDroppedWarning)
+        warnings.simplefilter("always")
         result = convert_nextflow_dag(text, title=title or "")
 
-    dropped = 0
-    for w in caught:
-        if isinstance(w.message, FeedbackEdgesDroppedWarning):
-            dropped += len(w.message.connections)
-            click.echo(f"Warning: {w.message}", err=True)
-        else:
-            warnings.showwarning(w.message, w.category, w.filename, w.lineno)
+    if caught:
+        _echo_block("Warnings", [str(w.message) for w in caught])
+
+    dropped = sum(
+        len(w.message.connections)
+        for w in caught
+        if isinstance(w.message, FeedbackEdgesDroppedWarning)
+    )
 
     if output is None:
         click.echo(result, nl=False)

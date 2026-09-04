@@ -1233,7 +1233,12 @@ NEXTFLOW_DIR = FIXTURES_DIR / "nextflow"
 
 
 def test_convert_reports_removed_feedback_on_stderr(tmp_path):
-    """The converter's warning reads like the command's other diagnostic."""
+    """The converter's warning reaches the user as a labelled block.
+
+    A warning left to Python's own handler names the category and the
+    internal source line that raised it, neither of which means anything to
+    someone converting a pipeline.
+    """
     runner = CliRunner()
     out = tmp_path / "out.mmd"
     result = runner.invoke(
@@ -1242,9 +1247,11 @@ def test_convert_reports_removed_feedback_on_stderr(tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Warning: 1 feedback connection(s) removed" in result.output
+    assert "Warnings:" in result.output
+    assert "- 1 feedback connection(s) removed" in result.output
     assert "Polish -> Assemble" in result.output
     assert "FeedbackEdgesDroppedWarning" not in result.output
+    assert "cli.py" not in result.output
 
 
 def test_convert_summary_line_counts_removed_feedback(tmp_path):
