@@ -228,6 +228,21 @@ direction.
 which the spec excludes. Chromium and WebKit keep them OS-only; Firefox
 propagates the host's `color-scheme` into them too - don't rely on either.
 
+<Aside type="caution" title="This makes one SVG a reasonable design, not a universal one">
+
+A single correctly-authored SVG genuinely does not need a light/dark pair of
+files - but only document it as "adaptive in Chromium and Firefox, best
+effort in Safari," never as "adaptive everywhere." The Safari gap is a real
+engine limitation with no authoring fix: no `.mmd` directive, render flag, or
+CSS trick on the embedding page changes it. It also fails safely, not badly -
+the image just keeps showing whichever palette the OS/browser already
+defaulted to, rather than breaking or looking corrupted. That combination
+(works on the two engines that matter most for most audiences, degrades
+gracefully on the third) is what makes one file a reasonable choice instead
+of a broken promise - claiming full cross-browser parity from it would not be.
+
+</Aside>
+
 <Aside type="note" title="A real example: nf-core/rnaseq's README map">
 
 [nf-core/rnaseq](https://github.com/nf-core/rnaseq) embeds its pipeline map
