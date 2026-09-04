@@ -165,6 +165,27 @@ not a property like `color-scheme` that `light-dark()` resolves per value
 `--no-dark-mode-css` turns it off, for a host whose own theming it would
 otherwise fight.
 
+<Aside type="note" title="A real example: nf-core/rnaseq's README map">
+
+nf-metro ships one theme with no light/dark sibling at all - `light`
+(`THEME_MODES`, `src/nf_metro/themes/__init__.py`). For it, `mode_pair(theme)`
+returns `None`: every `--nfm-*` fallback is a single baked value, no
+`light-dark()` anywhere, and `self_color_scheme` has nothing to do (no
+`color-scheme` gets declared either way). The media query above is the only
+adaptation such a theme gets.
+
+This is exactly the theme [nf-core/rnaseq](https://github.com/nf-core/rnaseq)
+renders for its README map (`--theme light`, per its own
+[`docs/dev/metro_map.md`](https://github.com/nf-core/rnaseq/blob/master/docs/dev/metro_map.md)),
+embedded the ordinary way, as a committed SVG referenced by URL. Its checked-in
+file confirms it: zero `light-dark(`, zero `var(--nfm`, no `color-scheme` on
+the root - it predates chrome CSS, pinned to `nf-metro>=0.5.4`. Regenerating
+it with a current release would add `var(--nfm-*, ...)` fallbacks (still
+single-valued, `light` still has no pair to offer `light-dark()`), but the
+map's actual light/dark behavior wouldn't change either way.
+
+</Aside>
+
 ## Consumers that can't parse any of this
 
 Some SVG consumers - `cairosvg` among them - parse a restricted CSS subset
