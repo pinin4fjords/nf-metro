@@ -146,8 +146,8 @@ nf-metro validate-svg pipeline.svg
 # Valid: 42 nodes, schema version 1.0   (exits non-zero if it doesn't conform)
 ```
 
-(`validate-svg` uses `jsonschema`; install it with `pip install jsonschema` if it
-isn't already present.)
+(`validate-svg` uses `jsonschema`, which is not a runtime dependency; install it
+with `pip install "nf-metro[validate]"` if it isn't already present.)
 
 Add `--geometry` to also check the _drawn_ picture, not just the schema: it flags
 a route drawn through a station's label or marker (rail interchanges excepted).
