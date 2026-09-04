@@ -795,6 +795,7 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
             graph = parse_metro_mermaid(text)
         except ValueError as e:
             raise click.ClickException(str(e))
+        graph.source_dir = str(input_file.resolve().parent)
 
         issues.extend(validate_graph(graph))
 

@@ -370,6 +370,7 @@ def render_string(
     logo: str | None = None,
     legend: str | None = None,
     layout_options: Mapping[str, object] | None = None,
+    source_dir: str = "",
     debug: bool = False,
     responsive: bool = False,
     embed_font: bool = False,
@@ -388,6 +389,10 @@ def render_string(
     Callers that also need the graph (e.g. to run
     :func:`nf_metro.render.validate_render` on the output) should call
     :func:`prepare_graph` and :func:`render_graph` directly.
+
+    *source_dir* is the directory the map's ``.mmd`` came from, against which
+    its ``%%metro logo:`` paths resolve; a caller rendering file text must pass
+    it or those paths only resolve when the process cwd happens to match.
 
     *config* groups all render-side options into a :class:`RenderConfig` bundle.
     When supplied, the individual render-side keyword arguments (``output_format``,
@@ -472,6 +477,7 @@ def render_string(
         logo=logo,
         legend=legend,
         layout_options=layout_options,
+        source_dir=source_dir,
         bare=effective_cfg.bare,
         output_format=effective_cfg.output_format,
         metrics_face=effective_cfg.metrics_face,

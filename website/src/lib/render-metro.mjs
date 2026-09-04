@@ -49,9 +49,8 @@ import {
 const CACHE_DIR = join(process.cwd(), ".metro-cache");
 mkdirSync(CACHE_DIR, { recursive: true });
 
-// Repo root (one level above the Astro project). nf-metro resolves a map's
-// relative asset paths (e.g. `%%metro logo: examples/...png`) against the
-// working directory, so renders must run from here or the logo is dropped.
+// Repo root (one level above the Astro project): where the map corpus lives,
+// and the working directory the nf-metro CLI is invoked from.
 export const REPO_ROOT = join(process.cwd(), "..");
 
 // Part of the cache key, so a released layout change invalidates cached SVGs

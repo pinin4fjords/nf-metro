@@ -208,7 +208,11 @@ def render_mmd(
     byte-for-byte.
     """
     text = mmd_path.read_text()
-    graph = prepare_graph(text, from_nextflow=from_nextflow)
+    graph = prepare_graph(
+        text,
+        from_nextflow=from_nextflow,
+        source_dir=str(mmd_path.resolve().parent),
+    )
     graph.embed_manifest = False
     theme = resolve_theme(None, graph)
     plan = build_render_plan(
