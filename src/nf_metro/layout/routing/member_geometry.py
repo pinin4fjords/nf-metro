@@ -957,9 +957,9 @@ def _upstream_plan_fixes_channel(
 ) -> bool:
     """Whether a plan this allocator did not make already fixes the channel x.
 
-    Deliberately not :func:`planner_owns_segment_or_boundary`, which every
-    normalisation pass reads.  Three arms differ, and each difference is a
-    property of running before the member plan is stamped:
+    Deliberately not :func:`planner_owns_segment_or_boundary`.  Three arms
+    differ, and each difference is a property of running before the member plan
+    is stamped:
 
     * A fan or exit-lane transition membership resolved the whole corridor
       rather than one segment of it, so it fixes the channel at whichever rank

@@ -3235,9 +3235,8 @@ def planner_owns_segment_or_boundary(route: RoutedPath, rank: int) -> bool:
 
     Translating a segment stretches its two flanking legs to meet it, so both
     of its corners re-form: a segment beside a route-system-owned boundary is
-    as unavailable to a pass as an owned segment is.  Every normalisation pass
-    that moves a channel and every guard that refuses the result reads this
-    wider rule, so they read it from here.
+    as unavailable to a pass as an owned segment is.  The normalisation passes
+    and closing guards that read this wider rule read it from here.
     """
     return planner_owns_segment(route, rank) or route_system_owns_segment_boundary(
         route, rank
