@@ -143,5 +143,17 @@ jobs:
             echo "No changes to publish."
           else
             git commit -m "docs: deploy ${VERSION} (${GITHUB_SHA::8})"
-            git push origin HEAD:gh-pages
+            # A rejected push means a PR render preview landed in _pr/ while this
+            # build ran. That subtree is disjoint from the versioned directories
+            # written here, so replay this commit onto the new tip and retry.
+            for delay in 5 10 20 40 0; do
+              if git push origin HEAD:gh-pages; then
+                exit 0
+              fi
+              sleep "$delay"
+              git fetch --depth=1 origin gh-pages
+              git rebase --onto FETCH_HEAD HEAD~1
+            done
+            echo "Could not push the ${VERSION} docs build to gh-pages." >&2
+            exit 1
           fi
