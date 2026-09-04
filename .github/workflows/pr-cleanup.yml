@@ -16,8 +16,11 @@ on:
 permissions:
   contents: write
 
+# A concurrency group holds at most one pending run, so a newer entrant cancels
+# the older pending one. Keyed per PR to keep an unrelated gh-pages writer from
+# discarding a queued cleanup and leaving its preview directory behind forever.
 concurrency:
-  group: gh-pages
+  group: gh-pages-cleanup-${{ github.event.inputs.pr_number || github.event.number }}
   cancel-in-progress: false
 
 jobs:

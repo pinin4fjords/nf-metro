@@ -10,8 +10,11 @@ on:
 permissions:
   contents: write
 
+# Docs deploys rewrite the shared root versions.json, so they must run one at a
+# time. Nothing else belongs in this group: it holds at most one pending run, so
+# a newer entrant cancels the older pending one.
 concurrency:
-  group: gh-pages
+  group: gh-pages-docs
   cancel-in-progress: false
 
 jobs:
