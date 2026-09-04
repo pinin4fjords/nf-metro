@@ -21,13 +21,21 @@ This module makes that protocol explicit data:
 The registry is kept in sync with the dataclass fields, the engine stage list,
 and ``CONTRACT.md`` by ``tests/test_phase_state_registry.py``, so a new bare
 poke or a drifted document reds CI rather than rotting silently.
+
+:class:`GuardSpec`, the schema for one ``validate=True`` guard, sits here too.
+The guard registries that use it (``phases/guards.py`` and
+``routing/invariants.py``) sit on opposite sides of the layout/routing boundary,
+so their shared schema belongs in a module with no module-level ``nf_metro``
+imports of its own; that also puts it beside the stage vocabulary its
+``first_valid_stage`` draws on.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
@@ -355,3 +363,42 @@ def require_phase_field(graph: "MetroGraph", name: str) -> None:
             f"{name} read before its writer Stage {spec.writer_stage} ran "
             f"(completed stages: {graph._stages_completed}); {spec.why}"
         )
+
+
+@dataclass(frozen=True)
+class GuardSpec:
+    """One ``validate=True`` guard, with the dispatch and classification data
+    the guard runner reads.  ``GUARD_REGISTRY`` is the single source: the
+    ``_BISECTION_FIRST_VALID`` thresholds are derived from these specs.
+
+    ``fn`` is the guard function; every guard takes ``(graph, phase)`` and the
+    optional keyword inputs named in ``needs`` (a subset of ``offsets``,
+    ``routes``, ``section_y_gap``, ``section_y_padding``).  The dispatcher
+    passes exactly those keywords, so heterogeneous signatures need no
+    wrapping.
+
+    ``bisection_safe`` guards run at every Pass C checkpoint (gated by
+    ``first_valid_stage``, the earliest checkpoint at which their invariant
+    holds) as well as at the closing ``after final`` boundary; the rest run
+    only at ``after final``.  ``tier`` is the cost-tier classification
+    (``docs/dev/guard_tiers.md``).
+
+    ``issue_pin`` is the tuple of ``#NNN`` issues a guard was born from; it
+    keeps the regression trail as data so consolidating or renaming a guard
+    cannot let the original bug be silently re-filed.  ``narrow_reason`` states
+    why a guard pinned to an issue stays scoped to its case rather than being
+    folded into a broader geometric property -- a required field for any
+    issue-pinned guard (``test_issue_pinned_guards_document_why_they_are_narrow``).
+    """
+
+    fn: Callable[..., Any]
+    tier: str
+    needs: frozenset[str] = field(default_factory=frozenset)
+    bisection_safe: bool = False
+    first_valid_stage: str | None = None
+    issue_pin: tuple[str, ...] = ()
+    narrow_reason: str | None = None
+
+    @property
+    def name(self) -> str:
+        return self.fn.__name__
