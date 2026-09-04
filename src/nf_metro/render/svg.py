@@ -4429,7 +4429,7 @@ def _render_terminus_icons(
             corner_radius=theme.terminus_corner_radius,
             label=label,
             font_size=theme.terminus_font_size,
-            font_color=TERMINUS_FONT_COLOR,
+            font_color=theme.terminus_font_color or TERMINUS_FONT_COLOR,
             font_family=theme.label_font_family,
         )
 
