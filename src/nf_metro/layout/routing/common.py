@@ -3287,13 +3287,14 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
 
-    Only the convergence arm reaches a boundary beside *rank*: a trunk axis
-    states a run whose two corners it fixes as well, while a member plan and an
-    exit turn each enumerate the segments they own.  A caller wanting the wider
-    reading on every arm asks for it by name
-    (:func:`route_system_owns_segment_boundary`), and one wanting it on a single
-    side says which side, as ``_corridor_run_band`` does for the leg feeding a
-    planned turn.
+    A pass that translates a whole segment wants
+    :func:`planner_owns_segment_or_boundary` instead, which is the reading the
+    normalisation passes and the closing guards share.  Only the convergence arm
+    here reaches a boundary beside *rank*, because a trunk axis states a run
+    whose two corners it fixes as well; a member plan and an exit turn each
+    enumerate the segments they own, so those arms match *rank* exactly.  A
+    caller wanting the widening on one side only says which side, as
+    ``_corridor_run_band`` does for the leg feeding a planned turn.
     """
     return (
         convergence_owns_segment_boundary(route, rank)
@@ -3302,6 +3303,19 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
+    )
+
+
+def planner_owns_segment_or_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a plan fixes this segment or a corner at either end of it.
+
+    Translating a segment stretches its two flanking legs to meet it, so both
+    of its corners re-form: a segment beside a route-system-owned boundary is
+    as unavailable to a pass as an owned segment is.  The normalisation passes
+    and closing guards that read this wider rule read it from here.
+    """
+    return planner_owns_segment(route, rank) or route_system_owns_segment_boundary(
+        route, rank
     )
 
 

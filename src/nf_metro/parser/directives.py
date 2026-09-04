@@ -159,7 +159,6 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
             value,
             f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
         )
-        graph.line_declaration_rejected = True
         return
     if line_id in graph.lines:
         _warn_directive(

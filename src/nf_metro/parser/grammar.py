@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from lark import Lark, Token, Transformer, UnexpectedInput
 
+from nf_metro.parser.model import UNANNOTATED_LINE_ID
+
 # A node label's inner text. It excludes the edge arrows so a shaped edge
 # endpoint (``x[X] --> y[Y]``) doesn't greedily swallow the arrow into one
 # label; the shape stops at the arrow and the line parses as an edge with
@@ -118,8 +120,9 @@ class _Node:
 class _Edge:
     """An edge with its endpoints, line ids, and any inline endpoint labels.
 
-    ``line_ids`` is one or more line ids (``["default"]`` when the source
-    carried no ``|...|`` annotation). ``source_label`` / ``target_label`` are
+    ``line_ids`` is one or more line ids (a single
+    :data:`~nf_metro.parser.model.UNANNOTATED_LINE_ID` when the source carried
+    no ``|...|`` annotation). ``source_label`` / ``target_label`` are
     set only when an endpoint was written with an inline shape, in which case
     that endpoint also declares the node.
     """
@@ -179,9 +182,9 @@ def _normalize_multiline_text(value: str) -> str:
 
 
 def _edge_line_ids(edge_label: str) -> list[str]:
-    """Split a ``|a, b|`` token into line ids; ``["default"]`` when absent/empty."""
+    """Split a ``|a, b|`` token into line ids, or the unannotated sentinel."""
     inner = edge_label[1:-1].strip() if edge_label else ""
-    return _split_csv(inner) if inner else ["default"]
+    return _split_csv(inner) if inner else [UNANNOTATED_LINE_ID]
 
 
 class _StatementTransformer(Transformer[Token, list[_Statement]]):

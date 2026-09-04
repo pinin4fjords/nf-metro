@@ -30,3 +30,7 @@ class UnknownInactiveLineError(NfMetroError, ValueError):
     Raised when an ID passed to the ``--inactive-lines`` option (or the
     ``inactive_line_ids`` render config) names no ``%%metro line:`` in the graph.
     """
+
+
+class EmptyGraphError(NfMetroError, ValueError):
+    """No station survived parsing, so there is nothing to lay out or draw."""

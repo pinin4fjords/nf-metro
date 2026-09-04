@@ -46,7 +46,13 @@ from nf_metro.parser.grammar import (
     _unquote,
     parse_statements,
 )
-from nf_metro.parser.model import Edge, MetroGraph, Section, Station
+from nf_metro.parser.model import (
+    UNANNOTATED_LINE_ID,
+    Edge,
+    MetroGraph,
+    Section,
+    Station,
+)
 from nf_metro.parser.resolve import (
     _create_implicit_section,
     _expand_interchanges,
@@ -64,7 +70,11 @@ from nf_metro.parser.route_topology import (
     capture_authored_routes,
     snapshot_resolved_authored_edges,
 )
-from nf_metro.parser.validate import find_cycle, find_section_cycle
+from nf_metro.parser.validate import (
+    find_cycle,
+    find_section_cycle,
+    find_undeclared_line_edges,
+)
 
 # A row-wrap width no real map reaches, so section packing never folds: the
 # layout it yields is the unbounded baseline a user-set threshold is judged
@@ -146,26 +156,24 @@ def _warn_if_non_lr_primary(graph_line: str) -> None:
 
 
 def _validate_edge_annotations(graph: MetroGraph) -> None:
-    """Validate that all edges have metro line annotations.
+    """Reject edges that carry no line annotation or name an undeclared line.
 
-    Raises ValueError with a helpful message if any edge uses the default
-    placeholder (meaning it had no |line_id| annotation in the source).
+    Raises ``ValueError`` with an authoring hint naming the offending edges.
+    The undeclared-line half comes from
+    :func:`~nf_metro.parser.validate.find_undeclared_line_edges`, the same
+    detector ``validate_graph`` reports through, so the ``render`` and
+    ``validate`` commands accept exactly the same maps.
     """
     if not graph.edges:
         return
 
-    bad_edges = []
+    bad_edges = [edge for edge in graph.edges if edge.line_id == UNANNOTATED_LINE_ID]
     undeclared_lines: defaultdict[str, set[int]] = defaultdict(set)
-    for edge in graph.edges:
-        if edge.line_id == "default":
-            bad_edges.append(edge)
-        elif (
-            graph.lines or graph.line_declaration_rejected
-        ) and edge.line_id not in graph.lines:
-            if edge.source_line is not None:
-                undeclared_lines[edge.line_id].add(edge.source_line)
-            else:
-                undeclared_lines.setdefault(edge.line_id, set())
+    for edge in find_undeclared_line_edges(graph):
+        if edge.source_line is not None:
+            undeclared_lines[edge.line_id].add(edge.source_line)
+        else:
+            undeclared_lines.setdefault(edge.line_id, set())
 
     if bad_edges:
         examples = []

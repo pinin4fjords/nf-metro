@@ -24,8 +24,8 @@ EXAMPLES = Path(__file__).parent.parent / "examples"
 EXAMPLE_TOPOLOGIES = EXAMPLES / "topologies"
 
 # rnaseq_sections has content filling its lower-right (so a content `br`
-# overlaps a section and historically relocates); differentialabundance has a
-# clear lower-right (so `br` lands without relocating). Exercising both proves
+# overlaps a section and relocates); differentialabundance has a clear
+# lower-right (so `br` lands without relocating). Exercising both proves
 # the invariants generalise across the two overlap regimes.
 FIXTURES = [
     EXAMPLES / "rnaseq_sections.mmd",
