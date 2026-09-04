@@ -3026,9 +3026,7 @@ def _maybe_muted_class(name: str, muted: bool) -> str:
     return f"{cls} {_ns(_MUTED_CLASS)}" if muted else cls
 
 
-def _inject_chrome_css(
-    d: draw.Drawing, theme: Theme, any_inactive: bool = False
-) -> None:
+def _inject_chrome_css(d: draw.Drawing, theme: Theme, any_inactive: bool) -> None:
     """Inject CSS custom properties for chrome colors.
 
     Defines ``--nfm-map-*`` properties on the chrome element classes so a host
