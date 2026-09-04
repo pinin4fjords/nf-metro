@@ -93,7 +93,7 @@ provisional or sibling-only ledger entry.
 The plan is not stored on `MetroGraph`, and no global planning state exists.
 Observation is read-only, so enabling it cannot select a different plan or route.
 
-## Complete exit-turn plans
+## Exit-turn plans
 
 The exit-turn planner works at the resolved exit-group boundary. It reads all
 members leaving one source port or divergence before any member is routed.
@@ -139,7 +139,7 @@ planning fails if it cannot. The final runtime check uses the geometry the
 renderer will draw, verifies structural anchors and runway, and confirms that
 each assignment was consumed once.
 
-## Complete member geometry plans
+## Member geometry plans
 
 Member geometry planning sits between preliminary route-system disposition and
 final convergence settlement. `classify_inter_section_family` first assigns every
@@ -184,7 +184,7 @@ has its canonical family decline the template, the whole route system fails
 closed with the registered `member-geometry-plan` reason. No provisional member
 template reaches production.
 
-## Complete convergence plans
+## Convergence plans
 
 Convergence work has two explicit stages before the first route is emitted.
 After exit-turn and fan planning, classification starts from each resolved
@@ -236,7 +236,7 @@ endpoint owner. A mismatch reports the route system, connector, member, planned
 point and emitted point. The ordinary emission-binding validation also checks
 covered members.
 
-## Complete fan plans
+## Fan plans
 
 A fan plan is built before station placement from authored connectors and their
 resolved paths. It describes one fork, every branch through an optional join,

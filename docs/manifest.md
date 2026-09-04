@@ -123,7 +123,7 @@ element, so a consumer can go from manifest to element and back without guessing
 
 A machine-readable **JSON Schema** (draft 2020-12) ships with the package as
 `nf_metro/manifest/schema.json`, and `manifest_schema()` returns it as a dict.
-Its required fields are exactly the [minimum-conforming](#minimum-to-be-conforming)
+Its required fields are exactly the [minimum-conforming](#the-minimum-conforming-file)
 set.
 
 To validate an SVG, read its manifest out and check it against the schema. In
@@ -203,7 +203,7 @@ groups. Avoid Python-only constructs such as named groups `(?P<>)`, inline flags
 A target may legitimately match **more than one** node. How to resolve that is a
 consumer-side policy decision rather than a schema error.
 
-## Minimum to be conforming
+## The minimum conforming file
 
 The shortest path to a file a consumer can drive:
 
@@ -228,7 +228,7 @@ rather than only overlaying on top of it:
 Everything else is optional: `label`, `groups`, `regions` and the live state
 model below.
 
-## The functions
+## The toolkit functions
 
 The whole toolkit is a handful of small functions, all importable from
 `nf_metro.manifest` and re-exported from `nf_metro.render`. Grouped by job:

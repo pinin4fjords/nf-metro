@@ -75,7 +75,7 @@ graph LR
   `_warn_if_non_lr_primary`. Per-section flow is controlled by
   `%%metro direction:` and is independent of the header.
 
-## What a grammar is, and why we use one
+## Why the parser uses a grammar
 
 One way to read a line-oriented format is to write the _instructions_ for
 recognising each line: does this line start with `graph`? Failing that, is it a
@@ -159,7 +159,7 @@ dictionary insertion order of stations affects downstream layout, so the grammar
 handles _recognising_ lines while the driver handles _applying_ them in
 sequence.
 
-### One simplification worth knowing
+### Node shapes collapse to an id and a label
 
 The model records only a node's **id and label**, never which shape it was drawn
 as. All six Mermaid shapes therefore collapse to a single `SHAPE` terminal plus
@@ -406,7 +406,7 @@ snapshot retains the caller and directive values separately, while the
 effective decision records the selected source. Rendering reads this typed
 decision when it reports an unsafe fold threshold.
 
-## Adding things
+## Adding a shape, directive or statement form
 
 - **A node shape.** Add one alternative to the `SHAPE` terminal in `_GRAMMAR`.
   If its delimiters are two characters per side, add the opener to

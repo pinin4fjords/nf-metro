@@ -113,7 +113,7 @@ A slice is **done** when its module shows zero blank-Triage rows in the matrix,
 meaning every arm is reachable-fixtured, defensive-annotated,
 candidate-dead-flagged or needs-review-linked.
 
-## Gotchas (hard-won)
+## Pitfalls
 
 - **Phantom arcs inflate the backlog.** `FileReporter.arcs()` attributes a branch
   arc to the _opening_ line of a multi-line `if (`, list or tuple literal, or

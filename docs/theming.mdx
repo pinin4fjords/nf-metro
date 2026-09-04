@@ -182,7 +182,7 @@ adaptation such a theme gets. Choose it deliberately rather than by leaving
 
 </Aside>
 
-## Consumers that can't parse any of this
+## Consumers that can't parse `light-dark()` or `var()`
 
 Some SVG consumers, `cairosvg` among them, parse a restricted CSS subset and
 abort outright on `light-dark()` or `var()`. nf-metro's export flags map
@@ -199,7 +199,7 @@ nf-metro render pipeline.mmd -o pipeline.svg --mode dark
 
 Full flag reference: [Embedding](/nf-metro/embedding/).
 
-## `<img>` is a special case; `<object>`/`<embed>` are not consistent
+## Referencing the SVG instead of inlining it
 
 "Inline" means the SVG's own markup is pasted directly into the host page, as
 opposed to referenced by URL:

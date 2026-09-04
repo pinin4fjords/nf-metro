@@ -7,7 +7,7 @@ import { Steps } from "@astrojs/starlight/components";
 
 nf-metro is a layout engine, a rendering pipeline, and a test harness, built up over several months. This page covers the engineering decisions behind it: why the validation layers exist, how the visual review loop works, and what the "ratchet" discipline means in practice. Read it before working on the codebase.
 
-## What the engine actually does
+## What the engine does
 
 Taking a text description of a pipeline graph and producing a metro-map SVG sounds simple. The difficulty is that "metro map" is an aesthetic standard rather than a mathematical one. It is not a graph layout in the academic sense: there is no force-directed placement and no crossing minimisation. It is a set of constraints that a human recognises as "right". Stations sit on straight track, never on corners. Bundles of lines sweep round curves together. Sections do not overlap, and labels do not collide with routes. None of those constraints come for free.
 
@@ -30,7 +30,7 @@ One design principle runs through all four layers: **checks only accumulate, and
 
 Known bugs follow a related pattern. Write the test for the correct behaviour, then mark it `xfail`. The build stays green while the bug is present. When someone fixes it, the test flips to `XPASS` and CI turns red, which forces the developer to retire the old expectation and lock in the correct behaviour. [Here is an example of that pattern in `tests/test_layout_invariants.py`](https://github.com/seqeralabs/nf-metro/blob/main/tests/test_layout_invariants.py#L446-L456).
 
-## Making mistakes impossible to express
+## Checks that remove a whole class of bug
 
 The strongest checks eliminate a category of mistake rather than catching one instance of it. Two examples:
 

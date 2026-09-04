@@ -218,7 +218,7 @@ Alias for `clearHighlight()`.
 For a coordinate-accurate progress overlay, such as lighting up stations as a
 pipeline runs, draw a transparent layer that shares the base SVG's `viewBox`
 and place markers at each node's manifest coordinates. The
-[`overlay_svg()`](/nf-metro/manifest/#the-functions) helper builds that layer, and
+[`overlay_svg()`](/nf-metro/manifest/#the-toolkit-functions) helper builds that layer, and
 the manifest tutorial,
 [Light up a diagram as a job runs](/nf-metro/manifest/#tutorial-light-up-a-diagram-as-a-job-runs),
 walks through the full read-match-draw recipe.

@@ -3,8 +3,6 @@ title: "Envelope settlement design record"
 description: Dated corpus measurements and rejected alternatives that informed envelope settlement.
 ---
 
-# Envelope settlement design record
-
 This page records corpus measurements and rejected alternatives that informed the
 envelope-settlement design. Each observation describes a particular commit. None
 of them are layout invariants, and none should be read as current corpus totals.
