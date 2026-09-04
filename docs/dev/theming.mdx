@@ -219,42 +219,55 @@ overriding even the SVG's own `color-scheme: light dark`. Chromium and
 Firefox honor this cleanly and deterministically, independent of the OS
 preference either way.
 
-Safari does not, and this needed checking twice to get right. Playwright's
-bundled WebKit gave inconsistent results across repeated runs (occasionally
-dark, mostly light, with no clean rule), which looked like a race condition
-rather than real browser behavior worth trusting on its own. Verified instead
-against actual Safari on macOS - real system Dark Mode toggled via System
-Events, a real `<img>` served over `http://`, the rendered pixel read back
-through a same-origin canvas rather than eyeballed: 12/12 trials across every
-combination of `<img>` `color-scheme` and real OS preference rendered
-**light**. Safari's own top-level page correctly detected the real OS toggle
-throughout (`matchMedia` flipped as expected), so the toggle genuinely
-worked; the `<img>`-embedded SVG simply never responded to it, in either
-direction. `light-dark()` is still being parsed - an unsupported function
-would drop the whole declaration and fall back to SVG's own default fill
-(black), not render the _first_ branch - so this reads as Safari not wiring
-up the cross-document "used color-scheme" substitution at all, rather than a
-partial or flaky implementation of it. Don't rely on this mechanism in
-Safari in either direction, and don't trust Playwright's WebKit alone for
-verifying browser-specific CSS edge cases like this one; where it's
-practical, check the real browser.
+Safari does not: it ignores the `<img>`'s declared `color-scheme` entirely
+and just follows the real system/browser preference instead, exactly as if
+no override were present at all.
+
+Getting to that answer took three attempts, worth recording because each
+wrong turn was plausible on its own. Playwright's bundled WebKit gave
+inconsistent results across repeated runs (occasionally dark, mostly light,
+no clean rule) - not trustworthy on its own. A same-origin `http://` test
+against real Safari, with real system Dark Mode toggled by script and the
+rendered pixel read back through canvas, gave a clean but different answer:
+light regardless of anything, 12/12. That also turned out wrong, confirmed by
+manually toggling System Settings by hand and looking: the embedded SVG
+tracks the OS setting correctly, it just never sees the `<img>`'s override.
+The scripted toggle was changing the real system preference (confirmed with
+`defaults read -g AppleInterfaceStyle`, and Safari's own top-level page
+tracked it correctly throughout), but apparently didn't fully propagate to a
+freshly-launched process's embedded-image rendering path in time - the same
+failure mode, it turned out, also silently invalidated an equivalent
+scripted check for Firefox before a manual check corrected that one too.
+Chrome and Firefox's "the `<img>` wins" results, and Safari's "the OS wins,
+the `<img>` is ignored" result, are the ones confirmed by hand, in real
+browsers, with a real System Settings toggle - trust these over both the
+Playwright numbers and the scripted-toggle numbers above them, and don't
+trust a scripted OS-appearance change to notify every app correctly, verify
+by hand when a claim matters.
 
 `<object>`/`<embed>` don't get this: they open a full nested browsing context,
-which the spec excludes. Chromium and WebKit keep them OS-only; Firefox
-propagates the host's `color-scheme` into them too - don't rely on either.
+which the spec excludes. Chromium and WebKit keep them OS-only in Playwright
+testing; Firefox propagates the host's `color-scheme` into them too - not
+re-verified by hand the way the `<img>` numbers above were, so given how
+often the scripted checks above needed correcting, treat this one as a
+starting point rather than a settled result, and don't rely on either
+`<object>` or `<embed>` for this regardless.
 
 <Aside type="caution" title="This makes one SVG a reasonable design, not a universal one">
 
 A single correctly-authored SVG genuinely does not need a light/dark pair of
-files - but only document it as "adaptive in Chromium and Firefox, fixed to
-its light variant in Safari," never as "adaptive everywhere." The Safari gap
-is a real engine limitation with no authoring fix: no `.mmd` directive,
-render flag, or CSS trick on the embedding page changes it. It also fails
-safely, not badly - the image consistently shows its light palette rather
-than breaking, corrupting, or flickering between states. That combination
-(works on the two engines that matter most for most audiences, degrades
-predictably on the third) is what makes one file a reasonable choice instead
-of a broken promise - claiming full cross-browser parity from it would not be.
+files - but only document it as "follows the _host's_ chosen theme in
+Chromium and Firefox; follows the _viewer's OS_ setting in Safari, not the
+host's." The Safari gap is a real engine limitation with no authoring fix: no
+`.mmd` directive, render flag, or CSS trick on the embedding page changes it.
+It also fails safely, not badly - a Safari user still sees a light or dark
+map matching their own system, it just won't necessarily match the host
+page's theme if the two disagree, rather than breaking, corrupting, or
+getting stuck. That combination (the host controls the result on the two
+engines that matter most for most audiences, degrades to "still adaptive,
+just to the wrong signal" on the third) is what makes one file a reasonable
+choice instead of a broken promise - claiming the host's toggle drives it
+everywhere would not be.
 
 </Aside>
 
