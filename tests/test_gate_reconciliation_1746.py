@@ -962,7 +962,8 @@ def test_following_gap_lever_is_reached_for_only_on_the_strike_retry() -> None:
     -- a column the first attempt's lever set provably does not name.
     """
     clear = parse_metro_mermaid(
-        """graph LR
+        """%%metro line: line | Line | #0570b0
+graph LR
 subgraph lane [Lane]
     source[Source] -->|line| target[Target]
     target -->|line| sink[Sink]
