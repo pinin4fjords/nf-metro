@@ -398,7 +398,7 @@ Every layout and render option can be set two ways: a `%%metro` directive in the
 
 > **CLI flag (when passed) → `%%metro` directive → built-in default.**
 
-Set the directive in your committed `.mmd` so the map reproduces from the file alone, and reach for the flag only to tweak a single render without editing the file. The two planes always use the same name (the flag is the kebab-cased directive); a directive and its flag are defined from one registry, so they cannot drift apart.
+Set the directive in your committed `.mmd` so the map reproduces from the file alone, and reach for the flag only to tweak a single render without editing the file. Most pairs are generated from one registry, so the flag is the kebab-cased directive and neither plane can gain an option the other lacks. The table below is the authority on the rest: `style:` is spelled `--theme` on the command line, and `manifest:` writes a graph field named `embed_manifest`. Either spelling of a pair accepts the same values.
 
 | Directive            | CLI flag                                     | Default           |
 | -------------------- | -------------------------------------------- | ----------------- |

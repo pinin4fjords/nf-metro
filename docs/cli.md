@@ -55,13 +55,13 @@ Most of the options below also have a `%%metro` directive twin; an explicitly-pa
 
 ### Theme and branding
 
-| Option                                                                                  | Default                      | Description                                                                                                                                                   |
-| --------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. Directive twin: `%%metro style:`            |
-| `--mode [light\|dark]`                                                                  | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`              |
-| `--logo PATH`                                                                           | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                           |
-| `--title TEXT`                                                                          | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                              |
-| `--caption TEXT`                                                                        | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:` |
+| Option                                                                                        | Default                      | Description                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. `dark` is a legacy alias for `nfcore`. Accepts exactly the values its directive twin `%%metro style:` accepts |
+| `--mode [light\|dark]`                                                                        | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`                                                                                |
+| `--logo PATH`                                                                                 | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                                                                                             |
+| `--title TEXT`                                                                                | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                                                                                                |
+| `--caption TEXT`                                                                              | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:`                                                                   |
 
 `--theme light` is the transparent embed theme rather than a brand: it has no
 light/dark pair, so `--mode` does not apply to it.
@@ -295,16 +295,16 @@ nf-metro serve [OPTIONS] INPUT_FILE [-- LAUNCH_CMD...]
 
 Stations are tied to processes with `%%metro process:` directives in the map, so only mapped stations change state. Everything about the event format, the overlay styles, and the endpoints is covered in [Live progress](/nf-metro/live/).
 
-| Option                                                                                  | Default       | Description                                                                                            |
-| --------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
-| `--port INTEGER`                                                                        | 8080          | Port to listen on                                                                                      |
-| `--host TEXT`                                                                           | `127.0.0.1`   | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts     |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | from `style:` | Visual theme, the same choices as `render --theme`                                                     |
-| `--overlay [ring\|pulse\|dot\|led]`                                                     | `ring`        | Status-overlay style shown until a viewer picks another in the page                                    |
-| `--token TEXT`                                                                          | none          | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header                          |
-| `--open`                                                                                | off           | Open the live page in a browser                                                                        |
-| `--shutdown-after-complete`                                                             | off           | Stop the server shortly after the run's completed or error event (or after the launched command exits) |
-| `--shutdown-grace FLOAT`                                                                | 10            | Seconds to keep the map up after the run finishes, with `--shutdown-after-complete`                    |
+| Option                                                                                        | Default       | Description                                                                                            |
+| --------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| `--port INTEGER`                                                                              | 8080          | Port to listen on                                                                                      |
+| `--host TEXT`                                                                                 | `127.0.0.1`   | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts     |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:` | Visual theme, the same choices as `render --theme`                                                     |
+| `--overlay [ring\|pulse\|dot\|led]`                                                           | `ring`        | Status-overlay style shown until a viewer picks another in the page                                    |
+| `--token TEXT`                                                                                | none          | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header                          |
+| `--open`                                                                                      | off           | Open the live page in a browser                                                                        |
+| `--shutdown-after-complete`                                                                   | off           | Stop the server shortly after the run's completed or error event (or after the launched command exits) |
+| `--shutdown-grace FLOAT`                                                                      | 10            | Seconds to keep the map up after the run finishes, with `--shutdown-after-complete`                    |
 
 With an SVG input the map is served exactly as drawn, so `--theme` applies only to a `.mmd` input.
 
@@ -329,13 +329,13 @@ Run a persistent live server many pipelines can report into. Unlike `serve`, it 
 nf-metro serve-multi [OPTIONS]
 ```
 
-| Option                                                                                  | Default     | Description                                                                                        |
-| --------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
-| `--port INTEGER`                                                                        | 8080        | Port to listen on                                                                                  |
-| `--host TEXT`                                                                           | `127.0.0.1` | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | `nfcore`    | Visual theme, the same choices as `render --theme`                                                 |
-| `--overlay [ring\|pulse\|dot\|led]`                                                     | `ring`      | Status-overlay style shown until a viewer picks another in the page                                |
-| `--token TEXT`                                                                          | none        | If set, POSTs to `/maps` and `/r/*/events` must supply `?token=...` or an `X-Metro-Token` header   |
+| Option                                                                                        | Default     | Description                                                                                        |
+| --------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `--port INTEGER`                                                                              | 8080        | Port to listen on                                                                                  |
+| `--host TEXT`                                                                                 | `127.0.0.1` | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | `nfcore`    | Visual theme, the same choices as `render --theme`                                                 |
+| `--overlay [ring\|pulse\|dot\|led]`                                                           | `ring`      | Status-overlay style shown until a viewer picks another in the page                                |
+| `--token TEXT`                                                                                | none        | If set, POSTs to `/maps` and `/r/*/events` must supply `?token=...` or an `X-Metro-Token` header   |
 
 The nf-metro Nextflow plugin's `metro.server` mode does the register-and-emit automatically. See [Live progress](/nf-metro/live/#2b-persistent-server-many-runs).
 

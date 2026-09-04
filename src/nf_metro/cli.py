@@ -37,7 +37,7 @@ from nf_metro.parser.model import (
     split_guard_warnings,
 )
 from nf_metro.render import validate_render
-from nf_metro.themes import THEMES
+from nf_metro.themes import STYLE_NAMES, THEMES, resolve_style
 
 
 @click.group()
@@ -234,7 +234,7 @@ def _run_batch(items: list[tuple[str, Callable[[], None]]]) -> None:
 )
 @click.option(
     "--theme",
-    type=click.Choice(list(THEMES.keys())),
+    type=click.Choice(sorted(STYLE_NAMES)),
     default=None,
     help="Visual theme (default: from the %%metro style: directive, else nfcore).",
 )
@@ -998,7 +998,7 @@ def explain(
 )
 @click.option(
     "--theme",
-    type=click.Choice(list(THEMES.keys())),
+    type=click.Choice(sorted(STYLE_NAMES)),
     default=None,
     help="Visual theme (default: from the %%metro style: directive, else nfcore). "
     "Applies to a .mmd input; an SVG input is served as drawn.",
@@ -1137,7 +1137,7 @@ def serve(
 )
 @click.option(
     "--theme",
-    type=click.Choice(list(THEMES.keys())),
+    type=click.Choice(sorted(STYLE_NAMES)),
     default="nfcore",
     show_default=True,
     help="Visual theme applied to every map registered with this server.",
@@ -1180,7 +1180,11 @@ def serve_multi_cmd(
             err=True,
         )
     httpd = serve_multi(
-        THEMES[theme], host=host, port=port, token=token, overlay=overlay
+        THEMES[resolve_style(theme)],
+        host=host,
+        port=port,
+        token=token,
+        overlay=overlay,
     )
     display_host = "localhost" if host == "127.0.0.1" else host
     click.echo("nf-metro live progress - persistent server")

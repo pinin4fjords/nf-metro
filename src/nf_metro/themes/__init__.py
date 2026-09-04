@@ -51,6 +51,10 @@ THEMES = {
 }
 
 
+# Accepted ``%%metro style:`` values.
+STYLE_NAMES = frozenset(THEMES) | frozenset(_STYLE_THEME_ALIASES)
+
+
 def resolve_style(style: str) -> str:
     """Return the theme name a ``%%metro style:`` value selects.
 
@@ -68,10 +72,12 @@ def resolve_theme(
 ) -> Theme:
     """Resolve a concrete theme from independent brand and mode axes.
 
-    Brand comes from the explicit ``theme`` name or the graph's style. Mode
-    comes from the explicit argument, the graph directive, or ``DEFAULT_MODE``.
+    Brand comes from the explicit ``theme`` name or the graph's style, and
+    both go through the same alias map, so a name works identically whichever
+    plane supplied it. Mode comes from the explicit argument, the graph
+    directive, or ``DEFAULT_MODE``.
     """
-    brand = theme if theme is not None else resolve_style(graph.style)
+    brand = resolve_style(theme if theme is not None else graph.style)
 
     resolved_mode = (mode or graph.mode).strip().lower() or DEFAULT_MODE
     family = THEME_MODES.get(brand)
@@ -95,6 +101,7 @@ def mode_pair(theme: Theme) -> tuple[Theme, Theme] | None:
 
 __all__ = [
     "THEMES",
+    "STYLE_NAMES",
     "THEME_MODES",
     "DEFAULT_MODE",
     "resolve_style",

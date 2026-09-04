@@ -1078,3 +1078,50 @@ def test_manifest_flag_appears_in_help():
     result = CliRunner().invoke(cli, ["render", "--help"])
     assert result.exit_code == 0
     assert "--manifest / --no-manifest" in result.output
+
+
+def test_theme_option_accepts_every_style_directive_value(tmp_path):
+    """`--theme` takes the values `%%metro style:` takes, alias included."""
+    from nf_metro.themes import STYLE_NAMES
+
+    src = _simple_map(tmp_path)
+    for name in sorted(STYLE_NAMES):
+        out = tmp_path / f"{name}.svg"
+        result = CliRunner().invoke(
+            cli, ["render", str(src), "-o", str(out), "--theme", name]
+        )
+        assert result.exit_code == 0, f"--theme {name}: {result.output}"
+        assert out.exists()
+
+
+def test_theme_alias_renders_as_the_brand_it_names(tmp_path):
+    """`--theme dark` draws what `--theme nfcore` draws."""
+    src = _simple_map(tmp_path)
+    aliased = tmp_path / "aliased.svg"
+    canonical = tmp_path / "canonical.svg"
+    for target, name in ((aliased, "dark"), (canonical, "nfcore")):
+        result = CliRunner().invoke(
+            cli, ["render", str(src), "-o", str(target), "--theme", name]
+        )
+        assert result.exit_code == 0, result.output
+    assert aliased.read_text() == canonical.read_text()
+
+
+class _ServerStarted(Exception):
+    """Raised by a stub server to end the command before it binds a port."""
+
+
+def test_serve_multi_accepts_the_theme_alias(monkeypatch):
+    """The alias resolves before `serve-multi` looks the theme up."""
+    from nf_metro.themes import THEMES
+
+    started: dict[str, object] = {}
+
+    def _stub_serve_multi(theme, **kwargs):
+        started["theme"] = theme
+        raise _ServerStarted
+
+    monkeypatch.setattr("nf_metro.live.server.serve_multi", _stub_serve_multi)
+    result = CliRunner().invoke(cli, ["serve-multi", "--theme", "dark"])
+    assert isinstance(result.exception, _ServerStarted), result.output
+    assert started["theme"] is THEMES["nfcore"]
