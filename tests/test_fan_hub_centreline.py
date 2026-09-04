@@ -198,6 +198,27 @@ def test_centreline_guard_flags_broken_single_fork_diamond() -> None:
         _guard_fork_join_hub_centreline_agree(graph, "test")
 
 
+def test_centreline_guard_defers_transient_disagreement_until_final() -> None:
+    """A hub caught mid-descent during a deferred pass is not reported; the same
+    disagreement at the final checkpoint is (issue #1874).
+
+    The pre-bypass and geometric-bypass passes settle a diamond's hubs onto
+    their shared centreline only by the closing stages, so a checkpoint reached
+    with ``_defer_final_guards`` set may see a transient disagreement that the
+    final geometry resolves.  The guard raises only once the geometry is settled.
+    """
+    graph = parse_metro_mermaid(_bare_fan(3))
+    compute_layout(graph, validate=False)
+    _seat_diamond_hub_off_centre(graph, "hub", branch_ids=("b0", "b1", "b2"))
+
+    graph._defer_final_guards = True
+    _guard_fork_join_hub_centreline_agree(graph, "test")
+
+    graph._defer_final_guards = False
+    with pytest.raises(PhaseInvariantError, match="disagree on centreline"):
+        _guard_fork_join_hub_centreline_agree(graph, "test")
+
+
 _RAIL_FAN = (
     Path(__file__).parent.parent
     / "examples"

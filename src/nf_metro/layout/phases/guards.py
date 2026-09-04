@@ -5205,6 +5205,13 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     A rail-laid station's Y is the centre of the rail span it carries, not a
     marker centreline, so a fork and join carrying different line sets have
     different centres by construction; such a pair is out of scope.
+
+    The pre-bypass and geometric-bypass passes settle a diamond's hubs onto
+    their shared centreline only by the closing stages, so an intermediate
+    checkpoint can catch a hub mid-descent and disagree transiently while the
+    final geometry agrees.  Deferring the raise while ``_defer_final_guards``
+    is set (as the sibling settled-geometry guards do) reports only a
+    disagreement that survives to the ``after final`` checkpoint.
     """
     if graph.diamond_style != "symmetric":
         return
@@ -5237,6 +5244,8 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         if abs(hub_st.y - join_st.y) > 1.0:
             offenders.append((hub_id, hub_st.y, join_id, join_st.y))
     if offenders:
+        if graph._defer_final_guards:
+            return
         hub_id, hub_y, join_id, join_y = offenders[0]
         raise PhaseInvariantError(
             f"{phase}: fork hub {hub_id!r} (y={hub_y:.1f}) and join hub "
