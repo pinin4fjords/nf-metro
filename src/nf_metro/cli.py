@@ -70,13 +70,16 @@ def _parse_inactive_lines(value: object) -> frozenset[str] | None:
 class _FiniteFloatRange(click.FloatRange):
     """A float range that also refuses a non-finite value.
 
-    Every comparison against ``nan`` is false, so a range bound alone lets it
-    through and the value reaches the drawn SVG as ``font-size="nan"``.
-    ``inf`` clears an open upper bound for the same reason.
+    A bound cannot catch these on its own: every comparison against ``nan`` is
+    false, and ``inf`` satisfies an option that declares no maximum. Either
+    reaches the drawn SVG as an unusable attribute value.
     """
 
     def _describe_range(self) -> str:
-        """Describe the bounds, or nothing when there are none to describe."""
+        """Return the bound hint for ``--help``, empty when there is no bound.
+
+        click describes a range with no bounds at all as ``x<=None``.
+        """
         if self.min is None and self.max is None:
             return ""
         return super()._describe_range()
