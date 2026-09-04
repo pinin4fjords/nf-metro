@@ -2353,7 +2353,6 @@ def inter_column_channel_x(
     src: Station,
     tgt: Station,
     sx: float,
-    tx: float,
     dx: float,
     max_r: float,
     offset_step: float,

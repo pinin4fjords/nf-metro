@@ -152,10 +152,10 @@ def test_diagonal_rail_section_packs_to_graph_pitch_not_label_width():
     assert widest > pitch, "fixture must carry a label wider than the pitch"
 
     # Angled: the graph pitch passes straight through, however wide the labels.
-    assert _label_aware_x_spacing(graph, real_ids, {}, pitch) == pitch
+    assert _label_aware_x_spacing(graph, real_ids, pitch) == pitch
     # Horizontal: the same panel widens to seat the full widest label.
     graph.label_angle = None
-    assert _label_aware_x_spacing(graph, real_ids, {}, pitch) > pitch
+    assert _label_aware_x_spacing(graph, real_ids, pitch) > pitch
 
 
 def test_spread_residual_drops_rail_section_overlaps(monkeypatch):

@@ -42,8 +42,7 @@ def _build(fixture: Path):
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
-    theme = THEMES["nfcore"]
-    motion_paths = _build_line_motion_paths(graph, routes, offsets, theme)
+    motion_paths = _build_line_motion_paths(graph, routes, offsets)
     return graph, routes, offsets, motion_paths
 
 

@@ -246,12 +246,7 @@ def test_flow_exit_fed_junction_freezes_its_cross_member_source_turn() -> None:
 
 def test_source_turnout_animation_uses_the_same_concentric_radii() -> None:
     graph, offsets, routes = _routed("same_destination_short_overlap")
-    paths = _build_line_motion_paths(
-        graph,
-        routes,
-        offsets,
-        resolve_theme(None, graph),
-    )
+    paths = _build_line_motion_paths(graph, routes, offsets)
 
     assert any(
         line_id == "reads" and "L 192.00 124.00 Q 202.00 124.00 202.00 134.00" in path

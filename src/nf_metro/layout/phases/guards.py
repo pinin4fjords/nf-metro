@@ -3134,7 +3134,6 @@ def _guard_topmost_row_top_entry_hugs_section(
     graph: MetroGraph,
     phase: str,
     *,
-    offsets: dict[tuple[str, str], float] | None = None,
     routes: list[RoutedPath] | None = None,
 ) -> None:
     """After routing: a same-row inter-section route into a section in the
@@ -3747,7 +3746,6 @@ def _guard_feeder_exits_section_through_side(
     phase: str,
     *,
     routes: list[RoutedPath] | None = None,
-    offsets: dict[tuple[str, str], float] | None = None,
 ) -> None:
     """After routing: an inter-section feeder must leave its source section
     through a vertical side, never across the box's top or bottom edge.
@@ -5901,7 +5899,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_topmost_row_top_entry_hugs_section,
         "B",
-        needs=frozenset({"offsets", "routes"}),
+        needs=frozenset({"routes"}),
     ),
     GuardSpec(
         _guard_title_band_clearance,
@@ -6053,7 +6051,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_feeder_exits_section_through_side,
         "B",
-        needs=frozenset({"routes", "offsets"}),
+        needs=frozenset({"routes"}),
         issue_pin=("#527",),
         narrow_reason=(
             "Checks only the source section's top/bottom edge crossing inside "

@@ -714,9 +714,7 @@ def _source_lane_order(
     def riser_lateral(line_id: str) -> float:
         if perpendicular_exit:
             assert exit_port is not None
-            return _perp_riser_lateral(
-                ctx, exit_port_id, line_id, exit_port.side, section_id
-            )
+            return _perp_riser_lateral(ctx, exit_port_id, line_id, exit_port.side)
         return _tb_x_offset(ctx, source_id, line_id, section_id)
 
     graph_rank = {line_id: rank for rank, line_id in enumerate(ctx.graph.lines)}
@@ -797,7 +795,7 @@ def _bottom_exit_junction_turn_requirement(
 
     members, _source_center, tgt_center = gather_tapered_bundle(ctx, edge)
     geometry = _bottom_exit_junction_geometry(
-        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+        edge, src, tgt, exit_x_offset, members, tgt_center
     )
     return _SourceTurnRequirement.from_seam(geometry.seam)
 
@@ -3093,7 +3091,6 @@ def _planned_axis_cross_range(
                     graph_edge,
                     source,
                     target,
-                    tentative_ctx,
                     bej_exit_x_offset,
                     bej_members,
                     bej_tgt_center,
