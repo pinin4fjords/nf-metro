@@ -1821,7 +1821,7 @@ def _guard_section_top_padding(
     """
     from nf_metro.layout.phases.planned_fans import planned_fan_layout_section_ids
 
-    tol = 1.0
+    tol = COORD_TOLERANCE
     planned_sections = planned_fan_layout_section_ids(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
@@ -1867,7 +1867,7 @@ def _guard_section_bottom_padding(
     bottom above that target means a later pass crowded the lowest marker
     against the box edge.
     """
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
@@ -1900,7 +1900,7 @@ def _guard_rail_above_label_band(graph: MetroGraph, phase: str) -> None:
     # Function-local: a module-level import would close a layout import cycle.
     from nf_metro.layout.rail_mode import _rail_label_band, rail_above_label_ids
 
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or not graph.is_rail_section(section.id):
             continue
@@ -1929,7 +1929,7 @@ def _guard_rail_stations_seat_on_rails(graph: MetroGraph, phase: str) -> None:
     """
     if not graph.has_rail_sections:
         return
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if not graph.is_rail_section(section.id):
             continue
@@ -1961,7 +1961,7 @@ def _guard_terminus_icons_within_bbox(graph: MetroGraph, phase: str) -> None:
     above the station marker; the section bbox must reserve that extent so
     the icon doesn't spill past the box edge (issue #254).
     """
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or lanes_run_along_y(section.direction):
             continue
@@ -2007,7 +2007,7 @@ def _guard_single_trunk_off_track_step(graph: MetroGraph, phase: str) -> None:
         return
     anchor_of = _off_track_anchor_of(graph)
     junction_ids = graph.junction_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for off_id, anchor_id in anchor_of.items():
         off_st = graph.stations.get(off_id)
         anchor = graph.stations.get(anchor_id)
@@ -2053,7 +2053,7 @@ def _guard_off_track_input_column_stack(graph: MetroGraph, phase: str) -> None:
     junction_ids = graph.junction_ids
     y_spacing = compute_min_y_spacing(graph)
     anchor_of = _off_track_anchor_of(graph)
-    tol = 1.0
+    tol = COORD_TOLERANCE
 
     def _flow_coord(st: Station) -> float:
         flow, _cross = section_axes(graph.sections.get(st.section_id or ""))
@@ -2122,7 +2122,7 @@ def _guard_sparse_loop_station_clears_column_neighbour(
         return
     floor = _LOOP_STATION_COLUMN_CLEARANCE_FRACTION * pitch
     half_grid = graph.half_grid_station_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.direction not in ("LR", "RL"):
             continue
@@ -2183,7 +2183,7 @@ def _guard_off_track_consumer_on_trunk(graph: MetroGraph, phase: str) -> None:
     for a TB/BT one.
     """
     junction_ids = graph.junction_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     consumers = {
         anchor_id
         for off_id, anchor_id in _off_track_anchor_of(graph).items()
@@ -2232,7 +2232,7 @@ def _guard_symfan_entry_port_on_feeder_trunk(graph: MetroGraph, phase: str) -> N
 
     if graph.diamond_style != "symmetric":
         return
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         feeder = _symfan_entry_port_feeder_y(graph, section)
         if feeder is None:
