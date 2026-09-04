@@ -254,7 +254,14 @@ def _prepare_graph_state(
     for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
         raw = getattr(graph, attr)
         if raw and not logo_is_resolvable(raw):
-            raise ValueError(f"%%metro logo: path {raw!r} not found")
+            # `logo=` (the CLI's --logo) is applied after the source-directory
+            # pass above, so it is resolved against the working directory and
+            # naming the directive here would send the caller to the wrong
+            # place. Only an unresolved directive value can still be relative
+            # to *source_dir*.
+            from_parameter = logo is not None and attr == "logo_path"
+            origin = "logo=" if from_parameter else "%%metro logo:"
+            raise ValueError(f"{origin} path {raw!r} not found")
 
     logo_in_legend = logo_certainly_shows(graph) and graph.legend_position != "none"
     graph.reserve_title_band = output_format == "html" or (

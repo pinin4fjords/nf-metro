@@ -266,8 +266,8 @@ export function renderMetroFile(
   }
 
   const tmpOutput = join(tmpdir(), `metro-${hash}.svg`);
-  // Render the real file (not a temp copy) from the repo root so the map's
-  // relative asset paths resolve.
+  // Render the real file rather than a temp copy: the CLI resolves a map's
+  // asset paths against the directory the file itself sits in.
   const args = [
     "render",
     file,

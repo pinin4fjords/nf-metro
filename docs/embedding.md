@@ -292,11 +292,15 @@ Every one of the specific parse/layout-authoring error types below
 subclasses `nf_metro.NfMetroError`, so one `except` clause covers all of
 them without enumerating each type by name:
 
+`render_string` also takes `source_dir`: pass the directory a map was read
+from, or its `%%metro logo:` paths resolve only when the working directory
+happens to match.
+
 ```python
 from nf_metro import render_string, NfMetroError
 
 try:
-    svg = render_string(mmd_text)
+    svg = render_string(mmd_path.read_text(), source_dir=str(mmd_path.parent))
 except NfMetroError as e:
     # e.g. show the author their `.mmd` was rejected, with str(e) as the reason
     ...
