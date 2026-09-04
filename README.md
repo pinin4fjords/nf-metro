@@ -67,26 +67,10 @@ Requires Python 3.11+.
 
 ## Quick start
 
-Render a metro map from a `.mmd` file:
+Write a two-line pipeline to `pipeline.mmd`:
 
 ```bash
-nf-metro render examples/simple_pipeline.mmd -o pipeline.svg
-```
-
-Check your input without rendering, or see what nf-metro made of it:
-
-```bash
-nf-metro validate examples/simple_pipeline.mmd
-nf-metro info examples/simple_pipeline.mmd
-```
-
-Every command takes `--help`, and the [CLI reference](https://seqeralabs.github.io/nf-metro/latest/cli/) documents each one and every option it accepts. The [Guide](https://seqeralabs.github.io/nf-metro/latest/guide/) is a step-by-step walkthrough of writing `.mmd` files, ending in the full [directive reference](https://seqeralabs.github.io/nf-metro/latest/guide/#directive-reference).
-
-## Input format
-
-Input files are a subset of Mermaid `graph LR` syntax extended with `%%metro` directives. Global directives configure the map, section directives inside `subgraph` blocks control section layout, and edges carry the line IDs that pass along them:
-
-```
+cat > pipeline.mmd <<'EOF'
 %%metro title: Simple Pipeline
 %%metro line: main | Main | #4CAF50
 %%metro line: qc | Quality Control | #2196F3 | dashed
@@ -101,9 +85,29 @@ graph LR
     trim -->|main| align
     input -->|qc| fastqc
     trim -->|qc| fastqc
+EOF
 ```
 
-That is the whole of [`examples/simple_pipeline.mmd`](https://github.com/seqeralabs/nf-metro/blob/main/examples/simple_pipeline.mmd) bar a couple of stations. From there the [Guide](https://seqeralabs.github.io/nf-metro/latest/guide/) covers sections, entry and exit ports, grid placement, file and folder icons, off-track stations, inactive lines and the rest, directive by directive.
+Render it:
+
+```bash
+nf-metro render pipeline.mmd -o pipeline.svg
+```
+
+Check the input without rendering, or see what nf-metro made of it:
+
+```bash
+nf-metro validate pipeline.mmd
+nf-metro info pipeline.mmd
+```
+
+Every command takes `--help`, and the [CLI reference](https://seqeralabs.github.io/nf-metro/latest/cli/) documents each one and every option it accepts. The [Guide](https://seqeralabs.github.io/nf-metro/latest/guide/) is a step-by-step walkthrough of writing `.mmd` files, ending in the full [directive reference](https://seqeralabs.github.io/nf-metro/latest/guide/#directive-reference).
+
+## Input format
+
+Input files are a subset of Mermaid `graph LR` syntax extended with `%%metro` directives. The map above uses only global directives, which configure the whole map, plus edges carrying the line IDs that pass along them. Section directives inside Mermaid `subgraph` blocks control how each section is laid out.
+
+From there the [Guide](https://seqeralabs.github.io/nf-metro/latest/guide/) covers sections, entry and exit ports, grid placement, file and folder icons, off-track stations, inactive lines and the rest, directive by directive.
 
 ## Interactive HTML output
 

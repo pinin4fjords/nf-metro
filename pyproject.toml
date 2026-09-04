@@ -60,7 +60,7 @@ dev = [
     "mypy>=1.8",
     "types-networkx",
     "numpy<2.5",
-    "jsonschema>=4.0",
+    "nf-metro[validate]",
     "cairosvg==2.9.0",
 ]
 # Docs site is Astro/Starlight (see website/package.json). This extra only provides
@@ -157,9 +157,10 @@ ignore_missing_imports = false
 strict_optional = true
 disallow_any_generics = true
 
-# drawsvg ships no type information; jsonschema is an optional, test-only
-# dependency imported lazily by `nf-metro validate-svg`. Everything else (click,
-# Pillow, networkx via types-networkx) is typed once the package is installed.
+# drawsvg ships no type information; jsonschema is an optional dependency (the
+# `validate` extra) imported lazily by `nf-metro validate-svg`. Everything else
+# (click, Pillow, networkx via types-networkx) is typed once the package is
+# installed.
 [[tool.mypy.overrides]]
 module = ["drawsvg", "jsonschema"]
 ignore_missing_imports = true
