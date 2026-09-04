@@ -572,27 +572,101 @@ def test_same_line_independent_legs_are_a_crossover():
     )
 
 
+def _segment_crossing(a, b, c, d):
+    """Where segments ``a``-``b`` and ``c``-``d`` cross, or ``None``.
+
+    Parallel segments are excluded however far they overlap: two runs sharing a
+    channel have no single point where one passes over the other, so a gap on
+    such an overlap shows the reader nothing.  The crossing must also be
+    interior to both segments, since a shared endpoint is a join, not a
+    crossover.
+    """
+    run = (b[0] - a[0], b[1] - a[1])
+    other = (d[0] - c[0], d[1] - c[1])
+    denominator = run[0] * other[1] - run[1] * other[0]
+    if abs(denominator) < 1e-9:
+        return None
+    along = ((c[0] - a[0]) * other[1] - (c[1] - a[1]) * other[0]) / denominator
+    across = ((c[0] - a[0]) * run[1] - (c[1] - a[1]) * run[0]) / denominator
+    if not (0 < along < 1 and 0 < across < 1):
+        return None
+    return (a[0] + along * run[0], a[1] + along * run[1])
+
+
+def _same_line_crossings(routes, polylines, line_id):
+    """Every point at which two *line_id* runs cross, keyed by rounded point.
+
+    Valued by the sections every leg crossing there heads into, which name a
+    crossover independently of where global compaction has since put it.  One
+    crossing can involve more than two legs, because a drop shared by several
+    downstream sections is drawn as one channel carrying each of them.
+    """
+    drawn = [(r, p) for r, p in zip(routes, polylines) if r.line_id == line_id]
+    crossings: dict[tuple[float, float], set[str]] = {}
+    for index, (route_a, poly_a) in enumerate(drawn):
+        for route_b, poly_b in drawn[index + 1 :]:
+            for a, b in zip(poly_a, poly_a[1:]):
+                for c, d in zip(poly_b, poly_b[1:]):
+                    point = _segment_crossing(a, b, c, d)
+                    if point is None:
+                        continue
+                    key = (round(point[0], 1), round(point[1], 1))
+                    crossings.setdefault(key, set()).update(
+                        {
+                            route_a.edge.target.split("__")[0],
+                            route_b.edge.target.split("__")[0],
+                        }
+                    )
+    return crossings
+
+
 def test_issue484_same_colour_crossover_is_bridged():
     """issue #484: a horizontal bam run crosses a vertical bam drop below the
     Small-variant/Phasing sections - a genuine same-colour crossover whose legs
-    head to separate, never-reconverging destinations.  A bridge must fire."""
-    path = Path(__file__).parent.parent / "issue484.mmd"
-    if not path.exists():
-        pytest.skip("issue484.mmd repro fixture not present")
-    _, routes, _, bridges = _bridges(path)
-    by_id = {id(r): r for r in routes}
+    head to separate, never-reconverging destinations.  A bridge must fire.
+
+    The map holds exactly one such crossover, so requiring the sole bam gap to
+    sit on the sole bam crossing pins the gap to that one place without naming
+    a coordinate that moves whenever the map compacts.
+    """
+    path = EXAMPLES_DIR / "longread_variant_calling.mmd"
+    _, routes, polylines, bridges = _bridges(path)
+
+    crossings = _same_line_crossings(routes, polylines, "bam")
+    assert len(crossings) == 1, (
+        f"expected the one documented bam crossover in {path.stem}, found "
+        f"{len(crossings)}: {crossings}"
+    )
+    [(crossing_point, crossed_sections)] = crossings.items()
+    assert {"tr_calling", "structural_variants"} <= crossed_sections, (
+        f"the bam crossover involves legs into {crossed_sections}, which does "
+        f"not include the documented tr_calling / structural_variants pair"
+    )
+
+    by_id = {id(r): (r, poly) for r, poly in zip(routes, polylines)}
     bam_breaks = [
-        (bk, by_id[rid])
+        (bk, by_id[rid][0])
         for rid, breaks in bridges.items()
         for bk in breaks
-        if by_id[rid].line_id == "bam"
+        if by_id[rid][0].line_id == "bam"
     ]
-    assert bam_breaks, "expected a bam crossover bridge in issue484"
-    # The documented crossing is at (~1616, 263); the gap is centred there.
-    assert any(
-        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1616) < 30
-        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 263) < 30
-        for bk, _ in bam_breaks
+    assert len(bam_breaks) == 1, (
+        f"expected exactly one bam gap in {path.stem}, got "
+        f"{[(r.edge.source, r.edge.target) for _, r in bam_breaks]}"
+    )
+    bk, route = bam_breaks[0]
+    midpoint = (
+        (bk.cut_a[0] + bk.cut_b[0]) / 2,
+        (bk.cut_a[1] + bk.cut_b[1]) / 2,
+    )
+    assert midpoint == pytest.approx(crossing_point, abs=1.0), (
+        f"bam gap on {route.edge.source}->{route.edge.target} is centred at "
+        f"{midpoint}, not on the crossing at {crossing_point}"
+    )
+    assert route.edge.target.split("__")[0] in crossed_sections, (
+        f"the bam gap breaks the leg into "
+        f"{route.edge.target.split('__')[0]}, which is not one of the two "
+        f"crossing legs {set(crossed_sections)}"
     )
 
 

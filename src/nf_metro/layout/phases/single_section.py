@@ -818,13 +818,17 @@ def _adjust_tb_entry_shifts(
 ) -> None:
     """Shift TB section stations down to clear a perpendicular entry port.
 
-    A TB TOP/BOTTOM entry port sits on the section trunk X
-    (``_assign_entry_port_position``), so its drop onto the first station is
-    a clean vertical continuation and the cross-column lead-in turns in the
-    header corridor above the box, never inside it -- no in-section room is
+    A TB TOP/BOTTOM entry port is flow-aligned, so :func:`position_ports`
+    (Stage 3.1) seats it on its connected station's X -- the section trunk X --
+    and nothing later pulls it off.  Its drop onto the first station is then a
+    clean vertical continuation and the cross-column lead-in turns in the
+    header corridor above the box, never inside it, so no in-section room is
     needed for it.  Only a perpendicular (LEFT/RIGHT) entry, whose port would
-    otherwise coincide with the first station, needs the stations nudged
-    down."""
+    otherwise coincide with the first station, needs the stations nudged down.
+    On a horizontal-flow section Stage 3.1 seats a perpendicular (TOP/BOTTOM)
+    port on a station's X the same way, but there the station-as-elbow
+    constraint forbids the coincidence surviving and Stage 3.2's entry-port
+    alignment moves it clear."""
     if section.direction != "TB":
         return
 

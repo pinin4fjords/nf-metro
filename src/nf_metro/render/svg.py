@@ -287,11 +287,11 @@ def _compute_canvas_bounds(
                 max_y = py
 
     if header_placements:
-        # Scoped to wrapped (multi-line) headers only: a single-line header
-        # that overhangs its section bbox is a separate, pre-existing
-        # condition, and folding it into the canvas size here would shift
-        # everything anchored to it (watermark, legend) for every such
-        # section, not just the ones a wrapped title actually reaches past.
+        # Scoped to wrapped (multi-line) headers only.  Folding a
+        # single-line header's overhang in as well would move everything
+        # anchored to the canvas bounds (watermark, legend) for every
+        # section carrying a header, not just the ones whose title
+        # actually reaches past the box.
         for placement in header_placements.values():
             if len(placement.label_lines) > 1:
                 max_x = max(max_x, placement.keepout[2])
@@ -1761,12 +1761,12 @@ def _settle_render_geometry(
     frozen ahead of.  The polylines are built here because the settlement guard
     scores the coordinate a viewer sees, so it and the renderer have to read one
     set of points rather than two derivations of them.
-    Label wrapping
-    needs the theme's font/icon metrics, so it runs here rather than in
-    ``compute_layout``; when it grows a section's bbox downward it can push the
-    lower section's header badge up into the box above.  Only that genuine
-    collision is reconciled -- re-settle so routes and labels track the shifted
-    sections.
+
+    Label wrapping needs the theme's font/icon metrics, so it runs here rather
+    than in ``compute_layout``; when it grows a section's bbox downward it can
+    push the lower section's header badge up into the box above.  Only that
+    genuine collision is reconciled -- re-settle so routes and labels track the
+    shifted sections.
 
     Routing is observed so its ``RouteReservation`` ledger can drive
     :func:`settle_route_envelopes`, which widens any row or column boundary that
@@ -2811,8 +2811,8 @@ def _legend_overlaps_headers(
     A wrapped (multi-line) header can extend below its own section's box
     (``below`` mode) or above it (``above``/``nudge``), reaching outside the
     section bbox that :func:`_legend_overlaps_sections` checks.  A single-line
-    header is excluded: its own overhang is a separate, pre-existing
-    condition unrelated to wrapping (see :func:`_compute_canvas_bounds`).
+    header is excluded to match :func:`_compute_canvas_bounds`, which sizes the
+    canvas around wrapped headers alone.
     """
     for placement in header_placements.values():
         if len(placement.label_lines) <= 1:
@@ -4429,7 +4429,7 @@ def _render_terminus_icons(
             corner_radius=theme.terminus_corner_radius,
             label=label,
             font_size=theme.terminus_font_size,
-            font_color=TERMINUS_FONT_COLOR,
+            font_color=theme.terminus_font_color or TERMINUS_FONT_COLOR,
             font_family=theme.label_font_family,
         )
 

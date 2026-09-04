@@ -144,6 +144,19 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
         ),
         run_condition_attr="center_ports",
     ),
+    "post_layout_half_grid_station_ids": PhaseFieldSpec(
+        name="post_layout_half_grid_station_ids",
+        writer_stage=POST_LAYOUT,
+        reader_stages=(POST_LAYOUT,),
+        enforcement=FieldEnforcement.FALLBACK,
+        why=(
+            "half-pitch spine branches a station-rooted reconvergence fan can "
+            "only be recognised on once layout has settled; separate from "
+            "half_grid_station_ids so a placement stage reading that channel "
+            "cannot see a mark written after it ran, and read only by the "
+            "grid-alignment invariants, which union the two"
+        ),
+    ),
     "symfan_trunk_station_ids": PhaseFieldSpec(
         name="symfan_trunk_station_ids",
         writer_stage="6.3",
@@ -354,9 +367,9 @@ def require_phase_field(graph: "MetroGraph", name: str) -> None:
 
 @dataclass(frozen=True)
 class GuardSpec:
-    """One ``validate=True`` guard, with the dispatch + classification data
-    that used to be scattered across hand-written call sites and the
-    ``_BISECTION_FIRST_VALID`` table.
+    """One ``validate=True`` guard, with the dispatch and classification data
+    the guard runner reads.  ``GUARD_REGISTRY`` is the single source: the
+    ``_BISECTION_FIRST_VALID`` thresholds are derived from these specs.
 
     ``fn`` is the guard function; every guard takes ``(graph, phase)`` and the
     optional keyword inputs named in ``needs`` (a subset of ``offsets``,
