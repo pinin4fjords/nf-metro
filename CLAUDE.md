@@ -148,6 +148,8 @@ open /tmp/rnaseq_sections.png
 
 Any env with the project importable and `cairosvg` available works. Prefer pointing `PYTHONPATH` at the worktree you mean to test rather than an editable install, which binds one env to one worktree path and breaks when that worktree is pruned.
 
+`--no-chrome-css` bakes concrete colors and omits the chrome `<style>` block entirely, so this PNG cannot show a chrome-CSS cascade defect (a rule that repaints an element the stylesheet is supposed to leave alone). Answer cascade questions with the CI render-diff or a targeted test, not this recipe.
+
 ## Test Fixtures & Topology Stress Tests
 
 - Test fixtures: `tests/fixtures/`

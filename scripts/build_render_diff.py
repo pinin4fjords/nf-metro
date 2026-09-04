@@ -380,6 +380,16 @@ _WIDTH_RE = re.compile(r'\bwidth="(\d+)"')
 _HEIGHT_RE = re.compile(r'\bheight="(\d+)"')
 _ID_ATTR_RE = re.compile(r'\bid="([^"]+)"')
 _URL_REF_RE = re.compile(r"url\(#([^)]+)\)")
+_CLASS_ATTR_RE = re.compile(r'(?<![\w-])class="([^"]*)"')
+_STYLE_BLOCK_RE = re.compile(r"(<style>)(.*?)(</style>)", re.DOTALL)
+_CLASS_SELECTOR_RE = re.compile(r"\.([A-Za-z_][\w-]*)")
+# The url(...) alternative is tried first, so a dotted filename inside a
+# simple url(...) span matches as part of that alternative instead of the
+# class-selector one. It does not account for nested parens, a quoted ")",
+# or an uppercase "URL(".
+_STYLE_BODY_REWRITE_RE = re.compile(
+    r"url\([^)]*\)|(?P<class_selector>" + _CLASS_SELECTOR_RE.pattern + ")"
+)
 
 
 def _namespace_referenced_ids(content: str, namespace: str) -> str:
@@ -410,6 +420,45 @@ def _namespace_referenced_ids(content: str, namespace: str) -> str:
     return _URL_REF_RE.sub(repl_ref, content)
 
 
+def _namespace_presentation_classes(content: str, namespace: str) -> str:
+    """Suffix every presentation class name with *namespace*, in the
+    ``class="..."`` attribute tokens and in the selectors inside this panel's
+    own ``<style>`` block(s).
+
+    Inline SVG ``<style>`` in an HTML document is document-global, so two
+    inlined copies of the same pipeline (e.g. a base and a PR render) that use
+    the same class names let one copy's rule match the other copy's elements.
+    A rule present in only one panel's stylesheet then also selects the other
+    panel's identically-classed elements, silently repainting them and
+    masking a genuine stylesheet difference between the two renders.
+    Suffixing every class name per inlined copy keeps each copy's rules
+    matching only its own elements.
+
+    *namespace* must be unique per inlined copy on the page - see
+    :func:`_panel_namespace`.
+    """
+
+    def repl_attr(m: re.Match[str]) -> str:
+        tokens = m.group(1).split()
+        renamed = " ".join(f"{t}--{namespace}" for t in tokens)
+        return f'class="{renamed}"'
+
+    def repl_token(tm: re.Match[str]) -> str:
+        selector = tm.group("class_selector")
+        if selector is None:  # a url(...) span, not a class selector
+            return tm.group(0)
+        name = selector[1:]  # drop the leading "."
+        return f".{name}--{namespace}"
+
+    def repl_style(m: re.Match[str]) -> str:
+        open_tag, body, close_tag = m.group(1), m.group(2), m.group(3)
+        body = _STYLE_BODY_REWRITE_RE.sub(repl_token, body)
+        return f"{open_tag}{body}{close_tag}"
+
+    content = _CLASS_ATTR_RE.sub(repl_attr, content)
+    return _STYLE_BLOCK_RE.sub(repl_style, content)
+
+
 def _panel_namespace(stem: str, side: str) -> str:
     """Build the per-panel namespace passed to :func:`_inline_svg`.
 
@@ -430,10 +479,12 @@ def _inline_svg(path: Path, namespace: str) -> str:
     Adding viewBox (when absent) enables proportional CSS scaling via max-width/height.
 
     *namespace* must be unique per inlined copy on the page (e.g. combining the
-    render's stem with "base"/"pr") - see :func:`_namespace_referenced_ids`.
+    render's stem with "base"/"pr") - see :func:`_namespace_referenced_ids` and
+    :func:`_namespace_presentation_classes`.
     """
     content = path.read_text()
     content = _namespace_referenced_ids(content, namespace)
+    content = _namespace_presentation_classes(content, namespace)
     m = _SVG_ROOT_RE.search(content)
     if not m:
         return content
