@@ -576,24 +576,39 @@ def test_issue484_same_colour_crossover_is_bridged():
     """issue #484: a horizontal bam run crosses a vertical bam drop below the
     Small-variant/Phasing sections - a genuine same-colour crossover whose legs
     head to separate, never-reconverging destinations.  A bridge must fire."""
-    path = Path(__file__).parent.parent / "issue484.mmd"
-    if not path.exists():
-        pytest.skip("issue484.mmd repro fixture not present")
-    _, routes, _, bridges = _bridges(path)
-    by_id = {id(r): r for r in routes}
+    path = EXAMPLES_DIR / "longread_variant_calling.mmd"
+    _, routes, polylines, bridges = _bridges(path)
+    by_id = {id(r): (r, poly) for r, poly in zip(routes, polylines)}
     bam_breaks = [
-        (bk, by_id[rid])
+        (bk, by_id[rid][0])
         for rid, breaks in bridges.items()
         for bk in breaks
-        if by_id[rid].line_id == "bam"
+        if by_id[rid][0].line_id == "bam"
     ]
-    assert bam_breaks, "expected a bam crossover bridge in issue484"
-    # The documented crossing is at (~1616, 263); the gap is centred there.
-    assert any(
-        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1616) < 30
-        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 263) < 30
-        for bk, _ in bam_breaks
-    )
+    assert bam_breaks, f"expected a bam crossover bridge in {path.stem}"
+    # A gap only reads as one line passing over another if it is centred on the
+    # crossing, so its midpoint must land on the bam run passing underneath.
+    bam_polylines = [
+        poly for route, poly in zip(routes, polylines) if route.line_id == "bam"
+    ]
+    for bk, route in bam_breaks:
+        midpoint = (
+            (bk.cut_a[0] + bk.cut_b[0]) / 2,
+            (bk.cut_a[1] + bk.cut_b[1]) / 2,
+        )
+        crossed = [
+            (a, b)
+            for poly in bam_polylines
+            if poly is not by_id[id(route)][1]
+            for a, b in zip(poly, poly[1:])
+            if min(a[0], b[0]) - 1 <= midpoint[0] <= max(a[0], b[0]) + 1
+            and min(a[1], b[1]) - 1 <= midpoint[1] <= max(a[1], b[1]) + 1
+            and _perp_distance(midpoint, a, b) <= 1.0
+        ]
+        assert crossed, (
+            f"bam gap centred at {midpoint} on "
+            f"{route.edge.source}->{route.edge.target} sits on no other bam run"
+        )
 
 
 def test_issue1322_forked_arms_recross_far_from_fork_is_bridged():
