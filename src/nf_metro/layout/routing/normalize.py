@@ -1163,12 +1163,19 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     The trunks the materialization pass owns: exempt and non-exempt alike,
     filtered to those carrying a declared slot so an undeclared leg (which would
     have no gap to fan into) is left to :func:`_dogleg_off_exempt_trunks`.
+
+    Read on the same rule as the guards that close on the result rather than on
+    the segment-boundary half alone: a trunk leg can itself be a planned exit
+    turn's segment, whose Y the fan would then choose against the plan.
     """
     return [
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
-        and not route_system_owns_segment_boundary(t.route, t.idx)
+        and not (
+            planner_owns_segment(t.route, t.idx)
+            or route_system_owns_segment_boundary(t.route, t.idx)
+        )
     ]
 
 
@@ -3108,6 +3115,11 @@ def _bundle_divergent_distinct_descents(
         # arc centre there and nowhere later.
         if frozen and not (settle_frozen_arcs and tight):
             continue
+        # Reaching the next gate with an owned channel means the gate above let
+        # it through on ``settle_frozen_arcs and tight``, since a route-system
+        # boundary is one of the ways :func:`_planner_owns_channel` answers
+        # true.  Its ``not tight`` is therefore already false: it declines a
+        # group no construction produces.
         if (
             any(
                 route_system_owns_segment_boundary(channel.route, channel.idx)
