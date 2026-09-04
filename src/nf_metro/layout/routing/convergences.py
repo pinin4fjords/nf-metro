@@ -67,6 +67,7 @@ from nf_metro.layout.routing.common import (
     HTrunkSeg,
     OffsetRegime,
     RoutedPath,
+    _points_coincide,
     _vert_horiz_cross,
     apply_route_offsets,
     column_gap_edges,
@@ -4685,13 +4686,6 @@ def _trunk_segments(
 def _route_covers_trunk(route: RoutedPath, axis: ConvergenceTrunkAxis) -> bool:
     return all(
         _route_covers_segment(route, start, end) for start, end in _trunk_segments(axis)
-    )
-
-
-def _points_coincide(first: tuple[float, float], second: tuple[float, float]) -> bool:
-    """Whether two points are the same point to within routing tolerance."""
-    return all(
-        abs(a - b) <= COORD_TOLERANCE for a, b in zip(first, second, strict=True)
     )
 
 

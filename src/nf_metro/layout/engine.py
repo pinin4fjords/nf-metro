@@ -23,16 +23,14 @@ from functools import partial
 from nf_metro.layout.constants import (
     CURVE_RADIUS,
     DESCENDER_CLEARANCE,
+    EDGE_TO_BUNDLE_CLEARANCE,
     FONT_HEIGHT,
     ICON_STACK_LABEL_CLEARANCE,
     INTER_ROW_EDGE_CLEARANCE,
     LABEL_OFFSET,
     LABEL_OVERLAP_TOL,
     MIN_Y_SPACING_FLOOR,
-    ROW_GAP,
     SAME_COORD_TOLERANCE,
-    SECTION_GAP,
-    SECTION_ROUTE_CLEARANCE,
     SECTION_X_GAP,
     SECTION_X_PADDING,
     SECTION_Y_GAP,
@@ -452,7 +450,7 @@ def _far_side_wrap_left_clearances(graph: MetroGraph) -> dict[str, float]:
     a curve radius left of its box (see
     ``_route_left_exit_around_below_left_entry``).  Reserving that width as extra
     left extent lets the Stage 1.5 overshoot adjustment keep the wrap clear of
-    the canvas edge.  ``SECTION_ROUTE_CLEARANCE`` bounds the ascent channel's own
+    the canvas edge.  ``EDGE_TO_BUNDLE_CLEARANCE`` bounds the ascent channel's own
     edge clearance, so the sum is a safe upper bound on the wrap's reach.
     """
     clearances: dict[str, float] = {}
@@ -462,7 +460,10 @@ def _far_side_wrap_left_clearances(graph: MetroGraph) -> dict[str, float]:
         n = len({edge.line_id for edge in graph.edges_to(port.id)})
         offset_step = graph_offset_step(graph)
         clearance = (
-            (n - 1) * offset_step + CURVE_RADIUS + offset_step + SECTION_ROUTE_CLEARANCE
+            (n - 1) * offset_step
+            + CURVE_RADIUS
+            + offset_step
+            + EDGE_TO_BUNDLE_CLEARANCE
         )
         clearances[port.section_id] = max(
             clearances.get(port.section_id, 0.0), clearance
@@ -476,8 +477,6 @@ def compute_layout(
     y_spacing: float | None = None,
     x_offset: float = X_OFFSET,
     y_offset: float = Y_OFFSET,
-    row_gap: float = ROW_GAP,
-    section_gap: float = SECTION_GAP,
     section_x_padding: float = SECTION_X_PADDING,
     section_y_padding: float = SECTION_Y_PADDING,
     section_x_gap: float | None = None,

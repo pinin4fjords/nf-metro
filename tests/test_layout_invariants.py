@@ -1716,13 +1716,7 @@ def test_merge_fanout_shares_corner_by_construction(fixture, monkeypatch):
     assert not violations, "; ".join(v.message() for v in violations)
 
 
-_XFAIL_SYMFAN_PAIRS_SHARE_Y: dict[str, str] = {}
-
-
-@pytest.mark.parametrize(
-    "fixture",
-    _params_with_xfails(ALL_FIXTURES, _XFAIL_SYMFAN_PAIRS_SHARE_Y),
-)
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_symfan_pairs_share_y(fixture):
     """When a section has exactly two full-bundle stations in the same
     column (a classic symmetric-fan pair such as Reporting's Shiny app
@@ -5988,14 +5982,9 @@ def test_junction_same_line_fans_coincide_or_separate(fixture):
             )
 
 
-@pytest.mark.parametrize("fixture", sorted({*_FIXTURES_MULTI_SECTION_PLUS_STACK}))
-def test_inter_section_route_no_full_width_dogleg_clean(fixture):
-    """No merge feeder takes a full-width out-and-back dog-leg (#432).
-
-    The corridor route's long leftward traverse in the inter-row gap is a
-    monotonic approach toward the target, not a backtrack, so the refined
-    full-width guard passes on now.
-    """
+def _assert_no_backtrack_leg_over_40pc_of_canvas(fixture: str) -> None:
+    """Assert no inter-section route reverses in X for more than 40% of the
+    canvas width in a single leg."""
     from nf_metro.layout.engine import (
         _canvas_width,
         inter_section_route_backtrack_legs,
@@ -6013,6 +6002,17 @@ def test_inter_section_route_no_full_width_dogleg_clean(fixture):
             f"backtracks {span:.1f}px in one leg (x={x1:.1f}->{x2:.1f}), "
             f"exceeding 40% of canvas width {canvas_width:.1f}"
         )
+
+
+@pytest.mark.parametrize("fixture", sorted({*_FIXTURES_MULTI_SECTION_PLUS_STACK}))
+def test_inter_section_route_no_full_width_dogleg_clean(fixture):
+    """No merge feeder takes a full-width out-and-back dog-leg (#432).
+
+    A corridor route's long leftward traverse in the inter-row gap is a
+    monotonic approach toward its target rather than a backtrack, so it must
+    not count against the full-width guard.
+    """
+    _assert_no_backtrack_leg_over_40pc_of_canvas(fixture)
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES_DOGLEG)
@@ -6028,23 +6028,7 @@ def test_inter_section_route_no_full_width_dogleg(fixture):
     bounds those reversals: a right-then-left dog-leg sweeping the whole
     diagram is forbidden even when exempt.
     """
-    from nf_metro.layout.engine import (
-        _canvas_width,
-        inter_section_route_backtrack_legs,
-    )
-
-    graph = _layout(fixture)
-    routes = route_edges(graph)
-    canvas_width = _canvas_width(graph)
-    assert canvas_width > 0
-    limit = 0.4 * canvas_width
-    for rp, x1, x2 in inter_section_route_backtrack_legs(graph, routes):
-        span = abs(x2 - x1)
-        assert span <= limit + _Y_TOL, (
-            f"{fixture}: {rp.line_id} {rp.edge.source}->{rp.edge.target} "
-            f"backtracks {span:.1f}px in one leg (x={x1:.1f}->{x2:.1f}), "
-            f"exceeding 40% of canvas width {canvas_width:.1f}"
-        )
+    _assert_no_backtrack_leg_over_40pc_of_canvas(fixture)
 
 
 # ---------------------------------------------------------------------------
@@ -8108,14 +8092,10 @@ def test_section_bbox_has_bottom_padding(fixture):
 # A section that fans a branch above its trunk gets a full top padding band
 # restored by ``_reserve_row_gap_for_top_padding`` + ``_fit_bboxes_to_content_top``:
 # when a same-column section directly above would clamp the grow, the lower row is
-# pushed down to make room.  No fixture is expected to fall short.
-_XFAIL_BBOX_TOP_PAD: dict[str, str] = {}
+# pushed down to make room.
 
 
-@pytest.mark.parametrize(
-    "fixture",
-    _params_with_xfails(ALL_FIXTURES, _XFAIL_BBOX_TOP_PAD),
-)
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_section_bbox_has_top_padding(fixture):
     """Each section's bbox top must sit at least ``section_y_padding``
     above the centre Y of its highest internal station.
@@ -8166,9 +8146,7 @@ def test_section_bbox_has_top_padding(fixture):
     )
 
 
-@pytest.mark.parametrize(
-    "fixture", _params_with_xfails(ALL_FIXTURES, _XFAIL_BBOX_TOP_PAD)
-)
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
 def test_section_bbox_padding_clears_symmetric_fan_bundle_span(fixture):
     """A symmetric diamond's off-trunk branches must get equal, full padding.
 
@@ -9212,7 +9190,7 @@ def test_station_x_within_column_tolerance(fixture):
 # ---------------------------------------------------------------------------
 
 _SV_STATS_NUDGE_REASON = (
-    "issue #348: sv_stats label nudged 14.1px to clear bcftools_stats "
+    "issue #1863: sv_stats label nudged 14.1px to clear bcftools_stats "
     "label collision; revisit when the engine collision-clearance is "
     "tuned or the section is restructured"
 )
@@ -9220,25 +9198,25 @@ _XFAIL_LABEL_AT_STATION_X: dict[str, str] = {
     "variantbenchmarking.mmd": _SV_STATS_NUDGE_REASON,
     "variantbenchmarking_auto.mmd": _SV_STATS_NUDGE_REASON,
     "topologies/foldback_exit_peeloff.mmd": (
-        "issue #348: samtools_stats label nudged 17.1px to clear an adjacent "
+        "issue #1863: samtools_stats label nudged 17.1px to clear an adjacent "
         "label collision in the dense GATK Preprocessing section (forward top "
         "row, unrelated to the return-row peel-off this fixture locks); revisit "
         "when the engine collision-clearance is tuned"
     ),
     "topologies/manual_rl_row_nonconsumer_bypass.mmd": (
-        "issue #348: samtools_stats label nudged 17.1px to clear an adjacent "
+        "issue #1863: samtools_stats label nudged 17.1px to clear an adjacent "
         "label collision in the dense GATK Preprocessing section (forward top "
         "row, unrelated to the manual RL-row bypass this fixture locks); revisit "
         "when the engine collision-clearance is tuned"
     ),
     "topologies/packed_cell_cellmate_bypass.mmd": (
-        "issue #348: samtools_stats label nudged 17.1px to clear an adjacent "
+        "issue #1863: samtools_stats label nudged 17.1px to clear an adjacent "
         "label collision in the dense GATK Preprocessing section (forward top "
         "row, unrelated to the packed-cell bypass this fixture locks); revisit "
         "when the engine collision-clearance is tuned"
     ),
     "topologies/packed_cell_cellmate_bypass_adjacent.mmd": (
-        "issue #348: samtools_stats label nudged 17.1px to clear an adjacent "
+        "issue #1863: samtools_stats label nudged 17.1px to clear an adjacent "
         "label collision in the dense GATK Preprocessing section (forward top "
         "row, unrelated to the packed-cell bypass this fixture locks); revisit "
         "when the engine collision-clearance is tuned"

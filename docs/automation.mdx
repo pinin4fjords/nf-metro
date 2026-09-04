@@ -1,13 +1,12 @@
 ---
 title: "CI & automation"
-description: Keep a pipeline's metro-map SVG in sync with its .mmd source using the nf-metro GitHub Action, reusable workflow, or pre-commit hook.
+description: Keep a pipeline's metro-map SVG in sync with its .mmd source using the nf-metro GitHub Action or pre-commit hook.
 ---
 
 Commit a metro-map `.mmd` to your pipeline repo and let automation keep the
-rendered SVG in sync. nf-metro ships three integration modes:
+rendered SVG in sync. nf-metro ships two integration modes:
 
 - a **composite GitHub Action** — install + render, you decide what to do with the result;
-- a **reusable workflow** — the same, plus commit-on-push / warn-on-PR out of the box;
 - a **pre-commit hook** — re-render locally on every commit.
 
 ## GitHub Action
@@ -32,3 +31,29 @@ Inputs (all optional): `input` (default `assets/metro_map.mmd`), `output`
 `embed-font` (default `true`), `version` (nf-metro version to install), and
 `extra-args` for any other `nf-metro render` flag (e.g.
 `extra-args: "--fold-threshold 20"`).
+
+## Pre-commit hook
+
+Re-render the SVG locally on every commit, so it never drifts from the source.
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/seqeralabs/nf-metro
+    rev: 1.1.0
+    hooks:
+      - id: nf-metro
+```
+
+The hook matches `*.mmd` and writes the sibling `.svg`
+(`assets/metro_map.mmd` becomes `assets/metro_map.svg`). It runs with
+`--theme nfcore --embed-font` by default; setting `args` replaces that whole
+list, so repeat the flags you want to keep alongside the new one:
+
+```yaml
+- id: nf-metro
+  args: [--theme, nfcore, --embed-font, --mode, light]
+```
+
+Drop `--theme nfcore` if the map picks its own brand with a
+`%%metro style:` directive, which the flag would otherwise override.

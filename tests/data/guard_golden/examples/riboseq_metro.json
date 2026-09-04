@@ -384,7 +384,6 @@
     "_guard_title_band_clearance|after final",
     "_guard_entry_landing_no_station_backtrack|after final",
     "_guard_ports_clear_unanchored_box_edges|after final",
-    "_guard_canvas_margin_settled|render",
     "_guard_coordinates_finite|render",
     "_guard_section_bboxes_positive|render",
     "_guard_stations_in_sections|render",

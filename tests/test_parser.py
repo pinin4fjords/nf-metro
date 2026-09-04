@@ -563,7 +563,7 @@ def test_empty_section_removed_render():
     """
     from nf_metro.layout.engine import compute_layout
     from nf_metro.render.svg import render_svg
-    from nf_metro.themes import NFCORE_THEME
+    from nf_metro.themes import NFCORE_DARK_THEME
 
     text = (
         "%%metro line: dna | DNA | #004b86\n"
@@ -584,7 +584,7 @@ def test_empty_section_removed_render():
         graph = parse_metro_mermaid(text)
 
     compute_layout(graph)
-    svg_str = render_svg(graph, NFCORE_THEME)
+    svg_str = render_svg(graph, NFCORE_DARK_THEME)
 
     # All station labels should appear in the SVG output
     assert "cat" in svg_str

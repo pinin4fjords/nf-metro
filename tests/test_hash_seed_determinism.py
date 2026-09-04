@@ -39,6 +39,10 @@ REPRESENTATIVE_CORPUS = (
     "examples/topologies/packed_cell_cellmate_bypass.mmd",
     "examples/topologies/u_turn_fold.mmd",
     "examples/topologies/wide_fan_out.mmd",
+    # Two of the `alt` line's phantom pass-through targets tie on earliest
+    # layer; the layout must pick the same one under every hash seed, so this
+    # map settles and renders identically here.
+    "tests/data/off_track_phantom_tiebreak.mmd",
 )
 
 

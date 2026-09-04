@@ -23,7 +23,6 @@ from nf_metro.layout.constants import (
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
     SECTION_HEADER_PROTRUSION,
-    SECTION_ROUTE_CLEARANCE,
     graph_offset_step,
 )
 from nf_metro.layout.geometry import (
@@ -418,7 +417,7 @@ def header_corridor_y(
     full :data:`INTER_ROW_HEADER_CLEARANCE` applies only when a section
     occupies the gap above the row (contributing a header badge); the topmost
     row has only the canvas-top title band, so the smaller
-    :data:`SECTION_ROUTE_CLEARANCE` keeps the channel from overshooting it.
+    :data:`EDGE_TO_BUNDLE_CLEARANCE` keeps the channel from overshooting it.
 
     When *col* is given the channel clears only that grid column's sections, so
     a corridor leg confined to one column isn't pushed past a tall section
@@ -427,13 +426,13 @@ def header_corridor_y(
     if below:
         return (
             row_bottom_edge(graph, row, default=default, col=col)
-            + SECTION_ROUTE_CLEARANCE
+            + EDGE_TO_BUNDLE_CLEARANCE
             + base_radius
         )
     clearance = (
         INTER_ROW_HEADER_CLEARANCE
         if section_exists_above_row(graph, row)
-        else SECTION_ROUTE_CLEARANCE
+        else EDGE_TO_BUNDLE_CLEARANCE
     )
     return row_top_edge(graph, row, default=default, col=col) - clearance - base_radius
 
@@ -494,6 +493,37 @@ def column_gap_edges(
     right = col_right_edge(graph, lo, row=row)
     left = col_left_edge(graph, hi, default=right, row=row)
     return right, left
+
+
+def off_grid_gap_bundle_midpoint(
+    graph: MetroGraph, lo: int, row: int | None, bundle_width: float
+) -> float | None:
+    """X midline of a bundle in gap ``(lo, lo + 1)`` when the grid has one side.
+
+    ``None`` unless exactly one of the two columns carries a section anywhere
+    on the grid, which is the case that leaves the gap with no facing edge to
+    measure at any row: the caller then reads :func:`column_gap_edges` and
+    centres the bundle between the two edges as usual.
+
+    The bundle sits :data:`EDGE_TO_BUNDLE_CLEARANCE` off that one real edge --
+    the floor :func:`symmetric_bundle_midpoint` holds against a bounded gap's
+    edges -- rather than centred across a span whose absent side
+    :func:`col_left_edge` and :func:`col_right_edge` report as the coordinate
+    origin, because a midpoint measured against the origin is set by the map's
+    overall size instead of by the box the bundle hugs.  *row* narrows the real
+    edge to the bundle's own row where the column reaches it, and the column's
+    full extent covers the rest.
+    """
+    lo_on_grid = bool(_sections_in_col(graph, lo))
+    hi_on_grid = bool(_sections_in_col(graph, lo + 1))
+    if lo_on_grid == hi_on_grid:
+        return None
+    reach = EDGE_TO_BUNDLE_CLEARANCE + bundle_width / 2
+    if lo_on_grid:
+        anywhere = col_right_edge(graph, lo)
+        return col_right_edge(graph, lo, default=anywhere, row=row) + reach
+    anywhere = col_left_edge(graph, lo + 1)
+    return col_left_edge(graph, lo + 1, default=anywhere, row=row) - reach
 
 
 def packed_cell_neighbor_edges(

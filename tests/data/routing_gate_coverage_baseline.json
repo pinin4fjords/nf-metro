@@ -632,6 +632,7 @@
   "normalize.py::elif below_ok and (not above_ok or prefer_below):::#1",
   "normalize.py::elif down_ok and (not up_ok or prefer_down):::#1",
   "normalize.py::elif far_y < t.y - COORD_TOLERANCE:::#1",
+  "normalize.py::elif right_ok:::#1",
   "normalize.py::elif up_ok:::#1",
   "normalize.py::for _ in range(32):::#1",
   "normalize.py::for _ in range(len(buckets) + 1):::#1",

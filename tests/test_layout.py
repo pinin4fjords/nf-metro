@@ -2545,8 +2545,8 @@ def test_multi_path_gap_separates_by_b_and_centers():
     (A + w1 + B + w2 + A).
 
     03b_fan_in_merge's StepA|StepB gap carries a down-path (junction_7) and
-    an up-path (junction_6); they previously overlapped (~5px) and now
-    separate by B and straddle the gap centre.
+    an up-path (junction_6); the two must clear each other by B and straddle
+    the gap centre rather than overlapping.
     """
     from nf_metro.layout.constants import BUNDLE_TO_BUNDLE_CLEARANCE
     from nf_metro.layout.routing import route_edges

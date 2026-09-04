@@ -13,21 +13,15 @@ from typing import TYPE_CHECKING
 
 from nf_metro.render.style import Theme
 from nf_metro.themes.light import LIGHT_THEME
-from nf_metro.themes.nfcore import (
-    NFCORE_DARK_THEME,
-    NFCORE_LIGHT_THEME,
-    NFCORE_THEME,
-)
-from nf_metro.themes.seqera import (
-    SEQERA_DARK_THEME,
-    SEQERA_LIGHT_THEME,
-    SEQERA_THEME,
-)
+from nf_metro.themes.nfcore import NFCORE_DARK_THEME, NFCORE_LIGHT_THEME
+from nf_metro.themes.seqera import SEQERA_DARK_THEME, SEQERA_LIGHT_THEME
 
 if TYPE_CHECKING:
     from nf_metro.parser.model import MetroGraph
 
-# ``style: dark`` predates theme names; alias it onto the nfcore brand.
+# ``dark`` names a mode, not a brand, but it is both an accepted
+# ``%%metro style:`` value and ``MetroGraph.style``'s default, so every map
+# without a style directive arrives here; map it onto the nfcore brand.
 _STYLE_THEME_ALIASES = {"dark": "nfcore"}
 
 # Mode used when a single concrete palette must be baked and none was chosen
@@ -98,10 +92,8 @@ __all__ = [
     "resolve_theme",
     "mode_pair",
     "LIGHT_THEME",
-    "NFCORE_THEME",
-    "NFCORE_DARK_THEME",
     "NFCORE_LIGHT_THEME",
-    "SEQERA_THEME",
+    "NFCORE_DARK_THEME",
     "SEQERA_LIGHT_THEME",
     "SEQERA_DARK_THEME",
 ]

@@ -82,19 +82,23 @@ def _insert_phantom_pass_throughs(
         return
     min_layer = min(layers.values())
 
-    entry_port_ids = set(section.entry_ports)
-
-    # Find lines entering from entry ports to deep-layer internal stations.
-    entry_targets: dict[str, set[str]] = {}
-    for pid in entry_port_ids:
+    # Scan entry ports in section order so each line's targets follow port
+    # declaration order.
+    entry_targets: dict[str, list[str]] = {}
+    for pid in section.entry_ports:
         for edge in graph.edges_from(pid):
             if edge.target in sub.stations:
-                entry_targets.setdefault(edge.line_id, set()).add(edge.target)
+                targets = entry_targets.setdefault(edge.line_id, [])
+                if edge.target not in targets:
+                    targets.append(edge.target)
 
     for line_id, targets in entry_targets.items():
         target_layers = [layers.get(t, min_layer) for t in targets]
         if all(ly > min_layer for ly in target_layers):
-            earliest_target = min(targets, key=lambda t: layers.get(t, 0))
+            # Tie-break earliest layer by station id: for at least one real map
+            # the other candidate deterministically fails the routing
+            # curve-invariant check, so id order is the safe deterministic pick.
+            earliest_target = min(targets, key=lambda t: (layers.get(t, 0), t))
             phantom_id = f"_phantom_{section.id}_{line_id}"
 
             sub.add_station(
@@ -1007,6 +1011,8 @@ def _compute_fork_join_gaps(
     if not fork_layers and not join_layers:
         return {}
 
+    hub_layers = fork_layers & join_layers
+
     max_layer = max(layers.values()) if layers else 0
     base_gap = x_spacing * EXIT_GAP_MULTIPLIER
 
@@ -1041,12 +1047,29 @@ def _compute_fork_join_gaps(
 
     cumulative = 0.0
     layer_extra: dict[int, float] = {}
+    pending_fork_gap = 0.0
     for layer in range(max_layer + 1):
-        if layer in join_layers:
-            cumulative += layer_gap.get(layer, base_gap)
+        join_gap = layer_gap.get(layer, base_gap) if layer in join_layers else 0.0
+        # The boundary entering this layer reserves the previous layer's fork
+        # spread and this layer's join gather.  When one of them is a hub that
+        # both forks and joins, the fan across this boundary is that hub's single
+        # set of diagonals reserved from both sides at once, so its gap covers
+        # the whole column and summing books the same room twice, leaving dead
+        # flat track before the hub.  Where the fork and join are distinct
+        # single-role layers the two gaps reserve two separate diagonal sets - a
+        # divergence and a reconvergence - and must both stand, or an interior
+        # branch loses the reconvergence run that keeps it centred.
+        fork_side_is_hub = (layer - 1) in hub_layers
+        join_side_is_hub = layer in hub_layers
+        hub_spans_boundary = fork_side_is_hub or join_side_is_hub
+        if pending_fork_gap > 0.0 and join_gap > 0.0 and hub_spans_boundary:
+            cumulative += max(pending_fork_gap, join_gap)
+        else:
+            cumulative += pending_fork_gap + join_gap
         layer_extra[layer] = cumulative
-        if layer in fork_layers:
-            cumulative += layer_gap.get(layer, base_gap)
+        pending_fork_gap = (
+            layer_gap.get(layer, base_gap) if layer in fork_layers else 0.0
+        )
 
     return layer_extra
 

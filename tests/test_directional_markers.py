@@ -12,7 +12,7 @@ from nf_metro.render.svg import (
     apply_route_offsets,
     render_svg,
 )
-from nf_metro.themes import NFCORE_THEME
+from nf_metro.themes import NFCORE_DARK_THEME
 
 EXAMPLES_DIR = pathlib.Path(__file__).parent.parent / "examples"
 
@@ -33,7 +33,7 @@ def _laid_out(stem: str):
 def _render(stem: str, *, directional: bool) -> str:
     graph = _laid_out(stem)
     graph.directional = directional
-    return render_svg(graph, NFCORE_THEME)
+    return render_svg(graph, NFCORE_DARK_THEME)
 
 
 def test_directional_off_by_default_emits_no_chevrons():
@@ -58,8 +58,8 @@ def test_chevron_headings_point_downstream(stem):
     station_offsets = compute_station_offsets(graph)
     routes = route_edges_centred(graph, station_offsets=station_offsets)
 
-    spacing = NFCORE_THEME.directional_marker_spacing
-    min_length = 2 * NFCORE_THEME.directional_marker_size
+    spacing = NFCORE_DARK_THEME.directional_marker_spacing
+    min_length = 2 * NFCORE_DARK_THEME.directional_marker_size
 
     checked = 0
     for route in routes:

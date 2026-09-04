@@ -211,12 +211,12 @@ def _line_base_sign(graph, lid: str) -> float:
 def test_fork_weave_exclusive_runs_ride_their_line_rail():
     """A line's exclusive run must sit on its line's symmetric base rail.
 
-    The cross-line fork (top/mid/bot exclusive runs all diverging from the
-    same trunk station) used to be repacked into consecutive tracks by the
-    fork-equalize pass, collapsing the bottom line's run onto the trunk.
-    Each exclusive station must instead match its own line's base track, so
-    the top run rides above the trunk, the bottom run below, and the middle
-    run on the centre.
+    In a cross-line fork (top/mid/bot exclusive runs all diverging from the
+    same trunk station) the fork-equalize pass must not repack the runs into
+    consecutive tracks, which would collapse the bottom line's run onto the
+    trunk.  Each exclusive station matches its own line's base track, so the
+    top run rides above the trunk, the bottom run below, and the middle run
+    on the centre.
     """
     graph = _fork_weave_graph(centered=True)
     layers = assign_layers(graph)

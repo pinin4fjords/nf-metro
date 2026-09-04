@@ -11,6 +11,15 @@ Two shapes must keep the full gap: a layer with no such neighbour, whose own gap
 is all the boundary gets, and a layer carrying the interior-branch loop floor,
 which is applied to both sides so an interior branch keeps equal divergence and
 reconvergence runs.
+
+The same double-book spans two layers when a hub that both forks and joins sits
+on one side of the boundary: the fan across it is that hub's single set of
+diagonals, reserved once as the hub's join gap before it and once as the fork gap
+after it, so the boundary must reserve the larger of the two, not their sum.
+Where the fork and join are distinct single-role layers, the two gaps reserve a
+divergence and a separate reconvergence and must both stand, or an interior
+branch loses the reconvergence run that keeps it centred; a boundary only one
+side owns keeps its whole gap.
 """
 
 from __future__ import annotations
@@ -22,6 +31,7 @@ import pytest
 from nf_metro.layout.constants import EXIT_GAP_MULTIPLIER
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases.off_track import (
+    _compute_fork_join_gaps,
     _detect_fork_join_layers,
     _flow_axis_label_half,
     _fork_join_adjacency,
@@ -34,6 +44,10 @@ from nf_metro.parser.model import Edge, MetroGraph, Station
 X_SPACING = 70.0
 BASE_GAP = X_SPACING * EXIT_GAP_MULTIPLIER
 INTERIOR_LABEL = "DESeq2 deltaTE"
+
+# A boundary may settle up to a couple of pixels off its reserved value; below
+# this a deficit cannot be expressed, so an over-book is only real above it.
+SETTLEMENT_FLOOR = 2.0
 
 FORK_EDGE = "    anota2seq -->|l1,l2| multiqc\n"
 
@@ -240,6 +254,148 @@ def _solo_fork_join_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]]
         "bottom": 2.0,
     }
     return graph, layers, tracks
+
+
+def _fork_only_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]]:
+    """A source forking to three branches that never reconverge.
+
+    The boundary after the fork gets no join gap from the next layer, so the
+    fork's own gap is the whole reservation the boundary carries and must
+    survive: the fork-meets-join term reduces a doubly-booked boundary, it never
+    weakens a fork-only one.
+    """
+    graph = _two_line_graph(
+        {
+            "src": INTERIOR_LABEL,
+            "top": "Top branch",
+            "mid": "Mid branch",
+            "bottom": "Bottom branch",
+        },
+        [
+            ("src", "top"),
+            ("src", "mid"),
+            ("src", "bottom"),
+        ],
+    )
+    layers = {"src": 0, "top": 1, "mid": 1, "bottom": 1}
+    tracks = {"src": 1.0, "top": 0.0, "mid": 1.0, "bottom": 2.0}
+    return graph, layers, tracks
+
+
+def test_fork_layer_feeding_a_join_layer_books_one_boundary_gap() -> None:
+    """A boundary between a fork layer and the join layer it feeds carries one
+    set of diagonals, so it reserves one gap - the larger of the fork and join
+    gaps - not their sum.  Charging both double-books room a single divergence
+    and reconvergence share, leaving dead flat track before the join hub."""
+    graph, layers, tracks = _te_fan()
+    out_targets, in_sources = _fork_join_adjacency(graph, None, None)
+    fork_layers, join_layers = _detect_fork_join_layers(
+        out_targets, in_sources, layers, tracks
+    )
+    layer_extra = _compute_fork_join_gaps(graph, layers, tracks, X_SPACING)
+
+    boundaries = [
+        layer
+        for layer in range(max(layers.values()))
+        if layer in fork_layers and (layer + 1) in join_layers
+    ]
+    assert boundaries, "fixture no longer exercises a fork-meets-join boundary"
+    for layer in boundaries:
+        fork_gap, forks, _ = _gap_at(graph, layers, tracks, layer)
+        join_gap, _, joins = _gap_at(graph, layers, tracks, layer + 1)
+        assert forks and joins
+        booked = layer_extra[layer + 1] - layer_extra[layer]
+        assert booked == pytest.approx(max(fork_gap, join_gap), abs=SETTLEMENT_FLOOR), (
+            f"boundary {layer}->{layer + 1} books {booked}px, not the "
+            f"{max(fork_gap, join_gap)}px the wider of its fork ({fork_gap}px) "
+            f"and join ({join_gap}px) gaps needs"
+        )
+
+
+def _disjoint_fork_join_fan() -> tuple[MetroGraph, dict[str, int], dict[str, float]]:
+    """Adjacent fork and join layers that are each a single role.
+
+    One source forks to two branches while a second source joins the first
+    branch, so layer 0 only forks and layer 1 only joins - neither is a hub that
+    both forks and joins.  The two gaps then reserve two separate diagonal sets,
+    a divergence and a reconvergence, so the boundary must keep both: collapsing
+    it would steal the reconvergence run an interior branch needs to stay
+    centred.
+    """
+    graph = _two_line_graph(
+        {
+            "src_top": "Source top",
+            "src_bottom": "Source bottom",
+            "branch_a": INTERIOR_LABEL,
+            "branch_b": "Branch B",
+            "sink": "Sink",
+        },
+        [
+            ("src_top", "branch_a"),
+            ("src_top", "branch_b"),
+            ("src_bottom", "branch_a"),
+            ("branch_a", "sink"),
+            ("branch_b", "sink"),
+        ],
+    )
+    layers = {"src_top": 0, "src_bottom": 0, "branch_a": 1, "branch_b": 1, "sink": 2}
+    tracks = {
+        "src_top": 0.0,
+        "src_bottom": 2.0,
+        "branch_a": 0.0,
+        "branch_b": 2.0,
+        "sink": 1.0,
+    }
+    return graph, layers, tracks
+
+
+def test_disjoint_fork_and_join_boundary_keeps_both_gaps() -> None:
+    """A fork layer feeding a distinct join layer, with no hub that both forks
+    and joins across the boundary, keeps both gaps: the fork spread and the join
+    gather are separate diagonal sets, not one double-booked fan."""
+    graph, layers, tracks = _disjoint_fork_join_fan()
+    out_targets, in_sources = _fork_join_adjacency(graph, None, None)
+    fork_layers, join_layers = _detect_fork_join_layers(
+        out_targets, in_sources, layers, tracks
+    )
+    layer_extra = _compute_fork_join_gaps(graph, layers, tracks, X_SPACING)
+
+    assert 0 in fork_layers and 1 in join_layers, (
+        "fixture no longer exercises a fork feeding a join"
+    )
+    assert not (0 in join_layers or 1 in fork_layers), (
+        "fixture no longer isolates single-role fork and join layers"
+    )
+    fork_gap = _gap_at(graph, layers, tracks, 0)[0]
+    join_gap = _gap_at(graph, layers, tracks, 1)[0]
+    assert fork_gap != pytest.approx(join_gap), (
+        "fixture no longer distinguishes collapsing from keeping both gaps"
+    )
+    booked = layer_extra[1] - layer_extra[0]
+    assert booked == pytest.approx(fork_gap + join_gap), (
+        f"disjoint fork/join boundary books {booked}px, not both its "
+        f"{fork_gap}px fork and {join_gap}px join gaps"
+    )
+
+
+def test_fork_only_boundary_keeps_its_whole_gap() -> None:
+    """A fork with no join across its boundary keeps its full gap: the
+    fork-meets-join reduction may not weaken a boundary a single side owns."""
+    graph, layers, tracks = _fork_only_fan()
+    out_targets, in_sources = _fork_join_adjacency(graph, None, None)
+    fork_layers, join_layers = _detect_fork_join_layers(
+        out_targets, in_sources, layers, tracks
+    )
+    layer_extra = _compute_fork_join_gaps(graph, layers, tracks, X_SPACING)
+
+    assert 0 in fork_layers and 1 not in join_layers, (
+        "fixture no longer exercises a fork-only boundary"
+    )
+    fork_gap = _gap_at(graph, layers, tracks, 0)[0]
+    booked = layer_extra[1] - layer_extra[0]
+    assert booked == pytest.approx(fork_gap), (
+        f"fork-only boundary books {booked}px, not its whole {fork_gap}px gap"
+    )
 
 
 def _te_span(source: str) -> float:
