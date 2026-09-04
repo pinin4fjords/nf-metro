@@ -12,6 +12,7 @@ and dark logo variants render unmasked on top of each other.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -22,6 +23,45 @@ from build_render_diff import _ID_ATTR_RE as _ID_RE  # noqa: E402
 from build_render_diff import _URL_REF_RE, _inline_svg, build_diff  # noqa: E402
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+
+_CLASS_ATTR_TOKENS_RE = re.compile(r'class="([^"]*)"')
+_STYLE_SELECTOR_TOKEN_RE = re.compile(r"\.([A-Za-z_][\w-]*)")
+_MUTED_RULE_PAIR_RE = re.compile(
+    r"\.nf-metro-station-label\.nf-metro-muted\s*\{[^}]*\}\n?"
+    r"\.nf-metro-marker-stroke\.nf-metro-muted\s*\{[^}]*\}\n?"
+)
+
+
+def _render_inactive_lines_svg() -> str:
+    text = (EXAMPLES / "inactive_lines.mmd").read_text()
+    return render_string(text, self_color_scheme=False)
+
+
+def _strip_muted_rule(svg_text: str) -> str:
+    """Delete the muted CSS rule pair from *svg_text*'s own stylesheet, leaving
+    its ``nf-metro-muted``-classed elements with no local rule to give that
+    class a meaning."""
+    stripped, n = _MUTED_RULE_PAIR_RE.subn("", svg_text)
+    assert n == 1, (
+        "fixture must declare the muted CSS rule pair for this test to be meaningful"
+    )
+    return stripped
+
+
+def _classes_used_by_elements(fragment: str) -> set[str]:
+    """Every class token that appears on an element in *fragment*."""
+    tokens: set[str] = set()
+    for m in _CLASS_ATTR_TOKENS_RE.finditer(fragment):
+        tokens.update(m.group(1).split())
+    return tokens
+
+
+def _classes_named_in_style_selectors(fragment: str) -> set[str]:
+    """Every class name a selector inside *fragment*'s <style> block(s) references."""
+    names: set[str] = set()
+    for style_match in re.finditer(r"<style>(.*?)</style>", fragment, re.DOTALL):
+        names.update(_STYLE_SELECTOR_TOKEN_RE.findall(style_match.group(1)))
+    return names
 
 
 def _render_adaptive_logo_svg() -> str:
@@ -95,3 +135,80 @@ def test_build_diff_output_has_no_id_collisions(tmp_path):
         assert defined_ids.count(ref) == 1, (
             f"id {ref!r} referenced by url(#{ref}) collides in the generated page"
         )
+
+
+def test_one_panels_stylesheet_cannot_select_the_other_panels_elements(tmp_path):
+    """A CSS rule scoped to one panel's ``<style>`` block must not match the
+    other panel's elements once both share one HTML document.
+
+    Constructs a base/PR pair where only the base copy carries the
+    ``nf-metro-muted`` rule; the PR copy's markup applies the class with no
+    local rule to give it meaning. Inline SVG ``<style>`` is document-global,
+    so an un-namespaced base rule matches the PR panel's identically-classed
+    elements too, silently repainting them and masking the very stylesheet
+    difference the two panels exist to surface.
+    """
+    svg_text = _render_inactive_lines_svg()
+    defective_svg_text = _strip_muted_rule(svg_text)
+
+    base_path = tmp_path / "inactive_lines.svg"
+    pr_path = tmp_path / "inactive_lines_pr.svg"
+    base_path.write_text(svg_text)
+    pr_path.write_text(defective_svg_text)
+
+    base_inlined = _inline_svg(base_path, "inactive_lines-base")
+    pr_inlined = _inline_svg(pr_path, "inactive_lines-pr")
+
+    base_selectors = _classes_named_in_style_selectors(base_inlined)
+    pr_classes = _classes_used_by_elements(pr_inlined)
+    matched = base_selectors & pr_classes
+    assert not matched, (
+        f"base panel's <style> selects PR panel element(s) via shared class "
+        f"name(s) {matched}"
+    )
+
+    pr_selectors = _classes_named_in_style_selectors(pr_inlined)
+    base_classes = _classes_used_by_elements(base_inlined)
+    matched = pr_selectors & base_classes
+    assert not matched, (
+        f"PR panel's <style> selects base panel element(s) via shared class "
+        f"name(s) {matched}"
+    )
+
+
+def test_build_diff_isolates_each_panels_css_and_leaves_the_corpus_untouched(tmp_path):
+    """End-to-end: a genuine stylesheet difference between base and PR renders
+    is not masked once both are inlined onto the same diff page, and the
+    on-disk corpus SVGs the change-detection gate compares are untouched by
+    page generation."""
+    svg_text = _render_inactive_lines_svg()
+    defective_svg_text = _strip_muted_rule(svg_text)
+
+    base_dir = tmp_path / "base"
+    pr_dir = tmp_path / "pr"
+    base_dir.mkdir()
+    pr_dir.mkdir()
+    base_svg_path = base_dir / "inactive_lines.svg"
+    pr_svg_path = pr_dir / "inactive_lines.svg"
+    base_svg_path.write_text(svg_text)
+    pr_svg_path.write_text(defective_svg_text)
+
+    output_dir = tmp_path / "out"
+    assert build_diff(base_dir, pr_dir, output_dir)
+
+    assert base_svg_path.read_text() == svg_text
+    assert pr_svg_path.read_text() == defective_svg_text
+
+    page = (output_dir / "index.html").read_text()
+    base_start = page.index('class="side side-base"')
+    pr_start = page.index('class="side side-pr"')
+    side_base = page[base_start:pr_start]
+    side_pr = page[pr_start:]
+
+    base_selectors = _classes_named_in_style_selectors(side_base)
+    pr_classes = _classes_used_by_elements(side_pr)
+    matched = base_selectors & pr_classes
+    assert not matched, (
+        f"base panel's <style> selects PR panel element(s) via shared class "
+        f"name(s) {matched} on the generated diff page"
+    )
