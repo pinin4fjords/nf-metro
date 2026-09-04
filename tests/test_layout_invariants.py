@@ -16,7 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import warnings
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import replace
 from functools import lru_cache
@@ -7534,23 +7534,16 @@ def test_lines_dont_cross_non_consumer_markers(fixture):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fixture", ALL_FIXTURES)
-def test_all_stations_snap_to_grid(fixture):
-    """Every on-track station's Y must be at ``trunk_y + k * y_spacing``
-    for some integer ``k``.
+def _snap_to_grid_offenders(
+    graph: MetroGraph, *, y_spacing: float, tol: float
+) -> list[str]:
+    """On-track stations whose Y is off every grid the section legitimately uses.
 
-    Half-grid placement (``trunk_y +/- 0.5 * y_spacing``) is reserved
-    for two features, both of which register the affected stations in
-    ``graph.half_grid_station_ids``:
-
-    - the auto-half-grid 2-branch symmetric fan (sections satisfying
-      ``_section_symfan_uses_half_grid`` with exactly two on-track
-      branches), and
-    - the per-diamond symmetric fork-join compaction (branches of a
-      diamond yielded by ``_iter_symmetric_diamonds``, which may sit in a
-      mixed-fan section that does not satisfy the section-level trigger).
-
-    Any other half-grid station is a regression.
+    The trunk grid is ``trunk_y + k * y_spacing``.  A section fed by a half-grid
+    centred entry fork also carries a spine grid a half slot off the trunk: the
+    fork's branches sit on the trunk grid while its reconvergence fan rides
+    ``spine_y + k * y_spacing``.  A station off both, without a recognised
+    half-grid exception, is reported.
     """
     from nf_metro.layout.engine import (
         _iter_symmetric_diamonds,
@@ -7560,11 +7553,9 @@ def test_all_stations_snap_to_grid(fixture):
         _section_has_symmetric_entry_fork,
     )
 
-    y_spacing = 55.0
-    tol = 1.0
-    graph = _layout(fixture, y_spacing=y_spacing)
-
-    half_grid_ids = graph.half_grid_station_ids
+    half_grid_ids = (
+        graph.half_grid_station_ids | graph.post_layout_half_grid_station_ids
+    )
     port_ids: set[str] = set()
     for sec in graph.sections.values():
         port_ids.update(sec.entry_ports)
@@ -7654,6 +7645,14 @@ def test_all_stations_snap_to_grid(fixture):
             # the reconvergence join (and any pass-through) legitimately sits
             # there, half a slot off the branch grid.
             continue
+        # The centred entry fork's reconvergence fan re-fans on the spine grid
+        # (spine_y + k * y_spacing), a half slot off the trunk grid its sibling
+        # entry-fork branches use; those stations are registered half-grid and
+        # land exactly on that spine grid.
+        on_spine_grid = False
+        if spine_y is not None:
+            spine_offset = (st.y - spine_y) / y_spacing
+            on_spine_grid = abs(spine_offset - round(spine_offset)) * y_spacing <= tol
         # Half-grid exception is allowed only for 2-branch fan members
         # whose section legitimately uses the half-grid layout.
         is_half = (
@@ -7667,6 +7666,7 @@ def test_all_stations_snap_to_grid(fixture):
                 st.section_id in half_grid_sections
                 or sid in diamond_branch_ids
                 or sid in planned_half_grid_ids
+                or on_spine_grid
             )
         ):
             continue
@@ -7678,11 +7678,72 @@ def test_all_stations_snap_to_grid(fixture):
             f"section_uses_half_grid="
             f"{st.section_id in half_grid_sections}"
         )
+    return offenders
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_all_stations_snap_to_grid(fixture):
+    """Every on-track station's Y must be at ``trunk_y + k * y_spacing``
+    for some integer ``k``.
+
+    Half-grid placement (``trunk_y +/- 0.5 * y_spacing``) is reserved
+    for features that register the affected stations in
+    ``graph.half_grid_station_ids`` or, for a mark only a settled layout can
+    make, ``graph.post_layout_half_grid_station_ids``:
+
+    - the auto-half-grid 2-branch symmetric fan (sections satisfying
+      ``_section_symfan_uses_half_grid`` with exactly two on-track
+      branches),
+    - the per-diamond symmetric fork-join compaction (branches of a
+      diamond yielded by ``_iter_symmetric_diamonds``, which may sit in a
+      mixed-fan section that does not satisfy the section-level trigger), and
+    - the reconvergence fan of a half-grid centred entry fork, which rides the
+      section's spine grid a half slot off the trunk.
+
+    Any other half-grid station is a regression.
+    """
+    y_spacing = 55.0
+    tol = 1.0
+    graph = _layout(fixture, y_spacing=y_spacing)
+    offenders = _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=tol)
     assert not offenders, (
         f"{fixture}: on-track stations off the y_spacing grid "
         f"without a legitimate half-grid 2-branch fan exception: "
         + "; ".join(offenders)
     )
+
+
+def test_snap_to_grid_accepts_half_grid_entry_fork_reconvergence_fan() -> None:
+    """riboseq's ``te`` section: a half-grid centred entry fork feeds a
+    reconvergence fan that rides the section's spine grid, a half slot off the
+    entry-fork trunk grid (issue #1874).
+
+    Both grids are legitimate, so the section reports nothing off-grid.  The
+    two reconvergence branches are asserted to actually sit off the trunk grid,
+    so the spine-grid acceptance is load-bearing rather than vacuous.
+    """
+    y_spacing = 55.0
+    graph = _layout("riboseq_metro.mmd", y_spacing=y_spacing)
+    anchor = _first_lr_port(graph, graph.sections["te"])
+    assert anchor is not None
+    _pid, spine_y = anchor
+    trunk_y = spine_y + 0.5 * y_spacing
+    for sid in ("anota2seq", "dotseq"):
+        assert sid in graph.post_layout_half_grid_station_ids
+        trunk_off = (graph.stations[sid].y - trunk_y) / y_spacing
+        assert abs(trunk_off - round(trunk_off)) * y_spacing > 1.0
+    assert _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=1.0) == []
+
+
+def test_snap_to_grid_flags_reconvergence_station_off_both_grids() -> None:
+    """The spine-grid acceptance is narrow: a reconvergence-fan station knocked
+    off both the trunk and the spine grid is still reported (issue #1874).
+    """
+    y_spacing = 55.0
+    graph = _layout("riboseq_metro.mmd", y_spacing=y_spacing)
+    graph.stations["anota2seq"].y += 0.4 * y_spacing
+    offenders = _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=1.0)
+    assert any("anota2seq" in offender for offender in offenders)
 
 
 # ---------------------------------------------------------------------------
@@ -9255,6 +9316,67 @@ def test_label_x_anchored_to_station_marker_on_horizontal_runs(fixture):
 # ---------------------------------------------------------------------------
 
 
+def _dist_to_shared_reconvergence(
+    succs: dict[str, set[str]], members: list[str]
+) -> dict[str, int | None]:
+    """Map each member to its hop-distance to the group's shared reconvergence.
+
+    ``succs`` is a forward-adjacency map (source -> set of targets) built once
+    from ``graph.edges``; ``members`` are the stations of one (preds, layer)
+    group, of which there are always at least two (callers filter singletons).
+
+    The shared reconvergence set is the intersection of every member's
+    descendant set (nodes reachable via forward edges).  When that
+    intersection is non-empty, every member gets an integer: the length of
+    its shortest forward path to the nearest node in the set (any such node
+    is reachable from every member by construction).  The ``None`` value is a
+    group-wide fallback, not a per-member one: it is returned for *all*
+    members exactly when the intersection is empty (the group shares no common
+    descendant), and partitions as its own value distinct from any integer.
+
+    This is a pure graph-structure property computed from the edge set alone:
+    it depends on neither engine placement coordinates nor successor identity,
+    which is what lets it separate members that reach the section's
+    reconvergence at different topological depths without keying on successors
+    (see the test docstring for why successor keying is the #514 hazard).
+    """
+
+    def descendants(start: str) -> set[str]:
+        seen: set[str] = set()
+        queue = deque(succs[start])
+        while queue:
+            node = queue.popleft()
+            if node in seen:
+                continue
+            seen.add(node)
+            queue.extend(succs[node])
+        return seen
+
+    desc_by_member = {m: descendants(m) for m in members}
+    common: set[str] = (
+        set.intersection(*desc_by_member.values()) if desc_by_member else set()
+    )
+    if not common:
+        return {m: None for m in members}
+
+    result: dict[str, int | None] = {}
+    for m in members:
+        seen = {m}
+        queue = deque((s, 1) for s in succs[m])
+        hop: int | None = None
+        while queue:
+            node, dist = queue.popleft()
+            if node in common:
+                hop = dist
+                break
+            if node in seen:
+                continue
+            seen.add(node)
+            queue.extend((s, dist + 1) for s in succs[node])
+        result[m] = hop
+    return result
+
+
 @pytest.mark.parametrize(
     "fixture",
     ALL_FIXTURES,
@@ -9273,6 +9395,30 @@ def test_visual_stack_station_xs_share_column(fixture):
     and lets a mis-placed member slip past (issue #514: ``propd`` shares
     the ``differential`` column with ``dream``/``limma``/``deseq2`` but
     its extra exit-port edge gave it a distinct successor set).
+
+    Within each (preds, layer) group the members are then partitioned by
+    hop-distance to the group's shared reconvergence node, and the X-drift
+    check runs separately per partition.  This discriminator is a pure
+    graph-structure property (intersection of descendant sets, then the
+    shortest forward hop-count to it) that is independent of BOTH successor
+    identity and engine placement.  The partition only separates members
+    whose paths to reconvergence differ in depth: a fan-out member that
+    reaches the merge via an extra intermediate station is seated one column
+    earlier than its direct-merging siblings, and that offset is genuine
+    topology, not a stack regression.
+
+    Crucially this is *not* the successor-set keying #514 rejected.
+    Successor keying fragments a fan-out column into singletons whenever
+    members differ in where they go next (e.g. one carries an extra exit-port
+    edge), hiding a mis-placed member.  Hop-distance instead keeps members
+    that merge at the same depth together regardless of successor identity,
+    so a fan-out column whose members all merge directly stays one partition
+    and a mis-placed member is still caught.  The following are illustrative
+    observations from the current corpus, not invariants this test enforces:
+    in ``da_pipeline``'s ``differential`` section the four differential-method
+    stations sit one hop from their shared merge and remain a single
+    partition; that section's ``data_prep`` mixes hop-1 and hop-2 entry
+    stations that stay X-aligned within each partition.
 
     The Y-window distinguishes visually-stacked stations (close enough
     in Y that a viewer reads them as a column) from:
@@ -9298,8 +9444,10 @@ def test_visual_stack_station_xs_share_column(fixture):
 
     graph = _layout(fixture)
     preds: dict[str, set[str]] = defaultdict(set)
+    succs: dict[str, set[str]] = defaultdict(set)
     for e in graph.edges:
         preds[e.target].add(e.source)
+        succs[e.source].add(e.target)
 
     offenders: list[str] = []
     for sec in graph.sections.values():
@@ -9315,27 +9463,34 @@ def test_visual_stack_station_xs_share_column(fixture):
                 continue
             key = (frozenset(preds[sid]), st.layer)
             groups[key].append(sid)
-        for members in groups.values():
-            if len(members) < 2:
+        for group_members in groups.values():
+            if len(group_members) < 2:
                 continue
-            xs = [graph.stations[s].x for s in members]
-            ys = [graph.stations[s].y for s in members]
-            x_drift = max(xs) - min(xs)
-            if x_drift <= X_TOL:
-                continue
-            visual_stack = any(
-                0 < abs(ys[i] - ys[j]) <= STACK_Y_WINDOW
-                for i in range(len(members))
-                for j in range(i + 1, len(members))
-            )
-            if not visual_stack:
-                continue
-            rounded_xs = [round(x, 1) for x in xs]
-            rounded_ys = [round(y, 1) for y in ys]
-            offenders.append(
-                f"section={sec.id!r} stack {members} xs={rounded_xs} "
-                f"ys={rounded_ys} dx={x_drift:.1f}"
-            )
+            hops = _dist_to_shared_reconvergence(succs, group_members)
+            partitions: dict[int | None, list[str]] = defaultdict(list)
+            for sid in group_members:
+                partitions[hops[sid]].append(sid)
+            for members in partitions.values():
+                if len(members) < 2:
+                    continue
+                xs = [graph.stations[s].x for s in members]
+                ys = [graph.stations[s].y for s in members]
+                x_drift = max(xs) - min(xs)
+                if x_drift <= X_TOL:
+                    continue
+                visual_stack = any(
+                    0 < abs(ys[i] - ys[j]) <= STACK_Y_WINDOW
+                    for i in range(len(members))
+                    for j in range(i + 1, len(members))
+                )
+                if not visual_stack:
+                    continue
+                rounded_xs = [round(x, 1) for x in xs]
+                rounded_ys = [round(y, 1) for y in ys]
+                offenders.append(
+                    f"section={sec.id!r} stack {members} xs={rounded_xs} "
+                    f"ys={rounded_ys} dx={x_drift:.1f}"
+                )
     assert not offenders, f"{fixture}: " + "; ".join(offenders[:3])
 
 
@@ -9635,7 +9790,7 @@ def test_debug_grid_overlay_boundaries_outside_section_bboxes(fixture):
     segment for that column is dropped.  This test asserts no emitted
     segment cuts any section bbox in the rows/columns it joins.
 
-    Bug: https://github.com/pinin4fjords/nf-metro/issues/316
+    Bug: https://github.com/seqeralabs/nf-metro/issues/316
     """
     from nf_metro.render.svg import (
         _compute_col_boundary_xs,

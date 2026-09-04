@@ -122,6 +122,7 @@ from nf_metro.layout.phases.fan_bundles import (  # noqa: F401
     _section_symfan_uses_half_grid,
 )
 from nf_metro.layout.phases.grid_snap import (  # noqa: F401
+    _register_half_grid_reconvergence_branches,
     _snap_all_y_to_grid,
     _snap_canvas_y_to_grid,
 )
@@ -604,6 +605,12 @@ def compute_layout(
                 raise SettledRouteValidationError(str(exc)) from exc
             finally:
                 graph._final_route_guards_deferred = False
+
+        # Must run after every layout/re-layout pass has settled: it only marks
+        # half-grid station ids for post-layout invariants. Moving it earlier lets
+        # the mark feed a subsequent pass's placement decisions (Stage 6.4's grid
+        # snap, Stage 6.18's orphan expansion), corrupting their geometry.
+        _register_half_grid_reconvergence_branches(graph)
 
 
 def _compute_layout_scaled(

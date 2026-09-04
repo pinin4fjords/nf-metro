@@ -136,6 +136,19 @@ PHASE_FIELD_REGISTRY: dict[str, PhaseFieldSpec] = {
         ),
         run_condition_attr="center_ports",
     ),
+    "post_layout_half_grid_station_ids": PhaseFieldSpec(
+        name="post_layout_half_grid_station_ids",
+        writer_stage=POST_LAYOUT,
+        reader_stages=(POST_LAYOUT,),
+        enforcement=FieldEnforcement.FALLBACK,
+        why=(
+            "half-pitch spine branches a station-rooted reconvergence fan can "
+            "only be recognised on once layout has settled; separate from "
+            "half_grid_station_ids so a placement stage reading that channel "
+            "cannot see a mark written after it ran, and read only by the "
+            "grid-alignment invariants, which union the two"
+        ),
+    ),
     "symfan_trunk_station_ids": PhaseFieldSpec(
         name="symfan_trunk_station_ids",
         writer_stage="6.3",
