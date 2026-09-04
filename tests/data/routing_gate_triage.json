@@ -75,6 +75,10 @@
   "note": "Opposing-entry candidates inherit distinct port lanes from station offsets. A duplicate adjacent lane can only arise from inconsistent precomputed geometry, so the skip is a defensive shape guard.",
   "status": "defensive"
  },
+ "common.py::if band is not None:::#1": {
+  "note": "exempt_dogleg_lanes band clamp: the band-found arm is exercised by dogleg_exempt_distinct (#702), whose distinct-line dogleg pass hands this helper the inter-row gap band the colliding trunk sits in. The band-is-None arm is defensive - the pass only reaches the helper for a trunk fused with an exempt bypass obstacle living in an inter-row gap, so the band always resolves.",
+  "status": "defensive"
+ },
  "common.py::if bundle_index < 0 or bundle_index >= n:::#1": {
   "note": "Contract guard raising IndexError on an out-of-range bundle_index. Callers always pass an in-range index (0<=i<n); the raise arm fires only on a caller-contract violation no valid call produces.",
   "status": "defensive"
@@ -110,10 +114,6 @@
  "common.py::if hi - lo <= COORD_TOLERANCE:::#1": {
   "note": "Span test in _positive_collinear_overlap; the un-exercised arm is the positive-overlap one that goes on to compute the overlap endpoints. Reached only from the same-destination conflict scans, so its only witnesses are the two corpus maps that move a tail (same_destination_short_overlap and same_destination_vertical_convergence), and every collinear pair they scan meets in at most a point, leaving the helper to return None each time. The arm wants a proposal whose moved riser runs alongside a collinear neighbour over a real length. Exercised synthetically by tests/test_same_destination_vertical_bundle.py; needs-review because an in-corpus witness is authorable, not because the arm is unreachable.",
   "status": "needs-review"
- },
- "common.py::if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:::#1": {
-  "note": "A complete destination bundle receives one contiguous n-slot channel band from gap materialization, so its peel-X extent cannot exceed (n-1)*step. The wider-band arm protects hand-built or corrupted route geometry and is exercised by test_invalid_opposing_candidate_is_rejected[noncontiguous-channel-band].",
-  "status": "defensive"
  },
  "common.py::if moves and _section_intrudes(::#1": {
   "note": "Refusal when the slot column's riser would run within EDGE_TO_BUNDLE_CLEARANCE of a section box that is neither the route's source nor its target section. `moves` is live here: same_destination_short_overlap moves the assembly tail 13px and 17px across proposals and the audit tail 4px, and same_destination_vertical_convergence moves the upper tail 4px. The refusal is un-exercised because those risers run inside open inter-section corridor, not because no corpus tail moves. The arm wants a cohort whose tighter slot column pushes a riser up against a neighbouring section's bbox.",
@@ -1087,12 +1087,8 @@
   "note": "Same-line dogleg: the band-found arm is exercised by dogleg_exempt_sameline; the band-is-None arm is defensive (both colliding trunks route through _center_inter_row_channel, so the trunk Y always resolves to a gap band).",
   "status": "defensive"
  },
- "normalize.py::if band is not None:::#2": {
-  "note": "Distinct-line dogleg: the band-found arm (->1327) is exercised by dogleg_exempt_distinct (#702). The remaining band-is-None arm (->1331) is defensive: a trunk reaching this second loop collides with an exempt bypass obstacle that lives in an inter-row gap, so _inter_row_gap_band(ctx, t.y) always resolves to a band - the same mechanism already accepted for the sibling 'if band is not None:::#1'.",
-  "status": "defensive"
- },
  "normalize.py::if below_ok and above_ok and (cross_below is None) != (cross_above is None):::#1": {
-  "note": "Distinct-line dogleg side selection. The crossing-decided true arm (->1342) is exercised by dogleg_exempt_distinct. The false fall-through (->1343) needs a crossing-equal tie; a crossing-free tie requires degenerate zero-length exempt risers and the only realizable tie is both-cross, which trips _guard_no_dogleg_crosses_exempt_trunk plus the section-crossing guards and is never a shippable render.",
+  "note": "Distinct-line dogleg side selection. The crossing-decided true arm is exercised by dogleg_exempt_distinct. The false fall-through needs a crossing-equal tie among trunks the pass moves (those closer than their corridor separation); the corpus has none - a crossing-free tie needs degenerate zero-length exempt risers, and the one forced both-cross transit (riboseq_inter_row_corridor) sits at exactly the separation, so the pass leaves it in place rather than reaching this selection.",
   "status": "defensive"
  },
  "normalize.py::if channel.idx == 0:::#1": {
