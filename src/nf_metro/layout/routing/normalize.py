@@ -49,10 +49,12 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    exempt_dogleg_lanes,
     feasible_same_destination_approach_proposals,
     gap_lo_for_x,
     gap_lookup_geometry,
     initial_fanout_descent_span,
+    inter_row_gap_band,
     inter_row_gap_upper_row,
     is_orthogonal_turn,
     is_side_entry_port,
@@ -69,6 +71,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     route_system_owns_segment_boundary,
     same_destination_approach_slots,
@@ -640,9 +643,7 @@ def _locate_slot_channel_with_slot(
 
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
-    return planner_owns_segment(
-        channel.route, channel.idx
-    ) or route_system_owns_segment_boundary(channel.route, channel.idx)
+    return planner_owns_segment_or_boundary(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -1034,10 +1035,7 @@ def _rederive_semantic_end_corners(
                 kind == "source" and route.exit_lane_transition_plan_id is not None
             ) or (kind == "target" and route.exit_turn_segment_rank == rank):
                 continue
-            if respect_owned_corners and (
-                planner_owns_segment(route, rank)
-                or route_system_owns_segment_boundary(route, rank)
-            ):
+            if respect_owned_corners and planner_owns_segment_or_boundary(route, rank):
                 continue
             cohorts[kind, owner, incoming, outgoing].append(
                 _SemanticEndCorner(
@@ -1992,10 +1990,7 @@ def _unify_coincident_corner_radii(
     )
 
     def corner_is_owned(route: RoutedPath, radius_index: int) -> bool:
-        corner_rank = radius_index + 1
-        return planner_owns_segment(
-            route, corner_rank
-        ) or route_system_owns_segment_boundary(route, corner_rank)
+        return planner_owns_segment_or_boundary(route, radius_index + 1)
 
     for rp in routes:
         radii = rp.curve_radii
@@ -3939,15 +3934,8 @@ def _restack_trunk_band(
 
 
 def _inter_row_gap_band(ctx: _RoutingCtx, y: float) -> tuple[float, float] | None:
-    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*.
-
-    Scans adjacent grid rows for the gap whose ``[row_bottom, next_row_top]``
-    band contains *y*; returns ``None`` when *y* doesn't fall in any gap.
-    """
-    for _upper, top, bottom in iter_inter_row_gaps(ctx.graph):
-        if top - COORD_TOLERANCE <= y <= bottom + COORD_TOLERANCE:
-            return top, bottom
-    return None
+    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*."""
+    return inter_row_gap_band(ctx.graph, y)
 
 
 def _htrunk_seg(t: _HTrunk, y: float) -> HTrunkSeg:
@@ -4083,22 +4071,20 @@ def _dogleg_off_exempt_trunks(
         if hit is None:
             continue
         separation = _exempt_trunk_separation(t, hit, ctx.curve_radius)
-        band = _inter_row_gap_band(ctx, t.y)
-        below, above = hit.y + separation, hit.y - separation
-        if band is not None:
-            top, bottom = band
-            below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
-            above_ok = above >= top
-        else:
-            below_ok = above_ok = True
+        lanes = exempt_dogleg_lanes(
+            _htrunk_seg(t, t.y),
+            _htrunk_seg(hit, hit.y),
+            separation=separation,
+            band=_inter_row_gap_band(ctx, t.y),
+        )
+        below, above = lanes.below_y, lanes.above_y
+        below_ok, above_ok = lanes.below_ok, lanes.above_ok
+        cross_below, cross_above = lanes.below_crossing, lanes.above_crossing
         # Pick the side that keeps the trunk a crossing-free parallel bundle:
         # nudging it onto the side whose riser would pierce the exempt run (or
         # whose run the exempt riser would pierce) trades one fused stroke for
         # two crossings.  Among crossing-equal sides, fall back to the side the
         # trunk already leans toward.
-        obstacle = _htrunk_seg(hit, hit.y)
-        cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
-        cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
         prefer_below = t.y >= hit.y
         if below_ok and above_ok and (cross_below is None) != (cross_above is None):
             use_below = cross_below is None

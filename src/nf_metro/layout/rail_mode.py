@@ -720,8 +720,9 @@ def _rail_slot_offsets(
     are members of the same ``legend_combo`` instead share a SINGLE slot,
     drawn as a tight adjacent bundle: the slot's lines hug each other with a
     small sub-offset about the slot centre rather than spreading across full
-    rail pitches.  With no combos this is exactly ``i * y_spacing`` per line in
-    order, identical to the un-bundled layout.
+    rail pitches.  With no combos each line takes its own slot, its slot index
+    many rail pitches down from the top rail; the pitch is ``y_spacing`` scaled
+    by ``graph.stroke_scale``.
 
     Returns ``(per_line_offset, n_slots)`` where ``n_slots`` is the number of
     distinct rail slots (non-combo lines + one per combo with members present).

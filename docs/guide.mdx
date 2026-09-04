@@ -375,7 +375,7 @@ Auto-layout infers an interchange automatically wherever the lanes are _fully pa
 %%metro interchange: markduplicates | tumor | normal
 ```
 
-The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
+The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. A rail may name a line the node does not carry, so one directive can be written for a family of maps: such a line is not placed, and a rail left with no line the node carries drops out. A node left with fewer than two live rails is not an interchange, and is reported. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
 
 ### Section directives
 
@@ -391,6 +391,34 @@ These go inside `subgraph` blocks.
 Entry/exit hints tell the layout engine which side of the section box lines should enter or leave from. Most of the time you can **omit these entirely** and let the auto-layout engine figure it out. They are useful when you want lines to exit from different sides of the same section (e.g., right for some lines, bottom for others).
 
 Automatic section numbers follow connected visual routes. Numbering prefers the nearest connected section on the current row, keeps parallel branch starts together, and completes independent inputs before a merge. A clear primary row can finish before numbering a secondary route that rejoins it. An explicit `number:` stays fixed, and automatic sections use the lowest positive numbers not already reserved. Duplicate or invalid overrides are ignored with a warning.
+
+### Typos and duplicate declarations
+
+A directive can name a station, section, or line the file defines further down,
+so ids are resolved once the whole file has been read. An id that appears
+nowhere - a typo, usually - is reported and its directive dropped:
+
+```console
+$ nf-metro validate map.mmd
+Validation warnings:
+  - %%metro off_track: unknown station id 'sample_shet'; ignoring
+Valid: 24 stations, 26 edges, 3 lines, 5 sections
+```
+
+A value outside a directive's accepted set (`style:`, `mode:`, `line_order:`, a
+port side, and so on) is reported the same way, leaving the default or the
+inferred value in place.
+
+`%%metro line:` has three rules of its own:
+
+- A second declaration of an already-declared id is dropped, so the first one
+  wins.
+- A declaration missing its id, name or colour is dropped whole. Any edge
+  annotated with a line the map only tried to declare is then a hard error,
+  rather than a map that renders with no lines.
+- A colour that is neither a hex value, a CSS colour name nor a functional
+  notation like `rgb(...)` is reported but kept, so a colour syntax nf-metro
+  does not model reaches the SVG as written.
 
 ## CLI flags and directive precedence
 

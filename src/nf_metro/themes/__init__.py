@@ -51,6 +51,10 @@ THEMES = {
 }
 
 
+# Accepted ``%%metro style:`` values.
+STYLE_NAMES = frozenset(THEMES) | frozenset(_STYLE_THEME_ALIASES)
+
+
 def resolve_theme(
     theme: str | None, graph: MetroGraph, mode: str | None = None
 ) -> Theme:
@@ -87,6 +91,7 @@ def mode_pair(theme: Theme) -> tuple[Theme, Theme] | None:
 
 __all__ = [
     "THEMES",
+    "STYLE_NAMES",
     "THEME_MODES",
     "DEFAULT_MODE",
     "resolve_theme",

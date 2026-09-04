@@ -476,6 +476,11 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
+    # True once a ``%%metro line:`` directive has been rejected as unusable.
+    # A rejected declaration establishes that the map declares its lines, so an
+    # edge naming an undeclared line is an error rather than an annotation on a
+    # line-less map.
+    line_declaration_rejected: bool = False
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)
@@ -577,6 +582,12 @@ class MetroGraph:
     )
     # %%metro legend_combo entries: (line_ids, label) pairs.
     legend_combos: list[tuple[tuple[str, ...], str]] = field(default_factory=list)
+    # Shape-checked %%metro legend_combo payloads as (line_ids, label) pairs,
+    # resolved into ``legend_combos`` after parse so a combo may precede the
+    # ``line:`` directives it names.
+    _pending_legend_combos: list[tuple[list[str], str]] = field(
+        default_factory=list, repr=False
+    )
     # Placement modifiers for the bundled legend+logo block. The corner/edge
     # keyword lives in legend_position; these refine where that block lands.
     legend_anchor: str = "content"  # "content" (section bbox) or "canvas"
@@ -646,6 +657,14 @@ class MetroGraph:
     # Stage 6.4 (``_snap_all_y_to_grid``) reads this set and skips those
     # stations so they keep their intentional half-grid Y.
     half_grid_station_ids: set[str] = field(default_factory=set, repr=False)
+    # Cross-phase channel: station IDs recorded as riding a half-pitch spine
+    # once the whole layout has settled, by
+    # ``_register_half_grid_reconvergence_branches``.  Kept apart from
+    # ``half_grid_station_ids`` because it is written after every reader of that
+    # channel has run: a placement classifier reading it would answer one way
+    # while a stage was placing content and the opposite way afterwards.  The
+    # grid-alignment invariants union the two.
+    post_layout_half_grid_station_ids: set[str] = field(default_factory=set, repr=False)
     # Cross-phase channel: on-track non-branch station IDs (the source/trunk
     # stations) of a 2-branch symfan section, recorded by Stage 6.3
     # (``_apply_half_grid_2branch_symfan``).  They sit on the section's local

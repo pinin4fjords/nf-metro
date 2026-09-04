@@ -230,11 +230,12 @@ structure)**. The Y it assigns to the stations it governs depends only on the
 frozen port anchors and the section structure (tracks, edges, columns), never on
 the mutable intermediate state earlier phases happen to have left behind
 (current station Y, section `bbox` geometry). This is strictly stronger than the
-idempotence locked by `test_content_placement_idempotent` (#488): purity means
-re-running, re-ordering, *or perturbing the non-anchor state* cannot change a
-phase's output. `tests/test_content_placement_pure.py` (#491) is the guard - it
-perturbs the non-anchor state before each phase and asserts the governed
-stations land identically, the test-time counterpart to the anchor-frozen guard.
+idempotence locked by `tests/test_content_placement_idempotent.py` (#488):
+purity means re-running, re-ordering, *or perturbing the non-anchor state*
+cannot change a phase's output. `tests/test_content_placement_pure.py` (#491)
+is the guard - it perturbs the non-anchor state before each phase and asserts
+the governed stations land identically, the test-time counterpart to the
+anchor-frozen guard.
 
 The phases that genuinely need an intermediate quantity - the empty-band slack
 in 6.1 / 6.2, the balance arrangement in 6.11 - read it from a frozen *placement
@@ -271,7 +272,10 @@ pass:
   skip these half-pitch stations. Stage 6.18 both reads the set and clears the
   marking off any station it seats back on a full row, so the post-layout
   readers (the straddle guard, the co-fanned drop-clearance rule in
-  `routing/intra_handlers.py`) see only stations still at half pitch.
+  `routing/intra_handlers.py`) see only stations still at half pitch. A mark
+  that a settled layout alone can make goes to
+  `graph.post_layout_half_grid_station_ids` instead, so no stage reading this
+  channel can be handed a value that did not exist while it ran.
 - `graph.symfan_trunk_station_ids` - written by Stage 6.3 (`center_ports` only);
   read by the Stage 6.4 grid snap, which must skip these source/trunk stations
   so they stay on the symfan's local frame instead of snapping to a rowspan
@@ -293,10 +297,13 @@ the 6.13 cascade), `graph._placement_ref_y` /
 `_ref_bbox_top`), `graph._base_y_spacing` (recorded before the spread loop
 when `y_spacing` is auto-resolved), `graph._resolved_x_spacing` (the
 resolved column pitch recorded before layout, read as the cross-axis off-track
-step for vertical-flow sections), and `graph._resolved_y_spacing` (the row
+step for vertical-flow sections), `graph._resolved_y_spacing` (the row
 pitch the spacing search settled on, recorded post-layout once that search
 finishes, after the stage pipeline and the spread loop, and read by no layout
-stage).
+stage), and `graph.post_layout_half_grid_station_ids` (the half-pitch spine
+branches of a station-rooted reconvergence fan, recorded once every layout and
+re-layout pass has settled; read by no layout stage, and by the grid-alignment
+invariants as a union with `half_grid_station_ids`).
 
 A further group crosses a subsystem boundary rather than two numbered stages,
 so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,
@@ -554,7 +561,7 @@ in pipeline order.
   re-flush preserves port-on-edge by shifting ports with stations).
 - **Related tests**: `test_no_kink_at_section_boundary`,
   `test_inter_section_route_y_stays_within_row_band`,
-  `test_exit_port_row_reflush`.
+  `test_align_exit_ports_reflushes_disturbed_rows`.
 - **Lifecycle:** invariant - the fold/TB exit-port no-kink Y holds at
   the end (re-asserted by Stage 5.5).
 
@@ -877,7 +884,7 @@ in pipeline order.
 - **Invariants preserved**: On-track station Y. Other sections' Ys
   (only the canvas Y-offset may shift the world uniformly).
 - **Related tests**: `test_off_track_inputs_above_consumer`,
-  `test_off_track_outputs_above_and_adjacent_to_producer`,
+  `test_off_track_outputs_on_lift_side_and_adjacent_to_producer`,
   `test_off_track_icons_ordered_by_consumer_y`.
 - **Lifecycle:** invariant - off-track stations sit a step clear of their
   anchor on the cross axis at the final boundary. *liftable:* only behind
@@ -1077,7 +1084,7 @@ in pipeline order.
   helper).
 - **Invariants preserved**: On-track station Y.
 - **Related tests**: `test_off_track_inputs_above_consumer`,
-  `test_off_track_outputs_above_and_adjacent_to_producer`,
+  `test_off_track_outputs_on_lift_side_and_adjacent_to_producer`,
   `test_reanchor_off_track_requires_snapped_consumers`,
   `test_reanchor_off_track_bbox_fit_is_reversible`.
 - **Lifecycle:** invariant - off-track stations sit a step clear of their
