@@ -46,6 +46,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import (
     AxisFrame,
     axis_split,
+    cotravelling_lane_clearance,
     lanes_run_along_y,
     point_to_polyline_distance,
 )
@@ -69,11 +70,13 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    exempt_dogleg_lanes,
     feasible_same_destination_approach_proposals,
     gap_lo_for_x,
     gap_lookup_geometry,
     horizontal_direction,
     initial_fanout_descent_span,
+    inter_row_gap_band,
     is_orthogonal_turn,
     is_side_entry_port,
     iter_eligible_destination_tail_bundles,
@@ -3739,6 +3742,34 @@ class DoglegCrossesExemptTrunk:
         )
 
 
+def _exempt_dogleg_crossing_forced(
+    graph: MetroGraph | None, movable: HTrunkSeg, exempt: HTrunkSeg
+) -> bool:
+    """Whether no parallel lane clears *movable* off *exempt* crossing-free.
+
+    Asks the question ``_dogleg_off_exempt_trunks`` answers when it seats the
+    trunk: seated one corridor separation below or above the exempt run (each
+    clamped to the inter-row gap), does a candidate placement avoid the run?
+    When both candidates cross -- the movable trunk enters the run's span from
+    one side and leaves from the other -- the crossing is topological, not the
+    wrong-side #702 landing the check exists to catch, so it is not flagged.
+    """
+    counter_running = (movable.xb > movable.xa) != (exempt.xb > exempt.xa)
+    separation = cotravelling_lane_clearance(
+        # Callers reach this helper only for distinct-line pairs (the guard
+        # filters on edge.source, the remedy pass on line_id), so the movable
+        # and exempt run never share a line.
+        same_line=False,
+        counter_running=counter_running,
+        curve_radius=CURVE_RADIUS,
+    )
+    band = inter_row_gap_band(graph, movable.y) if graph is not None else None
+    lanes = exempt_dogleg_lanes(movable, exempt, separation=separation, band=band)
+    below_clear = lanes.below_ok and lanes.below_crossing is None
+    above_clear = lanes.above_ok and lanes.above_crossing is None
+    return not (below_clear or above_clear)
+
+
 def check_no_dogleg_crosses_exempt_trunk(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -3751,7 +3782,9 @@ def check_no_dogleg_crosses_exempt_trunk(
     on the side whose riser pierces the exempt run trades one fused stroke for
     a double crossing (issue #702).  Only pairs sharing an inter-row channel
     (within ``2 * OFFSET_STEP`` in Y and overlapping in X) are considered, so a
-    legitimate bundle a full gap apart never flags.
+    legitimate bundle a full gap apart never flags.  A trunk that transits the
+    exempt run's span -- entering from one side and leaving on the other, so no
+    parallel lane is crossing-free -- crosses of necessity and is exempt.
     """
     exempt = [
         (rp, rank, seg)
@@ -3772,6 +3805,14 @@ def check_no_dogleg_crosses_exempt_trunk(
                 if abs(seg.y - eseg.y) >= 2 * OFFSET_STEP:
                     continue
                 if seg.x_lo >= eseg.x_hi or eseg.x_lo >= seg.x_hi:
+                    continue
+                # A crossing between two trunks off one junction is a
+                # shared-corner artifact, resolved per-crossing by the arc test
+                # below; the forced-transit exemption is its complement, for the
+                # distinct-source trunk that has to cross a run spanning it.
+                if rp.edge.source != erp.edge.source and _exempt_dogleg_crossing_forced(
+                    graph, seg, eseg
+                ):
                     continue
                 for pt in trunk_segment_crossings(seg, eseg):
                     if _same_source_corner_axis_contact(
