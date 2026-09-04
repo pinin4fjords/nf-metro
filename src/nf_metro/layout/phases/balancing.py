@@ -610,9 +610,19 @@ def _balance_one_section(graph: MetroGraph, section: Section, y_spacing: float) 
     if below_count <= above_count:
         return
 
-    _lift_below_trunk_siblings(
-        graph, section, movable, trunk_y, y_spacing, internal_ids
-    )
+    # Lifting a below-trunk sibling into the top band only re-centres the fan
+    # when its content genuinely hangs lower below the trunk than it rises
+    # above.  Measure that from the trunk and the content span rather than the
+    # bbox top: a taller sibling in the same authored grid row grows this
+    # section's bbox above its content (Stage 4.7 top-alignment), which would
+    # otherwise read as room to lift and de-centre an already-symmetric fan.
+    section_bottom_y = max(graph.stations[s].y for s in internal_ids)
+    trunk_drop = section_bottom_y - trunk_y
+    trunk_rise = trunk_y - section_top_y
+    if trunk_drop - trunk_rise > SAME_COORD_TOLERANCE:
+        _lift_below_trunk_siblings(
+            graph, section, movable, trunk_y, y_spacing, internal_ids
+        )
 
     # Below-trunk compaction: when the first row below the trunk is empty but
     # content sits two or more slots below, lift all below-trunk stations up by
