@@ -5186,6 +5186,15 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     centreline (issue #1595).  A diamond whose branches share a row (no
     single well-defined pitch) or are unevenly spaced is out of scope.
 
+    Set equality of targets and sources is necessary but not sufficient for a
+    single diamond: two overlapping fans can share a join, one hub reaching
+    every branch while another reaches a subset, so their sets coincide with
+    neither hub being the sole apex (issue #1874).  A branch fed by that second
+    fork carries a non-port predecessor besides the candidate hub, so
+    :func:`_branches_fork_only_from` gates the pair out - the shared join has no
+    single fork centreline to agree with, and each hub is legitimately seated by
+    the fan that actually owns it.
+
     Eligibility here is deliberately independent of the hub's own current Y -
     unlike :func:`_divergence_midpoint_targets`, which additionally requires
     the hub to already sit at the midpoint before deciding whether to
@@ -5200,6 +5209,7 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     if graph.diamond_style != "symmetric":
         return
     from nf_metro.layout.phases.fan_bundles import (
+        _branches_fork_only_from,
         _convergence_source_ys,
         _divergence_target_successors,
         _evenly_spaced_ys,
@@ -5214,6 +5224,8 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         if join_id is None:
             continue
         if graph.station_is_rail(hub_id) or graph.station_is_rail(join_id):
+            continue
+        if not _branches_fork_only_from(graph, hub_id, tgt_ids):
             continue
         tgt_ys = [graph.stations[t].y for t in tgt_ids if t in graph.stations]
         if _evenly_spaced_ys(tgt_ys) is None:

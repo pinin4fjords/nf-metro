@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict, deque
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from nf_metro.layout.constants import (
     SAME_COORD_TOLERANCE,
@@ -461,6 +461,25 @@ def _join_ids_by_branch_set(
     hub and reconverge on one join.
     """
     return {frozenset(srcs): join_id for join_id, srcs in convergence_sources.items()}
+
+
+def _branches_fork_only_from(
+    graph: MetroGraph, hub_id: str, branch_ids: Iterable[str]
+) -> bool:
+    """True when ``hub_id`` is the only non-port fork feeding every branch.
+
+    A fork whose target set equals a join's source set
+    (:func:`_join_ids_by_branch_set`) is one genuine diamond only when no branch
+    is also fed by a second fork.  Two overlapping fans can share a join - one
+    hub reaching every branch while another reaches a subset - so their target
+    and source sets coincide without either hub being the diamond's single apex.
+    Such a branch carries a non-port real-station predecessor besides ``hub_id``;
+    the shared join then has no single fork centreline to agree with.
+    """
+    return all(
+        _nonport_real_predecessors(graph, branch_id) <= {hub_id}
+        for branch_id in branch_ids
+    )
 
 
 def _evenly_spaced_ys(ys: list[float]) -> list[float] | None:

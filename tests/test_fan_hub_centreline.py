@@ -31,6 +31,10 @@ from pathlib import Path
 import pytest
 
 from nf_metro.layout.engine import compute_layout
+from nf_metro.layout.phases.guards import (
+    PhaseInvariantError,
+    _guard_fork_join_hub_centreline_agree,
+)
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 
@@ -118,6 +122,94 @@ def test_ported_fan_centreline_reaches_ports_and_trunk(n: int) -> None:
         if abs(graph.stations[sid].y - centre) > 1.0
     }
     assert not off, f"off the hub centreline y={centre}: {off}"
+
+
+def _single_fork_diamond() -> str:
+    return """%%metro title: diamond
+%%metro diamond_style: symmetric
+%%metro line: x | X | #24b064
+graph LR
+    subgraph s [S]
+        hub[Hub]
+        a[A]
+        b[B]
+        c[C]
+        j[Join]
+        hub -->|x| a
+        hub -->|x| b
+        hub -->|x| c
+        a -->|x| j
+        b -->|x| j
+        c -->|x| j
+    end
+"""
+
+
+def _two_overlapping_fans() -> str:
+    return """%%metro title: overlapping fans
+%%metro diamond_style: symmetric
+%%metro line: x | X | #24b064
+graph LR
+    subgraph s [S]
+        wide[Wide fork]
+        narrow[Narrow fork]
+        a[A]
+        b[B]
+        c[C]
+        j[Join]
+        wide -->|x| a
+        wide -->|x| b
+        wide -->|x| c
+        narrow -->|x| a
+        narrow -->|x| b
+        a -->|x| j
+        b -->|x| j
+        c -->|x| j
+    end
+"""
+
+
+def _seat_diamond_hub_off_centre(graph, hub_id: str) -> None:
+    """Seat the three branches at 0/40/80 with the join on their 40 midpoint and
+    ``hub_id`` a full 10px off it.
+
+    This is the exact eligibility the guard screens for - a divergence anchor
+    sitting strictly between evenly-spaced branches whose set matches the join's
+    sources - with the hub deliberately off the centreline so the guard reports
+    it unless the pair is exempt.
+    """
+    for sid, y in (("a", 0.0), ("b", 40.0), ("c", 80.0), ("j", 40.0)):
+        graph.stations[sid].y = y
+    graph.stations[hub_id].y = 30.0
+
+
+def test_two_overlapping_fans_do_not_trip_centreline_guard() -> None:
+    """A join shared by two overlapping fans is not one diamond (issue #1874).
+
+    ``wide`` reaches every branch and ``narrow`` reaches a subset, so their
+    target and source sets coincide with the join without ``wide`` being the
+    sole apex: ``a`` and ``b`` carry ``narrow`` as a second fork.  The guard
+    must not demand ``wide`` sit on the shared join's centreline, because
+    ``wide`` is legitimately seated by the fan that actually owns it.
+    """
+    graph = parse_metro_mermaid(_two_overlapping_fans())
+    compute_layout(graph, validate=False)
+    _seat_diamond_hub_off_centre(graph, "wide")
+    _guard_fork_join_hub_centreline_agree(graph, "test")
+
+
+def test_centreline_guard_flags_broken_single_fork_diamond() -> None:
+    """The exemption is narrow: a genuine single-fork diamond whose fork hub
+    sits off the join centreline is still reported (issue #1595).
+
+    Every branch here has ``hub`` as its only fork, so the pair is a real
+    diamond; moving the hub off the join midpoint must still raise.
+    """
+    graph = parse_metro_mermaid(_single_fork_diamond())
+    compute_layout(graph, validate=False)
+    _seat_diamond_hub_off_centre(graph, "hub")
+    with pytest.raises(PhaseInvariantError, match="disagree on centreline"):
+        _guard_fork_join_hub_centreline_agree(graph, "test")
 
 
 _RAIL_FAN = (
