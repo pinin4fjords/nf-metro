@@ -22,6 +22,8 @@ change. Never raise it.
 from __future__ import annotations
 
 import ast
+import operator
+from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -45,15 +47,51 @@ def _is_tolerance_name(name: str) -> bool:
     return "tol" in name.lower()
 
 
-def _literal_number(node: ast.expr | None) -> float | None:
-    """The value of *node* when it is a bare numeric literal, else None.
+_BINARY_OPS: dict[type[ast.operator], Callable[[float, float], float]] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
 
-    A composed expression (``OFFSET_STEP + 1.0``) states how its value relates
-    to the vocabulary, so only a whole-value literal counts.
+_UNARY_OPS: dict[type[ast.unaryop], Callable[[float], float]] = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+
+def _folded_number(node: ast.expr | None) -> float | None:
+    """The value of *node* when it folds to a number over constants alone.
+
+    A margin derived from the vocabulary (``OFFSET_STEP + 1.0``) states how its
+    value relates to it, so any expression referencing a name yields None.
+    Arithmetic over constants alone is the value itself however it is spelled,
+    so it folds rather than escaping.
     """
-    if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
-        return None
-    return float(node.value) if isinstance(node.value, (int, float)) else None
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            return None
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp):
+        unary = _UNARY_OPS.get(type(node.op))
+        operand = _folded_number(node.operand)
+        if unary is None or operand is None:
+            return None
+        return float(unary(operand))
+    if isinstance(node, ast.BinOp):
+        binary = _BINARY_OPS.get(type(node.op))
+        left = _folded_number(node.left)
+        right = _folded_number(node.right)
+        if binary is None or left is None or right is None:
+            return None
+        try:
+            return float(binary(left, right))
+        except (ArithmeticError, ValueError):
+            return None
+    return None
 
 
 def _assigned_names(node: ast.Assign | ast.AnnAssign) -> list[str]:
@@ -67,7 +105,7 @@ def tolerance_vocabulary(source: str) -> dict[float, tuple[str, ...]]:
     for node in ast.parse(source).body:
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
-        value = _literal_number(node.value)
+        value = _folded_number(node.value)
         if value is None:
             continue
         for name in _assigned_names(node):
@@ -91,7 +129,7 @@ def duplicated_tolerance_literals(
     def visit(node: ast.AST, scope: str) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.Assign, ast.AnnAssign)):
-                value = _literal_number(child.value)
+                value = _folded_number(child.value)
                 constants = vocabulary.get(value) if value is not None else None
                 if value is not None and constants:
                     for name in _assigned_names(child):
@@ -175,11 +213,30 @@ def _guard_padding(graph):
     }
 
 
+def test_constant_only_arithmetic_folds_to_the_duplicated_value() -> None:
+    source = """
+_SUM_TOL = 1.0 + 0.0
+_PRODUCT_TOL = 1.0 * 1
+_NEGATED_TOL = -(-1.0)
+_PARENTHESISED_TOL = (1.00)
+"""
+
+    assert duplicated_tolerance_literals(source, {1.0: ("COORD_TOLERANCE",)}) == {
+        "_SUM_TOL": ToleranceLiteral("_SUM_TOL", 1.0, 2, ("COORD_TOLERANCE",)),
+        "_PRODUCT_TOL": ToleranceLiteral("_PRODUCT_TOL", 1.0, 3, ("COORD_TOLERANCE",)),
+        "_NEGATED_TOL": ToleranceLiteral("_NEGATED_TOL", 1.0, 4, ("COORD_TOLERANCE",)),
+        "_PARENTHESISED_TOL": ToleranceLiteral(
+            "_PARENTHESISED_TOL", 1.0, 5, ("COORD_TOLERANCE",)
+        ),
+    }
+
+
 def test_independent_value_and_named_reference_are_not_counted() -> None:
     source = """
 _SLOPE_TOL = 0.12
 _LATERAL_TOL = COORD_TOLERANCE
 _COINCIDE_TOL = OFFSET_STEP + 1.0
+_SCALED_TOL = 0.25 * (OFFSET_STEP + 0.0)
 _MIN_SPAN = 1.0
 """
 
