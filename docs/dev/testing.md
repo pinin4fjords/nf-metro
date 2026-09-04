@@ -200,9 +200,10 @@ polyline, or two lines that were assigned distinct offsets end up drawn flush
 because a rounding step collapsed them. Neither the layout oracle nor the
 routing invariants can see this, because they run before the SVG is produced.
 
-**How it's wired**: `validate_render(svg, *, graph=None)` checks label-strike
+**How it's wired**: `validate_render(svg, *, plan=None)` checks label-strike
 (a route polyline crosses a station label), marker crossings (a route passes
-through a node marker it does not serve), and - when the graph is supplied -
-offset-collapse (lines drawn flush despite being assigned distinct offsets).
+through a node marker it does not serve), and - when the render plan is
+supplied - offset-collapse (lines drawn flush despite being assigned distinct
+offsets).
 Enabled with `nf-metro render --validate` or `nf-metro validate-svg
 --geometry`; a corpus-wide pytest gate runs it against every fixture.

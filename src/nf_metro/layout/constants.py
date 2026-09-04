@@ -91,9 +91,6 @@ clear a spanning-interchange label off the enlarged end knob rather than only
 off the member centre.
 """
 
-SECTION_GAP: float = 3.0
-"""Spacing between stations within a section."""
-
 SECTION_X_PADDING: float = 50.0
 """Horizontal padding around section content."""
 
