@@ -91,6 +91,28 @@ the host's choice. That's why `--no-self-color-scheme` exists: leaving the
 property off the SVG root is what lets a host's manual toggle reach it at
 all.
 
+## What the docs site actually passes, and why
+
+`--no-self-color-scheme` alone isn't the whole story - it only decides _whose_
+preference wins. Something still has to supply a `light-dark()` pair to
+resolve in the first place, and that's the chrome CSS from the `var()`
+ingredient above. These are two independent levers, and every `<Metro>` embed
+on this site needs both set correctly. The actual settings, from
+`renderMetroFile` (`website/src/lib/render-metro.mjs:254-296`):
+
+| Flag                     | Inline embed (`<Metro>`) | OG image raster export |
+| ------------------------ | ------------------------ | ---------------------- |
+| `--no-self-color-scheme` | always                   | always                 |
+| `--no-chrome-css`        | never                    | always                 |
+| `--no-manifest`          | always                   | always                 |
+
+`--no-chrome-css` is the one that would break theming here: it bakes chrome
+colors to one concrete value, so if it were passed to an inline embed there
+would be no `light-dark()` pair left for `--no-self-color-scheme` to matter
+about. It's reserved for the OG-image path, which needs one fixed image
+anyway. `--no-manifest` just skips per-node metadata `<Metro>` doesn't use;
+it has no effect on theming.
+
 ## The transparent-background fallback
 
 A transparent-background theme has no `--nfm-bg` pair to lean on, so text
