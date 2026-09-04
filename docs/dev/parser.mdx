@@ -257,14 +257,11 @@ Broader graph-semantic checks (beyond edge annotations) live in the
 separate `validate` phase, `nf_metro.parser.validate.validate_graph`.
 
 A directive may name a node or subgraph that appears further down the file,
-so the ids a directive references cannot be resolved in its handler. Handlers
-check only payload shape and buffer the ids; `_warn_unresolved_references` and
-`_resolve_legend_combos` resolve them in `_finalize_graph`, after the whole
-source has been applied and **before** layout inference, which synthesises
-stations and fills `grid_overrides` for every auto-placed section. A handler
-that resolved an id itself would report a false unknown for a forward
-reference, and an audit placed after inference would stop seeing which ids the
-author actually wrote.
+so the ids a directive references cannot be resolved in its handler: a handler
+that resolved an id itself would report a false unknown for every forward
+reference. Handlers check only payload shape and buffer the ids;
+`_warn_unresolved_references` and `_resolve_legend_combos` resolve them in
+`_finalize_graph`, once the whole source has been applied.
 
 The unrecognised-line case is handled in the grammar by a low-priority
 catch-all:

@@ -153,7 +153,7 @@ def _is_color(value: str) -> bool:
 def _dir_line(value: str, graph: MetroGraph) -> None:
     parts = _split_fields(value)
     line_id = parts[0]
-    if len(parts) < 3 or not line_id:
+    if len(parts) < 3 or not all(parts[:3]):
         _warn_malformed(
             "line",
             value,
@@ -211,6 +211,9 @@ def _parse_icon_directive(icon_type: str, value: str, graph: MetroGraph) -> None
         return
     station_id = parts[0]
     labels = [_normalize_multiline_text(label) for label in _split_csv(parts[1])]
+    if not labels:
+        _warn_malformed(icon_type, value, "'station_id | labels [| name [| options]]'")
+        return
     name = _normalize_multiline_text(parts[2]) if len(parts) >= 3 else ""
     options = {o.lower() for o in _split_csv(parts[3])} if len(parts) >= 4 else set()
     banner = "banner" in options
@@ -444,7 +447,13 @@ def _parse_legend_combo_directive(value: str, graph: MetroGraph) -> None:
         )
         return
     ids_raw, label = parts[0], parts[1].strip()
-    line_ids = _split_csv(ids_raw)
+    named = _split_csv(ids_raw)
+    line_ids = list(dict.fromkeys(named))
+    if len(line_ids) < len(named):
+        _warn_directive(
+            "legend_combo",
+            f"{value!r} names a line more than once; keeping one of each",
+        )
     if len(line_ids) < 2 or not label:
         _warn_directive(
             "legend_combo",
@@ -491,16 +500,13 @@ def _parse_marker_directive(value: str, graph: MetroGraph) -> None:
 
 def _parse_marker_legend_directive(value: str, graph: MetroGraph) -> None:
     """Parse ``%%metro marker_legend: shape, fill | Caption``."""
-    style_part, sep, caption = value.partition("|")
-    if not sep:
-        _warn_directive(
-            "marker_legend",
-            "needs a caption: 'shape, fill | Caption'. Ignoring",
-        )
+    style_part, _, caption = value.partition("|")
+    caption = caption.strip()
+    if not caption:
+        _warn_malformed("marker_legend", value, "'shape, fill | Caption'")
         return
     style = _parse_marker_style("marker_legend", style_part.strip())
-    caption = caption.strip()
-    if style is not None and caption:
+    if style is not None:
         graph.marker_legend.append(MarkerLegendEntry(style=style, caption=caption))
 
 
@@ -513,7 +519,7 @@ def _parse_line_spread_directive(value: str, graph: MetroGraph) -> None:
     ``bundle`` / ``centered`` / ``rails``; an unrecognised mode is warned about
     and ignored.
     """
-    mode_raw, _, sids_raw = value.partition("|")
+    mode_raw, sep, sids_raw = value.partition("|")
     try:
         mode = LineSpread(mode_raw.strip().lower())
     except ValueError:
@@ -527,6 +533,8 @@ def _parse_line_spread_directive(value: str, graph: MetroGraph) -> None:
     if section_ids:
         for sid in section_ids:
             graph.line_spread_overrides[sid] = mode
+    elif sep:
+        _warn_malformed("line_spread", value, "'<mode> | section[, section...]'")
     else:
         graph.line_spread = mode
 
@@ -682,8 +690,7 @@ def _warn_unresolved_references(graph: MetroGraph) -> None:
     """Warn about directives naming a station, section or line the map lacks.
 
     Must run once the whole source has been applied, because a directive may
-    precede the node or subgraph it names, and before layout inference, which
-    synthesises stations and fills ``grid_overrides`` for auto-placed sections.
+    precede the node or subgraph it names.
     """
     known: dict[IdKind, Collection[str]] = {
         "station": graph.stations.keys(),

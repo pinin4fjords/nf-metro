@@ -182,6 +182,11 @@ MALFORMED_DIRECTIVES = [
     "%%metro file: nolabels",
     "%%metro off_track:",
     "%%metro marker: | square",
+    "%%metro line: b | B |",
+    "%%metro line: b |  | #000",
+    "%%metro file: a |",
+    "%%metro line_spread: rails |",
+    "%%metro marker_legend: square, solid |",
 ]
 
 

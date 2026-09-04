@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import LineSpread
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -1417,11 +1418,43 @@ def test_rejected_line_declaration_leaves_its_id_undeclared():
             parse_metro_mermaid(src)
 
 
-def test_line_declaration_without_an_id_is_rejected():
-    src = "%%metro line: | One | #ff0000\ngraph LR\n    a[A] -->|l1| b[B]\n"
+@pytest.mark.parametrize(
+    "declaration",
+    ["| One | #ff0000", "l1 | One |", "l1 |  | #ff0000"],
+)
+def test_line_declaration_with_an_empty_field_is_rejected(declaration):
+    """An id, a name and a colour are all required, so a blank one is dropped
+    whole rather than reaching the SVG as an empty attribute."""
+    src = f"%%metro line: {declaration}\ngraph LR\n    a[A] -->|l1| b[B]\n"
     with pytest.warns(UserWarning, match="expected 'id | name | #color'"):
         with pytest.raises(ValueError, match="undeclared metro lines: 'l1'"):
             parse_metro_mermaid(src)
+
+
+def test_icon_directive_without_labels_is_rejected():
+    src = _ONE_LINE_SECTION + "%%metro file: a |\n"
+    with pytest.warns(UserWarning, match=r"%%metro file: ignoring 'a \|'"):
+        graph = parse_metro_mermaid(src)
+    assert graph.stations["a"].terminus_labels == []
+
+
+def test_marker_legend_without_a_caption_is_rejected():
+    src = _ONE_LINE_SECTION + "%%metro marker_legend: square, solid |\n"
+    with pytest.warns(
+        UserWarning, match=r"%%metro marker_legend: ignoring 'square, solid \|'"
+    ):
+        graph = parse_metro_mermaid(src)
+    assert graph.marker_legend == []
+
+
+def test_line_spread_with_an_empty_section_list_is_rejected():
+    """A payload naming no section is ignored rather than silently taken as
+    the graph-wide default the pipe-less form sets."""
+    src = _ONE_LINE_SECTION + "%%metro line_spread: rails |\n"
+    with pytest.warns(UserWarning, match=r"%%metro line_spread: ignoring 'rails \|'"):
+        graph = parse_metro_mermaid(src)
+    assert graph.line_spread is LineSpread.BUNDLE
+    assert graph.line_spread_overrides == {}
 
 
 def test_line_unrecognised_colour_warns_and_keeps_the_value():
