@@ -319,6 +319,97 @@ def test_exit_run_drop_columns_nest_across_three_handlers() -> None:
     )
 
 
+def test_riboseq_u_turn_corridor_is_accepted() -> None:
+    """A shared run that U-turns onto a reversed corridor is well-nested.
+
+    At riboseq's ``__junction_13`` two lines leave one rightward run, drop, and
+    turn back onto a leftward corridor before peeling into different downstream
+    sections.  Across that U-turn ``riboseq`` stays above ``rnaseq`` on both the
+    run and the corridor, so their order is preserved: whichever crossing the
+    shape forces is inherent to the topology, not a fixable bundle-order flip.
+
+    The single opening corner alone would read this as a flip -- the upper line
+    turns at the smaller x -- but that proxy is only valid for a terminal or
+    same-direction turn, not a corridor that reverses the frame.
+    """
+    path = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "curve_invariant_repros"
+        / "riboseq_inter_row_corridor.mmd"
+    )
+    graph = parse_metro_mermaid(path.read_text())
+    compute_layout(graph)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+
+    flips = check_shared_run_turn_preserves_bundle_order(routes, offsets)
+    at_junction = [v for v in flips if v.source_id == "__junction_13"]
+    assert at_junction == [], (
+        f"{len(at_junction)} shared-run turn flip(s) at the U-turn junction; "
+        f"first: {at_junction[0].message() if at_junction else ''}"
+    )
+
+
+def _u_turn_route(
+    line_id: str, target: str, points: list[tuple[float, float]]
+) -> RoutedPath:
+    """A ``RoutedPath`` sharing one source, for the shared-run U-turn checks.
+
+    All routes carry source ``'__hub__'`` so they land in one shared-run group;
+    the ``target`` varies so the pair heads for different sections the way a real
+    U-turn corridor peels off at different columns.
+    """
+    return RoutedPath(
+        edge=Edge(source="__hub__", target=target, line_id=line_id),
+        line_id=line_id,
+        points=points,
+        is_inter_section=True,
+        offset_regime=OffsetRegime.BAKED,
+    )
+
+
+def test_translated_u_turn_fold_is_exempt() -> None:
+    """Two congruent U-turn brackets offset the same way are a forced crossing.
+
+    ``A`` sits above ``B`` on the run and stays above it on the reversed
+    corridor, so their U's are congruent brackets translated down-right together.
+    Congruent brackets offset that way intersect wherever placed, so the crossing
+    is inherent to the fold; the single-corner proxy would flag it (the upper
+    line turns at the smaller x), and this pins that the fold is exempt.
+    """
+    a = _u_turn_route(
+        "A", "left_a", [(0.0, 100.0), (200.0, 100.0), (200.0, 396.0), (50.0, 396.0)]
+    )
+    b = _u_turn_route(
+        "B", "left_b", [(0.0, 104.0), (204.0, 104.0), (204.0, 400.0), (60.0, 400.0)]
+    )
+    assert check_shared_run_turn_preserves_bundle_order([a, b], {}) == []
+
+
+def test_concentric_u_turn_fold_with_wrong_turn_column_is_caught() -> None:
+    """A nestable fold whose risers cross is an avoidable bundle flip.
+
+    ``A``'s run and corridor both enclose ``B``'s (higher run, lower corridor),
+    so the two U's are concentric about one centre and could nest cleanly.  But
+    ``A`` turns at the smaller x, threading its riser inside ``B``'s: the outer
+    bracket crosses the inner one at the corner.  The exemption is scoped to
+    translated folds, so this concentric crossing is surfaced.
+    """
+    a = _u_turn_route(
+        "A", "left_a", [(0.0, 100.0), (200.0, 100.0), (200.0, 400.0), (50.0, 400.0)]
+    )
+    b = _u_turn_route(
+        "B", "left_b", [(0.0, 104.0), (204.0, 104.0), (204.0, 396.0), (60.0, 396.0)]
+    )
+    violations = check_shared_run_turn_preserves_bundle_order([a, b], {})
+    assert [(v.line_a, v.line_b) for v in violations] == [("A", "B")], (
+        f"expected one A/B shared-run flip at the concentric fold's corner; "
+        f"got {[(v.line_a, v.line_b) for v in violations]}"
+    )
+
+
 def _synthetic_route(line_id: str, points: list[tuple[float, float]]) -> RoutedPath:
     """Build a ``RoutedPath`` from a points list for testing.
 
