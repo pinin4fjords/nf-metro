@@ -769,9 +769,9 @@ def test_perp_entry_run_stays_in_section_bbox(fixture):
     Opening the station-elbow gap shifts the run away from that port; the bbox
     must follow on the shift side.  Stripping ``sarek_metro``'s explicit
     ``grid:`` directives drives its ``annotation`` section into exactly this
-    state -- before the fix the leftmost station spilled past ``bbox_x`` and
-    the always-on bbox-containment guard aborted the render.  ``rnaseq_auto``
-    is a clean auto-layout that must keep passing.
+    state, where a leftmost station spilling past ``bbox_x`` aborts the render
+    on the always-on bbox-containment guard.  ``rnaseq_auto`` is a clean
+    auto-layout that takes the same shift without the spill.
     """
     from nf_metro.layout.constants import GUARD_TOLERANCE
     from nf_metro.layout.engine import compute_layout

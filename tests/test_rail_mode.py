@@ -155,10 +155,10 @@ def test_diagonal_rail_section_packs_to_graph_pitch_not_label_width():
     assert widest > pitch, "fixture must carry a label wider than the pitch"
 
     # Angled: the graph pitch passes straight through, however wide the labels.
-    assert _label_aware_x_spacing(graph, real_ids, {}, pitch) == pitch
+    assert _label_aware_x_spacing(graph, real_ids, pitch) == pitch
     # Horizontal: the same panel widens to seat the full widest label.
     graph.label_angle = None
-    assert _label_aware_x_spacing(graph, real_ids, {}, pitch) > pitch
+    assert _label_aware_x_spacing(graph, real_ids, pitch) > pitch
 
 
 def test_spread_residual_drops_rail_section_overlaps(monkeypatch):
@@ -974,9 +974,8 @@ def test_angled_rail_labels_render_rotated():
 
 
 def test_label_angle_default_off_byte_identical():
-    """label_angle support must not change a render with no directive: a graph
-    without label_angle produces an identical SVG before and after this change
-    (label_angle is None -> no rotation, no spacing change)."""
+    """A graph with no ``label_angle`` directive renders unrotated: the SVG
+    carries no rotation transform at all."""
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 

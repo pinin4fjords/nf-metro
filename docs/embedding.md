@@ -67,10 +67,10 @@ overlays built from the manifest still line up (see
 By default the SVG references a system font family, which renders differently
 (or falls back) on a host without that font. Two flags make it self-contained:
 
-| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                             |
-| ----------------- | --------------------------------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                          |
-| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `fonttools[woff]`. |
+| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                            |
+| ----------------- | --------------------------------------------------------- | ----------------------------- | ---------------------------------------------------- |
+| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                         |
+| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `nf-metro[font]`. |
 
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --embed-font      # portable, still selectable
@@ -94,34 +94,42 @@ The `viewBox` origin stays at `0 0` and coordinates stay absolute, so the
 [manifest](/nf-metro/manifest/) and any overlay still align. The attribution watermark
 is **kept** in bare mode (see [Attribution](#attribution)).
 
-### Theming from the host - `--nfm-*` properties
+### Theming from the host - `--nfm-map-*` properties
 
 Chrome colors (background, title, labels, section boxes, legend) are emitted as
 CSS custom properties with the theme color as the fallback, e.g.
-`fill: var(--nfm-bg, #2b2b2b)`. A host recolors the map **without re-rendering**
-by setting these on a wrapping element:
+`fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b))`. A host recolors the map
+**without re-rendering** by setting these on a wrapping element:
 
 ```css
 .metro-map {
-  --nfm-bg: #ffffff;
-  --nfm-title-color: #222;
-  --nfm-label-color: #333;
-  --nfm-section-fill: #f4f4f4;
-  --nfm-section-stroke: #ddd;
-  --nfm-section-label-color: #555;
-  --nfm-legend-bg: #fafafa;
-  --nfm-legend-text-color: #333;
+  --nfm-map-bg: #ffffff;
+  --nfm-map-title-color: #222;
+  --nfm-map-label-color: #333;
+  --nfm-map-section-fill: #f4f4f4;
+  --nfm-map-section-stroke: #ddd;
+  --nfm-map-section-label-color: #555;
+  --nfm-map-legend-bg: #fafafa;
+  --nfm-map-legend-text-color: #333;
+  --nfm-map-marker-stroke: #333;
+  --nfm-map-muted-color: #999;
 }
 ```
 
-| Property                                      | Recolors                       |
-| --------------------------------------------- | ------------------------------ |
-| `--nfm-bg`                                    | Background rectangle           |
-| `--nfm-title-color`                           | Title text                     |
-| `--nfm-label-color`                           | Station labels                 |
-| `--nfm-section-fill` / `--nfm-section-stroke` | Section box fill / border      |
-| `--nfm-section-label-color`                   | Section names and group labels |
-| `--nfm-legend-bg` / `--nfm-legend-text-color` | Legend background / text       |
+| Property                                              | Recolors                                                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `--nfm-map-bg`                                        | Background rectangle, and the knockout halo behind station labels                   |
+| `--nfm-map-title-color`                               | Title text                                                                          |
+| `--nfm-map-label-color`                               | Station labels and terminus icon captions                                           |
+| `--nfm-map-section-fill` / `--nfm-map-section-stroke` | Section box fill / border                                                           |
+| `--nfm-map-section-label-color`                       | Section names, group labels, group underlines                                       |
+| `--nfm-map-legend-bg` / `--nfm-map-legend-text-color` | Legend background / text                                                            |
+| `--nfm-map-marker-stroke`                             | Marker station outlines and the legend marker key                                   |
+| `--nfm-map-muted-color`                               | Labels, captions and marker outlines greyed by [`--inactive-lines`](/nf-metro/cli/) |
+
+The muted state has its own property so the two states can be themed apart: set
+`--nfm-map-label-color` and full-strength labels follow it while greyed ones stay
+grey.
 
 Line and route colors are **not** recolorable - they carry meaning, so they
 stay baked as presentation attributes.
@@ -313,6 +321,7 @@ except ValueError as e:
 | Raised when...                                                                   | Type                                                                     | When                 | Also a...    |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------- | ------------ |
 | The `.mmd` grammar or a directive is malformed                                   | plain `ValueError` (**not** an `NfMetroError`, see below)                | parsing              | -            |
+| The source parses to no stations at all                                          | `nf_metro.EmptyGraphError`                                               | layout               | `ValueError` |
 | An edge or port survives parsing with a dangling reference                       | `nf_metro.parser.UnresolvedEndpointError` / `UnresolvedPortSectionError` | parsing/layout       | `ValueError` |
 | The station graph has a cycle                                                    | `nf_metro.parser.CyclicGraphError`                                       | layout               | `ValueError` |
 | An inter-section edge would have to flow backward                                | `nf_metro.layout.BackwardFlowError`                                      | layout               | `ValueError` |

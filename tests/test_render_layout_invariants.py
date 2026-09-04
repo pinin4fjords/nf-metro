@@ -377,10 +377,42 @@ def _render_fixture(name: str, *, strict: bool = False) -> None:
     ],
 )
 def test_planned_fan_local_offset_frames_render_strictly(name: str) -> None:
+    """Each fan's drawn legs leave the fork on their own per-line lane.
+
+    A fan's local offset frame is only realised if the drawn polylines start on
+    the fork's per-line lane rather than on its bare marker row, and if the
+    legs stay distinct so the fan reads as an opening rather than one track.
+    """
     graph = parse_metro_mermaid((EXAMPLES / name).read_text())
     graph.strict = True
     compute_layout(graph)
-    render_svg(graph, THEMES["nfcore"])
+    plan = build_render_plan(graph, THEMES["nfcore"])
+
+    forks = {fan.fork_station_id for fan in graph.fan_plans}
+    assert forks, f"{name}: expected at least one recognised fan"
+
+    stations = plan.graph.values["stations"]
+    legs: dict[str, set[tuple[tuple[float, float], ...]]] = {}
+    for route, polyline in zip(plan.routes, plan.route_polylines, strict=True):
+        source = route.values["edge"].values["source"]
+        if source not in forks:
+            continue
+        line_id = route.values["line_id"]
+        station = stations.get(source)
+        offset = plan.station_offsets.get((source, line_id)) or 0.0
+        lane_y = station.values["y"] + offset
+        assert polyline[0] == pytest.approx((station.values["x"], lane_y)), (
+            f"{name}: {line_id} leg out of {source} is drawn from "
+            f"{polyline[0]}, off its lane at "
+            f"{(station.values['x'], lane_y)}"
+        )
+        legs.setdefault(source, set()).add(polyline)
+
+    for fork in sorted(forks):
+        assert len(legs.get(fork, set())) >= 2, (
+            f"{name}: fan at {fork} draws "
+            f"{len(legs.get(fork, set()))} distinct legs, so it does not open"
+        )
 
 
 # An inter-section route whose exit side faces away from its consumer must leave

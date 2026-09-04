@@ -1496,10 +1496,11 @@ def _compute_section_layout(
        stay local.
     2. **Globalise** (Stage 2.1).  Single-stage coord-regime
        transition: translate stations and bboxes to canvas coordinates.
-    3. **Pass A - port positioning** (Stages 3.1 to 3.4).  Place ports
+    3. **Pass A - port positioning** (Stages 3.1 to 3.6).  Place ports
        on bbox edges, align entry ports, shift LR/RL perp-entry
        stations, align fold-section exit ports (re-flushing the rows the
-       exit move pushes down).
+       exit move pushes down), reserve the perpendicular-port edge inset
+       on X, level a grid column's shared-runway edges.
     4. **Pass B - downstream alignment & trunk-Y consolidation**
        (Stages 4.1 to 4.10).  Pull ports toward downstream content,
        snap to grid-group stations, space from termini, recompute
@@ -1508,15 +1509,20 @@ def _compute_section_layout(
     5. **Pass C - junctions & off-track lift** (Stages 5.1 to 5.5).
        Position junctions, lift off-track stations, re-align row bbox
        tops, compact, snap inter-section port pairs.
-    6. **Pass C - vertical settling & finishing** (Stages 6.1 to 6.15).
-       Fan content upward, snap to grid, re-anchor off-track, recenter
-       full-bundle columns and restore their invariants, balance content
-       around trunk, loop-side X recenter, bbox shrink + row tighten /
-       push, captioned-icon pad.
+    6. **Pass C - vertical settling & finishing** (Stages 6.1 to
+       6.18a).  Fan content upward, snap to grid, re-anchor off-track,
+       recenter full-bundle columns and restore their invariants,
+       balance content around trunk, loop-side X recenter, bbox shrink +
+       row tighten / push, captioned-icon pad, fit bbox tops to content,
+       re-snap the canvas grid, re-align vertical-flow entry ports and
+       junctions with their settled feeders, settle semantic fans, seat
+       orphaned half-pitch stations.
 
     Inline ``# ---- Stage N - ... ----`` dividers below mark each
     stage's start; ``# Stage X.Y:`` comments above each helper call
-    name the sub-stage.
+    name the sub-stage.  Stage 6.15a runs *before* Stage 6.15, out of
+    label order: the content-top fit leaves a non-grid shift behind, and
+    the canvas snap is what closes it out, so the snap has to come last.
     """
     from nf_metro.layout.section_placement import (
         _reflect_stacked_split_consumer_tracks,

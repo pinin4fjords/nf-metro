@@ -1,4 +1,11 @@
-"""Stage-boundary invariant guards run by ``compute_layout(validate=True)``."""
+"""Stage-boundary invariant guards run by ``compute_layout(validate=True)``.
+
+The routing layer is imported here as modules (``routing``, ``routing_common``
+and their siblings) and every routing call resolves through the module
+attribute.  Binding those functions as names instead would fix them at import
+time, so a test substituting one on its own routing module would not be seen by
+the guard that calls it.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +13,16 @@ import math
 import warnings
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import nf_metro.layout.routing as routing
+import nf_metro.layout.routing.common as routing_common
+import nf_metro.layout.routing.context as routing_context
+import nf_metro.layout.routing.core as routing_core
+import nf_metro.layout.routing.invariants as routing_invariants
+import nf_metro.layout.routing.normalize as routing_normalize
+import nf_metro.layout.routing.rail as routing_rail
+import nf_metro.layout.routing.reversal as routing_reversal
 from nf_metro.errors import NfMetroError
 from nf_metro.layout.constants import (
     COLLINEAR_AXIS_TOL,
@@ -46,6 +60,7 @@ from nf_metro.layout.geometry import (
     segment_intersects_bbox,
 )
 from nf_metro.layout.pass_metrics import icon_half_height_approx, station_radius_approx
+from nf_metro.layout.phase_state import GuardSpec
 from nf_metro.layout.phases._common import (
     _bbox_cols_overlap,
     _canvas_width,
@@ -337,10 +352,10 @@ def _guard_stations_within_bbox(graph: MetroGraph, phase: str) -> None:
     outside its own box is refused rather than drawn.
 
     A section whose ports are all perpendicular to its flow gets the extra
-    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`, since that shape has no
-    flow-aligned port anchoring its run; it is no longer sufficient on its own
-    to put a station outside the box (see
-    ``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
+    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`: that shape has no flow-aligned
+    port anchoring its run, so it is the likeliest cause.  It is a hint, not a
+    diagnosis -- such a section lays out inside its box on its own
+    (``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
     """
     for sid, st, sec in iter_stations_outside_bbox(graph, GUARD_TOLERANCE):
         detail = (
@@ -621,9 +636,7 @@ def _guard_ports_clear_unanchored_box_edges(
     of the settled layout, not of every stage boundary.
     """
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     for pid, port in graph.ports.items():
         st = graph.stations.get(pid)
         sec = graph.sections.get(st.section_id or "") if st else None
@@ -1560,9 +1573,7 @@ def _guard_corridor_fed_solo_rides_trunk(
     downstream multi-line section, so they are not required to ride offset 0.
     """
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     for sec_id, pid, line_id in iter_corridor_fed_solo_entries(graph, SAME_Y_TOLERANCE):
         port_off = offsets.get((pid, line_id), 0.0)
         if abs(port_off) > COORD_TOLERANCE:
@@ -1821,7 +1832,7 @@ def _guard_section_top_padding(
     """
     from nf_metro.layout.phases.planned_fans import planned_fan_layout_section_ids
 
-    tol = 1.0
+    tol = COORD_TOLERANCE
     planned_sections = planned_fan_layout_section_ids(graph)
     for section in graph.sections.values():
         if section.bbox_h <= 0:
@@ -1867,7 +1878,7 @@ def _guard_section_bottom_padding(
     bottom above that target means a later pass crowded the lowest marker
     against the box edge.
     """
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0:
             continue
@@ -1900,7 +1911,7 @@ def _guard_rail_above_label_band(graph: MetroGraph, phase: str) -> None:
     # Function-local: a module-level import would close a layout import cycle.
     from nf_metro.layout.rail_mode import _rail_label_band, rail_above_label_ids
 
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or not graph.is_rail_section(section.id):
             continue
@@ -1929,7 +1940,7 @@ def _guard_rail_stations_seat_on_rails(graph: MetroGraph, phase: str) -> None:
     """
     if not graph.has_rail_sections:
         return
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if not graph.is_rail_section(section.id):
             continue
@@ -1961,7 +1972,7 @@ def _guard_terminus_icons_within_bbox(graph: MetroGraph, phase: str) -> None:
     above the station marker; the section bbox must reserve that extent so
     the icon doesn't spill past the box edge (issue #254).
     """
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or lanes_run_along_y(section.direction):
             continue
@@ -2007,7 +2018,7 @@ def _guard_single_trunk_off_track_step(graph: MetroGraph, phase: str) -> None:
         return
     anchor_of = _off_track_anchor_of(graph)
     junction_ids = graph.junction_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for off_id, anchor_id in anchor_of.items():
         off_st = graph.stations.get(off_id)
         anchor = graph.stations.get(anchor_id)
@@ -2053,7 +2064,7 @@ def _guard_off_track_input_column_stack(graph: MetroGraph, phase: str) -> None:
     junction_ids = graph.junction_ids
     y_spacing = compute_min_y_spacing(graph)
     anchor_of = _off_track_anchor_of(graph)
-    tol = 1.0
+    tol = COORD_TOLERANCE
 
     def _flow_coord(st: Station) -> float:
         flow, _cross = section_axes(graph.sections.get(st.section_id or ""))
@@ -2122,7 +2133,7 @@ def _guard_sparse_loop_station_clears_column_neighbour(
         return
     floor = _LOOP_STATION_COLUMN_CLEARANCE_FRACTION * pitch
     half_grid = graph.half_grid_station_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         if section.bbox_h <= 0 or section.direction not in ("LR", "RL"):
             continue
@@ -2183,7 +2194,7 @@ def _guard_off_track_consumer_on_trunk(graph: MetroGraph, phase: str) -> None:
     for a TB/BT one.
     """
     junction_ids = graph.junction_ids
-    tol = 1.0
+    tol = COORD_TOLERANCE
     consumers = {
         anchor_id
         for off_id, anchor_id in _off_track_anchor_of(graph).items()
@@ -2232,7 +2243,7 @@ def _guard_symfan_entry_port_on_feeder_trunk(graph: MetroGraph, phase: str) -> N
 
     if graph.diamond_style != "symmetric":
         return
-    tol = 1.0
+    tol = COORD_TOLERANCE
     for section in graph.sections.values():
         feeder = _symfan_entry_port_feeder_y(graph, section)
         if feeder is None:
@@ -2288,10 +2299,8 @@ def _guard_no_stacked_elbow_graze(
     within ``BUNDLE_TO_BUNDLE_CLEARANCE`` of each other their opposing elbows
     overlap and the lines graze instead of reading as distinct streams.
     """
-    from nf_metro.layout.routing.invariants import check_stacked_elbow_clearance
-
     _raise_on_first_violation(
-        graph, phase, check_stacked_elbow_clearance, offsets, routes
+        graph, phase, routing_invariants.check_stacked_elbow_clearance, offsets, routes
     )
 
 
@@ -2308,9 +2317,7 @@ def _guard_no_station_overlap(
     once a candidate's left edge passes the current bbox's right edge.
     """
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     boxes: list[tuple[str, tuple[float, float, float, float]]] = []
     for sid in graph.stations:
         b = _station_marker_bbox(graph, sid, offsets=offsets)
@@ -2371,17 +2378,11 @@ def _guard_no_line_crosses_non_consumer(
     sharing its trunk-Y row with a busier sibling whose inbound
     bundle traverses the sparse consumer's column.
     """
-    from nf_metro.layout.routing.common import apply_route_offsets
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        from nf_metro.layout.routing import route_edges
-
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
@@ -2400,7 +2401,7 @@ def _guard_no_line_crosses_non_consumer(
     index = BBoxXIndex(boxes)
 
     for r in routes:
-        pts = apply_route_offsets(r, offsets)
+        pts = routing_common.apply_route_offsets(r, offsets)
         src, tgt, line_id = r.edge.source, r.edge.target, r.line_id
         for k in range(len(pts) - 1):
             p1, p2 = pts[k], pts[k + 1]
@@ -2444,19 +2445,14 @@ def _guard_no_line_crosses_file_icon(
     one belonging to a line the icon's station also carries, since a
     different edge of that line is still raking the artefact.
     """
-    from nf_metro.layout.routing.common import apply_route_offsets
     from nf_metro.render.svg import _icon_obstacles_by_station
     from nf_metro.themes import THEMES
 
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        from nf_metro.layout.routing import route_edges
-
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
@@ -2466,7 +2462,7 @@ def _guard_no_line_crosses_file_icon(
     index = BBoxXIndex(list(icon_boxes.items()))
 
     for r in routes:
-        pts = apply_route_offsets(r, offsets)
+        pts = routing_common.apply_route_offsets(r, offsets)
         src, tgt, line_id = r.edge.source, r.edge.target, r.line_id
         for k in range(len(pts) - 1):
             p1, p2 = pts[k], pts[k + 1]
@@ -2564,23 +2560,17 @@ def iter_opposing_line_overlaps(
     lines sharing a channel are carried on their own offset slots, not on the
     same track.
     """
-    from nf_metro.layout.routing.common import apply_route_offsets
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        from nf_metro.layout.routing import route_edges
-
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
     by_line: dict[str, list[_AxisLeg]] = defaultdict(list)
     for r in routes:
-        pts = apply_route_offsets(r, offsets)
+        pts = routing_common.apply_route_offsets(r, offsets)
         for leg in _line_axis_segments(pts, r.edge.source, r.edge.target):
             by_line[r.line_id].append(leg)
 
@@ -2669,21 +2659,16 @@ def iter_line_label_strikes(
         place_labels,
         segment_strikes_label,
     )
-    from nf_metro.layout.routing.common import apply_route_offsets
     from nf_metro.render.svg import _compute_icon_obstacles
     from nf_metro.themes import THEMES
 
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
 
     with _restoring_layout_geometry(graph):
         if routes is None:
-            from nf_metro.layout.routing import route_edges_centred
-
             try:
-                routes = route_edges_centred(graph, station_offsets=offsets)
+                routes = routing.route_edges_centred(graph, station_offsets=offsets)
             except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
                 return
         placements = place_labels(
@@ -2707,7 +2692,7 @@ def iter_line_label_strikes(
         station_lines_cache: dict[str, set[str]] = {}
 
         for r in routes:
-            pts = apply_route_offsets(r, offsets)
+            pts = routing_common.apply_route_offsets(r, offsets)
             src, tgt, line_id = r.edge.source, r.edge.target, r.line_id
             for k in range(len(pts) - 1):
                 p1, p2 = pts[k], pts[k + 1]
@@ -2834,16 +2819,12 @@ def _guard_no_wrapped_label_trunk_strike(
     from nf_metro.themes import THEMES
 
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
 
     with _restoring_layout_geometry(graph):
         if routes is None:
-            from nf_metro.layout.routing import route_edges_centred
-
             try:
-                routes = route_edges_centred(graph, station_offsets=offsets)
+                routes = routing.route_edges_centred(graph, station_offsets=offsets)
             except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
                 return
         placements = place_labels(
@@ -2879,8 +2860,6 @@ def _guard_off_track_output_clears_non_producer(
     closes the gap by checking the output route against same-section trunk
     markers regardless of line membership, exempting only the producer.
     """
-    from nf_metro.layout.routing.common import apply_route_offsets
-
     producer_of = {
         off_id: anchor_id
         for off_id, anchor_id in _off_track_anchor_of(graph).items()
@@ -2890,14 +2869,10 @@ def _guard_off_track_output_clears_non_producer(
         return
 
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        from nf_metro.layout.routing import route_edges
-
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
@@ -2907,7 +2882,7 @@ def _guard_off_track_output_clears_non_producer(
         route = route_by_endpoints.get((prod_id, off_id))
         if route is None:
             continue
-        pts = apply_route_offsets(route, offsets)
+        pts = routing_common.apply_route_offsets(route, offsets)
         sec_id = graph.stations[off_id].section_id
         section = graph.sections.get(sec_id) if sec_id else None
         if section is None:
@@ -2947,9 +2922,7 @@ def _guard_row_trunk_cy_consistent(
     line sets (e.g. parallel sub-rows on a row-spanner) don't trigger.
     """
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
 
     rows: dict[int, list[Section]] = {}
     for sec in graph.sections.values():
@@ -3080,12 +3053,10 @@ def _guard_inter_section_routes_in_row_band(
     (bypass clearance + bundle nest + diagonal corner approach).
     """
     if offsets is None or routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         if routes is None:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
 
     row_band: dict[int, tuple[float, float]] = {}
     for sec in graph.sections.values():
@@ -3134,7 +3105,6 @@ def _guard_topmost_row_top_entry_hugs_section(
     graph: MetroGraph,
     phase: str,
     *,
-    offsets: dict[tuple[str, str], float] | None = None,
     routes: list[RoutedPath] | None = None,
 ) -> None:
     """After routing: a same-row inter-section route into a section in the
@@ -3147,11 +3117,6 @@ def _guard_topmost_row_top_entry_hugs_section(
     route's-width above the section edge. A deeper climb drives the line
     through the title text.
     """
-    from nf_metro.layout.routing.common import (
-        row_top_edge,
-        section_exists_above_row,
-    )
-
     routes = _ensure_routes(graph, routes)
 
     for r in routes:
@@ -3171,7 +3136,7 @@ def _guard_topmost_row_top_entry_hugs_section(
             continue
         if sec_a.grid_row_span != 1 or sec_b.grid_row_span != 1:
             continue
-        if section_exists_above_row(graph, sec_b.grid_row):
+        if routing_common.section_exists_above_row(graph, sec_b.grid_row):
             continue
         tgt_port = graph.ports.get(r.edge.target)
         if tgt_port is not None and tgt_port.side == PortSide.RIGHT:
@@ -3180,7 +3145,9 @@ def _guard_topmost_row_top_entry_hugs_section(
             # pushed down (_reserve_over_top_headroom) to keep that climb below
             # the title, so the hug limit does not apply.
             continue
-        band_top = row_top_edge(graph, sec_b.grid_row, default=sec_b.bbox_y)
+        band_top = routing_common.row_top_edge(
+            graph, sec_b.grid_row, default=sec_b.bbox_y
+        )
         limit = band_top - (INTER_ROW_EDGE_CLEARANCE + CURVE_RADIUS) - GUARD_TOLERANCE
         min_y = min(y for _x, y in r.points)
         if min_y < limit:
@@ -3233,9 +3200,10 @@ def _ensure_routes(
     """
     if routes is not None:
         return routes
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
 
-    return route_edges(graph, station_offsets=compute_station_offsets(graph))
+    return routing.route_edges(
+        graph, station_offsets=routing.compute_station_offsets(graph)
+    )
 
 
 def _route_exit_side(graph: MetroGraph, rp: RoutedPath) -> PortSide | None:
@@ -3275,15 +3243,13 @@ def _inter_section_backtrack_legs(
     column legitimately wrap and are skipped, as are TB folds and
     same-column routes.
     """
-    from nf_metro.layout.routing.common import resolve_section
-
     for rp in routes:
         if not rp.is_inter_section:
             continue
         if rp.normalize_exempt and not include_exempt:
             continue
-        src_sec = resolve_section(graph, graph.stations[rp.edge.source])
-        tgt_sec = resolve_section(graph, graph.stations[rp.edge.target])
+        src_sec = routing_common.resolve_section(graph, graph.stations[rp.edge.source])
+        tgt_sec = routing_common.resolve_section(graph, graph.stations[rp.edge.target])
         if src_sec is None or tgt_sec is None:
             continue
         if src_sec.direction != "LR" or tgt_sec.direction != "LR":
@@ -3324,15 +3290,13 @@ def _guard_inter_section_route_no_backtrack(
     skipped, as are ``normalize_exempt`` wrap legs, TB folds, and same-column
     routes.
     """
-    from nf_metro.layout.routing.common import resolve_section
-
     routes = _ensure_routes(graph, routes)
 
     for rp, x1, x2 in _inter_section_backtrack_legs(
         graph, routes, reference="grid", tolerance=GUARD_TOLERANCE
     ):
-        src_sec = resolve_section(graph, graph.stations[rp.edge.source])
-        tgt_sec = resolve_section(graph, graph.stations[rp.edge.target])
+        src_sec = routing_common.resolve_section(graph, graph.stations[rp.edge.source])
+        tgt_sec = routing_common.resolve_section(graph, graph.stations[rp.edge.target])
         rightward = (
             src_sec is not None
             and tgt_sec is not None
@@ -3429,14 +3393,11 @@ def _guard_fan_bundles_coincide_or_separate(
     as a smeared partial overlap rather than one bundle or two separated
     bundles.
     """
-    from nf_metro.layout.routing import compute_station_offsets, route_edges
-    from nf_metro.layout.routing.core import compute_junction_fan_info
-
     if offsets is None:
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        routes = route_edges(graph, station_offsets=offsets)
-    fan_sources = {key[0] for key in compute_junction_fan_info(graph)}
+        routes = routing.route_edges(graph, station_offsets=offsets)
+    fan_sources = {key[0] for key in routing_core.compute_junction_fan_info(graph)}
     if not fan_sources:
         return
 
@@ -3562,7 +3523,6 @@ def _guard_port_legs_meet_rail_pill_on_own_rail(
     """
     if not graph.has_rail_sections:
         return
-    from nf_metro.layout.routing.rail import _line_rail_y
 
     routes = _ensure_routes(graph, routes)
 
@@ -3589,7 +3549,7 @@ def _guard_port_legs_meet_rail_pill_on_own_rail(
                 or rp.line_id not in served
             ):
                 continue
-            rail_y = _line_rail_y(graph, pill_end.id, rp.line_id)
+            rail_y = routing_rail._line_rail_y(graph, pill_end.id, rp.line_id)
             if abs(point[1] - rail_y) > GUARD_TOLERANCE:
                 raise PhaseInvariantError(
                     f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} "
@@ -3747,7 +3707,6 @@ def _guard_feeder_exits_section_through_side(
     phase: str,
     *,
     routes: list[RoutedPath] | None = None,
-    offsets: dict[tuple[str, str], float] | None = None,
 ) -> None:
     """After routing: an inter-section feeder must leave its source section
     through a vertical side, never across the box's top or bottom edge.
@@ -3975,15 +3934,6 @@ def _guard_no_artefactual_counter_flow(
     guard fires only when the with-flow gap channel above the target row was
     genuinely free for the run's X-span yet went unused.
     """
-    from nf_metro.layout.routing.common import (
-        _center_inter_row_channel,
-        _inter_row_band_fits,
-        resolve_section,
-        row_bottom_edge,
-        row_top_edge,
-    )
-    from nf_metro.layout.routing.core import _h_segment_crosses_other_section
-
     routes = _ensure_routes(graph, routes)
 
     tol = GUARD_TOLERANCE
@@ -3991,8 +3941,12 @@ def _guard_no_artefactual_counter_flow(
     for rp in routes:
         if not rp.is_inter_section:
             continue
-        src_sec = resolve_section(graph, graph.stations.get(rp.edge.source))
-        tgt_sec = resolve_section(graph, graph.stations.get(rp.edge.target))
+        src_sec = routing_common.resolve_section(
+            graph, graph.stations.get(rp.edge.source)
+        )
+        tgt_sec = routing_common.resolve_section(
+            graph, graph.stations.get(rp.edge.target)
+        )
         if src_sec is None or tgt_sec is None:
             continue
         src_row, tgt_row = src_sec.grid_row, tgt_sec.grid_row
@@ -4009,8 +3963,8 @@ def _guard_no_artefactual_counter_flow(
         port = graph.ports.get(rp.edge.target)
         if port is None or not port.is_entry or port.side != PortSide.RIGHT:
             continue
-        tgt_top = row_top_edge(graph, tgt_row, default=tgt_sec.bbox_y)
-        tgt_bottom = row_bottom_edge(
+        tgt_top = routing_common.row_top_edge(graph, tgt_row, default=tgt_sec.bbox_y)
+        tgt_bottom = routing_common.row_bottom_edge(
             graph, tgt_row, default=tgt_sec.bbox_y + tgt_sec.bbox_h
         )
         pts = rp.points
@@ -4020,16 +3974,16 @@ def _guard_no_artefactual_counter_flow(
         # target row (the row above the target's bottom up to the target row's
         # top).  Its centre Y is where the routing fix runs the rightward
         # traverse before dropping into the RIGHT port.
-        gap_top = row_bottom_edge(graph, tgt_row - 1, default=tgt_top)
+        gap_top = routing_common.row_bottom_edge(graph, tgt_row - 1, default=tgt_top)
         gap_bottom = tgt_top
         if gap_bottom <= gap_top:
             continue  # no inter-row band above target -> dive was forced
         # The with-flow band is a genuine alternative only when wide enough to
         # clear both the upper row's bottom edge and the target row's header
         # badge; a band too narrow for that forces the dive below.
-        if not _inter_row_band_fits(gap_top, gap_bottom):
+        if not routing_common._inter_row_band_fits(gap_top, gap_bottom):
             continue
-        gy = _center_inter_row_channel(gap_top, gap_bottom)
+        gy = routing_common._center_inter_row_channel(gap_top, gap_bottom)
         exclude = {sid for sid in (src_sec.id, tgt_sec.id) if sid is not None}
         for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
             if abs(y2 - y1) > tol or abs(x2 - x1) <= tol:
@@ -4045,7 +3999,9 @@ def _guard_no_artefactual_counter_flow(
             if not counter:
                 continue
             # (b) the with-flow gap above the target was clear for this X-span.
-            if _h_segment_crosses_other_section(graph, x1, x2, gy, exclude):
+            if routing_core._h_segment_crosses_other_section(
+                graph, x1, x2, gy, exclude
+            ):
                 continue  # gap blocked -> dive was topologically necessary
             raise PhaseInvariantError(
                 f"{phase}: route {rp.edge.source!r}->{rp.edge.target!r} line "
@@ -4076,9 +4032,7 @@ def _guard_serpentine_no_backtrack(
     """
     routes = _ensure_routes(graph, routes)
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
 
     for sid, against, limit, section in iter_serpentine_backtracks(
         graph, routes, offsets, tolerance=GUARD_TOLERANCE
@@ -4106,16 +4060,18 @@ def _guard_inter_row_run_clearance(
     (``_wrap_bundle_row_minimums``) reserves the space; this guard fails
     loudly if a layout change ever lets the run creep back against the box.
     """
-    from nf_metro.layout.routing.common import resolve_section
-
     routes = _ensure_routes(graph, routes)
 
     tol = GUARD_TOLERANCE
     for rp in routes:
         if not rp.is_inter_section:
             continue
-        src_sec = resolve_section(graph, graph.stations.get(rp.edge.source))
-        tgt_sec = resolve_section(graph, graph.stations.get(rp.edge.target))
+        src_sec = routing_common.resolve_section(
+            graph, graph.stations.get(rp.edge.source)
+        )
+        tgt_sec = routing_common.resolve_section(
+            graph, graph.stations.get(rp.edge.target)
+        )
         if src_sec is None or tgt_sec is None:
             continue
         if src_sec.grid_row == tgt_sec.grid_row:
@@ -4165,12 +4121,12 @@ def _guard_trunk_bands_crossing_optimal(
     leaves a band in such an avoidable-crossing order.
     """
     from nf_metro.layout.constants import CURVE_RADIUS, DIAGONAL_RUN
-    from nf_metro.layout.routing.context import _build_routing_context
-    from nf_metro.layout.routing.normalize import _suboptimal_trunk_bands
 
     routes = _ensure_routes(graph, routes)
-    ctx = _build_routing_context(graph, DIAGONAL_RUN, CURVE_RADIUS, offsets)
-    bad = _suboptimal_trunk_bands(routes, ctx)
+    ctx = routing_context._build_routing_context(
+        graph, DIAGONAL_RUN, CURVE_RADIUS, offsets
+    )
+    bad = routing_normalize._suboptimal_trunk_bands(routes, ctx)
     if bad:
         y, cur, best = bad[0]
         raise PhaseInvariantError(
@@ -4197,15 +4153,13 @@ def _guard_inter_section_descent_edge_clearance(
     in :func:`_route_l_shape` pushes such channels outward; this guard
     fails loudly if a future change lets one creep back against an edge.
     """
-    from nf_metro.layout.routing.common import endpoint_port_xs
-
     routes = _ensure_routes(graph, routes)
 
     tol = GUARD_TOLERANCE
     for rp in routes:
         if not rp.is_inter_section:
             continue
-        port_xs = endpoint_port_xs(graph, rp.edge)
+        port_xs = routing_common.endpoint_port_xs(graph, rp.edge)
         pts = rp.points
         for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
             # A short horizontal hop also has small dx, so dx alone would
@@ -4253,12 +4207,12 @@ def _guard_tb_exit_corner_column_order(
     the column swaps two lines' X and renders a crossing through the feeder
     station marker.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_tb_exit_corner_preserves_column_order,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_tb_exit_corner_preserves_column_order, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_tb_exit_corner_preserves_column_order,
+        offsets,
+        routes,
     )
 
 
@@ -4276,12 +4230,12 @@ def _guard_no_split_same_line_fanout_descents(
     ride one fused trunk rather than open at distinct Xs, which would peel the
     farther-reaching branch onto the inside of the nearer one and cross it.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_no_split_same_line_fanout_descents,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_no_split_same_line_fanout_descents, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_no_split_same_line_fanout_descents,
+        offsets,
+        routes,
     )
 
 
@@ -4299,12 +4253,12 @@ def _guard_no_distinct_line_fanout_crossing(
     descend as one unit and split only where each line turns into its target,
     never crossing a mate's run on the way down.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_no_distinct_line_fanout_crossing,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_no_distinct_line_fanout_crossing, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_no_distinct_line_fanout_crossing,
+        offsets,
+        routes,
     )
 
 
@@ -4323,16 +4277,19 @@ def _guard_fan_merge_no_partition_crossing(
     horizontal split fed by a stacked half-turn, a line pair may not cross and
     recross within the consumer section.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_fan_merge_no_partition_crossing,
-        check_stacked_split_no_line_recrossing,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_fan_merge_no_partition_crossing, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_fan_merge_no_partition_crossing,
+        offsets,
+        routes,
     )
     _raise_on_first_violation(
-        graph, phase, check_stacked_split_no_line_recrossing, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_stacked_split_no_line_recrossing,
+        offsets,
+        routes,
     )
 
 
@@ -4350,12 +4307,12 @@ def _guard_trunk_continuation_drops_straight(
     peeling past a sibling, or a collinear feeder into a terminal merge -- it
     must run straight rather than jog by one step off the trunk.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_trunk_continuation_drops_straight,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_trunk_continuation_drops_straight, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_trunk_continuation_drops_straight,
+        offsets,
+        routes,
     )
 
 
@@ -4373,12 +4330,12 @@ def _guard_no_dogleg_crosses_exempt_trunk(
     on the side that keeps the two parallel, never the side whose riser pierces
     the exempt run and crosses it twice.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_no_dogleg_crosses_exempt_trunk,
-    )
-
     _raise_on_first_violation(
-        graph, phase, check_no_dogleg_crosses_exempt_trunk, offsets, routes
+        graph,
+        phase,
+        routing_invariants.check_no_dogleg_crosses_exempt_trunk,
+        offsets,
+        routes,
     )
 
 
@@ -4394,14 +4351,10 @@ def _raise_on_first_violation(
 ) -> None:
     """Run a route *check* and raise ``PhaseInvariantError`` on its first hit."""
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
-        from nf_metro.layout.routing import route_edges
-
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
@@ -4429,14 +4382,10 @@ def _guard_merge_port_approach_side(
     :func:`nf_metro.layout.routing.invariants.check_merge_port_approach_side`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import check_merge_port_approach_side
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    violations = check_merge_port_approach_side(graph, offsets)
+    violations = routing_invariants.check_merge_port_approach_side(graph, offsets)
     if not violations:
         return
     first = violations[0]
@@ -4458,16 +4407,12 @@ def _guard_station_bundle_contiguous_at_fan_port(
     :func:`nf_metro.layout.routing.invariants.check_station_bundle_contiguous_at_fan_port`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_station_bundle_contiguous_at_fan_port,
-    )
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    violations = check_station_bundle_contiguous_at_fan_port(graph, offsets)
+    violations = routing_invariants.check_station_bundle_contiguous_at_fan_port(
+        graph, offsets
+    )
     if not violations:
         return
     first = violations[0]
@@ -4490,16 +4435,12 @@ def _guard_convergence_shallow_feeder_concentric(
     :func:`nf_metro.layout.routing.invariants.check_convergence_shallow_feeder_concentric`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_convergence_shallow_feeder_concentric,
-    )
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    messages = check_convergence_shallow_feeder_concentric(graph, offsets)
+    messages = routing_invariants.check_convergence_shallow_feeder_concentric(
+        graph, offsets
+    )
     if not messages:
         return
     extra = f" (+{len(messages) - 1} more)" if len(messages) > 1 else ""
@@ -4520,16 +4461,12 @@ def _guard_merge_port_outgoing_side_preserved(
     :func:`nf_metro.layout.routing.invariants.check_merge_port_outgoing_side_preserved`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_merge_port_outgoing_side_preserved,
-    )
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    violations = check_merge_port_outgoing_side_preserved(graph, offsets)
+    violations = routing_invariants.check_merge_port_outgoing_side_preserved(
+        graph, offsets
+    )
     if not violations:
         return
     first = violations[0]
@@ -4551,16 +4488,12 @@ def _guard_exit_inherits_entry_bundle_order(
     :func:`nf_metro.layout.routing.invariants.check_exit_inherits_entry_bundle_order`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_exit_inherits_entry_bundle_order,
-    )
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    violations = check_exit_inherits_entry_bundle_order(graph, offsets)
+    violations = routing_invariants.check_exit_inherits_entry_bundle_order(
+        graph, offsets
+    )
     if not violations:
         return
     first = violations[0]
@@ -4581,26 +4514,18 @@ def _guard_bypass_port_no_slot_gaps(
     inflates ``max_horiz`` and pushes perpendicular feeders into outer slots,
     leaving empty slots between the horizontal band and the feeders.
     """
-    from nf_metro.layout.routing.invariants import (
-        bypass_horizontal_targets,
-        classify_merge_port_feeders,
-        distinct_offset_levels,
-    )
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
-
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
 
     for port_id in graph.ports:
-        if classify_merge_port_feeders(graph, port_id) is None:
+        if routing_invariants.classify_merge_port_feeders(graph, port_id) is None:
             continue
-        bypass = bypass_horizontal_targets(graph, port_id)
+        bypass = routing_invariants.bypass_horizontal_targets(graph, port_id)
         if not bypass:
             continue
         lines = list(graph.station_lines(port_id))
         port_offsets = sorted(offsets.get((port_id, lid), 0.0) for lid in lines)
-        levels = distinct_offset_levels(port_offsets)
+        levels = routing_invariants.distinct_offset_levels(port_offsets)
         has_gap = any(
             levels[i + 1] - levels[i] > OFFSET_STEP + COORD_TOLERANCE_FINE
             for i in range(len(levels) - 1)
@@ -4630,14 +4555,10 @@ def _guard_partial_branch_offset_gaps(
     :func:`nf_metro.layout.routing.invariants.check_partial_branch_offset_gaps`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import check_partial_branch_offset_gaps
-
     if offsets is None:
-        from nf_metro.layout.routing import compute_station_offsets
+        offsets = routing.compute_station_offsets(graph)
 
-        offsets = compute_station_offsets(graph)
-
-    violations = check_partial_branch_offset_gaps(graph, offsets)
+    violations = routing_invariants.check_partial_branch_offset_gaps(graph, offsets)
     if not violations:
         return
     first = violations[0]
@@ -4660,19 +4581,15 @@ def _guard_fanout_tail_join(
     See :func:`nf_metro.layout.routing.invariants.check_fanout_tail_join`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import check_fanout_tail_join
-
     if routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
-    gaps = check_fanout_tail_join(routes, graph)
+    gaps = routing_invariants.check_fanout_tail_join(routes, graph)
     if not gaps:
         return
     first = gaps[0]
@@ -4695,21 +4612,15 @@ def _guard_perp_entry_boundary_consistent(
     :func:`nf_metro.layout.routing.invariants.check_perp_entry_boundary_consistent`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_perp_entry_boundary_consistent,
-    )
-
     if routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
-    violations = check_perp_entry_boundary_consistent(graph, routes)
+    violations = routing_invariants.check_perp_entry_boundary_consistent(graph, routes)
     if not violations:
         return
     first = violations[0]
@@ -4732,21 +4643,19 @@ def _guard_perp_exit_over_leadin_no_overdip(
     :func:`nf_metro.layout.routing.invariants.check_perp_exit_over_leadin_clears_only_spanned_sections`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_perp_exit_over_leadin_clears_only_spanned_sections,
-    )
-
     if routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
-    violations = check_perp_exit_over_leadin_clears_only_spanned_sections(graph, routes)
+    violations = (
+        routing_invariants.check_perp_exit_over_leadin_clears_only_spanned_sections(
+            graph, routes
+        )
+    )
     if not violations:
         return
     first = violations[0]
@@ -4768,21 +4677,15 @@ def _guard_right_entry_drop_in_when_clear(
     :func:`nf_metro.layout.routing.invariants.check_right_entry_drop_in_when_clear`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_right_entry_drop_in_when_clear,
-    )
-
     if routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
-    violations = check_right_entry_drop_in_when_clear(graph, routes)
+    violations = routing_invariants.check_right_entry_drop_in_when_clear(graph, routes)
     if not violations:
         return
     first = violations[0]
@@ -4804,21 +4707,17 @@ def _guard_right_entry_corridor_descent_no_jog(
     :func:`nf_metro.layout.routing.invariants.check_right_entry_corridor_descent_no_jog`
     for the semantic definition.
     """
-    from nf_metro.layout.routing.invariants import (
-        check_right_entry_corridor_descent_no_jog,
-    )
-
     if routes is None:
-        from nf_metro.layout.routing import compute_station_offsets, route_edges
-
         if offsets is None:
-            offsets = compute_station_offsets(graph)
+            offsets = routing.compute_station_offsets(graph)
         try:
-            routes = route_edges(graph, station_offsets=offsets)
+            routes = routing.route_edges(graph, station_offsets=offsets)
         except Exception:  # noqa: BLE001 - routing failure surfaces elsewhere
             return
 
-    violations = check_right_entry_corridor_descent_no_jog(graph, routes)
+    violations = routing_invariants.check_right_entry_corridor_descent_no_jog(
+        graph, routes
+    )
     if not violations:
         return
     first = violations[0]
@@ -4940,8 +4839,6 @@ def _guard_fanout_junction_resolves_upstream(graph: MetroGraph, phase: str) -> N
     section would leave routing without a grid column/row for it and silently
     misplace the fanned bundle.
     """
-    from nf_metro.layout.routing.common import resolve_section
-
     topology = build_route_topology_query(graph)
     junction_ids = (
         tuple(divergence.junction_id for divergence in topology.divergences)
@@ -4952,7 +4849,7 @@ def _guard_fanout_junction_resolves_upstream(graph: MetroGraph, phase: str) -> N
         junction = graph.stations.get(jid)
         if junction is None or junction.section_id:
             continue
-        if resolve_section(graph, junction) is None:
+        if routing_common.resolve_section(graph, junction) is None:
             raise PhaseInvariantError(
                 f"{phase}: fan-out junction {jid!r} resolves to no section; "
                 f"its upstream neighbours carry no section_id"
@@ -5368,7 +5265,6 @@ def _guard_planned_fan_frame_realised(
         vertical_fan_label_lane_pitch,
     )
     from nf_metro.layout.route_plan import FanAppearancePolicy, fan_lane_seat_keys
-    from nf_metro.layout.routing.reversal import tb_positive_fan_sections
 
     contract_fault = _fan_plan_contract_fault(graph)
     if contract_fault is not None:
@@ -5376,7 +5272,7 @@ def _guard_planned_fan_frame_realised(
 
     offset_step = graph_offset_step(graph)
     section_layers: dict[str, dict[str, int]] = {}
-    tb_positive_fan = tb_positive_fan_sections(graph)
+    tb_positive_fan = routing_reversal.tb_positive_fan_sections(graph)
     for plan in graph.fan_plans:
         if not plan.owns_geometry and plan.offset_carriers:
             raise PhaseInvariantError(
@@ -5590,45 +5486,6 @@ def _guard_canvas_margin_settled(
     if graph.strict and not graph.permissive:
         raise LayoutInvariantError(msg)
     warnings.warn(msg, category=PermissiveGuardWarning, stacklevel=2)
-
-
-@dataclass(frozen=True)
-class GuardSpec:
-    """One ``validate=True`` guard, with the dispatch + classification data
-    that used to be scattered across hand-written call sites and the
-    ``_BISECTION_FIRST_VALID`` table.
-
-    ``fn`` is the guard function; every guard takes ``(graph, phase)`` and the
-    optional keyword inputs named in ``needs`` (a subset of ``offsets``,
-    ``routes``, ``section_y_gap``, ``section_y_padding``).  The dispatcher
-    passes exactly those keywords, so heterogeneous signatures need no
-    wrapping.
-
-    ``bisection_safe`` guards run at every Pass C checkpoint (gated by
-    ``first_valid_stage``, the earliest checkpoint at which their invariant
-    holds) as well as at the closing ``after final`` boundary; the rest run
-    only at ``after final``.  ``tier`` is the cost-tier classification
-    (``docs/dev/guard_tiers.md``).
-
-    ``issue_pin`` is the tuple of ``#NNN`` issues a guard was born from; it
-    keeps the regression trail as data so consolidating or renaming a guard
-    cannot let the original bug be silently re-filed.  ``narrow_reason`` states
-    why a guard pinned to an issue stays scoped to its case rather than being
-    folded into a broader geometric property -- a required field for any
-    issue-pinned guard (``test_issue_pinned_guards_document_why_they_are_narrow``).
-    """
-
-    fn: Callable[..., Any]
-    tier: str
-    needs: frozenset[str] = field(default_factory=frozenset)
-    bisection_safe: bool = False
-    first_valid_stage: str | None = None
-    issue_pin: tuple[str, ...] = ()
-    narrow_reason: str | None = None
-
-    @property
-    def name(self) -> str:
-        return self.fn.__name__
 
 
 # The single ordered source of truth for the ``validate=True`` guard
@@ -5922,7 +5779,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_topmost_row_top_entry_hugs_section,
         "B",
-        needs=frozenset({"offsets", "routes"}),
+        needs=frozenset({"routes"}),
     ),
     GuardSpec(
         _guard_title_band_clearance,
@@ -6074,7 +5931,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(
         _guard_feeder_exits_section_through_side,
         "B",
-        needs=frozenset({"routes", "offsets"}),
+        needs=frozenset({"routes"}),
         issue_pin=("#527",),
         narrow_reason=(
             "Checks only the source section's top/bottom edge crossing inside "
@@ -6303,15 +6160,12 @@ def _ensure_pass_c_inputs(
     render chokepoint, which receives the settled routes. Guards without a
     route dependency continue to inspect the final layout state.
     """
-    from nf_metro.layout.routing import compute_station_offsets, observe_route_edges
-    from nf_metro.layout.routing.core import route_edges_for_placement_guards
-
     if offsets is None:
-        offsets = compute_station_offsets(graph)
+        offsets = routing.compute_station_offsets(graph)
     if routes is None:
         try:
             if validate_final_geometry:
-                observation = observe_route_edges(
+                observation = routing.observe_route_edges(
                     graph,
                     station_offsets=offsets,
                     allow_convergence_clearance_requirements=True,
@@ -6323,7 +6177,7 @@ def _ensure_pass_c_inputs(
                 graph._final_route_guards_deferred = deferred
                 routes = None if deferred else observation.routes
             else:
-                routes = route_edges_for_placement_guards(graph, offsets)
+                routes = routing_core.route_edges_for_placement_guards(graph, offsets)
         except Exception:  # noqa: BLE001 - the settled plan build resurfaces it
             routes = None
             if validate_final_geometry:

@@ -412,7 +412,7 @@ def _layout_single_section(
 
     # Put each bypass V on the side its carried line is drawn, so the fork
     # from the bypassed station's feeder reaches it without crossing the trunk.
-    _align_bypass_v_to_lane_side(sub, section, graph, frame)
+    _align_bypass_v_to_lane_side(sub, section, graph)
 
     # Bypass V helpers (``__bypass_``) have no rendered marker.  Use
     # them to extend the bbox only when V sits beyond the real-station
@@ -504,7 +504,7 @@ def _layout_single_section(
     section.bbox_h = bbox_bot - bbox_top
 
     # Apply direction-specific bbox adjustments
-    _adjust_tb_labels(sub, section, graph)
+    _adjust_tb_labels(sub, section)
     _adjust_tb_entry_shifts(section, sub, graph, y_spacing)
     _adjust_lr_entry_inset(sub, section, graph, x_spacing)
     _adjust_lr_exit_gap(sub, section, graph, layers, x_spacing)
@@ -516,7 +516,7 @@ def _layout_single_section(
 
 
 def _align_bypass_v_to_lane_side(
-    sub: MetroGraph, section: Section, graph: MetroGraph, frame: AxisFrame
+    sub: MetroGraph, section: Section, graph: MetroGraph
 ) -> None:
     """Seat a bypass V on its section's lane side of the trunk.
 
@@ -777,11 +777,7 @@ def _enforce_min_extent(
             axis.set(station, axis.get(station) + shift)
 
 
-def _adjust_tb_labels(
-    sub: MetroGraph,
-    section: Section,
-    graph: MetroGraph,
-) -> None:
+def _adjust_tb_labels(sub: MetroGraph, section: Section) -> None:
     """Vertical-flow sections: expand bbox and shift stations along the lane
     axis so side-placed labels fit.
 
@@ -818,13 +814,17 @@ def _adjust_tb_entry_shifts(
 ) -> None:
     """Shift TB section stations down to clear a perpendicular entry port.
 
-    A TB TOP/BOTTOM entry port sits on the section trunk X
-    (``_assign_entry_port_position``), so its drop onto the first station is
-    a clean vertical continuation and the cross-column lead-in turns in the
-    header corridor above the box, never inside it -- no in-section room is
+    A TB TOP/BOTTOM entry port is flow-aligned, so :func:`position_ports`
+    (Stage 3.1) seats it on its connected station's X -- the section trunk X --
+    and nothing later pulls it off.  Its drop onto the first station is then a
+    clean vertical continuation and the cross-column lead-in turns in the
+    header corridor above the box, never inside it, so no in-section room is
     needed for it.  Only a perpendicular (LEFT/RIGHT) entry, whose port would
-    otherwise coincide with the first station, needs the stations nudged
-    down."""
+    otherwise coincide with the first station, needs the stations nudged down.
+    On a horizontal-flow section Stage 3.1 seats a perpendicular (TOP/BOTTOM)
+    port on a station's X the same way, but there the station-as-elbow
+    constraint forbids the coincidence surviving and Stage 3.2's entry-port
+    alignment moves it clear."""
     if section.direction != "TB":
         return
 

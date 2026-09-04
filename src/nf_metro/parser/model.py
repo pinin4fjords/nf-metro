@@ -63,8 +63,8 @@ def split_guard_warnings(
 
     Returns ``(guard_warnings, other_warnings)``: entries categorised
     :class:`PermissiveGuardWarning` (a guard downgrade), and everything else,
-    so a caller can report the former distinctly and replay the latter
-    through the normal warning printer (``warnings.showwarning``).
+    so a caller can report the former distinctly from a warning about
+    something the engine merely ignored or adjusted.
     """
     guard = [w for w in caught if issubclass(w.category, PermissiveGuardWarning)]
     other = [w for w in caught if not issubclass(w.category, PermissiveGuardWarning)]
@@ -303,6 +303,12 @@ class Station:
         )
 
 
+# ``Edge.line_id`` for an edge the source wrote without a ``|line_id|``
+# annotation. An unannotated edge and one naming an undeclared line are
+# separate authoring defects, so the sentinel keeps them apart.
+UNANNOTATED_LINE_ID = "default"
+
+
 @dataclass
 class Edge:
     """A directed edge between stations, belonging to a metro line."""
@@ -431,18 +437,6 @@ class Section:
     # and cascades through the off-track ``layer_push`` to shift the downstream
     # subtree along.  Empty (a no-op) for every layout that draws no such strike.
     off_track_lead_extra: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass
-class RouteSegment:
-    """A segment of a routed edge path (populated by routing engine)."""
-
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    line_id: str
-    edge: Edge | None = None
 
 
 class UnresolvedEndpointError(NfMetroError, ValueError):
@@ -589,6 +583,12 @@ class MetroGraph:
     )
     # %%metro legend_combo entries: (line_ids, label) pairs.
     legend_combos: list[tuple[tuple[str, ...], str]] = field(default_factory=list)
+    # Shape-checked %%metro legend_combo payloads as (line_ids, label) pairs,
+    # resolved into ``legend_combos`` after parse so a combo may precede the
+    # ``line:`` directives it names.
+    _pending_legend_combos: list[tuple[list[str], str]] = field(
+        default_factory=list, repr=False
+    )
     # Placement modifiers for the bundled legend+logo block. The corner/edge
     # keyword lives in legend_position; these refine where that block lands.
     legend_anchor: str = "content"  # "content" (section bbox) or "canvas"

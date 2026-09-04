@@ -54,13 +54,7 @@ def render_animation(
     CSS ``offset-path`` animates reliably whether the SVG is opened
     standalone, referenced from ``<img>``, or inlined into a document.
     """
-    line_paths = _build_line_motion_paths(
-        graph,
-        routes,
-        station_offsets,
-        theme,
-        curve_radius,
-    )
+    line_paths = _build_line_motion_paths(graph, routes, station_offsets, curve_radius)
 
     # All balls share one cycle (the longest line's at-speed duration) so they
     # stay in sync; a shorter line covers its path in the first part of the
@@ -136,7 +130,6 @@ def _build_line_motion_paths(
     graph: MetroGraph,
     routes: list[RoutedPath],
     station_offsets: dict[tuple[str, str], float],
-    theme: Theme,
     curve_radius: float = ANIMATION_CURVE_RADIUS,
 ) -> list[tuple[str, str]]:
     """Build continuous SVG motion paths for each metro line.

@@ -39,6 +39,7 @@ from nf_metro.layout.constants import (
     FLOW_ALIGNED_PORT_ADVICE,
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
+    SAME_COORD_TOLERANCE,
     SAME_Y_TOLERANCE,
     graph_offset_step,
 )
@@ -49,7 +50,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     point_to_polyline_distance,
 )
-from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.phase_state import GuardSpec
 from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.route_topology import (
     convergence_entry_port_id,
@@ -89,10 +90,9 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
-    planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     resolve_section,
-    route_system_owns_segment_boundary,
     same_destination_approach_slots,
     segments_properly_cross,
     tail_on_slot,
@@ -129,7 +129,6 @@ class Side(Enum):
 
     LEFT = "LEFT"
     RIGHT = "RIGHT"
-    COINCIDENT = "COINCIDENT"
 
 
 @dataclass(frozen=True)
@@ -184,7 +183,7 @@ def _side_sign(
     b_p1: tuple[float, float],
     perp: tuple[float, float],
 ) -> int:
-    """Sign of ``(A - B) . perp``: +1 LEFT, -1 RIGHT, 0 COINCIDENT."""
+    """Sign of ``(A - B) . perp``: +1 LEFT, -1 RIGHT, 0 for a coincident pair."""
     dxp = a_p1[0] - b_p1[0]
     dyp = a_p1[1] - b_p1[1]
     proj = dxp * perp[0] + dyp * perp[1]
@@ -527,10 +526,7 @@ class MergeConfluenceBandCross:
 
 def _descent_is_plan_owned(route: RoutedPath) -> bool:
     """Whether a plan owns the final descent riser (``points[-3]``) of a tail."""
-    riser_rank = len(route.points) - 3
-    return planner_owns_segment(
-        route, riser_rank
-    ) or route_system_owns_segment_boundary(route, riser_rank)
+    return planner_owns_segment_or_boundary(route, len(route.points) - 3)
 
 
 def _terminal_entry_port_id(graph: MetroGraph, route: RoutedPath) -> str | None:
@@ -962,9 +958,9 @@ def check_seam_segments_meet_at_port(
 
 # A gap ALONG the upstream travel direction reads as a visible "bite"
 # at the corner apex (the line stops short of its own bend); anything
-# larger than this is the seam / notch the fix closes.  A PERPENDICULAR
+# larger than this is the seam / notch the tail join closes.  A PERPENDICULAR
 # gap up to a stroke width is hidden under the line and tolerated.
-_TAIL_JOIN_TANGENT_TOLERANCE = 1.0
+_TAIL_JOIN_TANGENT_TOLERANCE = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -1154,7 +1150,7 @@ def check_fanout_lane_continuity(
 # deliberately asked for a tighter arc.  Below this, a horizontal-to-vertical
 # turn reads as a hard corner rather than a formed curve.
 _ORTHOGONAL_TURN_FLOOR = 3.0
-_ORTHOGONAL_TURN_TOL = 0.5
+_ORTHOGONAL_TURN_TOL = SAME_COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -2066,7 +2062,7 @@ class DiagonalOverlapViolation:
         )
 
 
-_COLLINEAR_LATERAL_TOL = 1.0
+_COLLINEAR_LATERAL_TOL = COORD_TOLERANCE
 _COLLINEAR_MIN_SPAN = 40.0
 
 # A diagonal bundle's lines must keep a true perpendicular separation, not a
@@ -2868,8 +2864,9 @@ def check_no_riser_hugs_section_edge(
     A junction feeding a TOP port directly below it (shared X) is exempt: its
     straight drop rides the junction's own lane, not a side-exit lead-in seated
     against a wall, so running a curve radius outside a flanking box is a clean
-    descent rather than a wall-hug.  This mirrors the straight-drop routing
-    decision in :func:`_straight_drop_column_clear`.
+    descent rather than a wall-hug.  This mirrors the routing decision in
+    :func:`_perp_entry_junction_straight_drop`, which takes that drop for the
+    same reason.
     """
     sections = [s for s in graph.sections.values() if s.bbox_w > 0 and s.bbox_h > 0]
     violations: list[RiserHugsSectionEdge] = []
@@ -4090,11 +4087,11 @@ def check_stacked_elbow_clearance(
 # ---------------------------------------------------------------------------
 
 # Arc-centre spread above this reads as a visible pinch/gap through the bend.
-_CONCENTRIC_CENTRE_TOLERANCE = 1.0
+_CONCENTRIC_CENTRE_TOLERANCE = COORD_TOLERANCE
 # A corner counts as wholesale-translated only when both flanking legs are
 # offset from the bundle-mate by the same amount; a difference above this means
 # one leg is pinned (a transition corner), where non-concentric is intended.
-_WHOLESALE_LEG_TOLERANCE = 1.0
+_WHOLESALE_LEG_TOLERANCE = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -5170,7 +5167,7 @@ def check_no_hanging_routes(
 # px: doubles as the floor below which an endpoint offset is negligible and the
 # slack within which a terminal segment counts as horizontal (so its Y-shift is
 # a lateral separation rather than an along-travel displacement).
-_LATERAL_OFFSET_TOL = 1.0
+_LATERAL_OFFSET_TOL = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)

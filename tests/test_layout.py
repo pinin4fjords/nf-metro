@@ -1389,11 +1389,10 @@ def test_off_track_convergence_keeps_consumer_on_trunk():
     consumed by one in-section station (`align`) must not pull `align` off
     the row trunk.
 
-    Locks in the fix for the displacement bug: prior to the off-track
-    exclusion in ``assign_tracks`` / ``_layout_single_section``, ``align``
-    sat ~230 px below the row trunk because the in-section track grouping
-    treated the four file inputs as ordinary on-track stations on the same
-    line and pushed the consumer off-track.
+    Without the off-track exclusion in ``assign_tracks`` /
+    ``_layout_single_section`` the in-section track grouping counts the four
+    file inputs as ordinary on-track stations on one line and pushes the
+    consumer off the trunk -- ``align`` lands ~230 px below it.
     """
     fixture = (
         Path(__file__).resolve().parent.parent

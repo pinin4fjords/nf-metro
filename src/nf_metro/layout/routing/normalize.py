@@ -71,6 +71,7 @@ from nf_metro.layout.routing.common import (
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     route_system_owns_segment_boundary,
     same_destination_approach_slots,
@@ -642,9 +643,7 @@ def _locate_slot_channel_with_slot(
 
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
-    return planner_owns_segment(
-        channel.route, channel.idx
-    ) or route_system_owns_segment_boundary(channel.route, channel.idx)
+    return planner_owns_segment_or_boundary(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -1036,10 +1035,7 @@ def _rederive_semantic_end_corners(
                 kind == "source" and route.exit_lane_transition_plan_id is not None
             ) or (kind == "target" and route.exit_turn_segment_rank == rank):
                 continue
-            if respect_owned_corners and (
-                planner_owns_segment(route, rank)
-                or route_system_owns_segment_boundary(route, rank)
-            ):
+            if respect_owned_corners and planner_owns_segment_or_boundary(route, rank):
                 continue
             cohorts[kind, owner, incoming, outgoing].append(
                 _SemanticEndCorner(
@@ -1994,10 +1990,7 @@ def _unify_coincident_corner_radii(
     )
 
     def corner_is_owned(route: RoutedPath, radius_index: int) -> bool:
-        corner_rank = radius_index + 1
-        return planner_owns_segment(
-            route, corner_rank
-        ) or route_system_owns_segment_boundary(route, corner_rank)
+        return planner_owns_segment_or_boundary(route, radius_index + 1)
 
     for rp in routes:
         radii = rp.curve_radii

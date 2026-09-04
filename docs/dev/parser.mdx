@@ -251,9 +251,23 @@ that names no metro line is a real modelling error.
 | Malformed directive _payload_ (too few `\|` fields, an unusable enum/number/bool, a section-scoped directive outside a subgraph) | warned about and ignored, uniformly across handlers (`_warn_directive`)                    |
 | Foreign/unsupported syntax (Mermaid `flowchart`)                                                                                 | raises `ValueError` with guidance, via `_check_unsupported_input`, before the grammar runs |
 | Edge with no line annotation, or an undeclared line id                                                                           | raised by `_validate_edge_annotations` after parsing                                       |
+| Directive naming a station, section, or line the map never declares                                                              | warned about and ignored by `_warn_unresolved_references` after the statement scan         |
 
 Broader graph-semantic checks (beyond edge annotations) live in the
 separate `validate` phase, `nf_metro.parser.validate.validate_graph`.
+
+The undeclared-line half of the edge check is the one place both phases
+read: `find_undeclared_line_edges`, next to `validate_graph`. That is what
+keeps `nf-metro validate` and `nf-metro render` accepting the same maps.
+A map declaring no `%%metro line:` directive at all is no exception, since
+every annotated edge in it names an undeclared line.
+
+A directive may name a node or subgraph that appears further down the file,
+so the ids a directive references cannot be resolved in its handler: a handler
+that resolved an id itself would report a false unknown for every forward
+reference. Handlers check only payload shape and buffer the ids;
+`_warn_unresolved_references` and `_resolve_legend_combos` resolve them in
+`_finalize_graph`, once the whole source has been applied.
 
 The unrecognised-line case is handled in the grammar by a low-priority
 catch-all:
@@ -411,7 +425,10 @@ decision when it reports an unsafe fold threshold.
   enclosing section or the key itself is dispatched in `_apply_directive`
   instead of the dict.) On an unusable payload, call `_warn_malformed`
   (or `_warn_directive` for a more specific message) and return, rather
-  than failing silently - that is the leniency policy above.
+  than failing silently - that is the leniency policy above. A directive that
+  names a station, section, or line id must buffer it and add a case to
+  `_directive_references`, so the id resolves against the whole file rather
+  than only what precedes the directive.
 - **A new statement form** - add a rule and its terminal to `_GRAMMAR`,
   a typed statement dataclass (added to the `_Statement` union), a method
   to `_StatementTransformer` returning that dataclass, and an `isinstance`
