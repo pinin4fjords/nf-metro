@@ -16,6 +16,7 @@ __all__ = [
 ]
 
 import base64
+import html
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -112,10 +113,13 @@ def logo_image_kwargs(path: str) -> dict[str, str | bool]:
     """``drawsvg.Image`` kwargs that embed a logo from a data URI or file path.
 
     A data URI is already a self-contained ``data:`` href, so it is passed
-    through unembedded; a file path is read and base64-embedded as usual.
+    through unembedded (HTML-escaped, since it is directive-authored text
+    landing verbatim in an ``xlink:href`` attribute); a file path is read and
+    base64-embedded as usual, where drawsvg generates its own href from the
+    decoded bytes.
     """
     if path.startswith("data:"):
-        return {"path": path, "embed": False}
+        return {"path": html.escape(path), "embed": False}
     return {"path": path, "embed": True}
 
 
@@ -124,7 +128,9 @@ def marker_fill_color(fill: str, theme: Theme) -> str:
 
     ``open`` renders the theme's open-marker interior (falling back to the
     background, or white on transparent themes); ``solid`` uses the default
-    station fill; anything else is taken as a literal colour.
+    station fill; anything else is taken as a literal colour, directive-
+    authored text that is HTML-escaped here before it lands in an SVG
+    attribute (a no-op on every legitimate CSS colour form).
     """
     if fill == MARKER_FILL_OPEN:
         if theme.marker_open_fill:
@@ -134,7 +140,7 @@ def marker_fill_color(fill: str, theme: Theme) -> str:
         return "#ffffff"
     if fill == MARKER_FILL_SOLID:
         return theme.station_fill
-    return fill
+    return html.escape(fill)
 
 
 def marker_corner_radius(shape: str, r: float) -> float:

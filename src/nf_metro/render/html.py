@@ -102,23 +102,30 @@ def emit_render_plan_html(
 
     # Browsers terminate the outer <script> the moment they see literal
     # </script>, regardless of JS string context. JSON's optional `\/`
-    # escape decodes back to `/`, so the snippet survives round-trip.
+    # escape decodes back to `/`, so the snippet survives round-trip. `lines`
+    # carries directive-authored text (line colour/label), so the same
+    # protection applies to its embedded JSON literal.
     inline_snippet_json = json.dumps(inline_snippet).replace("</", "<\\/")
 
     return _STANDALONE_TEMPLATE.substitute(
         title=html.escape(title),
         svg=svg,
-        lines_json=json.dumps(lines),
+        lines_json=_lines_json(lines),
         embed_basename=html.escape(embed_basename),
         inline_snippet_json=inline_snippet_json,
         shared_js=get_driver_js(),
     )
 
 
+def _lines_json(lines: list[dict[str, str]]) -> str:
+    """JSON-encode *lines* for embedding as a JS literal inside ``<script>``."""
+    return json.dumps(lines).replace("</", "<\\/")
+
+
 def _build_inline_snippet(svg: str, lines: list[dict[str, str]], sid: str) -> str:
     return _INLINE_TEMPLATE.substitute(
         sid=sid,
         svg=svg,
-        lines_json=json.dumps(lines),
+        lines_json=_lines_json(lines),
         shared_js=get_driver_js(),
     )

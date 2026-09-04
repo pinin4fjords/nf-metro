@@ -1502,3 +1502,31 @@ def test_redeclared_line_id_keeps_the_first_declaration():
         graph = parse_metro_mermaid(src)
     assert graph.lines["l1"].display_name == "First"
     assert graph.lines["l1"].color == "#ff0000"
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        'evil" onload="alert(1)',
+        "has space",
+        "<script>",
+        "1starts-with-digit",
+    ],
+)
+def test_line_declaration_with_an_id_outside_the_identifier_charset_is_rejected(
+    bad_id,
+):
+    """A line id lands in SVG class/data-* attributes verbatim, so it is
+    constrained to the same charset as node/section ids at declaration time."""
+    src = f"%%metro line: {bad_id} | Name | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
+    with pytest.raises(ValueError, match=r"\[a-zA-Z_\]\[a-zA-Z0-9_\]\*"):
+        parse_metro_mermaid(src)
+
+
+def test_line_declaration_with_a_valid_identifier_id_is_accepted():
+    src = (
+        "%%metro line: valid_id1 | Name | #ff0000\n"
+        "graph LR\n    a[A] -->|valid_id1| b[B]\n"
+    )
+    graph = parse_metro_mermaid(src)
+    assert "valid_id1" in graph.lines

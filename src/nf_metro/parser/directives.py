@@ -126,6 +126,14 @@ def _dir_process(value: str, graph: MetroGraph) -> None:
 _COLOR_FUNCTION = re.compile(r"[A-Za-z-]+\(.*\)\Z")
 _COLOR_KEYWORDS = frozenset({"currentcolor", "transparent", "none"})
 
+_LINE_ID_PATTERN = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
+"""Same identifier charset as the ``NAME`` grammar token for node/section ids.
+
+A declared line id lands in SVG ``class=``/``data-*`` attributes verbatim, so
+constraining it here (rather than escaping at every emission site) rules out
+attribute-injection through this vector entirely.
+"""
+
 
 def _is_color(value: str) -> bool:
     """True when *value* is a colour an SVG stroke can resolve.
@@ -160,6 +168,12 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
             f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
         )
         return
+    if not _LINE_ID_PATTERN.fullmatch(line_id):
+        raise ValueError(
+            f"%%metro line: id {line_id!r} is invalid; line ids must match "
+            "[a-zA-Z_][a-zA-Z0-9_]* (the same charset as node and section "
+            "ids) since they land in SVG class/data-* attributes verbatim"
+        )
     if line_id in graph.lines:
         _warn_directive(
             "line",

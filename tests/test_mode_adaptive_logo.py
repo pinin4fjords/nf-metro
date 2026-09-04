@@ -3,6 +3,7 @@
 import base64
 import io
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,11 @@ from PIL import Image as PILImage
 
 from nf_metro.api import render_string
 from nf_metro.parser.model import MetroGraph
-from nf_metro.render.legend import logo_is_resolvable, open_logo_image
+from nf_metro.render.legend import (
+    logo_image_kwargs,
+    logo_is_resolvable,
+    open_logo_image,
+)
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.svg import (
     _effective_logo_path,
@@ -305,3 +310,32 @@ def test_baked_mode_embeds_matching_logo_variant(tmp_path):
 
     assert _embedded_image_bytes(light_svg) == light_file.read_bytes()
     assert _embedded_image_bytes(dark_svg) == dark_file.read_bytes()
+
+
+def test_logo_image_kwargs_escapes_quote_in_data_uri():
+    malicious = _png_data_uri() + '" onerror="alert(1)'
+    kwargs = logo_image_kwargs(malicious)
+
+    assert kwargs["embed"] is False
+    assert '"' not in kwargs["path"]
+    assert "&quot;" in kwargs["path"]
+
+
+def test_data_uri_logo_with_quote_does_not_break_out_of_href():
+    """A data URI is directive-authored text landing verbatim in an
+    ``xlink:href`` attribute, so a literal ``"`` in it must not escape that
+    attribute's quoting."""
+    malicious = _png_data_uri(width=40, height=20) + '" onerror="alert(1)'
+    text = (
+        f"%%metro logo: {malicious}\n"
+        "%%metro line: main | Main | #0570b0\n"
+        "graph LR\n"
+        "    a[A] -->|main| b[B]\n"
+    )
+
+    svg = render_string(text, chrome_css=False)
+
+    root = ET.fromstring(svg)
+    for el in root.iter():
+        assert "onerror" not in el.attrib, f"{el.tag} attrib={el.attrib}"
+    assert "alert(1)" in svg
