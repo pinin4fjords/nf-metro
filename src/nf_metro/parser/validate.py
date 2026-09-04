@@ -40,8 +40,8 @@ def find_undeclared_line_edges(graph: MetroGraph) -> list[Edge]:
     :mod:`nf_metro.parser.mermaid` and the soft ``validate_graph`` path, so the
     ``validate`` and ``render`` commands cannot disagree about which maps carry
     this defect. A map declaring no lines at all is no exception: every
-    annotated edge in it names an undeclared line, and the render falls back to
-    an anonymous stroke colour with an empty legend.
+    annotated edge in it names an undeclared line, and a line the renderer
+    cannot resolve has no colour of its own and no legend entry.
 
     An edge carrying :data:`~nf_metro.parser.model.UNANNOTATED_LINE_ID` is a
     different defect and is left to the caller.

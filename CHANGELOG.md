@@ -15,6 +15,18 @@ history.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: an edge annotated with a line no `%%metro line:` declares is now
+  rejected by `nf-metro render`, not just `nf-metro validate`.** A map that
+  declared no lines at all was exempt from the render-side check, so it rendered
+  every route in the placeholder grey the themes reserve for inactive lines,
+  with an empty legend and exit 0, while `validate` reported one error per edge
+  and exit 1. Both commands now read one detector and accept the same maps. A
+  map that relied on the exemption needs one `%%metro line:` directive per id
+  its edges name, and the error names the missing ids with the source line of
+  each.
+
 ---
 
 ## [1.1.0] — 2026-07-01

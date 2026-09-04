@@ -146,6 +146,7 @@ def test_portable_render_uses_inter_metrics_during_layout() -> None:
     from nf_metro.api import render_string
 
     source = (
+        "%%metro line: x | X | #0570b0\n"
         "graph LR\nsubgraph s [S]\n%%metro direction: TB\na[WWW] -->|x| b[Ill]\nend\n"
     )
     fallback = render_string(source)
@@ -164,5 +165,5 @@ def test_portable_render_uses_inter_metrics_during_layout() -> None:
 
     fallback_width = section_width(fallback)
     embedded_width = section_width(embedded)
-    assert fallback_width == pytest.approx(160.0)
-    assert embedded_width == pytest.approx(167.46630859375)
+    assert fallback_width == pytest.approx(100.0)
+    assert embedded_width == pytest.approx(107.46630859375)

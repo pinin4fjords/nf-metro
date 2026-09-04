@@ -386,6 +386,7 @@ def test_render_multiple_files_partial_failure(tmp_path):
     bad.write_text(
         "%%metro title: Bad\n"
         "%%metro logo: nonexistent-logo-file.png\n"
+        "%%metro line: x | X | #0570b0\n"
         "graph LR\n"
         "    a[Foo] -->|x| b[Bar]\n"
     )

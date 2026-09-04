@@ -494,11 +494,6 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
-    # True once a ``%%metro line:`` directive has been rejected as unusable.
-    # A rejected declaration establishes that the map declares its lines, so an
-    # edge naming an undeclared line is an error rather than an annotation on a
-    # line-less map.
-    line_declaration_rejected: bool = False
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)

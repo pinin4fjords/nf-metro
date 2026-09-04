@@ -1275,6 +1275,10 @@
   "note": "This post-acceptance marker-cache guard rejects a continuing cohort whose inherited offsets are not one contiguous step sequence. _linear_entry_frame only accepts and materializes contiguous inherited levels, so authored topology cannot reach this reject arm. It protects corrupted or hand-built state.",
   "status": "defensive"
  },
+ "offsets.py::if any(line_id not in ctx.line_priority for line_id in present):::#1": {
+  "note": "ctx.line_priority is keyed on the declared line set (_build_offset_ctx enumerates graph.lines), while present collects the line ids carried by the section's stations, which come from edge annotations. The two sets differ only for an edge naming a line no %%metro line: directive declares, and the parser rejects that map, so no parsed source can take the bail. The guard is kept because compute_layout is a public entry point that accepts a MetroGraph built in code: without it the priority_order sort two statements below raises KeyError on exactly this condition.",
+  "status": "defensive"
+ },
  "offsets.py::if arriving is None or holding is None:::#1": {
   "note": "_exchange_pair_at's own guard, reached only from the continuation walk. the exit_lane_settlement_without_crossings variant described on the `if was_arriving is None or was_holder is None` entry takes the False arm, both slots present. The True arm needs a station whose line set contains both lines, which the caller has already checked, while ctx.offsets lacks a key for one of them. Base offsets are computed for every station and line the graph carries, so the only candidate is a junction the propagation passes skip, and I could not confirm one exists. Left unsettled rather than called defensive.",
   "status": "needs-review"
