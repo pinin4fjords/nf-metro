@@ -433,18 +433,6 @@ class Section:
     off_track_lead_extra: dict[str, int] = field(default_factory=dict)
 
 
-@dataclass
-class RouteSegment:
-    """A segment of a routed edge path (populated by routing engine)."""
-
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    line_id: str
-    edge: Edge | None = None
-
-
 class UnresolvedEndpointError(NfMetroError, ValueError):
     """Raised when an edge references a station id that is not in the graph.
 

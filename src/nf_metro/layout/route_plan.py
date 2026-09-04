@@ -411,9 +411,6 @@ class CompatibilityFamily:
             raise ValueError("a compatibility family's follow-up names an issue")
 
 
-_ISSUE = "https://github.com/seqeralabs/nf-metro/issues/{}"
-
-
 def _reasons(
     family: CompatibilityFamily, *reasons: str
 ) -> dict[str, CompatibilityFamily]:

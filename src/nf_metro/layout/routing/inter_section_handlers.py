@@ -2286,47 +2286,6 @@ def _route_tb_bottom_exit(
     )
 
 
-def _route_tb_bottom_exit_approach_fan(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath | None:
-    """Drop from a TB BOTTOM exit onto a distinct-line port's approach channel.
-
-    At a distinct-line perp entry (:func:`needs_perp_approach_fan`) the feeders
-    each carry one line and all leave the same column trunk, so their feeder
-    lanes coincide on one X.  Land each on its own approach channel instead --
-    the per-line X :func:`perp._perp_approach_fan_x` pins the intra-section
-    drop to -- so the distinct lines ride parallel channels into the port rather
-    than overlaying one vertical channel.
-
-    A feeder leaves the BOTTOM port downward, jogs across the inter-row gap onto
-    its channel, then drops in, so any lateral step turns through bounded corners
-    rather than a raw diagonal.  A feeder already on its channel has a zero-width
-    jog, which the bundle builder collapses to a clean straight drop.
-    """
-    land_x = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
-    sy, ty = src.y, tgt.y
-
-    dy = ty - sy
-    hy = inter_row_channel_y(
-        ctx.graph,
-        src,
-        tgt,
-        sy,
-        ty,
-        dy,
-        ctx.curve_radius,
-        reserved=ctx.reserved_bands.rows,
-    )
-    lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
-    hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
-    return route_along(
-        edge,
-        [(edge, edge.line_id, 0.0)],
-        [(src.x, sy), (src.x, hy), (land_x, hy), (land_x, ty)],
-        base_radius=ctx.curve_radius,
-    )
-
-
 def _around_stack_channel_x(f: _InterFacts) -> float:
     """X of a descent channel just left of the feeder's stacked column.
 
