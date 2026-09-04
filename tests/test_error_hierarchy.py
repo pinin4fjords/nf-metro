@@ -91,6 +91,13 @@ def test_render_string_raises_plain_value_error_for_malformed_mmd() -> None:
     assert not isinstance(excinfo.value, NfMetroError)
 
 
+def test_render_string_rejects_a_station_less_source() -> None:
+    """A source the parser finds no station in never reaches the layout."""
+    with pytest.raises(EmptyGraphError) as excinfo:
+        render_string("graph LR\n")
+    assert isinstance(excinfo.value, NfMetroError)
+
+
 @pytest.mark.parametrize(
     "fixture,expected_type",
     [

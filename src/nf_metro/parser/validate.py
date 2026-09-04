@@ -157,6 +157,14 @@ def validate_graph(graph: MetroGraph) -> list[ValidationIssue]:
     """Return graph-semantic findings for ``graph`` as structured data."""
     issues: list[ValidationIssue] = []
 
+    if not graph.stations:
+        issues.append(
+            ValidationIssue(
+                WARNING,
+                "the map defines no stations; rendering it will be refused",
+            )
+        )
+
     witness = find_cycle(graph)
     if witness is not None:
         issues.append(ValidationIssue(ERROR, format_cycle_error(witness)))

@@ -98,8 +98,8 @@ light/dark pair, so `--mode` does not apply to it.
 
 Spacings, scales, `--fold-threshold` and output dimensions must be greater
 than 0; the section gaps, `--track-gap`, `--legend-min-height` and
-`--legend-logo-gap` also accept 0. A value outside an option's range is
-rejected by the flag and by its `%%metro` directive alike.
+`--legend-logo-gap` also accept 0. Out of range, the flag exits with an
+error and the equivalent `%%metro` directive warns and keeps the default.
 
 ### Line styling
 
@@ -128,10 +128,12 @@ These carry into the rendered SVG's manifest and drive [live progress](/nf-metro
 
 ### Warnings
 
-A map that parses with complaints (an unknown `%%metro` directive, a
-non-LR primary direction) or a layout that widens a gap to fit its routing
-reports each one as a bulleted `Warnings:` block on stderr, and renders. The
-map is still written; the block says what nf-metro ignored or adjusted.
+A map that parses with complaints (an unknown `%%metro` directive, a non-LR
+primary direction) or a layout that widens a gap to fit its routing reports
+each one as a bulleted `Warnings:` block on stderr, and still writes the map.
+A geometry guard that was downgraded rather than enforced gets its own block:
+those name geometry that was drawn anyway and may be defective there, so read
+them differently from a warning about something merely ignored or adjusted.
 
 ### Embedding options
 
@@ -141,7 +143,7 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--responsive / --no-responsive`       | off     | Emit `viewBox` only (no fixed `width`/`height`) for CSS-scalable embedding                                                                                                                                                                                  |
 | `--embed-font / --no-embed-font`       | off     | Inline a subset of Inter as a base64 `@font-face` block so the SVG renders identically on any host regardless of installed fonts                                                                                                                            |
-| `--text-to-paths / --no-text-to-paths` | off     | Convert all text to vector paths, removing font dependencies entirely. Loses selectable text; requires `fonttools[woff]`                                                                                                                                    |
+| `--text-to-paths / --no-text-to-paths` | off     | Convert all text to vector paths, removing font dependencies entirely. Loses selectable text; needs the font extra (`pip install "nf-metro[font]"`)                                                                                                         |
 | `--bare / --no-bare`                   | off     | Omit the title and outer padding so the canvas hugs the diagram content (the attribution watermark is kept)                                                                                                                                                 |
 | `--svg-class-prefix TEXT`              | none    | Prefix every SVG presentation class with this string (e.g. `myapp` produces `myapp-nf-metro-station`). Use distinct prefixes for each map on a shared page. No effect on the interactive HTML output, which already scopes each map                         |
 | `--no-self-color-scheme`               | off     | Omit `color-scheme: light dark` from the root `<svg>`. Use when inlining into a host page that owns the theme: the SVG then inherits the page's `color-scheme`, so a manual toggle drives `light-dark()` resolution rather than the viewer's OS preference  |
@@ -247,6 +249,9 @@ nf-metro validate [OPTIONS] INPUT_FILE
 | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `--with-layout` | off     | Also run the layout engine with its full invariant suite, reporting any layout failure as an error instead of a traceback |
 | `--strict`      | off     | Treat warnings (e.g. a non-LR primary direction) as errors                                                                |
+
+A map with no stations is reported as a warning here, since `render` refuses
+to draw one.
 
 ## `nf-metro info`
 

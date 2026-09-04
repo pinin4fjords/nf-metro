@@ -63,8 +63,8 @@ def split_guard_warnings(
 
     Returns ``(guard_warnings, other_warnings)``: entries categorised
     :class:`PermissiveGuardWarning` (a guard downgrade), and everything else,
-    so a caller can report the former distinctly and replay the latter
-    through the normal warning printer (``warnings.showwarning``).
+    so a caller can report the former distinctly from a warning about
+    something the engine merely ignored or adjusted.
     """
     guard = [w for w in caught if issubclass(w.category, PermissiveGuardWarning)]
     other = [w for w in caught if not issubclass(w.category, PermissiveGuardWarning)]

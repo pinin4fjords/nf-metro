@@ -17,7 +17,7 @@ import pytest
 from nf_metro.api import apply_layout_overrides, resolve_theme
 from nf_metro.cli import render
 from nf_metro.layout import compute_layout
-from nf_metro.options import LAYOUT_OPTIONS
+from nf_metro.options import INVALID, LAYOUT_OPTIONS, coerce
 from nf_metro.parser.directives import _GLOBAL_DIRECTIVE_HANDLERS
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.parser.model import MetroGraph
@@ -50,29 +50,32 @@ def test_every_option_is_in_both_planes():
         )
 
 
-def test_numeric_flags_enforce_the_registry_bounds():
-    """Each numeric flag rejects exactly what the directive plane rejects.
+def test_numeric_flags_and_directives_accept_the_same_values():
+    """Neither plane admits a number the other refuses.
 
     ``sign`` and ``max_val`` gate a directive payload through
-    :func:`nf_metro.options.coerce`; the generated flag must carry the same
-    bounds so one plane cannot admit a value the other refuses.
+    :func:`nf_metro.options.coerce`; the generated CLI flag has to draw the
+    line in the same place, or a value works one way and not the other.
     """
     params = {p.name: p for p in render.params}
     for opt in LAYOUT_OPTIONS:
         if opt.kind not in ("int", "float"):
             continue
-        ptype = params[opt.name].type
-        assert isinstance(ptype, click.IntRange | click.FloatRange), (
-            f"{opt.name}: flag has no range"
-        )
-        assert ptype.min == (0 if opt.sign in ("nonneg", "positive") else None), (
-            f"{opt.name}: lower bound does not match sign={opt.sign!r}"
-        )
-        assert ptype.min_open is (opt.sign == "positive"), (
-            f"{opt.name}: zero is {'accepted' if ptype.min_open else 'rejected'} "
-            f"against sign={opt.sign!r}"
-        )
-        assert ptype.max == opt.max_val, f"{opt.name}: upper bound does not match"
+        ceiling = 3 if opt.max_val is None else opt.max_val
+        probes = [-1, 0, 1, ceiling, ceiling + 1]
+        for probe in probes:
+            text = str(int(probe) if opt.kind == "int" else float(probe))
+            directive_ok = coerce(opt, text)[0] is not INVALID
+            try:
+                params[opt.name].type.convert(text, None, None)
+            except click.BadParameter:
+                flag_ok = False
+            else:
+                flag_ok = True
+            assert flag_ok is directive_ok, (
+                f"{opt.name}: {text} accepted by the "
+                f"{'flag' if flag_ok else 'directive'} only"
+            )
 
 
 def test_no_duplicate_or_shadowed_options():

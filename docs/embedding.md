@@ -67,10 +67,10 @@ overlays built from the manifest still line up (see
 By default the SVG references a system font family, which renders differently
 (or falls back) on a host without that font. Two flags make it self-contained:
 
-| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                             |
-| ----------------- | --------------------------------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                          |
-| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `fonttools[woff]`. |
+| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                            |
+| ----------------- | --------------------------------------------------------- | ----------------------------- | ---------------------------------------------------- |
+| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                         |
+| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `nf-metro[font]`. |
 
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --embed-font      # portable, still selectable

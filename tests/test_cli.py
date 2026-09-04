@@ -784,11 +784,11 @@ def test_render_many_inactive_lines_list(tmp_path):
     assert 'stroke="#0000ff"' not in svg  # b muted
 
 
-def _simple_map(tmp_path: Path, name: str = "simple.mmd") -> Path:
-    """A minimal renderable diagram: one section, one line, two stations."""
-    mmd = tmp_path / name
+def _simple_map(tmp_path: Path, *, prelude: str = "") -> Path:
+    """Write a renderable one-section, one-line map, *prelude* first."""
+    mmd = tmp_path / "map.mmd"
     mmd.write_text(
-        "%%metro line: a | A | #ff0000\n"
+        prelude + "%%metro line: a | A | #ff0000\n"
         "graph LR\n"
         "    subgraph s1 [One]\n"
         "        n1[N1] -->|a| n2[N2]\n"
@@ -797,22 +797,12 @@ def _simple_map(tmp_path: Path, name: str = "simple.mmd") -> Path:
     return mmd
 
 
-def _warned_map(tmp_path: Path, name: str = "warned.mmd") -> Path:
-    """A renderable diagram carrying one unknown-directive warning."""
-    mmd = tmp_path / name
-    mmd.write_text(
-        "%%metro titel: Typo\n"
-        "%%metro line: a | A | #ff0000\n"
-        "graph LR\n"
-        "    subgraph s1 [One]\n"
-        "        n1[N1] -->|a| n2[N2]\n"
-        "    end\n"
-    )
-    return mmd
+_UNKNOWN_DIRECTIVE = "%%metro titel: Typo\n"
+_UNKNOWN_DIRECTIVE_WARNING = "%%metro titel: unknown directive; ignoring"
 
 
-def test_render_stationless_source_names_file_and_cause(tmp_path):
-    """An empty source is rejected with an actionable message, not an internal one."""
+def test_render_empty_source_names_file_and_cause(tmp_path):
+    """An empty source is refused with an actionable message, not an internal one."""
     src = tmp_path / "empty.mmd"
     src.write_text("")
     result = CliRunner().invoke(
@@ -824,8 +814,8 @@ def test_render_stationless_source_names_file_and_cause(tmp_path):
     assert "max()" not in result.output
 
 
-def test_render_unparseable_source_names_file_and_cause(tmp_path):
-    """Text the grammar recognises nothing in is rejected the same way."""
+def test_render_source_without_recognised_stations_is_refused(tmp_path):
+    """Prose the grammar finds no station in is refused as station-less."""
     src = tmp_path / "prose.mmd"
     src.write_text("this is not mermaid at all\n")
     result = CliRunner().invoke(
@@ -835,38 +825,47 @@ def test_render_unparseable_source_names_file_and_cause(tmp_path):
     assert "defines no stations" in result.output
 
 
-def test_render_stationless_source_reraises_under_debug_env(tmp_path, monkeypatch):
-    """NF_METRO_DEBUG=1 surfaces the typed error itself for a rejected source."""
-    from nf_metro.errors import EmptyGraphError
-
-    monkeypatch.setenv("NF_METRO_DEBUG", "1")
+def test_validate_warns_on_a_station_less_map(tmp_path):
+    """`validate` says so rather than calling a map with nothing in it valid."""
     src = tmp_path / "empty.mmd"
     src.write_text("")
-    result = CliRunner().invoke(
-        cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
-    )
-    assert isinstance(result.exception, EmptyGraphError)
+    result = CliRunner().invoke(cli, ["validate", str(src)])
+    assert result.exit_code == 0, result.output
+    assert "defines no stations" in result.output
+
+    strict = CliRunner().invoke(cli, ["validate", "--strict", str(src)])
+    assert strict.exit_code != 0
 
 
-def test_render_pipeline_error_reraises_under_debug_env(tmp_path, monkeypatch):
-    """A recognised render-time error also honours the debug flag."""
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("", "EmptyGraphError"),
+        (None, "ValueError"),
+    ],
+    ids=["station-less", "render-rejection"],
+)
+def test_render_error_reraises_under_debug_env(tmp_path, monkeypatch, source, expected):
+    """NF_METRO_DEBUG=1 surfaces the typed error itself, not a one-line message."""
 
     def _reject(*args, **kwargs):
         raise ValueError("synthetic render rejection")
 
     monkeypatch.setenv("NF_METRO_DEBUG", "1")
-    monkeypatch.setattr("nf_metro.cli.render_graph_result", _reject)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    if source is None:
+        monkeypatch.setattr("nf_metro.cli.render_graph_result", _reject)
+        src.write_text(RNASEQ_MMD.read_text())
+    else:
+        src.write_text(source)
     result = CliRunner().invoke(
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )
-    assert isinstance(result.exception, ValueError)
-    assert str(result.exception) == "synthetic render rejection"
+    assert type(result.exception).__name__ == expected
 
 
-def test_render_pipeline_error_is_one_line_without_debug_env(tmp_path, monkeypatch):
-    """Without the debug flag the same error is a single clean message."""
+def test_render_rejection_is_one_line_without_debug_env(tmp_path, monkeypatch):
+    """A recognised rejection prints as one message naming the source file."""
 
     def _reject(*args, **kwargs):
         raise ValueError("synthetic render rejection")
@@ -879,7 +878,7 @@ def test_render_pipeline_error_is_one_line_without_debug_env(tmp_path, monkeypat
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )
     assert result.exit_code != 0
-    assert "Error: synthetic render rejection" in result.output
+    assert f"Error: {src}: synthetic render rejection" in result.output
     assert "Traceback" not in result.output
 
 
@@ -921,12 +920,12 @@ def test_render_rejects_out_of_range_numeric_option(tmp_path, flag, value):
         ("--stroke-scale", "2"),
         ("--track-gap", "0"),
         ("--section-x-gap", "0"),
-        ("--fold-threshold", "20"),
+        ("--label-angle", "-45"),
         ("--width", "1400"),
     ],
 )
 def test_render_accepts_in_range_numeric_option(tmp_path, flag, value):
-    """The bounds admit every value the option is documented to take."""
+    """One in-range value per bound style reaches the render."""
     out = tmp_path / "out.svg"
     result = CliRunner().invoke(
         cli, ["render", str(_simple_map(tmp_path)), "-o", str(out), flag, value]
@@ -935,74 +934,142 @@ def test_render_accepts_in_range_numeric_option(tmp_path, flag, value):
     assert out.exists()
 
 
-def test_render_presents_warnings_as_a_clean_block(tmp_path):
+def test_numeric_flag_help_keeps_its_plain_metavar():
+    """A bounded flag documents its bound without renaming its value type."""
+    result = CliRunner().invoke(cli, ["render", "--help"])
+    assert result.exit_code == 0
+    help_text = " ".join(result.output.split())
+    assert "--x-spacing FLOAT" in help_text
+    assert "--width INTEGER" in help_text
+    assert "FLOAT RANGE" not in help_text
+    assert "INTEGER RANGE" not in help_text
+
+
+def test_render_presents_parse_warnings_as_a_clean_block(tmp_path):
     """A parse warning reaches the user as a labelled block, not raw Python."""
-    src = _warned_map(tmp_path)
+    src = _simple_map(tmp_path, prelude=_UNKNOWN_DIRECTIVE)
     result = CliRunner().invoke(
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )
     assert result.exit_code == 0, result.output
-    assert "Warnings:\n  - %%metro titel: unknown directive; ignoring" in result.output
+    assert f"Warnings:\n  - {_UNKNOWN_DIRECTIVE_WARNING}" in result.output
     assert "UserWarning" not in result.output
     assert "directives.py" not in result.output
 
 
-def test_render_presents_layout_warnings_as_a_clean_block(tmp_path):
-    """A layout-time warning gets the same presentation as a parse warning."""
+def test_render_presents_layout_warnings_as_a_clean_block(tmp_path, monkeypatch):
+    """A warning raised while the layout runs gets the same presentation."""
+    import warnings as warnings_module
+
+    from nf_metro.api import prepare_graph as real_prepare_graph
+
+    def _prepare_with_warning(*args, **kwargs):
+        graph = real_prepare_graph(*args, **kwargs)
+        warnings_module.warn("synthetic layout adjustment", stacklevel=2)
+        return graph
+
+    monkeypatch.setattr("nf_metro.cli.prepare_graph", _prepare_with_warning)
     result = CliRunner().invoke(
-        cli, ["render", str(RNASEQ_MMD), "-o", str(tmp_path / "out.svg")]
+        cli, ["render", str(_simple_map(tmp_path)), "-o", str(tmp_path / "out.svg")]
     )
     assert result.exit_code == 0, result.output
-    assert "Warnings:" in result.output
-    assert "Section gap between columns" in result.output
+    assert "Warnings:\n  - synthetic layout adjustment" in result.output
     assert "UserWarning" not in result.output
 
 
 def test_render_presents_warnings_when_the_render_fails(tmp_path):
     """Warnings raised before a fatal error are still presented."""
     src = tmp_path / "warned_empty.mmd"
-    src.write_text("%%metro titel: Typo\ngraph LR\n")
+    src.write_text(_UNKNOWN_DIRECTIVE + "graph LR\n")
     result = CliRunner().invoke(
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )
     assert result.exit_code != 0
-    assert "%%metro titel: unknown directive; ignoring" in result.output
+    assert _UNKNOWN_DIRECTIVE_WARNING in result.output
     assert "defines no stations" in result.output
+
+
+def test_batch_render_labels_each_file_warnings(tmp_path):
+    """With several inputs, a warning block names the file that raised it."""
+    good = _simple_map(tmp_path)
+    warned = tmp_path / "warned.mmd"
+    warned.write_text(_UNKNOWN_DIRECTIVE + good.read_text())
+    result = CliRunner().invoke(cli, ["render", str(good), str(warned)])
+    assert result.exit_code == 0, result.output
+    assert f"Warnings ({warned})" in result.output
+
+
+def test_permissive_guard_block_names_the_flag_only_when_passed(tmp_path):
+    """A guard downgrade is reported either way, credited to --permissive when set."""
+    import warnings as warnings_module
+
+    from nf_metro.api import render_graph_result as real_render_graph
+    from nf_metro.parser.model import PermissiveGuardWarning
+
+    def _render_with_guard_warning(*args, **kwargs):
+        warnings_module.warn(
+            "synthetic guard trip",
+            category=PermissiveGuardWarning,
+            stacklevel=2,
+        )
+        return real_render_graph(*args, **kwargs)
+
+    src = _simple_map(tmp_path)
+    for extra, expected in ((["--permissive"], "--permissive: 1 guard(s)"), ([], None)):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("nf_metro.cli.render_graph_result", _render_with_guard_warning)
+            result = CliRunner().invoke(
+                cli, ["render", str(src), "-o", str(tmp_path / "out.svg"), *extra]
+            )
+        assert result.exit_code == 0, result.output
+        assert "1 guard(s) downgraded to warnings" in result.output
+        assert "synthetic guard trip" in result.output
+        if expected is None:
+            assert "--permissive" not in result.output
+        else:
+            assert expected in result.output
 
 
 def test_info_presents_warnings_as_a_clean_block(tmp_path):
     """`info` surfaces captured warnings on stderr instead of dropping them."""
-    result = CliRunner().invoke(cli, ["info", str(_warned_map(tmp_path))])
+    src = _simple_map(tmp_path, prelude=_UNKNOWN_DIRECTIVE)
+    result = CliRunner().invoke(cli, ["info", str(src)])
     assert result.exit_code == 0, result.output
-    assert "Warnings:\n  - %%metro titel: unknown directive; ignoring" in result.output
+    assert f"Warnings:\n  - {_UNKNOWN_DIRECTIVE_WARNING}" in result.output
     assert "UserWarning" not in result.output
 
 
 def test_info_verbose_carries_warnings_once(tmp_path):
-    """The verbose report already lists the warnings, so stderr stays quiet."""
-    result = CliRunner().invoke(cli, ["info", str(_warned_map(tmp_path)), "--verbose"])
+    """The verbose report lists the warnings, so stderr adds no second copy."""
+    src = _simple_map(tmp_path, prelude=_UNKNOWN_DIRECTIVE)
+    result = CliRunner().invoke(cli, ["info", str(src), "--verbose"])
     assert result.exit_code == 0, result.output
-    assert result.output.count("%%metro titel: unknown directive; ignoring") == 1
+    assert result.output.count(_UNKNOWN_DIRECTIVE_WARNING) == 1
 
 
-@pytest.mark.parametrize("style", ["", "%%metro style: dark\n"])
-def test_info_reports_the_resolved_brand(tmp_path, style):
-    """`info` names a brand `--theme` accepts, not the internal default alias."""
-    mmd = tmp_path / "styled.mmd"
-    mmd.write_text(
-        style + "%%metro line: a | A | #ff0000\ngraph LR\n  n1[N1] -->|a| n2[N2]\n"
-    )
-    result = CliRunner().invoke(cli, ["info", str(mmd)])
+@pytest.mark.parametrize(
+    "style, expected",
+    [
+        ("", "nfcore"),
+        ("%%metro style: dark\n", "nfcore"),
+        ("%%metro style: seqera\n", "seqera"),
+        ("%%metro style: nonesuch\n", "nfcore"),
+    ],
+)
+def test_info_reports_the_resolved_theme(tmp_path, style, expected):
+    """`info` names a theme `--theme` accepts, whatever the map asked for."""
+    src = _simple_map(tmp_path, prelude=style)
+    result = CliRunner().invoke(cli, ["info", str(src)])
     assert result.exit_code == 0, result.output
-    assert "Style: nfcore" in result.output
+    assert f"Style: {expected}" in result.output
 
 
 def test_render_validate_help_scopes_its_promise():
-    """`--validate` documents the guards it runs and points elsewhere for Tier-A."""
+    """`--validate` names the guards it runs and points elsewhere for Tier-A."""
     result = CliRunner().invoke(cli, ["render", "--help"])
     assert result.exit_code == 0
     help_text = " ".join(result.output.split())
-    assert "fail if any defect is found" not in help_text
+    assert "route drawn through a station's label or marker" in help_text
     assert "use --strict to fail on those" in help_text
 
 

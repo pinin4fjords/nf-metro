@@ -235,7 +235,7 @@ def _prepare_graph_state(
     if not graph.stations:
         raise EmptyGraphError(
             "the map defines no stations, so there is nothing to lay out or "
-            "draw; check that the source has a 'graph LR' block and that its "
+            "draw; check that the source declares a graph block and that its "
             "node and edge lines sit inside it"
         )
 
