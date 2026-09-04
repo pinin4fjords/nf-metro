@@ -882,7 +882,7 @@ def test_render_rejection_is_one_line_without_debug_env(tmp_path, monkeypatch):
     monkeypatch.delenv("NF_METRO_DEBUG", raising=False)
     monkeypatch.setattr("nf_metro.cli.render_graph_result", _reject)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    src.write_text(STANDALONE_MMD.read_text())
     result = CliRunner().invoke(
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )

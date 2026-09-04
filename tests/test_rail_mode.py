@@ -704,9 +704,7 @@ def test_rail_mode_off_by_default_leaves_graph_unchanged():
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 
-    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-
-    g1 = parse_metro_mermaid(src)
+    g1 = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     assert g1.line_spread is LineSpread.BUNDLE
     compute_layout(g1)
     svg1 = render_svg(g1, THEMES["nfcore"])
@@ -716,7 +714,7 @@ def test_rail_mode_off_by_default_leaves_graph_unchanged():
         s.rail_top_y is None and s.rail_bottom_y is None for s in g1.stations.values()
     )
 
-    g2 = parse_metro_mermaid(src)
+    g2 = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     g2.line_spread = LineSpread.BUNDLE  # explicit no-op
     compute_layout(g2)
     svg2 = render_svg(g2, THEMES["nfcore"])
@@ -979,8 +977,7 @@ def test_label_angle_default_off_byte_identical():
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 
-    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    g = parse_metro_mermaid(src)
+    g = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     assert g.label_angle is None
     compute_layout(g)
     svg = render_svg(g, THEMES["nfcore"])
@@ -1126,13 +1123,12 @@ def test_legend_combo_default_off_byte_identical():
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 
-    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    g = parse_metro_mermaid(src)
+    g = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     assert g.legend_combos == []
     compute_layout(g)
     svg1 = render_svg(g, THEMES["nfcore"])
 
-    g2 = parse_metro_mermaid(src)
+    g2 = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     g2.legend_combos = []  # explicit no-op
     compute_layout(g2)
     svg2 = render_svg(g2, THEMES["nfcore"])
