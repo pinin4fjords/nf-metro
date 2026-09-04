@@ -14,8 +14,9 @@ real geometric property of the render moves.
 The bend, corner, turn-angle and marker-clearance scores have no engine-side
 detector to borrow -- the engine's non-consumer guard answers a boolean, not a
 distance -- so they are read straight off the drawn polylines.  Their
-definitions are those measured against human layout judgement in
-``datasets/layout_preferences/scripts/extract_features.py``.
+definitions are the four measured against human layout judgement by the
+frozen preference dataset, whose record is
+``datasets/layout_preferences/README.md``.
 
 When a ``RenderPlan`` is available, the scorecard reads the exact routes used
 for the SVG. See ``measured_geometry``.

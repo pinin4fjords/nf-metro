@@ -901,7 +901,7 @@ def check_seam_segments_meet_at_port(
 
 # A gap ALONG the upstream travel direction reads as a visible "bite"
 # at the corner apex (the line stops short of its own bend); anything
-# larger than this is the seam / notch the fix closes.  A PERPENDICULAR
+# larger than this is the seam / notch the tail join closes.  A PERPENDICULAR
 # gap up to a stroke width is hidden under the line and tolerated.
 _TAIL_JOIN_TANGENT_TOLERANCE = 1.0
 
@@ -2807,8 +2807,9 @@ def check_no_riser_hugs_section_edge(
     A junction feeding a TOP port directly below it (shared X) is exempt: its
     straight drop rides the junction's own lane, not a side-exit lead-in seated
     against a wall, so running a curve radius outside a flanking box is a clean
-    descent rather than a wall-hug.  This mirrors the straight-drop routing
-    decision in :func:`_straight_drop_column_clear`.
+    descent rather than a wall-hug.  This mirrors the routing decision in
+    :func:`_perp_entry_junction_straight_drop`, which takes that drop for the
+    same reason.
     """
     sections = [s for s in graph.sections.values() if s.bbox_w > 0 and s.bbox_h > 0]
     violations: list[RiserHugsSectionEdge] = []

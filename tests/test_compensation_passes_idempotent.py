@@ -65,39 +65,24 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # Fixtures where a stage's compensation pass is not a no-op when replayed
 # after full layout settling, keyed to the stage label(s) that reproduce it.
 #
-# The ``{"4.7"}`` cases are CONFIRMED INTENTIONAL, not a bug: Stage
-# 6.15a's ``_fit_bboxes_to_content_top`` deliberately un-flushes a row-mate's
-# bbox top to hug its own content exactly whenever that section's top band is
-# genuinely empty. ``test_section_bbox_top_hugs_content``
-# (test_layout_invariants.py) already passes on every one of these fixtures
-# and encodes that same content-hug requirement independently; row-flush is
-# documented in ``_fit_bboxes_to_content_top``'s own docstring as a transient
-# property of the intermediate stages, not a final-state guarantee, so
-# ``_top_align_row_sections`` finding movement here on replay is expected,
-# not a defect awaiting a fix (confirmed by inserting a row-realign call
-# after Stage 6.15a: it immediately reds ``test_section_bbox_top_hugs_content``
-# on these exact fixtures).
+# The ``{"4.7"}`` entries are intentional.  Row flush is a transient property
+# of the intermediate stages, not a final-state guarantee: Stage 6.15a's
+# ``_fit_bboxes_to_content_top`` un-flushes a row-mate's bbox top to hug its
+# own content whenever that section's top band is empty, so replaying Stage
+# 4.7's ``_top_align_row_sections`` on the settled graph moves it back.
+# ``test_section_bbox_top_hugs_content`` encodes the content-hug requirement
+# these fixtures actually owe.
 #
-# ``topologies/bt_perp_left_entry_right_exit``'s "4.7" entry is intentional for
-# the OPPOSITE reason to the block above, and should not be read as part of it.
-# There, replay movement is fine because the box hugs its content exactly.  Here
-# the box deliberately extends PAST its content to keep ``PERP_PORT_EDGE_INSET``
-# beyond a perpendicular port (#1540), so ``test_section_bbox_top_hugs_content``
-# holds only because its yardstick, ``_section_content_hug_top``, now includes
-# that port term -- the content-hug equality itself is knowingly given up here.
-# The section carries two perpendicular ports, so Stage 6.16's re-snap leaves one
-# of them off the hug line that ``refit_tops_after_entry_resnap`` settles the
-# other against, and the row realign still finds movement on replay.
+# ``topologies/bt_perp_left_entry_right_exit``'s "4.7" entry has a different
+# cause: its box extends past its content to keep ``PERP_PORT_EDGE_INSET``
+# beyond a perpendicular port (#1540), and with two such ports Stage 6.16's
+# re-snap leaves one of them off the hug line
+# ``refit_tops_after_entry_resnap`` settles the other against.
 #
-# ``topologies/tb_off_track_inputs``'s "6.6" entry is unrelated and NOT
-# confirmed intentional: replaying ``_reanchor_off_track_to_consumer`` swaps
-# the X positions of two off-track sibling stations instead of reproducing
-# them, an order-sensitivity bug that has not been investigated further.
-#
-# Entries are removed only when the underlying stage genuinely becomes an
-# end-of-layout no-op; the assertions below fail loudly both on any new,
-# unregistered gap and on any registered gap that stops reproducing, so this
-# dict can't silently drift out of sync with engine behaviour.
+# ``topologies/tb_off_track_inputs``'s "6.6" entry is an open defect, not an
+# intended divergence: replaying ``_reanchor_off_track_to_consumer`` swaps the
+# X positions of two off-track sibling stations instead of reproducing them,
+# so that pass is order-sensitive in X.
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),

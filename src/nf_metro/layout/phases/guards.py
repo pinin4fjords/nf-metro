@@ -337,10 +337,10 @@ def _guard_stations_within_bbox(graph: MetroGraph, phase: str) -> None:
     outside its own box is refused rather than drawn.
 
     A section whose ports are all perpendicular to its flow gets the extra
-    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`, since that shape has no
-    flow-aligned port anchoring its run; it is no longer sufficient on its own
-    to put a station outside the box (see
-    ``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
+    advice in :data:`FLOW_ALIGNED_PORT_ADVICE`: that shape has no flow-aligned
+    port anchoring its run, so it is the likeliest cause.  It is a hint, not a
+    diagnosis -- such a section lays out inside its box on its own
+    (``test_lr_section_all_perpendicular_ports_lays_out_in_its_box``).
     """
     for sid, st, sec in iter_stations_outside_bbox(graph, GUARD_TOLERANCE):
         detail = (
@@ -5573,9 +5573,9 @@ def _guard_canvas_margin_settled(
 
 @dataclass(frozen=True)
 class GuardSpec:
-    """One ``validate=True`` guard, with the dispatch + classification data
-    that used to be scattered across hand-written call sites and the
-    ``_BISECTION_FIRST_VALID`` table.
+    """One ``validate=True`` guard, with the dispatch and classification data
+    the guard runner reads.  ``GUARD_REGISTRY`` is the single source: the
+    ``_BISECTION_FIRST_VALID`` thresholds are derived from these specs.
 
     ``fn`` is the guard function; every guard takes ``(graph, phase)`` and the
     optional keyword inputs named in ``needs`` (a subset of ``offsets``,

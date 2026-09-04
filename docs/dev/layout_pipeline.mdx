@@ -250,10 +250,10 @@ their consumers, then a few post-lift fixups.
 
 ### Stage 6 - Pass C: vertical settling & finishing
 
-The long settle. Seventeen sub-stages clean up the consequences of
-Stages 1 through 5, snap everything to the grid, restore invariants
-broken by each cleanup pass, then handle the final geometric details
-(loop-side X recenter, bbox shrink/grow, canvas snap, port re-align).
+The long settle. Its sub-stages clean up the consequences of Stages 1
+through 5, snap everything to the grid, restore invariants broken by
+each cleanup pass, then handle the final geometric details (loop-side X
+recenter, bbox shrink/grow, canvas snap, port re-align).
 
 - **Stages 6.1 to 6.3**: Fan free content / source inputs upward into
   empty top bands; collapse 2-branch symmetric fans onto half-grid
@@ -383,7 +383,7 @@ Common scenarios and where to start looking:
 
 ## Why so many sub-stages
 
-The Pass C tail (Stages 6.1 to 6.18) looks excessive at first glance.
+The Pass C tail (Stages 6.1 to 6.18a) looks excessive at first glance.
 Each sub-stage exists because:
 
 1. A bug was found in some real-world fixture.

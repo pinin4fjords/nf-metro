@@ -4684,19 +4684,20 @@ def compute_station_offsets(
     bundles across all sections - when a line splits off and later
     rejoins, it returns to its reserved slot rather than shifting.
 
-    Runs in ordered phases:
+    Runs in ordered phases, one per call in the body below.  Each phase's
+    own docstring carries its conditions; the notes here are the ordering
+    constraints that are not visible from a single phase.
 
     1. **Base offsets** - global priority (or compact-mode) assignment.
     2. **Section-local re-indexing** - closes priority gaps within
        sections and applies reconvergence ordering (non-compact only).
-    2b. **Exit-only line reordering** - at multi-line stations where a
-       line originates (no inbound edge) and exits to a port above,
-       swap it to the top offset slot to avoid immediate crossings
-       (non-compact LR/RL sections only).
-    2c. **Trunk-continuation slotting** - at a TB fan-out hub, re-slot
-       the in-lane continuation onto the trunk-drawing offset so it
-       drops straight while siblings peel off (non-compact TB sections
-       fed by a straight drop from above).
+    2b. **Exit-only line reordering** - a line that originates at a
+       multi-line station and exits to a port above takes the top slot,
+       so it crosses nothing on the way out (non-compact LR/RL).
+    2c. **Fan-out divergence ordering** - re-slots a source section's
+       bundle into the peel order of the shared exit fan it leaves
+       through, so the descent is crossing-free.  Runs before the exit
+       and junction ports inherit their offsets (non-compact LR/RL).
     3. **Compact section consistency** - ensures entry lines have
        consistent offsets across multi-line stations (compact only).
     4. **Station gap compaction** - closes per-station offset gaps
@@ -4708,71 +4709,74 @@ def compute_station_offsets(
     7. **Entry port offsets** - TOP entry override for TB BOTTOM exits,
        straight-drop TOP entry column/trunk nesting, LR/RL exit-to-entry
        propagation, compact entry separation.
+    7a. **Junction-to-entry-port snapping** - where a junction's only
+       targets are entry ports at its own base Y, takes their offsets so
+       the short leg between them stays horizontal.  Needs phase 7's
+       entry-port offsets.
     7b. **Merge-port approach-side allocation** - at multi-feeder LR/RL
        entry ports, re-slots a perpendicular re-joining line to the
        bundle slot nearest its approach side (non-compact only).
     7c. **Convergence entry-port ordering** - at a LEFT entry port fed by
-       a bypass trunk from two or more source columns, slots the bundle
-       by approach depth (nearer source on the port-near slot) so its
-       risers turn in concentrically (non-compact only).
+       a bypass trunk from two or more source columns, slots the bundle by
+       approach depth so its risers turn in concentrically (non-compact).
     7d. **Convergence approach-Y ordering** - at a LEFT entry port fed
-       from two or more sections at different rows, slots the bundle by
-       feeder source Y (highest source on the topmost lane) so a feeder
-       above the sink is not forced to run down across its mates into a
+       from sections at different rows, slots the bundle by feeder source Y
+       so a feeder above the sink is not run down across its mates into a
        bottom lane (compact only).
-    7e. **Top-descent lane ordering** - the non-compact counterpart of 7d
-       for the forward top-descent case: at a LEFT entry port fed level
-       from the target's own row and by a line descending from a row above
-       (all feeders arriving from at-or-left columns), puts the descending
-       line on the top lane so it does not dive under the level feeder.
+    7e. **Top-descent lane ordering** - the non-compact counterpart of 7d:
+       at a LEFT entry port fed both level from its own row and by a line
+       descending from a row above, the descending line takes the top lane
+       so it does not dive under the level feeder.
     8. **Horizontal reconciliation** - snaps mismatched offsets on
        same-Y edges to eliminate almost-horizontal slopes.
     8b. **Flat TB-exit/entry alignment** - on an auto-folded return row,
-       snaps a TB section's flat-seam LEFT/RIGHT exit bundle onto the
-       LR/RL entry it feeds so the horizontal connector runs level.
-    9. **Partial fan-branch re-centring** - collapses reserved
-       absent-line slots at independent fan branches so a partial-line
-       station's marker has no interior gap (compact only).
-    10. **Convergence trunk-continuation slotting** - at a TB section's
-       terminal merge, permutes the merge's offsets so a feeder whose
-       source is collinear with it rides the trunk-drawing slot and drops
-       straight while diagonal siblings take the offset (non-compact TB).
-    11. **Pass-through trunk-continuation slotting** - at a non-sink TB
-       merge, permutes the merge's offsets so the line continuing straight
-       to a station directly below rides the trunk-drawing slot, instead of
-       a collinear-from-above feeder forcing it outboard (non-compact TB).
-    12. **Fan-port-bordering re-compaction** - phase 4 runs before the exit
-       and entry port phases (5-7) settle a port's own spatial/inherited
-       order, which can reopen a real station's gap phase 4 already closed
-       against that same port; a final pass rechecks just the stations the
-       fan-port guard itself flags and recompacts those, plus any port whose
-       own bundle is left non-contiguous the same way (non-compact only).
-    13. **Final horizontal re-reconciliation** - phase 12 can change a port's
-       offset after phase 8 already snapped a same-section, same-Y real
-       station to that port's old value; re-running phase 8 catches any such
-       staleness (non-compact only).
+       snaps a TB section's flat-seam LEFT/RIGHT exit bundle onto the LR/RL
+       entry it feeds, so the connector between them runs level.
+    9. **Partial fan-branch re-centring** - collapses absent-line slots at
+       independent fan branches so a partial-line station's marker has no
+       interior gap (compact only).
+    10. **Near-vertical junction reversal** - a fan-out junction overhanging
+       a same-column RIGHT entry one row below transposes the bundle as it
+       drops, so that section and its DAG descendants carry the reversed
+       line order.
+    12. **Fan-port-bordering re-compaction** - the port phases (5-7) can
+       reopen a station gap phase 4 already closed against that port, so
+       recheck the stations the fan-port guard flags and any port left
+       non-contiguous the same way (non-compact only).
+    12a. **Fan-out peel-order restoration** - re-seats a divergence exit
+        port's bundle on its semantic peel order, which the port and
+        compaction phases above can permute (non-compact, lane-stacked
+        sections).
+    13. **Final horizontal re-reconciliation** - phase 12 can move a port
+       that phase 8 already snapped a same-Y station onto, so phase 8 runs
+       again to catch the stale value (non-compact only).
     14. **Rail-boundary port centring** - rigidly shifts the bundle at a
-       rail-laid section's boundary port so its lanes straddle the port, which
-       is the middle of the fan out to that section's rails.  Runs after phase
-       13, whose snapping would otherwise pull the port back onto the offsets
-       of the rail-laid neighbour it feeds.
+       rail-laid section's boundary port so its lanes straddle the port, the
+       middle of the fan out to that section's rails.  Runs after phase 13,
+       whose snapping would pull the port back onto the rail-laid
+       neighbour's offsets.
+    14a. **Corridor-fed solo entry re-anchoring** - a single-line LR/RL
+        section fed up or down a corridor holds an upstream lane its own
+        trunk does not use; re-anchor the entry port (and a straight
+        consumer chain behind it) to offset 0.
     14b. **Entry-arrival lane slotting** - exchanges an arriving line's slot
         for the one holding the lane it actually arrives on, so the run from a
-        flow-side entry port into its first station stays flat instead of
+        flow-side entry port into its first station stays flat rather than
         spending the difference as a markerless diagonal just inside the box.
         Runs after phase 13 because the upstream lane it reads is only final
         once the port phases have settled (non-compact, lane-stacked
         sections).
     14c. **Section free-lane closure** - drops any lane level no line of a
-        section rides at all, shifting the levels above it down together across
-        every station and port of that section, so no marker spans a slot held
-        for nobody.  Runs after 14b (the last phase that can vacate a level) and
-        before the planned-fan offsets, which own the lanes they state
-        (non-compact, non-rail sections).
+        section rides, shifting the levels above it down together, so no
+        marker spans a slot held for nobody.  Runs after 14b, the last phase
+        that can vacate a level (non-compact, non-rail sections).
+    14d. **Planned fan offsets** - writes each geometry-owning fan plan's
+        complete lane assignment, which has the last word on the lanes it
+        states.
     15. **Linear entry-frame materialization** - inherits a flow-aligned entry
         cohort's exact upstream slots across every complete section carrier,
         assigns section-local lines only to exterior slots, and publishes the
-        frame only after its ownership reaches a fixed point (non-compact only).
+        frame only once its ownership reaches a fixed point (non-compact only).
 
     Returns dict mapping (station_id, line_id) -> y_offset.
     """
