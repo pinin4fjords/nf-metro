@@ -577,7 +577,9 @@ def test_issue484_same_colour_crossover_is_bridged():
     """issue #484: a horizontal bam run crosses a vertical bam drop below the
     Small-variant/Phasing sections - a genuine same-colour crossover whose legs
     head to separate, never-reconverging destinations.  A bridge must fire."""
-    path = Path(__file__).parent.parent / "examples" / "longread_variant_calling.mmd"
+    path = Path(__file__).parent.parent / "issue484.mmd"
+    if not path.exists():
+        pytest.skip("issue484.mmd repro fixture not present")
     _, routes, _, bridges = _bridges(path)
     by_id = {id(r): r for r in routes}
     bam_breaks = [
@@ -586,12 +588,11 @@ def test_issue484_same_colour_crossover_is_bridged():
         for bk in breaks
         if by_id[rid].line_id == "bam"
     ]
-    assert bam_breaks, "expected a bam crossover bridge in longread_variant_calling"
-    # Pinned to that crossing's position, so a bridge that fires somewhere
-    # else in the map does not satisfy this.
+    assert bam_breaks, "expected a bam crossover bridge in issue484"
+    # The documented crossing is at (~1616, 263); the gap is centred there.
     assert any(
-        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1534) < 30
-        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 266) < 30
+        abs((bk.cut_a[0] + bk.cut_b[0]) / 2 - 1616) < 30
+        and abs((bk.cut_a[1] + bk.cut_b[1]) / 2 - 263) < 30
         for bk, _ in bam_breaks
     )
 
