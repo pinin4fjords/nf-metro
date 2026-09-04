@@ -20,6 +20,7 @@ from pathlib import Path
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.phases.fan_bundles import _symmetric_reconvergence_joins
+from nf_metro.layout.phases.off_track import _off_track_output_below
 from nf_metro.parser.mermaid import parse_metro_mermaid
 
 FIXTURES = Path(__file__).parent / "fixtures" / "curve_invariant_repros"
@@ -100,7 +101,35 @@ def test_hidden_station_rooted_branches_registered_half_grid():
             f"{branch} y={st.y} does not sit a whole pitch from spine "
             f"{trunk_anchor}; the fixture no longer exercises the half-grid gap"
         )
-        assert branch in graph.half_grid_station_ids, (
+        assert branch in graph.post_layout_half_grid_station_ids, (
             f"{branch} rides the reconvergence spine at half pitch but is not "
-            f"registered in graph.half_grid_station_ids"
+            f"registered in graph.post_layout_half_grid_station_ids"
         )
+
+
+def test_settled_spine_mark_leaves_off_track_classification_alone():
+    """Recording the settled spine does not re-classify an off-track output.
+
+    ``_off_track_output_below`` reads ``graph.half_grid_station_ids`` to pick a
+    section's trunk baseline: with every trunk station marked it abandons the
+    dominant station row and anchors on the LR port instead, on the premise that
+    a symmetric entry fork has vacated the trunk.  This fan's branches are real,
+    populated rows, so that premise must not hold here.  The mark also lands
+    after Stage 6.6/6.8 have placed the section's off-track outputs, so a
+    classifier that saw it would answer one way during placement and the
+    opposite way on the settled graph, and replaying the stage would move
+    ``te_out`` a row (issue #1874).
+    """
+    graph = _layout(_HIDDEN_FIXTURE)
+    producer_y = graph.stations[_HIDDEN_JOIN].y
+    te_out = graph.stations["te_out"]
+    assert te_out.off_track
+    assert te_out.y > producer_y + TOL, (
+        f"te_out y={te_out.y} no longer sits below its producer "
+        f"{_HIDDEN_JOIN} y={producer_y}; the fixture no longer exercises a "
+        f"downward off-track output"
+    )
+    assert "te_out" in _off_track_output_below(graph), (
+        "te_out was placed below its producer but the settled graph classifies "
+        "it as lifting above one"
+    )

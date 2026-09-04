@@ -7548,23 +7548,16 @@ def test_lines_dont_cross_non_consumer_markers(fixture):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fixture", ALL_FIXTURES)
-def test_all_stations_snap_to_grid(fixture):
-    """Every on-track station's Y must be at ``trunk_y + k * y_spacing``
-    for some integer ``k``.
+def _snap_to_grid_offenders(
+    graph: MetroGraph, *, y_spacing: float, tol: float
+) -> list[str]:
+    """On-track stations whose Y is off every grid the section legitimately uses.
 
-    Half-grid placement (``trunk_y +/- 0.5 * y_spacing``) is reserved
-    for two features, both of which register the affected stations in
-    ``graph.half_grid_station_ids``:
-
-    - the auto-half-grid 2-branch symmetric fan (sections satisfying
-      ``_section_symfan_uses_half_grid`` with exactly two on-track
-      branches), and
-    - the per-diamond symmetric fork-join compaction (branches of a
-      diamond yielded by ``_iter_symmetric_diamonds``, which may sit in a
-      mixed-fan section that does not satisfy the section-level trigger).
-
-    Any other half-grid station is a regression.
+    The trunk grid is ``trunk_y + k * y_spacing``.  A section fed by a half-grid
+    centred entry fork also carries a spine grid a half slot off the trunk: the
+    fork's branches sit on the trunk grid while its reconvergence fan rides
+    ``spine_y + k * y_spacing``.  A station off both, without a recognised
+    half-grid exception, is reported.
     """
     from nf_metro.layout.engine import (
         _iter_symmetric_diamonds,
@@ -7574,11 +7567,9 @@ def test_all_stations_snap_to_grid(fixture):
         _section_has_symmetric_entry_fork,
     )
 
-    y_spacing = 55.0
-    tol = 1.0
-    graph = _layout(fixture, y_spacing=y_spacing)
-
-    half_grid_ids = graph.half_grid_station_ids
+    half_grid_ids = (
+        graph.half_grid_station_ids | graph.post_layout_half_grid_station_ids
+    )
     port_ids: set[str] = set()
     for sec in graph.sections.values():
         port_ids.update(sec.entry_ports)
@@ -7668,6 +7659,14 @@ def test_all_stations_snap_to_grid(fixture):
             # the reconvergence join (and any pass-through) legitimately sits
             # there, half a slot off the branch grid.
             continue
+        # The centred entry fork's reconvergence fan re-fans on the spine grid
+        # (spine_y + k * y_spacing), a half slot off the trunk grid its sibling
+        # entry-fork branches use; those stations are registered half-grid and
+        # land exactly on that spine grid.
+        on_spine_grid = False
+        if spine_y is not None:
+            spine_offset = (st.y - spine_y) / y_spacing
+            on_spine_grid = abs(spine_offset - round(spine_offset)) * y_spacing <= tol
         # Half-grid exception is allowed only for 2-branch fan members
         # whose section legitimately uses the half-grid layout.
         is_half = (
@@ -7681,6 +7680,7 @@ def test_all_stations_snap_to_grid(fixture):
                 st.section_id in half_grid_sections
                 or sid in diamond_branch_ids
                 or sid in planned_half_grid_ids
+                or on_spine_grid
             )
         ):
             continue
@@ -7692,11 +7692,72 @@ def test_all_stations_snap_to_grid(fixture):
             f"section_uses_half_grid="
             f"{st.section_id in half_grid_sections}"
         )
+    return offenders
+
+
+@pytest.mark.parametrize("fixture", ALL_FIXTURES)
+def test_all_stations_snap_to_grid(fixture):
+    """Every on-track station's Y must be at ``trunk_y + k * y_spacing``
+    for some integer ``k``.
+
+    Half-grid placement (``trunk_y +/- 0.5 * y_spacing``) is reserved
+    for features that register the affected stations in
+    ``graph.half_grid_station_ids`` or, for a mark only a settled layout can
+    make, ``graph.post_layout_half_grid_station_ids``:
+
+    - the auto-half-grid 2-branch symmetric fan (sections satisfying
+      ``_section_symfan_uses_half_grid`` with exactly two on-track
+      branches),
+    - the per-diamond symmetric fork-join compaction (branches of a
+      diamond yielded by ``_iter_symmetric_diamonds``, which may sit in a
+      mixed-fan section that does not satisfy the section-level trigger), and
+    - the reconvergence fan of a half-grid centred entry fork, which rides the
+      section's spine grid a half slot off the trunk.
+
+    Any other half-grid station is a regression.
+    """
+    y_spacing = 55.0
+    tol = 1.0
+    graph = _layout(fixture, y_spacing=y_spacing)
+    offenders = _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=tol)
     assert not offenders, (
         f"{fixture}: on-track stations off the y_spacing grid "
         f"without a legitimate half-grid 2-branch fan exception: "
         + "; ".join(offenders)
     )
+
+
+def test_snap_to_grid_accepts_half_grid_entry_fork_reconvergence_fan() -> None:
+    """riboseq's ``te`` section: a half-grid centred entry fork feeds a
+    reconvergence fan that rides the section's spine grid, a half slot off the
+    entry-fork trunk grid (issue #1874).
+
+    Both grids are legitimate, so the section reports nothing off-grid.  The
+    two reconvergence branches are asserted to actually sit off the trunk grid,
+    so the spine-grid acceptance is load-bearing rather than vacuous.
+    """
+    y_spacing = 55.0
+    graph = _layout("riboseq_metro.mmd", y_spacing=y_spacing)
+    anchor = _first_lr_port(graph, graph.sections["te"])
+    assert anchor is not None
+    _pid, spine_y = anchor
+    trunk_y = spine_y + 0.5 * y_spacing
+    for sid in ("anota2seq", "dotseq"):
+        assert sid in graph.post_layout_half_grid_station_ids
+        trunk_off = (graph.stations[sid].y - trunk_y) / y_spacing
+        assert abs(trunk_off - round(trunk_off)) * y_spacing > 1.0
+    assert _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=1.0) == []
+
+
+def test_snap_to_grid_flags_reconvergence_station_off_both_grids() -> None:
+    """The spine-grid acceptance is narrow: a reconvergence-fan station knocked
+    off both the trunk and the spine grid is still reported (issue #1874).
+    """
+    y_spacing = 55.0
+    graph = _layout("riboseq_metro.mmd", y_spacing=y_spacing)
+    graph.stations["anota2seq"].y += 0.4 * y_spacing
+    offenders = _snap_to_grid_offenders(graph, y_spacing=y_spacing, tol=1.0)
+    assert any("anota2seq" in offender for offender in offenders)
 
 
 # ---------------------------------------------------------------------------

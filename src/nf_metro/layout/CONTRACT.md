@@ -271,7 +271,10 @@ pass:
   skip these half-pitch stations. Stage 6.18 both reads the set and clears the
   marking off any station it seats back on a full row, so the post-layout
   readers (the straddle guard, the co-fanned drop-clearance rule in
-  `routing/intra_handlers.py`) see only stations still at half pitch.
+  `routing/intra_handlers.py`) see only stations still at half pitch. A mark
+  that a settled layout alone can make goes to
+  `graph.post_layout_half_grid_station_ids` instead, so no stage reading this
+  channel can be handed a value that did not exist while it ran.
 - `graph.symfan_trunk_station_ids` - written by Stage 6.3 (`center_ports` only);
   read by the Stage 6.4 grid snap, which must skip these source/trunk stations
   so they stay on the symfan's local frame instead of snapping to a rowspan
@@ -293,10 +296,13 @@ the 6.13 cascade), `graph._placement_ref_y` /
 `_ref_bbox_top`), `graph._base_y_spacing` (recorded before the spread loop
 when `y_spacing` is auto-resolved), `graph._resolved_x_spacing` (the
 resolved column pitch recorded before layout, read as the cross-axis off-track
-step for vertical-flow sections), and `graph._resolved_y_spacing` (the row
+step for vertical-flow sections), `graph._resolved_y_spacing` (the row
 pitch the spacing search settled on, recorded post-layout once that search
 finishes, after the stage pipeline and the spread loop, and read by no layout
-stage).
+stage), and `graph.post_layout_half_grid_station_ids` (the half-pitch spine
+branches of a station-rooted reconvergence fan, recorded once every layout and
+re-layout pass has settled; read by no layout stage, and by the grid-alignment
+invariants as a union with `half_grid_station_ids`).
 
 A further group crosses a subsystem boundary rather than two numbered stages,
 so their `PhaseFieldSpec` names a lifecycle phase (`pre-layout`, `post-layout`,

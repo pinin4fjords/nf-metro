@@ -245,6 +245,12 @@ gallery:
       and shared stations render as interchanges. `%%metro stroke_scale: 1.6` coarsens the
       track weight and station pills together so the map survives the downscale it needs
       to fit a screen."
+  - id: riboseq_metro
+    source_dir: examples
+    category: Realistic Pipelines
+    description:
+      Ribosome profiling with matched RNA-seq and TI-seq, covering multi-tool ORF calling,
+      P-site identification, and translational efficiency analysis with cross-sample ORF merging.
   - id: differentialabundance
     source_dir: examples
     category: Realistic Pipelines
@@ -2294,6 +2300,12 @@ pipelines:
     description:
       Germline and somatic variant calling, covering germline, tumor-only, and tumor-normal
       paired analysis through SNP/indel, SV/CNV, and MSI callers with downstream variant annotation.
+  - id: riboseq_metro
+    title: nf-core/riboseq
+    repo_url: https://github.com/nf-core/riboseq
+    description:
+      Ribosome profiling analysis with ORF discovery across six calling tools, P-site
+      identification, and differential translational efficiency against matched RNA-seq.
   - id: epitopeprediction
     title: nf-core/epitopeprediction
     repo_url: https://github.com/nf-core/epitopeprediction

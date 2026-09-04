@@ -658,6 +658,14 @@ class MetroGraph:
     # Stage 6.4 (``_snap_all_y_to_grid``) reads this set and skips those
     # stations so they keep their intentional half-grid Y.
     half_grid_station_ids: set[str] = field(default_factory=set, repr=False)
+    # Cross-phase channel: station IDs recorded as riding a half-pitch spine
+    # once the whole layout has settled, by
+    # ``_register_half_grid_reconvergence_branches``.  Kept apart from
+    # ``half_grid_station_ids`` because it is written after every reader of that
+    # channel has run: a placement classifier reading it would answer one way
+    # while a stage was placing content and the opposite way afterwards.  The
+    # grid-alignment invariants union the two.
+    post_layout_half_grid_station_ids: set[str] = field(default_factory=set, repr=False)
     # Cross-phase channel: on-track non-branch station IDs (the source/trunk
     # stations) of a 2-branch symfan section, recorded by Stage 6.3
     # (``_apply_half_grid_2branch_symfan``).  They sit on the section's local

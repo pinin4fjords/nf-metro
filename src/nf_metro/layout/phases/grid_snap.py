@@ -138,6 +138,13 @@ def _register_half_grid_reconvergence_branches(graph: MetroGraph) -> None:
 
     Runs after the branches have settled onto their spine, so it only sets a
     flag: a branch already at a half-pitch offset is recorded, none is moved.
+    That is also why the record goes to
+    ``graph.post_layout_half_grid_station_ids`` rather than the placement
+    channel: every reader of ``half_grid_station_ids`` has already run, and one
+    that keys a geometric decision off it - :func:`_off_track_output_below`
+    treats a section whose every trunk station is marked as having a vacated
+    trunk row - would give a different answer here than it gave while the
+    section's content was being placed.
     """
     for _hub, section, targets in _station_rooted_fans(graph):
         anchor_id = next(
@@ -167,7 +174,7 @@ def _register_half_grid_reconvergence_branches(graph: MetroGraph) -> None:
                 if st is None:
                     continue
                 if _off_grid_line(st.y, trunk_y, pitch):
-                    graph.half_grid_station_ids.add(sid)
+                    graph.post_layout_half_grid_station_ids.add(sid)
 
 
 def _register_half_grid_entry_fan_ports(
