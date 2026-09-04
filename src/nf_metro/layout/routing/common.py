@@ -505,16 +505,14 @@ def off_grid_gap_bundle_midpoint(
     measure at any row: the caller then reads :func:`column_gap_edges` and
     centres the bundle between the two edges as usual.
 
-    A corridor running past the end of the grid is bounded by the canvas, not
-    by a facing box, and an open span has no midpoint to centre on:
-    :func:`col_left_edge` and :func:`col_right_edge` answer the missing side
-    with the coordinate origin, and centring across that reaches halfway to the
-    origin -- a position set by where the map sits rather than by the box the
-    bundle hugs, which therefore answers a rigid move of the whole map with
-    half of it.  Seat the bundle against the one real edge instead, at the same
-    minimum clearance :func:`symmetric_bundle_midpoint` leaves against a
-    bounded gap's edges.  *row* narrows that edge to the bundle's own row where
-    the column reaches it, and the column's full extent covers the rest.
+    The bundle sits :data:`EDGE_TO_BUNDLE_CLEARANCE` off that one real edge --
+    the floor :func:`symmetric_bundle_midpoint` holds against a bounded gap's
+    edges -- rather than centred across a span whose absent side
+    :func:`col_left_edge` and :func:`col_right_edge` report as the coordinate
+    origin, because a midpoint measured against the origin is set by the map's
+    overall size instead of by the box the bundle hugs.  *row* narrows the real
+    edge to the bundle's own row where the column reaches it, and the column's
+    full extent covers the rest.
     """
     lo_on_grid = bool(_sections_in_col(graph, lo))
     hi_on_grid = bool(_sections_in_col(graph, lo + 1))
