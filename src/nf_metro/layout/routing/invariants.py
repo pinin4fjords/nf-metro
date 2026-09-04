@@ -3698,6 +3698,9 @@ def _exempt_dogleg_crossing_forced(
     """
     counter_running = (movable.xb > movable.xa) != (exempt.xb > exempt.xa)
     separation = cotravelling_lane_clearance(
+        # Callers reach this helper only for distinct-line pairs (the guard
+        # filters on edge.source, the remedy pass on line_id), so the movable
+        # and exempt run never share a line.
         same_line=False,
         counter_running=counter_running,
         curve_radius=CURVE_RADIUS,
