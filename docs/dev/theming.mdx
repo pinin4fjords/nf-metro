@@ -215,8 +215,13 @@ arrive. `color-scheme` is the one deliberate exception: per [Media Queries
 Level 5](https://www.w3.org/TR/mediaqueries-5/#prefers-color-scheme), an
 `<img>`-loaded SVG resolves `prefers-color-scheme` and `light-dark()` against
 **the used `color-scheme` of the `<img>` element**, not the OS preference -
-overriding even the SVG's own `color-scheme: light dark`. Verified in
-Chromium, WebKit, and Firefox.
+overriding even the SVG's own `color-scheme: light dark`. Chromium and
+Firefox honor this cleanly, independent of the OS preference either way.
+WebKit only honors it partially: forcing the `<img>` to `light` works
+regardless of the OS setting, but forcing it to `dark` only takes effect
+when the OS _also_ prefers dark - otherwise WebKit falls back to light. A
+host relying on this to pin `dark` against a light OS should not assume
+WebKit support.
 
 `<object>`/`<embed>` don't get this: they open a full nested browsing context,
 which the spec excludes. Chromium and WebKit keep them OS-only; Firefox
