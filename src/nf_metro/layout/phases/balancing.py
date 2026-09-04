@@ -281,8 +281,8 @@ def _in_section_join_sources(
     """Distinct in-section, non-port stations feeding ``join``."""
     sources: list[str] = []
     for edge in graph.edges_to(join):
-        st = graph.stations.get(edge.source)
-        if st is None or st.is_port or st.section_id != section_id:
+        st = graph.station_for_edge_source(edge)
+        if st.is_port or st.section_id != section_id:
             continue
         if edge.source not in sources:
             sources.append(edge.source)
@@ -290,25 +290,25 @@ def _in_section_join_sources(
 
 
 def _downstream_fan_in_join(graph: MetroGraph, sid: str, section_id: str) -> str | None:
-    """Nearest in-section station downstream of ``sid`` that fans in.
+    """An in-section station downstream of ``sid`` that fans in.
 
-    Follows the forward chain within the section until it reaches a station
-    with two or more in-section sources (the reconvergence a lifted branch
-    would de-centre), or exhausts the reachable in-section frontier.
+    Walks the forward chain within the section until it reaches a station with
+    two or more in-section sources (the reconvergence a lifted branch would
+    de-centre), or exhausts the reachable in-section frontier.  First found via
+    depth-first search, not necessarily the closest by hop count.
     """
     seen: set[str] = set()
     frontier = [sid]
     while frontier:
         cur = frontier.pop()
         for edge in graph.edges_from(cur):
-            tgt = edge.target
-            st = graph.stations.get(tgt)
-            if st is None or st.is_port or st.section_id != section_id or tgt in seen:
+            st = graph.station_for_edge_target(edge)
+            if st.is_port or st.section_id != section_id or edge.target in seen:
                 continue
-            seen.add(tgt)
-            if len(_in_section_join_sources(graph, tgt, section_id)) >= 2:
-                return tgt
-            frontier.append(tgt)
+            seen.add(edge.target)
+            if len(_in_section_join_sources(graph, edge.target, section_id)) >= 2:
+                return edge.target
+            frontier.append(edge.target)
     return None
 
 
