@@ -60,6 +60,8 @@ KNOWN_NOT_RENDERING = frozenset(
         "tests/fixtures/invalid/mixed_entry_opposing.mmd",
         "tests/fixtures/invalid/mixed_entry_perpendicular.mmd",
         "tests/fixtures/nextflow/duplicate_processes.mmd",
+        "tests/fixtures/nextflow/feedback_loop.mmd",
+        "tests/fixtures/nextflow/feedback_self_loop.mmd",
         "tests/fixtures/nextflow/flat_pipeline.mmd",
         "tests/fixtures/nextflow/unquoted_labels.mmd",
         "tests/fixtures/nextflow/variant_calling.mmd",

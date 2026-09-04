@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import warnings
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import networkx as nx
@@ -34,10 +35,10 @@ LINE_COLORS = [
 
 
 FEEDBACK_COMMENT_HEADER = (
-    "    %% Feedback removed: the process graph loops back here, and nf-metro's",
-    "    %% layout requires a DAG, so these connections were left out of the map.",
-    "    %% Each one may run through channel or operator nodes rather than being",
-    "    %% a single declared edge.",
+    "%% Feedback removed: the process graph loops back here, and nf-metro's",
+    "%% layout requires a DAG, so these connections were left out of the map.",
+    "%% Each one may run through channel or operator nodes rather than being",
+    "%% a single declared edge.",
 )
 """Preamble for the ``%%`` block listing the back edges the converter removed.
 
@@ -53,7 +54,14 @@ class FeedbackEdgesDroppedWarning(UserWarning):
     process graph loops cannot be converted edge-for-edge. The converter
     removes a deterministic set of back edges; this warning names them, so the
     loop is reported to the caller instead of vanishing.
+
+    ``connections`` carries the same list the message renders, so a caller can
+    count or inspect them without parsing prose.
     """
+
+    def __init__(self, message: str, connections: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.connections = connections
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +231,25 @@ def process_node_labels(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Node classification and edge reconnection
 # ---------------------------------------------------------------------------
+@dataclass
+class _Reconnection:
+    """Edges stitched through dropped nodes, and the self-loops that leaves.
+
+    ``edges`` is the process-to-process graph every later pass consumes.
+    ``self_loops`` holds the ``(node, node)`` pairs the stitching cannot
+    express: a process that reaches itself through channel or operator nodes.
+    They are returned rather than dropped, so a single-process feedback round
+    is reported instead of disappearing.
+    """
+
+    edges: list[tuple[str, str]] = field(default_factory=list)
+    self_loops: list[tuple[str, str]] = field(default_factory=list)
+
+
 def _reconnect_edges(
     kept_ids: set[str],
     all_edges: list[tuple[str, str]],
-) -> list[tuple[str, str]]:
+) -> _Reconnection:
     """Reconnect edges through dropped nodes.
 
     For each kept node, BFS forward through dropped nodes to find
@@ -237,6 +260,7 @@ def _reconnect_edges(
         successors[src].add(tgt)
 
     new_edges: set[tuple[str, str]] = set()
+    self_loops: set[tuple[str, str]] = set()
 
     for src in kept_ids:
         # BFS through dropped nodes
@@ -248,13 +272,15 @@ def _reconnect_edges(
                 continue
             visited.add(node)
             if node in kept_ids:
-                if node != src:  # no self-loops
+                if node != src:
                     new_edges.add((src, node))
+                else:  # a self-loop the metro graph has no way to hold
+                    self_loops.add((src, src))
                 # Don't continue through kept nodes
             else:
                 queue.extend(successors.get(node, set()))
 
-    return sorted(new_edges)
+    return _Reconnection(edges=sorted(new_edges), self_loops=sorted(self_loops))
 
 
 # ---------------------------------------------------------------------------
@@ -265,8 +291,9 @@ class _CycleBreak:
     """The two halves of :func:`_break_cycles`: what survives and what does not.
 
     ``kept`` is the acyclic edge list every later pass consumes. ``removed``
-    holds the back edges in the same order they appeared in the input, so the
-    loop the pipeline declared can be reported rather than silently dropped.
+    holds the back edges in ``edges`` order, which ``_reconnect_edges`` sorts
+    by node id. Either list may hold an edge stitched through channel or
+    operator nodes rather than one written in the pipeline source.
     """
 
     kept: list[tuple[str, str]] = field(default_factory=list)
@@ -692,31 +719,49 @@ def _emit_mmd(
 
     if dropped_feedback:
         out.append("")
-        out.extend(FEEDBACK_COMMENT_HEADER)
+        out.extend(f"    {line}" for line in FEEDBACK_COMMENT_HEADER)
+
+        def describe(node: str) -> str:
+            return f"{station_ids[node]} ({_humanize_label(nodes[node].label)})"
+
         for src, tgt in dropped_feedback:
-            src_label = _humanize_label(nodes[src].label)
-            tgt_label = _humanize_label(nodes[tgt].label)
-            out.append(
-                f"    %%   {station_ids[src]} ({src_label}) "
-                f"-> {station_ids[tgt]} ({tgt_label})"
-            )
+            out.append(f"    %%   {_format_feedback_pair(src, tgt, describe)}")
 
     return "\n".join(out) + "\n"
+
+
+def _format_feedback_pair(
+    source: str, target: str, describe: Callable[[str], str]
+) -> str:
+    """Render one removed connection, naming a self-loop as such.
+
+    ``describe(node) -> describe(node)`` reads as though two processes were
+    involved, so a process that feeds itself is spelled out instead.
+    """
+    if source == target:
+        return f"{describe(source)} -> itself"
+    return f"{describe(source)} -> {describe(target)}"
 
 
 def _warn_feedback_edges_dropped(
     dropped: list[tuple[str, str]], nodes: dict[str, _NfNode]
 ) -> None:
     """Report the back edges removed to make the process graph acyclic."""
-    pairs = ", ".join(
-        f"{_humanize_label(nodes[src].label)} -> {_humanize_label(nodes[tgt].label)}"
-        for src, tgt in dropped
+
+    def describe(node: str) -> str:
+        return _humanize_label(nodes[node].label)
+
+    connections = tuple(
+        _format_feedback_pair(src, tgt, describe) for src, tgt in dropped
     )
     warnings.warn(
-        f"{len(dropped)} feedback connection(s) removed to make the graph "
-        f"acyclic, which nf-metro's layout requires: {pairs}. "
-        "They are listed as a comment at the end of the converted file.",
-        FeedbackEdgesDroppedWarning,
+        FeedbackEdgesDroppedWarning(
+            f"{len(connections)} feedback connection(s) removed to make the "
+            f"graph acyclic, which nf-metro's layout requires: "
+            f"{', '.join(connections)}. The converted .mmd lists them in a "
+            "%% comment block.",
+            connections,
+        ),
         stacklevel=3,
     )
 
@@ -754,8 +799,10 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     if not kept_ids:
         return "%%metro title: Empty Pipeline\n\ngraph LR\n"
 
-    cycle_break = _break_cycles(kept_ids, _reconnect_edges(kept_ids, dag.edges))
+    reconnected = _reconnect_edges(kept_ids, dag.edges)
+    cycle_break = _break_cycles(kept_ids, reconnected.edges)
     edges = cycle_break.kept
+    dropped_feedback = reconnected.self_loops + cycle_break.removed
 
     sections = _assign_sections(kept_ids, dag, title)
     section_order = _topological_order(
@@ -779,8 +826,8 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     if not title:
         title = _infer_title(sections.names, section_order)
 
-    if cycle_break.removed:
-        _warn_feedback_edges_dropped(cycle_break.removed, dag.nodes)
+    if dropped_feedback:
+        _warn_feedback_edges_dropped(dropped_feedback, dag.nodes)
 
     return _emit_mmd(
         title,
@@ -791,7 +838,7 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
         lines,
         station_ids,
         dag.nodes,
-        cycle_break.removed,
+        dropped_feedback,
     )
 
 

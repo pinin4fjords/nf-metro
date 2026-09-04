@@ -782,3 +782,47 @@ def test_render_many_inactive_lines_list(tmp_path):
     svg = out.read_text()
     assert 'stroke="#ff0000"' in svg  # a restored to full colour
     assert 'stroke="#0000ff"' not in svg  # b muted
+
+
+# ---------------------------------------------------------------------------
+# convert: feedback reporting
+# ---------------------------------------------------------------------------
+NEXTFLOW_DIR = FIXTURES_DIR / "nextflow"
+
+
+def test_convert_reports_removed_feedback_on_stderr(tmp_path):
+    """The converter's warning reads like the command's other diagnostic."""
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "feedback_loop.mmd"), "-o", str(out)],
+    )
+
+    assert result.exit_code == 0
+    assert "Warning: 1 feedback connection(s) removed" in result.output
+    assert "Polish -> Assemble" in result.output
+    assert "FeedbackEdgesDroppedWarning" not in result.output
+
+
+def test_convert_summary_line_counts_removed_feedback(tmp_path):
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "feedback_loop.mmd"), "-o", str(out)],
+    )
+
+    assert "1 feedback connection removed -> " in result.output
+
+
+def test_convert_summary_line_is_unchanged_for_an_acyclic_pipeline(tmp_path):
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "flat_pipeline.mmd"), "-o", str(out)],
+    )
+
+    assert "feedback" not in result.output
+    assert "Converted 5 processes, 1 sections -> " in result.output

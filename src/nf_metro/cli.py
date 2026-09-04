@@ -741,7 +741,11 @@ def convert(
     it to nf-metro format. The output can then be rendered with `nf-metro render`
     or hand-tuned before rendering.
     """
-    from nf_metro.convert import convert_nextflow_dag, is_nextflow_dag
+    from nf_metro.convert import (
+        FeedbackEdgesDroppedWarning,
+        convert_nextflow_dag,
+        is_nextflow_dag,
+    )
 
     text = input_file.read_text()
 
@@ -752,7 +756,19 @@ def convert(
             err=True,
         )
 
-    result = convert_nextflow_dag(text, title=title or "")
+    # Report the converter's own warning the way this command reports the one
+    # above, rather than leaving it to Python's default handler.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", FeedbackEdgesDroppedWarning)
+        result = convert_nextflow_dag(text, title=title or "")
+
+    dropped = 0
+    for w in caught:
+        if isinstance(w.message, FeedbackEdgesDroppedWarning):
+            dropped += len(w.message.connections)
+            click.echo(f"Warning: {w.message}", err=True)
+        else:
+            warnings.showwarning(w.message, w.category, w.filename, w.lineno)
 
     if output is None:
         click.echo(result, nl=False)
@@ -761,7 +777,11 @@ def convert(
         # Count sections and processes in the output
         sections = result.count("subgraph ")
         processes = result.count("([")
-        click.echo(f"Converted {processes} processes, {sections} sections -> {output}")
+        summary = f"Converted {processes} processes, {sections} sections"
+        if dropped:
+            plural = "" if dropped == 1 else "s"
+            summary += f", {dropped} feedback connection{plural} removed"
+        click.echo(f"{summary} -> {output}")
 
 
 @cli.command()
