@@ -105,6 +105,15 @@ def test_combo_drops_unknown_keeps_known_members():
     assert label == "Trio"
 
 
+def test_combo_declared_before_its_lines_resolves():
+    """Members resolve against the whole file, so the directive may lead."""
+    src = "%%metro legend_combo: normal, tumor | Tumor-normal pair\n" + _BASE + _GRAPH
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        graph = parse_metro_mermaid(src)
+    assert graph.legend_combos == [(("normal", "tumor"), "Tumor-normal pair")]
+
+
 def test_combo_requires_two_lines_and_label():
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
