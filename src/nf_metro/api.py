@@ -132,16 +132,10 @@ def render_graph_result(
     graph: MetroGraph, theme_obj: Theme, cfg: RenderConfig
 ) -> RenderResult:
     """Render a laid-out graph and return its content and plan."""
-    if cfg.inactive_line_ids is not None:
-        bad = cfg.inactive_line_ids - graph.lines.keys()
-        if bad:
-            raise UnknownInactiveLineError(
-                f"--inactive-lines: unknown line ID(s) {sorted(bad)}; "
-                f"known lines are {sorted(graph.lines)}"
-            )
-        effective_inactive = cfg.inactive_line_ids
-    else:
-        effective_inactive = graph.default_inactive_line_ids()
+    try:
+        effective_inactive = graph.resolve_inactive_line_ids(cfg.inactive_line_ids)
+    except UnknownInactiveLineError as e:
+        raise UnknownInactiveLineError(f"--inactive-lines: {e}") from None
     if cfg.output_format == "html":
         plan = build_render_plan(
             graph,
