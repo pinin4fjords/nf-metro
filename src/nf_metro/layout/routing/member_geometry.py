@@ -950,11 +950,29 @@ def _index_materialized_channels(
     )
 
 
-def _planner_owns_channel(
+def _upstream_plan_fixes_channel(
     route: RoutedPath,
     segment_rank: int,
     movable_exit_plan_ids: frozenset[ExitTurnPlanId] = frozenset(),
 ) -> bool:
+    """Whether a plan this allocator did not make already fixes the channel x.
+
+    Deliberately not :func:`planner_owns_segment_or_boundary`.  Three arms
+    differ, and each difference is a property of running before the member plan
+    is stamped:
+
+    * A fan or exit-lane transition membership resolved the whole corridor
+      rather than one segment of it, so it fixes the channel at whichever rank
+      the query names.
+    * The segments either side of a planned exit turn are fixed too, because
+      the turn's runway is measured along them -- the widening
+      :func:`convergence_owns_segment_boundary` already applies to a
+      convergence boundary.  A turn whose plan the caller listed as movable is
+      excluded: re-seating it is the caller's own right.
+    * ``route_system_owned_segment_ranks`` is this allocator's own output, and
+      every route reaching it is a handler template rather than a stamped
+      member route, so that field is empty here by construction.
+    """
     if route.exit_lane_transition_plan_id is not None:
         return True
     if route.fan_plan_id is not None or route.fan_route_emitter is not None:
@@ -1119,7 +1137,7 @@ def _align_packed_cell_handoffs(
             carrier_channels,
             key=lambda item: abs(item.channel.x - descent_x),
         )
-        assert not _planner_owns_channel(
+        assert not _upstream_plan_fixes_channel(
             route, handoff_channel.channel.idx, movable_exit_plan_ids
         ), "packed-cell handoff descent has a conflicting plan owner"
         bounds = _channel_bounds(handoff_channel, ctx)
@@ -1142,7 +1160,7 @@ def _align_same_line_channels(
     for item in materialized:
         route = item.candidate.route
         channel = item.channel
-        if item.key in seated or _planner_owns_channel(
+        if item.key in seated or _upstream_plan_fixes_channel(
             route, channel.idx, movable_exit_plan_ids
         ):
             continue
@@ -1390,7 +1408,7 @@ def _channel_bundles(
     ] = defaultdict(list)
     seen: set[tuple[RouteSystemId, ResolvedEdge, int]] = set()
     for item in materialized:
-        if item.key in seen or _planner_owns_channel(
+        if item.key in seen or _upstream_plan_fixes_channel(
             item.candidate.route, item.channel.idx, movable_exit_plan_ids
         ):
             continue
@@ -1469,7 +1487,7 @@ def _allocate_member_gap_channels(
         *(
             _claim_for_materialized_channel(item)
             for item in materialized
-            if _planner_owns_channel(
+            if _upstream_plan_fixes_channel(
                 item.candidate.route, item.channel.idx, movable_exit_plan_ids
             )
         ),

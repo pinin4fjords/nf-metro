@@ -3286,6 +3286,10 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuse the result both have to agree on which coordinates are theirs: a pass
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
+
+    This names one rank exactly.  A pass that translates a whole segment wants
+    :func:`planner_owns_segment_or_boundary` instead, which is the reading the
+    normalisation passes and the closing guards share.
     """
     return (
         convergence_owns_segment_boundary(route, rank)
@@ -3294,6 +3298,19 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
+    )
+
+
+def planner_owns_segment_or_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a plan fixes this segment or a corner at either end of it.
+
+    Translating a segment stretches its two flanking legs to meet it, so both
+    of its corners re-form: a segment beside a route-system-owned boundary is
+    as unavailable to a pass as an owned segment is.  The normalisation passes
+    and closing guards that read this wider rule read it from here.
+    """
+    return planner_owns_segment(route, rank) or route_system_owns_segment_boundary(
+        route, rank
     )
 
 
