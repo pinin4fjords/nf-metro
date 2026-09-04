@@ -1,10 +1,12 @@
 """Tests for the --inactive-lines / inactive_line_ids muting feature."""
 
+import re
 import xml.etree.ElementTree as ET
 
 import pytest
 
 from nf_metro import RenderConfig, UnknownInactiveLineError, render_string
+from nf_metro.api import prepare_graph
 from nf_metro.errors import NfMetroError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
@@ -12,7 +14,9 @@ from nf_metro.render.constants import (
     effective_line_color,
     station_is_muted,
 )
-from nf_metro.themes import NFCORE_DARK_THEME
+from nf_metro.render.plan import FrozenRecord
+from nf_metro.render.svg import _muted_line_theme, render_svg
+from nf_metro.themes import NFCORE_DARK_THEME, resolve_theme
 
 MUTED = NFCORE_DARK_THEME.muted_line_color
 
@@ -55,6 +59,18 @@ def _label_fill_by_station(svg):
         if sid is not None and "label" in cls:
             out[sid] = el.get("fill")
     return out
+
+
+def _icon_label_fill(svg, station_id, label):
+    """Fill of the ``label`` text drawn inside ``station_id``'s terminus icon."""
+    root = ET.fromstring(svg)
+    for group in root.iter():
+        if group.get("data-node-id") != station_id:
+            continue
+        for el in group.iter():
+            if el.tag.endswith("text") and el.text == label:
+                return el.get("fill")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +158,27 @@ def test_muted_station_keeps_fill():
         if el.tag.endswith("rect") and el.get("data-station-id") == "x":
             # Fill is the theme station fill, not the muted grey.
             assert el.get("fill") == NFCORE_DARK_THEME.station_fill
+
+
+TERMINUS_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "%%metro file: a_out | SF\n"
+    "%%metro file: b_out | BAM\n"
+    "graph LR\n"
+    "    x[X] -->|a| a_out[ ]\n"
+    "    x -->|b| b_out[ ]\n"
+)
+
+
+def test_inactive_only_terminus_icon_label_muted():
+    svg = _svg(TERMINUS_MAP)
+    active = _icon_label_fill(svg, "b_out", "BAM")
+    assert _icon_label_fill(svg, "a_out", "SF") == MUTED
+    # A shared constant on both sides of the pair would let one wrong value
+    # satisfy both, so the active fill is pinned to a literal.
+    assert active == "#000000"
+    assert active != MUTED
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +296,176 @@ def test_cli_empty_override_forces_all_active():
 def test_render_string_flat_kwarg_overrides():
     svg = _svg(TWO_LINE_MAP, inactive_line_ids=frozenset({"a"}))
     assert _rects_by_station(svg)["x"] == {MUTED}
+
+
+# ---------------------------------------------------------------------------
+# Chrome-CSS cascade
+# ---------------------------------------------------------------------------
+
+# An inactive and an active line, each carrying a plain station, a marked station
+# and a captioned file terminus.  That reaches every element that takes a muted
+# presentation attribute (name labels, a marker outline, a terminus caption) and
+# gives each of them a full-strength counterpart.
+CASCADE_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #00ff00\n"
+    "%%metro marker: mid | square, solid\n"
+    "%%metro marker: keep | square, solid\n"
+    "%%metro file: out | SF | Sizes\n"
+    "%%metro file: kept | BAM | Alignments\n"
+    "graph LR\n"
+    "    x[X] -->|a| mid[Mid]\n"
+    "    mid -->|a| out[ ]\n"
+    "    y[Y] -->|b| keep[Keep]\n"
+    "    keep -->|b| kept[ ]\n"
+)
+
+_CSS_RULE = re.compile(r"([^{}]+)\{([^}]*)\}")
+
+
+def _chrome_rules(svg):
+    """Parse the injected chrome stylesheet into ordered declarations.
+
+    Each entry is ``(class names the selector requires, property, value)``.
+    """
+    blocks = re.findall(r"<style>(.*?)</style>", svg, re.S)
+    style = next(b for b in blocks if "--nfm-map-" in b)
+    rules = []
+    for selector, body in _CSS_RULE.findall(style):
+        classes = frozenset(selector.strip().lstrip(".").split("."))
+        for decl in body.split(";"):
+            if ":" in decl:
+                prop, value = decl.split(":", 1)
+                rules.append((classes, prop.strip(), value.strip()))
+    return rules
+
+
+def _winning_value(rules, classes, prop):
+    """Value of the chrome declaration that wins *prop* on an element in *classes*.
+
+    Every chrome selector is a class chain in a single stylesheet, so the winner
+    is the longest chain that matches, and the last declared one at that length.
+    """
+    winner = None
+    for selector, rule_prop, value in rules:
+        if rule_prop == prop and selector <= classes:
+            if winner is None or len(selector) >= len(winner[0]):
+                winner = (selector, value)
+    return winner[1] if winner else None
+
+
+def _mode_colors(value):
+    """The ``(light, dark)`` colours a chrome declaration resolves to."""
+    var_ref = re.fullmatch(r"var\(--[\w-]+,\s*(.*)\)", value)
+    fallback = var_ref.group(1) if var_ref else value
+    pair = re.fullmatch(r"light-dark\((.*?),\s*(.*)\)", fallback)
+    if pair:
+        return pair.group(1).strip(), pair.group(2).strip()
+    return fallback, fallback
+
+
+# The muted rules are built from the theme, and a single-mode theme emits a bare
+# colour where a light/dark pair emits ``light-dark()``, so both shapes are worth
+# covering.
+@pytest.mark.parametrize("brand", ["nfcore", "seqera", "light"])
+def test_chrome_css_and_presentation_attribute_agree_on_muting(brand):
+    # A presentation attribute loses to every author rule, so what a browser
+    # paints is the winning rule, not the attribute.  The two must therefore
+    # agree wherever either says muted: a rule that repaints a muted attribute
+    # drops the mute, and a rule that greys a full-strength attribute invents
+    # one.  Asserting the attribute alone would pass in both cases.
+    svg = _svg(CASCADE_MAP, theme=brand)
+    rules = _chrome_rules(svg)
+    root = ET.fromstring(svg)
+    covered = set()
+    for el in root.iter():
+        classes = frozenset((el.get("class") or "").split())
+        for prop in ("fill", "stroke"):
+            attr = el.get(prop)
+            if attr is None:
+                continue
+            winner = _winning_value(rules, classes, prop)
+            css_mutes = winner is not None and _mode_colors(winner) == (MUTED, MUTED)
+            if attr != MUTED and not css_mutes:
+                continue
+            where = f"{prop} on <{el.tag}> {el.text!r} class={sorted(classes)}"
+            assert attr == MUTED, (
+                f"{where} is greyed by the chrome rule {winner!r} but renders at {attr}"
+            )
+            assert winner is None or css_mutes, (
+                f"{where} is repainted by the chrome rule {winner!r}"
+            )
+            covered.add((prop, el.text))
+    # Every element the muted rules exist for must have been reached, or the map
+    # has drifted away from what this guards: a station name label and a
+    # terminus caption for the fill rule, a marker outline for the stroke one.
+    assert ("fill", "Mid") in covered
+    assert ("fill", "Sizes") in covered
+    assert {prop for prop, _ in covered} == {"fill", "stroke"}
+
+
+# ---------------------------------------------------------------------------
+# render_svg direct entry point (playground / live server path)
+# ---------------------------------------------------------------------------
+
+# render_svg is the entry point the browser playground and the live-progress
+# server call directly, bypassing RenderConfig/render_graph_result. It must
+# resolve the map's declared-inactive set itself, or those surfaces silently
+# render every line active.
+
+
+def _render_svg(src, **kwargs):
+    graph = prepare_graph(src)
+    theme = resolve_theme(None, graph)
+    return graph, theme, render_svg(graph, theme, **kwargs)
+
+
+def test_render_svg_mutes_declared_inactive_by_default():
+    graph, theme, svg = _render_svg(DECLARED_INACTIVE_MAP)
+    muted = theme.muted_line_color
+    assert 'stroke="#ff0000"' not in svg
+    assert f'stroke="{muted}"' in svg
+    assert _rects_by_station(svg)["x"] == {muted}
+
+
+def test_render_svg_explicit_override_replaces_declared_set():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset({"b"}))
+    assert 'stroke="#ff0000"' in svg  # line a active
+    assert 'stroke="#0000ff"' not in svg  # line b muted
+    rects = _rects_by_station(svg)
+    assert theme.muted_line_color not in rects["x"]
+    assert rects["z"] == {theme.muted_line_color}
+
+
+def test_render_svg_empty_override_forces_all_active():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset())
+    assert 'stroke="#ff0000"' in svg
+    assert 'stroke="#0000ff"' in svg
+    rects = _rects_by_station(svg)
+    assert theme.muted_line_color not in rects["x"]
+    assert theme.muted_line_color not in rects["z"]
+
+
+def test_render_svg_unknown_inactive_line_raises():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    with pytest.raises(UnknownInactiveLineError) as exc:
+        render_svg(graph, theme, inactive_line_ids=frozenset({"nope"}))
+    assert "nope" in str(exc.value)
+
+
+def test_muted_theme_overrides_every_field_on_a_plain_theme():
+    # A render always passes the plan's FrozenRecord theme; a dataclass Theme
+    # takes the dataclasses.replace path instead.
+    muted = _muted_line_theme(NFCORE_DARK_THEME)
+    assert not isinstance(muted, FrozenRecord)
+    assert muted.station_stroke == MUTED
+    assert muted.marker_stroke == MUTED
+    assert muted.terminus_stroke == MUTED
+    assert muted.terminus_font_color == MUTED
+    assert muted.label_color == MUTED
+    assert muted.station_fill == NFCORE_DARK_THEME.station_fill

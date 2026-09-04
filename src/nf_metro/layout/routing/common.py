@@ -495,6 +495,37 @@ def column_gap_edges(
     return right, left
 
 
+def off_grid_gap_bundle_midpoint(
+    graph: MetroGraph, lo: int, row: int | None, bundle_width: float
+) -> float | None:
+    """X midline of a bundle in gap ``(lo, lo + 1)`` when the grid has one side.
+
+    ``None`` unless exactly one of the two columns carries a section anywhere
+    on the grid, which is the case that leaves the gap with no facing edge to
+    measure at any row: the caller then reads :func:`column_gap_edges` and
+    centres the bundle between the two edges as usual.
+
+    The bundle sits :data:`EDGE_TO_BUNDLE_CLEARANCE` off that one real edge --
+    the floor :func:`symmetric_bundle_midpoint` holds against a bounded gap's
+    edges -- rather than centred across a span whose absent side
+    :func:`col_left_edge` and :func:`col_right_edge` report as the coordinate
+    origin, because a midpoint measured against the origin is set by the map's
+    overall size instead of by the box the bundle hugs.  *row* narrows the real
+    edge to the bundle's own row where the column reaches it, and the column's
+    full extent covers the rest.
+    """
+    lo_on_grid = bool(_sections_in_col(graph, lo))
+    hi_on_grid = bool(_sections_in_col(graph, lo + 1))
+    if lo_on_grid == hi_on_grid:
+        return None
+    reach = EDGE_TO_BUNDLE_CLEARANCE + bundle_width / 2
+    if lo_on_grid:
+        anywhere = col_right_edge(graph, lo)
+        return col_right_edge(graph, lo, default=anywhere, row=row) + reach
+    anywhere = col_left_edge(graph, lo + 1)
+    return col_left_edge(graph, lo + 1, default=anywhere, row=row) - reach
+
+
 def packed_cell_neighbor_edges(
     graph: MetroGraph, section_id: str, side: PortSide
 ) -> tuple[float, float] | None:
@@ -2181,6 +2212,77 @@ def trunk_segments_cross(a: HTrunkSeg, b: HTrunkSeg) -> tuple[float, float] | No
     return next(iter(trunk_segment_crossings(a, b)), None)
 
 
+def inter_row_gap_band(graph: MetroGraph, y: float) -> tuple[float, float] | None:
+    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*.
+
+    Scans adjacent grid rows for the gap whose ``[row_bottom, next_row_top]``
+    band contains *y*; returns ``None`` when *y* does not fall in any gap.
+    """
+    for _upper, top, bottom in iter_inter_row_gaps(graph):
+        if top - COORD_TOLERANCE <= y <= bottom + COORD_TOLERANCE:
+            return top, bottom
+    return None
+
+
+class ExemptDoglegLanes(NamedTuple):
+    """The two candidate placements of a movable trunk off an exempt run.
+
+    A trunk fused onto a ``normalize_exempt`` run can seat one corridor
+    ``separation`` below or above it, each clamped to the inter-row gap band.
+    ``below_crossing``/``above_crossing`` hold that placement's first
+    riser/run crossing with the exempt run, or ``None`` when the placement is a
+    clean parallel bundle; ``below_ok``/``above_ok`` record whether the band
+    admits it.
+    """
+
+    below_y: float
+    above_y: float
+    below_ok: bool
+    above_ok: bool
+    below_crossing: tuple[float, float] | None
+    above_crossing: tuple[float, float] | None
+
+
+def exempt_dogleg_lanes(
+    movable: HTrunkSeg,
+    exempt: HTrunkSeg,
+    *,
+    separation: float,
+    band: tuple[float, float] | None,
+) -> ExemptDoglegLanes:
+    """Resolve the below/above lanes a movable trunk can take off an exempt run.
+
+    The two candidate placements sit one *separation* either side of the exempt
+    run at ``exempt.y``; *band* clamps each to the inter-row gap so a placement
+    that would foul the next row's header badge is marked infeasible.
+    ``_dogleg_off_exempt_trunks`` picks the crossing-free side from this, and the
+    dogleg-crossing invariant reads it to tell a forced transit (both sides
+    cross) from an avoidable wrong-side landing.
+    """
+    below = exempt.y + separation
+    above = exempt.y - separation
+    if band is not None:
+        top, bottom = band
+        below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
+        above_ok = above >= top
+    else:
+        below_ok = above_ok = True
+    below_seg = HTrunkSeg(
+        below, movable.xa, movable.xb, movable.before_y, movable.after_y
+    )
+    above_seg = HTrunkSeg(
+        above, movable.xa, movable.xb, movable.before_y, movable.after_y
+    )
+    return ExemptDoglegLanes(
+        below_y=below,
+        above_y=above,
+        below_ok=below_ok,
+        above_ok=above_ok,
+        below_crossing=trunk_segments_cross(below_seg, exempt),
+        above_crossing=trunk_segments_cross(above_seg, exempt),
+    )
+
+
 def compute_bundle_info(
     graph: MetroGraph,
     junction_ids: set[str],
@@ -2322,7 +2424,6 @@ def inter_column_channel_x(
     src: Station,
     tgt: Station,
     sx: float,
-    tx: float,
     dx: float,
     max_r: float,
     offset_step: float,
@@ -3184,6 +3285,15 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuse the result both have to agree on which coordinates are theirs: a pass
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
+
+    A pass that translates a whole segment wants
+    :func:`planner_owns_segment_or_boundary` instead, which is the reading the
+    normalisation passes and the closing guards share.  Only the convergence arm
+    here reaches a boundary beside *rank*, because a trunk axis states a run
+    whose two corners it fixes as well; a member plan and an exit turn each
+    enumerate the segments they own, so those arms match *rank* exactly.  A
+    caller wanting the widening on one side only says which side, as
+    ``_corridor_run_band`` does for the leg feeding a planned turn.
     """
     return (
         convergence_owns_segment_boundary(route, rank)
@@ -3192,6 +3302,19 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
+    )
+
+
+def planner_owns_segment_or_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a plan fixes this segment or a corner at either end of it.
+
+    Translating a segment stretches its two flanking legs to meet it, so both
+    of its corners re-form: a segment beside a route-system-owned boundary is
+    as unavailable to a pass as an owned segment is.  The normalisation passes
+    and closing guards that read this wider rule read it from here.
+    """
+    return planner_owns_segment(route, rank) or route_system_owns_segment_boundary(
+        route, rank
     )
 
 

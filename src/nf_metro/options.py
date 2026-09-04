@@ -16,6 +16,7 @@ layout engine and renderer read it. Precedence is uniform: CLI flag (when set)
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Literal, TypeGuard
 
@@ -88,6 +89,8 @@ def coerce(opt: LayoutOption, raw: str) -> tuple[Any, str]:
             num = caster(text)
         except ValueError:
             return INVALID, "a number"
+        if not math.isfinite(num):
+            return INVALID, "a finite number"
         if opt.sign == "nonneg" and num < 0:
             return INVALID, "a non-negative number"
         if opt.sign == "positive" and num <= 0:

@@ -822,7 +822,7 @@ def _section_content_hug_top(
     # why, and why this must match rail_mode's own reservation exactly.
     from nf_metro.layout.rail_mode import rail_above_label_top_pad
 
-    rail_pad = rail_above_label_top_pad(graph, section, section_y_padding)
+    rail_pad = rail_above_label_top_pad(graph, section)
 
     def _content_min_y(sid: str) -> float:
         if sid in rail_pad:

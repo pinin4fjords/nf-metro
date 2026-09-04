@@ -82,7 +82,7 @@ filed bug, or one not yet classified. A campaign is not done while any arm is
    `python scripts/routing_gate_coverage.py` first - gap counts drift as
    fixtures land elsewhere, so never trust a stale number from an issue body.
 2. **One PR per module** (cluster the tiny modules - e.g.
-   `core.py` + `inter_section.py` + `corners.py` - into one PR). Keeps each
+   `core.py` + `families.py` + `corners.py` - into one PR). Keeps each
    reviewable and mergeable.
 3. **Fan reachable arms out concurrently.** Work through multiple gate conditions
    in parallel: each worker reads one gate condition, authors a candidate fixture,

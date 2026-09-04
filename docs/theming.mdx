@@ -1,0 +1,307 @@
+---
+title: "Theming"
+description: How nf-metro builds one SVG that adapts to a light or dark viewer, and how to reuse the same technique outside nf-metro.
+---
+
+import Metro from "@components/Metro.astro";
+import { Aside } from "@astrojs/starlight/components";
+
+An nf-metro SVG has no separate light and dark version, and nf-metro never
+re-renders it when the viewer's theme changes. Every themeable color is baked
+in as a pair, and native CSS picks the right half at display time:
+
+![Diagram: light-dark(#fff, #1a1a1a) resolves to #fff under a light color-scheme and to #1a1a1a under a dark one](assets/theming_resolution.svg)
+
+<Aside type="note" title="The recipe, if you just want it">
+
+1. Use `light-dark(light, dark)` for every color that should adapt.
+2. If the file needs to work standalone - opened directly, or dropped into a
+   host with no opinion on theme - declare `color-scheme: light dark` on
+   the root.
+3. If you inline it into a page you control instead, leave that declaration
+   off the root. The SVG then inherits the page's `color-scheme`; declaring
+   it yourself would override the host's choice rather than follow it.
+4. If you reference it with `<img>` instead - the safe way to embed content
+   you don't fully trust, since it blocks scripts and external loads - the
+   host page can still steer the colors, by setting `color-scheme` directly
+   on the `<img>` element. Chrome and Firefox honor this regardless of what
+   the SVG itself declares. Safari does not: it always shows the viewer's
+   own OS setting instead of the host's. That is safe, not broken, and it
+   is the limit of what one file can do - no fifth step closes that gap.
+
+The rest of this page is the reasoning and the exceptions.
+
+</Aside>
+
+## `light-dark()` and `color-scheme`
+
+`light-dark()` takes two color values and resolves to one of them. It works
+on any color property, so it drops straight into SVG presentation attributes
+and `<style>` rules:
+
+```css
+fill: light-dark(#ffffff, #1a1a1a);
+```
+
+It resolves against the element's used `color-scheme`. Nothing declared
+anywhere still resolves - to the browser's own default, generally light,
+not the viewer's OS preference. Declare one to let that preference in:
+
+```css
+:root {
+  color-scheme: light dark;
+}
+```
+
+`light dark` means "both are supported here - pick whichever the current
+preference is." Pinning one side instead (`color-scheme: dark`) forces every
+`light-dark()` under it to that value regardless of preference - a
+deterministic escape hatch for something like a PNG export.
+
+## `var()` for host overrides (optional)
+
+```css
+fill: var(--my-bg, light-dark(#ffffff, #1a1a1a));
+```
+
+A page embedding the SVG (the **host page**) can set `--my-bg` on a wrapper to
+override the color outright; if it doesn't, the light/dark pair still runs.
+This layer is optional - `light-dark()` + `color-scheme` is the whole
+mechanism. nf-metro calls the properties it exposes this way (background,
+title, labels, section boxes, legend) **chrome** - as opposed to line and
+route colors, which carry meaning and stay fixed.
+
+## Where `color-scheme` should live
+
+`color-scheme` is **inherited**: an element with no `color-scheme` of its own
+takes its ancestor's computed value, the same as `font-family` or `color`
+normally would. But redeclaring it resets what "current preference" means for
+everything under it - an element that sets its own `color-scheme` stops
+inheriting and starts from scratch. That matters once the SVG is
+embedded, because a host page and the SVG can disagree about who owns that
+decision. nf-metro has two modes, controlled by `self_color_scheme` on
+`render_svg` (`--no-self-color-scheme` on the CLI):
+
+**Standalone (the default).** The root `<svg>` declares its own `color-scheme`
+(`src/nf_metro/render/svg.py:2595-2597`):
+
+```html
+<svg style="color-scheme: light dark"></svg>
+```
+
+so `light-dark()` resolves against **the viewer's OS/browser preference** -
+correct for a file opened on its own, or dropped into a page that has no
+opinion about theme.
+
+**Embedded in a page that already manages theme.** Passing
+`--no-self-color-scheme` (used for every `<Metro>` embed on this docs site -
+`website/src/lib/render-metro.mjs:277`) omits that declaration, so the `<svg>`
+inherits `color-scheme` from its host instead. This site's theme picker sets
+it on `<html>`:
+
+```css
+/* reset.css, from Starlight - the framework this docs site is built with */
+html {
+  color-scheme: dark;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+}
+```
+
+This map has no `color-scheme` of its own, so it follows _that_ - use the
+theme picker in the nav to switch it, independent of your OS setting:
+
+<Metro src="examples/guide/01_minimal.mmd" clean />
+
+The two modes aren't interchangeable: an SVG that declares its own
+`color-scheme: light dark` while embedded ignores a host's forced single
+value and falls back to the OS preference regardless of what the host's
+toggle says - redeclaring `light dark` reopens both options, so the "current
+preference" it resolves against reverts to the browser/OS signal rather than
+the host's choice. That's why `--no-self-color-scheme` exists: leaving the
+property off the SVG root is what lets a host's manual toggle reach it at
+all.
+
+`--no-self-color-scheme` alone isn't the whole story: it only decides _whose_
+preference wins. Something still has to supply a `light-dark()` pair to
+resolve in the first place - that's a separate, independent job, done by the
+chrome CSS from the `var()` ingredient above. Both have to be right for an
+embedded map to stay theme-adaptive.
+
+<Aside type="tip" title="What this docs site itself passes">
+
+From `renderMetroFile` (`website/src/lib/render-metro.mjs:254-296`):
+
+| Flag                     | `<Metro>` embed | OG image export |
+| ------------------------ | --------------- | --------------- |
+| `--no-self-color-scheme` | always          | always          |
+| `--no-chrome-css`        | never           | always          |
+
+`--no-chrome-css` bakes chrome colors to one concrete value, so if an inline
+embed passed it there would be no `light-dark()` pair left for
+`--no-self-color-scheme` to matter about. It's reserved for the OG-image
+path, which needs one fixed image anyway, not a page-following one.
+(`--no-manifest` is also passed to every embed here, but only skips per-node
+metadata `<Metro>` doesn't use - it has no effect on theming.)
+
+</Aside>
+
+## The transparent-background fallback
+
+A transparent-background theme has no `--nfm-bg` pair to lean on, so text
+drawn straight onto the canvas (titles, section labels) can still turn
+illegible against whatever the host page's background is. For that one case,
+nf-metro adds a second, coarser path, built on a different feature -
+`prefers-color-scheme`, a media query you branch a whole stylesheet rule on,
+not a property like `color-scheme` that `light-dark()` resolves per value
+(`src/nf_metro/render/svg.py`, `_inject_dark_mode_style`):
+
+```css
+@media (prefers-color-scheme: dark) {
+  .nf-metro-section-label {
+    fill: #d0d0d0;
+  }
+  .nf-metro-title {
+    fill: #ffffff;
+  }
+}
+```
+
+`--no-dark-mode-css` turns it off, for a host whose own theming it would
+otherwise fight.
+
+<Aside type="note" title="One theme opts out of all of this on purpose">
+
+nf-metro ships one theme with no light/dark sibling at all - `light`
+(`THEME_MODES`, `src/nf_metro/themes/__init__.py`). For it, `mode_pair(theme)`
+returns `None`: every `--nfm-*` fallback is a single baked value, no
+`light-dark()` anywhere, and `self_color_scheme` has nothing to do (no
+`color-scheme` gets declared either way). The media query above is the only
+adaptation such a theme gets - reach for it deliberately, not by leaving
+`--theme`/`%%metro style:` unset.
+
+</Aside>
+
+## Consumers that can't parse any of this
+
+Some SVG consumers - `cairosvg` among them - parse a restricted CSS subset
+and abort outright on `light-dark()` or `var()`. nf-metro's export flags map
+directly onto the ingredients above:
+
+```bash
+# bake one concrete palette; no var()/light-dark() left to choke on
+nf-metro render pipeline.mmd -o pipeline.svg --no-chrome-css --mode light
+
+# pin color-scheme for a consumer that DOES understand light-dark(),
+# so the result is deterministic rather than following its own environment
+nf-metro render pipeline.mmd -o pipeline.svg --mode dark
+```
+
+Full flag reference: [Embedding](/nf-metro/embedding/).
+
+## `<img>` is a special case; `<object>`/`<embed>` are not consistent
+
+"Inline" means the SVG's own markup is pasted directly into the host page, as
+opposed to referenced by URL:
+
+```html
+<!-- referenced: a separate document -->
+<img src="map.svg" />
+
+<!-- inline: part of this document -->
+<svg>
+  <rect fill="light-dark(#fff, #1a1a1a)" ... />
+</svg>
+```
+
+`<img>` loads the SVG into its own document, so ordinary CSS - custom
+properties, cascade, inheritance - stops there; `var()` overrides never
+arrive. `color-scheme` is the one deliberate exception: per [Media Queries
+Level 5](https://www.w3.org/TR/mediaqueries-5/#prefers-color-scheme), an
+`<img>`-loaded SVG resolves `prefers-color-scheme` and `light-dark()` against
+**the used `color-scheme` of the `<img>` element**, not the OS preference -
+overriding even the SVG's own `color-scheme: light dark`. Chromium and
+Firefox honor this cleanly and deterministically, independent of the OS
+preference either way.
+
+Safari does not: it ignores the `<img>`'s declared `color-scheme` entirely
+and follows the real system preference instead, exactly as if no override
+were present at all.
+
+`<object>`/`<embed>` don't get this either: they open a full nested browsing
+context, which the spec excludes. Don't rely on either for this.
+
+<Aside type="caution" title="This makes one SVG a reasonable design, not a universal one">
+
+A single correctly-authored SVG genuinely does not need a light/dark pair of
+files - but only document it as "follows the _host's_ chosen theme in
+Chromium and Firefox; follows the _viewer's OS_ setting in Safari, not the
+host's." The Safari gap is a real engine limitation with no authoring fix: no
+`.mmd` directive, render flag, or CSS trick on the embedding page changes it.
+It also fails safely, not badly - a Safari user still sees a light or dark
+map matching their own system, it just won't necessarily match the host
+page's theme if the two disagree, rather than breaking, corrupting, or
+getting stuck. That combination (the host controls the result on the two
+engines that matter most for most audiences, degrades to "still adaptive,
+just to the wrong signal" on the third) is what makes one file a reasonable
+choice instead of a broken promise - claiming the host's toggle drives it
+everywhere would not be.
+
+</Aside>
+
+<Aside type="note" title="A real example: nf-core/rnaseq's README map">
+
+[nf-core/rnaseq](https://github.com/nf-core/rnaseq) embeds its pipeline map
+the ordinary way - `![...](docs/images/..._animated.svg)`, which GitHub
+renders as a plain `<img>`. Its map uses the paired `nfcore` theme with a
+light/dark logo pair, self_color_scheme left at its default, and no other
+flags. On GitHub's own rendered page, that's enough: the whole map - not just
+text - follows GitHub's light/dark setting
+([source](https://github.com/nf-core/rnaseq/blob/dev/assets/metro_map.mmd)).
+
+</Aside>
+
+Either way, inline the SVG for `var()` overrides too; nothing in the `<img>`
+exception carries those. That's why nf-metro's docs site inlines its maps.
+
+## Using this outside nf-metro
+
+None of this is nf-metro-specific. Standalone:
+
+```html
+<svg viewBox="0 0 200 100" style="color-scheme: light dark">
+  <style>
+    rect {
+      fill: light-dark(#ffffff, #1a1a1a);
+    }
+    text {
+      fill: light-dark(#111111, #eeeeee);
+    }
+  </style>
+  <rect width="200" height="100" />
+  <text x="10" y="50">Adapts to the viewer's theme</text>
+</svg>
+```
+
+Inline it in an HTML page and it follows the OS preference. To make it follow
+a manual toggle on your own site instead, drop
+the SVG's own `style="color-scheme: light dark"` and drive `color-scheme` from
+your toggle at the page level instead, the same way Starlight's reset.css does:
+
+```css
+:root {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+```
+
+```js
+// wherever your toggle's click handler lives
+document.documentElement.dataset.theme = "light";
+```
+
+Any inlined SVG with no `color-scheme` of its own now inherits from `:root`
+and follows the toggle - not the OS setting.

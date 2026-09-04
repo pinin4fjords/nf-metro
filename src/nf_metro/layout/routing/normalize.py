@@ -49,10 +49,12 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    exempt_dogleg_lanes,
     feasible_same_destination_approach_proposals,
     gap_lo_for_x,
     gap_lookup_geometry,
     initial_fanout_descent_span,
+    inter_row_gap_band,
     inter_row_gap_upper_row,
     is_orthogonal_turn,
     is_side_entry_port,
@@ -64,10 +66,12 @@ from nf_metro.layout.routing.common import (
     iter_same_destination_approach_bundles,
     iter_vertical_segments,
     merge_fanout_pivot_reference,
+    off_grid_gap_bundle_midpoint,
     opposing_entry_confluence_slots,
     packed_cell_neighbor_edges,
     peeloff_target_slots,
     planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     route_system_owns_segment_boundary,
     same_destination_approach_slots,
@@ -639,9 +643,7 @@ def _locate_slot_channel_with_slot(
 
 def _planner_owns_channel(channel: _VChannel) -> bool:
     """Whether a pre-routing plan owns this channel's final geometry."""
-    return planner_owns_segment(
-        channel.route, channel.idx
-    ) or route_system_owns_segment_boundary(channel.route, channel.idx)
+    return planner_owns_segment_or_boundary(channel.route, channel.idx)
 
 
 def _fused_sibling_spans(
@@ -1033,10 +1035,7 @@ def _rederive_semantic_end_corners(
                 kind == "source" and route.exit_lane_transition_plan_id is not None
             ) or (kind == "target" and route.exit_turn_segment_rank == rank):
                 continue
-            if respect_owned_corners and (
-                planner_owns_segment(route, rank)
-                or route_system_owns_segment_boundary(route, rank)
-            ):
+            if respect_owned_corners and planner_owns_segment_or_boundary(route, rank):
                 continue
             cohorts[kind, owner, incoming, outgoing].append(
                 _SemanticEndCorner(
@@ -1160,12 +1159,17 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     The trunks the materialization pass owns: exempt and non-exempt alike,
     filtered to those carrying a declared slot so an undeclared leg (which would
     have no gap to fan into) is left to :func:`_dogleg_off_exempt_trunks`.
+
+    Read on :func:`planner_owns_segment_or_boundary` rather than the
+    segment-boundary half alone, which is the rule the guards that close on the
+    result read: a trunk leg can itself be a planned exit turn's segment, whose
+    Y the fan would then choose against the plan.
     """
     return [
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
-        and not route_system_owns_segment_boundary(t.route, t.idx)
+        and not planner_owns_segment_or_boundary(t.route, t.idx)
     ]
 
 
@@ -1991,10 +1995,7 @@ def _unify_coincident_corner_radii(
     )
 
     def corner_is_owned(route: RoutedPath, radius_index: int) -> bool:
-        corner_rank = radius_index + 1
-        return planner_owns_segment(
-            route, corner_rank
-        ) or route_system_owns_segment_boundary(route, corner_rank)
+        return planner_owns_segment_or_boundary(route, radius_index + 1)
 
     for rp in routes:
         radii = rp.curve_radii
@@ -3105,6 +3106,11 @@ def _bundle_divergent_distinct_descents(
         # arc centre there and nowhere later.
         if frozen and not (settle_frozen_arcs and tight):
             continue
+        # Reaching the next gate with an owned channel means the gate above let
+        # it through on ``settle_frozen_arcs and tight``, since a route-system
+        # boundary is one of the ways :func:`_planner_owns_channel` answers
+        # true.  Its ``not tight`` is therefore already false: it declines a
+        # group no construction produces.
         if (
             any(
                 route_system_owns_segment_boundary(channel.route, channel.idx)
@@ -3938,15 +3944,8 @@ def _restack_trunk_band(
 
 
 def _inter_row_gap_band(ctx: _RoutingCtx, y: float) -> tuple[float, float] | None:
-    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*.
-
-    Scans adjacent grid rows for the gap whose ``[row_bottom, next_row_top]``
-    band contains *y*; returns ``None`` when *y* doesn't fall in any gap.
-    """
-    for _upper, top, bottom in iter_inter_row_gaps(ctx.graph):
-        if top - COORD_TOLERANCE <= y <= bottom + COORD_TOLERANCE:
-            return top, bottom
-    return None
+    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*."""
+    return inter_row_gap_band(ctx.graph, y)
 
 
 def _htrunk_seg(t: _HTrunk, y: float) -> HTrunkSeg:
@@ -4082,22 +4081,20 @@ def _dogleg_off_exempt_trunks(
         if hit is None:
             continue
         separation = _exempt_trunk_separation(t, hit, ctx.curve_radius)
-        band = _inter_row_gap_band(ctx, t.y)
-        below, above = hit.y + separation, hit.y - separation
-        if band is not None:
-            top, bottom = band
-            below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
-            above_ok = above >= top
-        else:
-            below_ok = above_ok = True
+        lanes = exempt_dogleg_lanes(
+            _htrunk_seg(t, t.y),
+            _htrunk_seg(hit, hit.y),
+            separation=separation,
+            band=_inter_row_gap_band(ctx, t.y),
+        )
+        below, above = lanes.below_y, lanes.above_y
+        below_ok, above_ok = lanes.below_ok, lanes.above_ok
+        cross_below, cross_above = lanes.below_crossing, lanes.above_crossing
         # Pick the side that keeps the trunk a crossing-free parallel bundle:
         # nudging it onto the side whose riser would pierce the exempt run (or
         # whose run the exempt riser would pierce) trades one fused stroke for
         # two crossings.  Among crossing-equal sides, fall back to the side the
         # trunk already leans toward.
-        obstacle = _htrunk_seg(hit, hit.y)
-        cross_below = trunk_segments_cross(_htrunk_seg(t, below), obstacle)
-        cross_above = trunk_segments_cross(_htrunk_seg(t, above), obstacle)
         prefer_below = t.y >= hit.y
         if below_ok and above_ok and (cross_below is None) != (cross_above is None):
             use_below = cross_below is None
@@ -4226,10 +4223,19 @@ def _separate_fused_cotravelling_runs(
             eligible_route_ids is None
             or all(id(run.route) in eligible_route_ids for run in lane.runs)
         )
+        # Plan ownership binds outside the carve-out, which waives the wider
+        # boundary reading alone, and only for a route whose route-system ranks
+        # this caller is itself still allocating.  ``CorridorLane.pinned``
+        # keeps a plan-owned lane out of ``_reseating_order`` either way;
+        # naming the rule here keeps this pass on the one
+        # ``check_no_fused_cotravelling_lines`` closes on, which attributes a
+        # lane to exactly the plan kinds :func:`planner_owns_segment` names.
         and not any(
             planner_owns_segment(run.route, run.idx)
-            or route_system_owns_segment_boundary(run.route, run.idx)
-            and id(run.route) not in secondary_movable_route_ids
+            or (
+                route_system_owns_segment_boundary(run.route, run.idx)
+                and id(run.route) not in secondary_movable_route_ids
+            )
             for run in lane.runs
         )
         and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)
@@ -4882,16 +4888,24 @@ def _gap_channel_base(
     takes priority over the column-level gap: the column edge can sit on the
     far side of a cell-mate, well past the section the channel is meant to
     hug.
+
+    A gap beyond the outermost column is bounded on one side only, and
+    :func:`off_grid_gap_bundle_midpoint` seats the bundle against that one
+    edge.  :func:`_materialize_gap_slots` names each channel's gap by the
+    stricter ``require_both_columns`` reading, which reports such a gap as
+    degenerate and passes over it, so what this returns for one is the
+    channel's final position rather than an initial placement.
     """
+    width = max(0, n - 1) * offset_step
     edges = None
     if anchor_section_id is not None and anchor_side is not None:
         edges = packed_cell_neighbor_edges(graph, anchor_section_id, anchor_side)
-    gap_left, gap_right = edges or column_gap_edges(
-        graph, lo, lo + 1, row=row, require_both_columns=False
-    )
-    return symmetric_bundle_midpoint(
-        gap_left, gap_right, [max(0, n - 1) * offset_step], 0
-    )
+    if edges is None:
+        off_grid = off_grid_gap_bundle_midpoint(graph, lo, row, width)
+        if off_grid is not None:
+            return off_grid
+        edges = column_gap_edges(graph, lo, lo + 1, row=row, require_both_columns=False)
+    return symmetric_bundle_midpoint(*edges, [width], 0)
 
 
 def _clear_channel_x_in_band(

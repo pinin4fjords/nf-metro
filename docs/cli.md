@@ -37,9 +37,10 @@ each write to their own sibling `<input>.<format>`; every file is attempted
 even if an earlier one fails, successful outputs are kept, and the command
 exits non-zero if any failed.
 
-Any exception not already recognised as a pipeline error surfaces as a plain
-error message rather than a traceback; set `NF_METRO_DEBUG=1` to re-raise it
-instead.
+A rejected input, and any other failure, surfaces as a plain error message
+rather than a traceback; set `NF_METRO_DEBUG=1` to re-raise the original
+exception instead. An empty file, or one whose `graph` block holds no
+stations, is rejected by name rather than drawn.
 
 Most of the options below also have a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
@@ -54,13 +55,13 @@ Most of the options below also have a `%%metro` directive twin; an explicitly-pa
 
 ### Theme and branding
 
-| Option                                                                                  | Default                      | Description                                                                                                                                                   |
-| --------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. Directive twin: `%%metro style:`            |
-| `--mode [light\|dark]`                                                                  | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`              |
-| `--logo PATH`                                                                           | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                           |
-| `--title TEXT`                                                                          | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                              |
-| `--caption TEXT`                                                                        | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:` |
+| Option                                                                                        | Default                      | Description                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. `dark` is a legacy alias for `nfcore`. Takes the same names as its directive twin `%%metro style:`, but exactly as spelled here: an unknown or wrong-case name exits with an error, where the directive warns and falls back |
+| `--mode [light\|dark]`                                                                        | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`                                                                                                                                                                                               |
+| `--logo PATH`                                                                                 | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                                                                                                                                                                                                            |
+| `--title TEXT`                                                                                | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                                                                                                                                                                                                               |
+| `--caption TEXT`                                                                              | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:`                                                                                                                                                                                  |
 
 `--theme light` is the transparent embed theme rather than a brand: it has no
 light/dark pair, so `--mode` does not apply to it.
@@ -95,6 +96,13 @@ light/dark pair, so `--mode` does not apply to it.
 | `--width INTEGER`                          | auto              | Output width in pixels                                                                                                                                                                                                                                                              |
 | `--height INTEGER`                         | auto              | Output height in pixels                                                                                                                                                                                                                                                             |
 
+Spacings, scales, `--fold-threshold` and output dimensions must be greater
+than 0; the section gaps, `--track-gap`, `--legend-min-height` and
+`--legend-logo-gap` also accept 0. Every numeric option also requires a
+finite number, so `nan` and `inf` are refused. Out of range, the flag exits
+with an error and the equivalent `%%metro` directive warns and keeps the
+default.
+
 ### Line styling
 
 | Option                             | Default                 | Description                                                                                                                                                                                                                                                                                                               |
@@ -114,11 +122,20 @@ These carry into the rendered SVG's manifest and drive [live progress](/nf-metro
 
 ### Guard behaviour
 
-| Option                           | Default | Description                                                                                                                                                               |
-| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--validate`                     | off     | After rendering, run the render-geometry guards on the produced SVG and fail if any defect is found. SVG output only                                                      |
-| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                       |
-| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict` |
+| Option                           | Default | Description                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--validate`                     | off     | After rendering, fail if the render-geometry guards find a defect in the produced SVG: a route drawn through a station's label or marker, or two lines collapsed onto one stroke. Tier-A layout-invariant violations stay warnings here; `--strict` fails on those. SVG output only, and only for a map that keeps its manifest, which the guards read the drawn geometry through |
+| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                                                                                                                                                                                                                               |
+| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict`                                                                                                                                                                                                         |
+
+### Warnings
+
+A map that parses with complaints (an unknown `%%metro` directive, a non-LR
+primary direction) or a layout that widens a gap to fit its routing reports
+each one as a bulleted `Warnings:` block on stderr, and still writes the map.
+A geometry guard that was downgraded rather than enforced gets its own block:
+those name geometry that was drawn anyway and may be defective there, so read
+them differently from a warning about something merely ignored or adjusted.
 
 ### Embedding options
 
@@ -128,13 +145,19 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--responsive / --no-responsive`       | off     | Emit `viewBox` only (no fixed `width`/`height`) for CSS-scalable embedding                                                                                                                                                                                  |
 | `--embed-font / --no-embed-font`       | off     | Inline a subset of Inter as a base64 `@font-face` block so the SVG renders identically on any host regardless of installed fonts                                                                                                                            |
-| `--text-to-paths / --no-text-to-paths` | off     | Convert all text to vector paths, removing font dependencies entirely. Loses selectable text; requires `fonttools[woff]`                                                                                                                                    |
+| `--text-to-paths / --no-text-to-paths` | off     | Convert all text to vector paths, removing font dependencies entirely. Loses selectable text; needs the font extra (`pip install "nf-metro[font]"`)                                                                                                         |
 | `--bare / --no-bare`                   | off     | Omit the title and outer padding so the canvas hugs the diagram content (the attribution watermark is kept)                                                                                                                                                 |
 | `--svg-class-prefix TEXT`              | none    | Prefix every SVG presentation class with this string (e.g. `myapp` produces `myapp-nf-metro-station`). Use distinct prefixes for each map on a shared page. No effect on the interactive HTML output, which already scopes each map                         |
 | `--no-self-color-scheme`               | off     | Omit `color-scheme: light dark` from the root `<svg>`. Use when inlining into a host page that owns the theme: the SVG then inherits the page's `color-scheme`, so a manual toggle drives `light-dark()` resolution rather than the viewer's OS preference  |
 | `--no-dark-mode-css`                   | off     | Suppress the `prefers-color-scheme: dark` `<style>` block when a host page manages its own theme and the injected media query would conflict                                                                                                                |
 | `--no-chrome-css`                      | off     | Omit the chrome `--nfm-*` CSS custom-property `<style>` block. Colors still render (they are baked as presentation attributes); only live host recoloring is dropped. Needed for raster export, since cairosvg and similar rasterizers cannot parse `var()` |
-| `--manifest / --no-manifest`           | on      | Embed the machine-readable [data manifest](/nf-metro/manifest/) (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `--no-manifest` emits the drawn map only. Directive twin: `%%metro manifest:`                     |
+
+Every SVG carries the machine-readable [data manifest](/nf-metro/manifest/) (the
+`<metadata>` block and per-node `data-node-*` attributes). Opt out per map with
+`%%metro manifest: false`. A `--manifest`/`--no-manifest` flag pair backs that
+directive but is deliberately absent from `render --help`: it is an internal
+escape hatch for a one-off render, used by nf-metro's own docs-site rendering,
+and the directive is the supported control.
 
 ### Interactive HTML output
 
@@ -155,6 +178,10 @@ Pass `--validate` to check the _drawn_ SVG after rendering and fail (non-zero ex
 ```bash frame="terminal"
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
+
+The guards read the drawn SVG through its embedded manifest, so `--validate` refuses a map that turns the manifest off with `%%metro manifest: false` rather than reporting a pass it did not check.
+
+`--validate` covers those drawn-geometry guards only. A Tier-A layout-invariant violation (two stations landing on the same coordinate, say) is reported as a warning and still renders; pass `--strict` to exit non-zero on one, or use [`nf-metro validate --with-layout`](#nf-metro-validate) to catch it before rendering at all.
 
 To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](#nf-metro-validate-svg).
 
@@ -233,6 +260,9 @@ nf-metro validate [OPTIONS] INPUT_FILE
 | `--with-layout` | off     | Also run the layout engine with its full invariant suite, reporting any layout failure as an error instead of a traceback |
 | `--strict`      | off     | Treat warnings (e.g. a non-LR primary direction) as errors                                                                |
 
+A map with no stations is reported as a warning here, since `render` refuses
+to draw one.
+
 ## `nf-metro info`
 
 Show information about a parsed map: sections, lines, stations, and edges. The default output is a stable human summary.
@@ -245,6 +275,11 @@ nf-metro info [OPTIONS] INPUT_FILE
 | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `--json`    | off     | Emit the full introspection as JSON, for scripting                                                                                     |
 | `--verbose` | off     | Add the section dependency graph, per-line routes, inferred auto-layout defaults, and synthetic ports and junctions to the text output |
+
+Parse warnings print as a `Warnings:` block on stderr, keeping the summary on
+stdout clean. `--verbose` and `--json` carry them in the report itself instead.
+
+`Style:` reports the theme the map resolves to, which is the name `render --theme` accepts.
 
 ## `nf-metro explain`
 
@@ -270,16 +305,16 @@ nf-metro serve [OPTIONS] INPUT_FILE [-- LAUNCH_CMD...]
 
 Stations are tied to processes with `%%metro process:` directives in the map, so only mapped stations change state. Everything about the event format, the overlay styles, and the endpoints is covered in [Live progress](/nf-metro/live/).
 
-| Option                                                                                  | Default       | Description                                                                                            |
-| --------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
-| `--port INTEGER`                                                                        | 8080          | Port to listen on                                                                                      |
-| `--host TEXT`                                                                           | `127.0.0.1`   | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts     |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | from `style:` | Visual theme, the same choices as `render --theme`                                                     |
-| `--overlay [ring\|pulse\|dot\|led]`                                                     | `ring`        | Status-overlay style shown until a viewer picks another in the page                                    |
-| `--token TEXT`                                                                          | none          | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header                          |
-| `--open`                                                                                | off           | Open the live page in a browser                                                                        |
-| `--shutdown-after-complete`                                                             | off           | Stop the server shortly after the run's completed or error event (or after the launched command exits) |
-| `--shutdown-grace FLOAT`                                                                | 10            | Seconds to keep the map up after the run finishes, with `--shutdown-after-complete`                    |
+| Option                                                                                        | Default       | Description                                                                                            |
+| --------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| `--port INTEGER`                                                                              | 8080          | Port to listen on                                                                                      |
+| `--host TEXT`                                                                                 | `127.0.0.1`   | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts     |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:` | Visual theme, the same choices as `render --theme`                                                     |
+| `--overlay [ring\|pulse\|dot\|led]`                                                           | `ring`        | Status-overlay style shown until a viewer picks another in the page                                    |
+| `--token TEXT`                                                                                | none          | If set, `/events` POSTs must supply `?token=...` or an `X-Metro-Token` header                          |
+| `--open`                                                                                      | off           | Open the live page in a browser                                                                        |
+| `--shutdown-after-complete`                                                                   | off           | Stop the server shortly after the run's completed or error event (or after the launched command exits) |
+| `--shutdown-grace FLOAT`                                                                      | 10            | Seconds to keep the map up after the run finishes, with `--shutdown-after-complete`                    |
 
 With an SVG input the map is served exactly as drawn, so `--theme` applies only to a `.mmd` input.
 
@@ -304,13 +339,13 @@ Run a persistent live server many pipelines can report into. Unlike `serve`, it 
 nf-metro serve-multi [OPTIONS]
 ```
 
-| Option                                                                                  | Default     | Description                                                                                        |
-| --------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
-| `--port INTEGER`                                                                        | 8080        | Port to listen on                                                                                  |
-| `--host TEXT`                                                                           | `127.0.0.1` | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts |
-| `--theme [nfcore\|nfcore-light\|nfcore-dark\|seqera\|seqera-light\|seqera-dark\|light]` | `nfcore`    | Visual theme, the same choices as `render --theme`                                                 |
-| `--overlay [ring\|pulse\|dot\|led]`                                                     | `ring`      | Status-overlay style shown until a viewer picks another in the page                                |
-| `--token TEXT`                                                                          | none        | If set, POSTs to `/maps` and `/r/*/events` must supply `?token=...` or an `X-Metro-Token` header   |
+| Option                                                                                        | Default     | Description                                                                                        |
+| --------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| `--port INTEGER`                                                                              | 8080        | Port to listen on                                                                                  |
+| `--host TEXT`                                                                                 | `127.0.0.1` | Interface to bind. The default is local only; use `0.0.0.0` to accept connections from other hosts |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | `nfcore`    | Visual theme, the same choices as `render --theme`                                                 |
+| `--overlay [ring\|pulse\|dot\|led]`                                                           | `ring`      | Status-overlay style shown until a viewer picks another in the page                                |
+| `--token TEXT`                                                                                | none        | If set, POSTs to `/maps` and `/r/*/events` must supply `?token=...` or an `X-Metro-Token` header   |
 
 The nf-metro Nextflow plugin's `metro.server` mode does the register-and-emit automatically. See [Live progress](/nf-metro/live/#2b-persistent-server-many-runs).
 
@@ -334,6 +369,13 @@ Validate a rendered SVG's embedded manifest against the [manifest JSON Schema](/
 
 ```bash frame="terminal"
 nf-metro validate-svg [OPTIONS] SVG_FILE
+```
+
+Schema validation needs `jsonschema`, which is not a runtime dependency. It
+ships in the `validate` extra:
+
+```bash frame="terminal"
+pip install "nf-metro[validate]"
 ```
 
 | Option       | Default | Description                                                                                                                                                                                                                                             |

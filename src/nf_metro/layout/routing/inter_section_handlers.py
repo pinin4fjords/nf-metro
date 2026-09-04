@@ -1254,7 +1254,7 @@ def _route_right_entry_cross_row(f: _InterFacts) -> RoutedPath | None:
         )
     if f.tgt_row is not None and _right_entry_gap_above_is_clear(f):
         return _route_right_entry_via_gap_above(
-            edge, src, tgt, tgt, f.i, f.n, ctx, f.tgt_row
+            edge, src, tgt, f.i, f.n, ctx, f.tgt_row
         )
     return _route_right_entry_around_below(f)
 
@@ -1325,7 +1325,7 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
     if kind is _LeftEntryRoute.LEFT_EXIT_DROP:
         return _route_left_exit_left_entry_drop(edge, src, tgt, ctx)
     if kind is _LeftEntryRoute.CORRIDOR:
-        return _route_inter_row_gap_corridor(edge, src, tgt, tgt, f.i, f.n, ctx)
+        return _route_inter_row_gap_corridor(edge, src, tgt, f.i, f.n, ctx)
     if kind is _LeftEntryRoute.GAP_ABOVE:
         assert f.tgt_row is not None
         return _route_left_entry_via_gap_above(edge, src, tgt, f.i, f.n, ctx, f.tgt_row)
@@ -1338,7 +1338,7 @@ def _route_left_entry_family(f: _InterFacts) -> RoutedPath | None:
 
 def _route_left_entry_corridor(f: _InterFacts) -> RoutedPath | None:
     """Build the corridor leaf selected for a cross-row LEFT entry."""
-    return _route_inter_row_gap_corridor(f.edge, f.src, f.tgt, f.tgt, f.i, f.n, f.ctx)
+    return _route_inter_row_gap_corridor(f.edge, f.src, f.tgt, f.i, f.n, f.ctx)
 
 
 def _takes_left_entry_corridor(f: _InterFacts) -> bool:
@@ -1653,7 +1653,7 @@ def _route_merge_entry_kind(
             is_inter_section=True,
         ),
         _MergeEntryRoute.CORRIDOR: lambda: _route_inter_row_gap_corridor(
-            edge, src, tgt, ep, f.i, f.n, ctx
+            edge, src, ep, f.i, f.n, ctx
         ),
         _MergeEntryRoute.AROUND_BELOW: lambda: _route_around_section_below(
             edge, src, tgt, ep, f.i, f.n, ctx
@@ -2286,47 +2286,6 @@ def _route_tb_bottom_exit(
     )
 
 
-def _route_tb_bottom_exit_approach_fan(
-    edge: Edge, src: Station, tgt: Station, ctx: _RoutingCtx
-) -> RoutedPath | None:
-    """Drop from a TB BOTTOM exit onto a distinct-line port's approach channel.
-
-    At a distinct-line perp entry (:func:`needs_perp_approach_fan`) the feeders
-    each carry one line and all leave the same column trunk, so their feeder
-    lanes coincide on one X.  Land each on its own approach channel instead --
-    the per-line X :func:`perp._perp_approach_fan_x` pins the intra-section
-    drop to -- so the distinct lines ride parallel channels into the port rather
-    than overlaying one vertical channel.
-
-    A feeder leaves the BOTTOM port downward, jogs across the inter-row gap onto
-    its channel, then drops in, so any lateral step turns through bounded corners
-    rather than a raw diagonal.  A feeder already on its channel has a zero-width
-    jog, which the bundle builder collapses to a clean straight drop.
-    """
-    land_x = _perp_approach_fan_x(ctx, edge.target, edge.line_id, tgt.x)
-    sy, ty = src.y, tgt.y
-
-    dy = ty - sy
-    hy = inter_row_channel_y(
-        ctx.graph,
-        src,
-        tgt,
-        sy,
-        ty,
-        dy,
-        ctx.curve_radius,
-        reserved=ctx.reserved_bands.rows,
-    )
-    lo, hi = (sy, ty) if dy >= 0 else (ty, sy)
-    hy = min(max(hy, lo + ctx.curve_radius), hi - ctx.curve_radius)
-    return route_along(
-        edge,
-        [(edge, edge.line_id, 0.0)],
-        [(src.x, sy), (src.x, hy), (land_x, hy), (land_x, ty)],
-        base_radius=ctx.curve_radius,
-    )
-
-
 def _around_stack_channel_x(f: _InterFacts) -> float:
     """X of a descent channel just left of the feeder's stacked column.
 
@@ -2502,7 +2461,6 @@ def _bottom_exit_junction_geometry(
     edge: Edge,
     src: Station,
     tgt: Station,
-    ctx: _RoutingCtx,
     exit_x_offset: Callable[[str], float],
     members: list[_TaperedMember],
     tgt_center: float,
@@ -2566,7 +2524,7 @@ def _bottom_exit_junction_parts(
 
     members, _, tgt_center = gather_tapered_bundle(ctx, edge)
     geometry = _bottom_exit_junction_geometry(
-        edge, src, tgt, ctx, exit_x_offset, members, tgt_center
+        edge, src, tgt, exit_x_offset, members, tgt_center
     )
     rigid = [(e, line_id, src_off, src_off) for e, line_id, src_off, _tgt in members]
     return geometry, members, rigid, exit_x_offset
@@ -2870,7 +2828,7 @@ def _would_route_around_section_below(edge: Edge, ctx: _RoutingCtx) -> bool:
 
 
 def _has_around_section_sibling(
-    edge: Edge, ep: Station, ep_port: Port | None, ctx: _RoutingCtx
+    edge: Edge, ep_port: Port | None, ctx: _RoutingCtx
 ) -> bool:
     """Detect whether another edge to the same entry port will route via
     :func:`_route_around_section_below`.
@@ -2989,7 +2947,7 @@ def _merge_trunk_shape(f: _InterFacts) -> _MergeTrunkShape:
             f.src_row,
             f.tgt_row,
         ),
-        ep is not None and _has_around_section_sibling(edge, ep, ep_port, ctx),
+        ep is not None and _has_around_section_sibling(edge, ep_port, ctx),
         None,
     )
 
@@ -4021,7 +3979,6 @@ def _l_shape_mid_x(
         src,
         tgt,
         sx,
-        tx,
         dx,
         max_r,
         ctx.offset_step,
@@ -4348,9 +4305,7 @@ def _perp_exit_over_geometry(
         reverses it on a BOTTOM one; the right-hand normal on the centreline's
         vertical legs reverses the BOTTOM sign back, so it is negated here.
         """
-        d = _perp_riser_lateral(
-            ctx, edge.source, line_id, src_port.side, src.section_id
-        )
+        d = _perp_riser_lateral(ctx, edge.source, line_id, src_port.side)
         return d if is_top else -d
 
     src_offs = {lid: source_lateral(lid) for lid in line_ids}
@@ -6251,7 +6206,6 @@ def _corridor_is_viable(ctx: _RoutingCtx, src: Station, entry_port: Station) -> 
 def _route_inter_row_gap_corridor(
     edge: Edge,
     src: Station,
-    tgt: Station,
     entry_port: Station,
     i: int,
     n: int,
@@ -7051,7 +7005,6 @@ def _build_right_entry_wrap_route(
 def _route_right_entry_via_gap_above(
     edge: Edge,
     src: Station,
-    tgt: Station,
     entry_port: Station,
     i: int,
     n: int,

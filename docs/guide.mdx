@@ -305,7 +305,7 @@ These go at the top of the file, before `graph LR`.
 | `%%metro process: <station> \| <regex>`                                    | Tie a station to the Nextflow process(es) it represents, for live progress (see [Live progress](/nf-metro/live/)). The regex matches the fully-qualified process name; repeat the directive to attach several patterns to one station. Pure metadata - it never affects the rendered map.                                                                                                              |
 | `%%metro auto_process: <bool>`                                             | Give every station with no explicit `process:` directive its own id as a default process pattern, so a map whose station ids already name their processes lights up live with no per-station mapping (see [Live progress](/nf-metro/live/)). Off by default; CLI equivalent `--auto-process`.                                                                                                          |
 | `%%metro process_scope: <prefix>`                                          | Common fully-qualified-name prefix shared by the pipeline's processes (e.g. `NFCORE_RNASEQ:RNASEQ`). Each `process:` value is then the tail under this scope, matched literally and tolerant of intermediate subworkflow nesting (see [Live progress](/nf-metro/live/)). CLI equivalent `--process-scope`.                                                                                             |
-| `%%metro manifest: <bool>`                                                 | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` (or `--no-manifest`) emits the drawn map only.                                                                                                                                                                                            |
+| `%%metro manifest: <bool>`                                                 | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `%%metro manifest: false` emits the drawn map only.                                                                                                                                                                                                                 |
 
 **Logos.** `%%metro logo: <path>` bundles one image into the legend, and that image is used whatever the display mode. `%%metro logo: <light-path> | <dark-path>` supplies a pair instead. Both assets are embedded, each behind a CSS `light-dark()` mask, so one rendered SVG shows the light asset to a viewer whose `color-scheme` is light and the dark asset to one whose scheme is dark - the same adaptation the palette gets, with no second render:
 
@@ -375,7 +375,7 @@ Auto-layout infers an interchange automatically wherever the lanes are _fully pa
 %%metro interchange: markduplicates | tumor | normal
 ```
 
-The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
+The lanes are listed one rail per pipe-group; commas bundle several lines onto the same rail. A rail may name a line the node does not carry, so one directive can be written for a family of maps: such a line is not placed, and a rail left with no line the node carries drops out. A node left with fewer than two live rails is not an interchange, and is reported. Auto-detection deliberately abstains when two lines share a predecessor or successor (e.g. two callers feeding one merge): there the convergence is doing real work, so it is left alone. It also abstains when another lane's rail would fall between the interchange's rails, since the connector bar would then cut across that lane's stations. Interchanges are skipped inside `rails` sections, which already lay every line on its own rail. The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour/normal lanes.
 
 ### Section directives
 
@@ -392,13 +392,41 @@ Entry/exit hints tell the layout engine which side of the section box lines shou
 
 Automatic section numbers follow connected visual routes. Numbering prefers the nearest connected section on the current row, keeps parallel branch starts together, and completes independent inputs before a merge. A clear primary row can finish before numbering a secondary route that rejoins it. An explicit `number:` stays fixed, and automatic sections use the lowest positive numbers not already reserved. Duplicate or invalid overrides are ignored with a warning.
 
+### Typos and duplicate declarations
+
+A directive can name a station, section, or line the file defines further down,
+so ids are resolved once the whole file has been read. An id that appears
+nowhere - a typo, usually - is reported and its directive dropped:
+
+```console
+$ nf-metro validate map.mmd
+Validation warnings:
+  - %%metro off_track: unknown station id 'sample_shet'; ignoring
+Valid: 24 stations, 26 edges, 3 lines, 5 sections
+```
+
+A value outside a directive's accepted set (`style:`, `mode:`, `line_order:`, a
+port side, and so on) is reported the same way, leaving the default or the
+inferred value in place.
+
+`%%metro line:` has three rules of its own:
+
+- A second declaration of an already-declared id is dropped, so the first one
+  wins.
+- A declaration missing its id, name or colour is dropped whole. Any edge
+  annotated with a line the map only tried to declare is then a hard error,
+  rather than a map that renders with no lines.
+- A colour that is neither a hex value, a CSS colour name nor a functional
+  notation like `rgb(...)` is reported but kept, so a colour syntax nf-metro
+  does not model reaches the SVG as written.
+
 ## CLI flags and directive precedence
 
 Every layout and render option can be set two ways: a `%%metro` directive in the file, or the matching `nf-metro render` CLI flag. They share one precedence rule:
 
 > **CLI flag (when passed) → `%%metro` directive → built-in default.**
 
-Set the directive in your committed `.mmd` so the map reproduces from the file alone, and reach for the flag only to tweak a single render without editing the file. The two planes always use the same name (the flag is the kebab-cased directive); a directive and its flag are defined from one registry, so they cannot drift apart.
+Set the directive in your committed `.mmd` so the map reproduces from the file alone, and reach for the flag only to tweak a single render without editing the file. Most pairs are generated from one registry, so the flag is the kebab-cased directive and neither plane can gain an option the other lacks. The table below is the authority on the rest: `style:` is spelled `--theme` on the command line, and `manifest:` has no flag you should reach for (it writes a graph field named `embed_manifest`, and its flag is an internal escape hatch kept out of `--help`). A pair takes the same names, though a flag takes them exactly as documented: an unknown or wrong-case value exits with an error, where the directive warns and keeps the default.
 
 | Directive            | CLI flag                                     | Default           |
 | -------------------- | -------------------------------------------- | ----------------- |
@@ -433,7 +461,7 @@ Set the directive in your committed `.mmd` so the map reproduces from the file a
 | `permissive:`        | `--permissive` / `--no-permissive`           | off               |
 | `auto_process:`      | `--auto-process` / `--no-auto-process`       | off               |
 | `process_scope:`     | `--process-scope`                            | (none)            |
-| `manifest:`          | `--manifest` / `--no-manifest`               | on                |
+| `manifest:`          | (internal escape hatch, not in `--help`)     | on                |
 
 `--output`, `--format`, `--from-nextflow`, `--debug`, `--validate`, and the embedding flags (`--responsive`, `--embed-font`, `--text-to-paths`, `--svg-class-prefix`, `--bare`, `--no-self-color-scheme`, `--no-dark-mode-css`, `--no-chrome-css`) have no directive: they select the output target, a diagnostic overlay, or how the SVG is packaged for a host, rather than describing the diagram. `--inactive-lines` is the per-render counterpart to the `inactive` field on `%%metro line:`, and replaces that set outright.
 

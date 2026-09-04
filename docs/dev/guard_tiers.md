@@ -67,7 +67,8 @@ The classification is data, not prose:
 
 - **`GUARD_REGISTRY`** (`phases/guards.py`) - the single ordered source of
   truth for the `validate=True` guard call sequence. Its order _is_ the call
-  order; `run_validate_guards` iterates it. Each entry is a `GuardSpec` with
+  order; `run_validate_guards` iterates it. Each entry is a `GuardSpec`
+  (`layout/phase_state.py`) with
   `tier`, the `needs` set (which of `offsets` / `routes` / `section_y_*` the
   guard takes), `bisection_safe` (runs at every Pass C checkpoint, gated by
   `first_valid_stage`) vs final-only, and the `_BISECTION_FIRST_VALID` data
