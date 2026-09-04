@@ -33,6 +33,7 @@
   "common.py::if endpoints:::#1",
   "common.py::if hi - lo <= COORD_TOLERANCE:::#1",
   "common.py::if k == 0 or k + 2 >= len(points):::#1",
+  "common.py::if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:::#1",
   "common.py::if moves and _section_intrudes(::#1",
   "common.py::if moves and tail_segment_is_held(route, segment_rank, target_x):::#1",
   "common.py::if n == 0:::#1",
