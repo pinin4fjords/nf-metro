@@ -30,23 +30,31 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = PROJECT_ROOT / "tests" / "data" / "routing_gate_coverage_baseline.json"
 SCRIPT_PATH = PROJECT_ROOT / "scripts" / "routing_gate_coverage.py"
 
+# The dedicated CI job sets this, so the interpreter skip below cannot let that
+# job report success on a run where the ratchet never executed.  A developer
+# sweeping the whole suite on another interpreter leaves it unset and skips.
+REQUIRE_ENV_VAR = "NF_METRO_REQUIRE_GATE_COVERAGE"
+
 
 @pytest.fixture(scope="module")
 def rgc():
     """The coverage script as an importable module, behind the version skip.
 
     The arc model is interpreter-specific, so the baseline only holds on the
-    pinned CPython; skip elsewhere.
+    pinned CPython; skip elsewhere unless :data:`REQUIRE_ENV_VAR` demands a run.
     """
     sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
     import routing_gate_coverage as module
 
     if sys.version_info[:2] != module.BASELINE_PYTHON:
-        pytest.skip(
+        reason = (
             f"gate baseline is pinned to CPython {module.BASELINE_PYTHON[0]}."
             f"{module.BASELINE_PYTHON[1]}; coverage's arc model differs on "
             f"{sys.version_info[0]}.{sys.version_info[1]}"
         )
+        if os.environ.get(REQUIRE_ENV_VAR) == "1":
+            pytest.fail(f"{REQUIRE_ENV_VAR}=1 but {reason}", pytrace=False)
+        pytest.skip(reason)
     return module
 
 

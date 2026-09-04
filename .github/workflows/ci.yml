@@ -144,3 +144,5 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev,font]"
       - run: pytest -n 0 tests/test_routing_gate_coverage.py
+        env:
+          NF_METRO_REQUIRE_GATE_COVERAGE: "1"
