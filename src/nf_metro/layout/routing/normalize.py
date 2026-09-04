@@ -4220,10 +4220,19 @@ def _separate_fused_cotravelling_runs(
             eligible_route_ids is None
             or all(id(run.route) in eligible_route_ids for run in lane.runs)
         )
+        # Plan ownership binds outside the carve-out, which waives the wider
+        # boundary reading alone, and only for a route whose route-system ranks
+        # this caller is itself still allocating.  ``CorridorLane.pinned``
+        # keeps a plan-owned lane out of ``_reseating_order`` either way;
+        # naming the rule here keeps this pass on the one
+        # ``check_no_fused_cotravelling_lines`` closes on, which attributes a
+        # lane to exactly the plan kinds :func:`planner_owns_segment` names.
         and not any(
             planner_owns_segment(run.route, run.idx)
-            or route_system_owns_segment_boundary(run.route, run.idx)
-            and id(run.route) not in secondary_movable_route_ids
+            or (
+                route_system_owns_segment_boundary(run.route, run.idx)
+                and id(run.route) not in secondary_movable_route_ids
+            )
             for run in lane.runs
         )
         and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)

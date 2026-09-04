@@ -3286,6 +3286,14 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuse the result both have to agree on which coordinates are theirs: a pass
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
+
+    Only the convergence arm reaches a boundary beside *rank*: a trunk axis
+    states a run whose two corners it fixes as well, while a member plan and an
+    exit turn each enumerate the segments they own.  A caller wanting the wider
+    reading on every arm asks for it by name
+    (:func:`route_system_owns_segment_boundary`), and one wanting it on a single
+    side says which side, as ``_corridor_run_band`` does for the leg feeding a
+    planned turn.
     """
     return (
         convergence_owns_segment_boundary(route, rank)
