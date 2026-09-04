@@ -50,7 +50,6 @@ class LayoutOption:
     sign: NumberSign = "any"
     max_val: float | None = None  # inclusive upper bound for numeric options
     parse_time: bool = False  # consumed during parsing, not after
-    hidden: bool = False  # omit the generated CLI flag from --help
 
     @property
     def target_attr(self) -> str:
@@ -272,7 +271,6 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         name="manifest",
         attr="embed_manifest",
         kind="bool",
-        hidden=True,
         help="Embed the machine-readable data manifest (the <metadata> block "
         "and per-node data-node-* attributes) in the SVG. On by default; "
         "--no-manifest emits the drawn map only.",

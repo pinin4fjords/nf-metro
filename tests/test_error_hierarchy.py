@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from nf_metro import NfMetroError, render_string
+from nf_metro import EmptyGraphError, NfMetroError, render_string
 from nf_metro.layout import (
     BackwardFlowError,
     FoldThresholdError,
@@ -47,6 +47,7 @@ NOT_VALUE_ERRORS = (
     SettledRouteValidationError,
 )
 AUTHORING_ERROR_TYPES = [
+    EmptyGraphError,
     CyclicGraphError,
     UnresolvedEndpointError,
     UnresolvedPortSectionError,

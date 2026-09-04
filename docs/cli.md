@@ -37,9 +37,10 @@ each write to their own sibling `<input>.<format>`; every file is attempted
 even if an earlier one fails, successful outputs are kept, and the command
 exits non-zero if any failed.
 
-Any exception not already recognised as a pipeline error surfaces as a plain
-error message rather than a traceback; set `NF_METRO_DEBUG=1` to re-raise it
-instead.
+A rejected input, and any other failure, surfaces as a plain error message
+rather than a traceback; set `NF_METRO_DEBUG=1` to re-raise the original
+exception instead. An empty file, or one whose `graph` block holds no
+stations, is rejected by name rather than drawn.
 
 Most of the options below also have a `%%metro` directive twin; an explicitly-passed flag overrides the directive (see the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide).
 
@@ -95,6 +96,11 @@ light/dark pair, so `--mode` does not apply to it.
 | `--width INTEGER`                          | auto              | Output width in pixels                                                                                                                                                                                                                                                              |
 | `--height INTEGER`                         | auto              | Output height in pixels                                                                                                                                                                                                                                                             |
 
+Spacings, scales, `--fold-threshold` and output dimensions must be greater
+than 0; the section gaps, `--track-gap`, `--legend-min-height` and
+`--legend-logo-gap` also accept 0. A value outside an option's range is
+rejected by the flag and by its `%%metro` directive alike.
+
 ### Line styling
 
 | Option                             | Default                 | Description                                                                                                                                                                                                                                                                                                               |
@@ -114,11 +120,18 @@ These carry into the rendered SVG's manifest and drive [live progress](/nf-metro
 
 ### Guard behaviour
 
-| Option                           | Default | Description                                                                                                                                                               |
-| -------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--validate`                     | off     | After rendering, run the render-geometry guards on the produced SVG and fail if any defect is found. SVG output only                                                      |
-| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                       |
-| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict` |
+| Option                           | Default | Description                                                                                                                                                                                                                                                                         |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--validate`                     | off     | After rendering, fail if the render-geometry guards find a defect in the produced SVG: a route drawn through a station's label or marker, or two lines collapsed onto one stroke. Tier-A layout-invariant violations stay warnings here; `--strict` fails on those. SVG output only |
+| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                                                                                                                                 |
+| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict`                                                                                                           |
+
+### Warnings
+
+A map that parses with complaints (an unknown `%%metro` directive, a
+non-LR primary direction) or a layout that widens a gap to fit its routing
+reports each one as a bulleted `Warnings:` block on stderr, and renders. The
+map is still written; the block says what nf-metro ignored or adjusted.
 
 ### Embedding options
 
@@ -155,6 +168,8 @@ Pass `--validate` to check the _drawn_ SVG after rendering and fail (non-zero ex
 ```bash frame="terminal"
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
+
+`--validate` covers those drawn-geometry guards only. A Tier-A layout-invariant violation (two stations landing on the same coordinate, say) is reported as a warning and still renders; pass `--strict` to exit non-zero on one, or use [`nf-metro validate --with-layout`](#nf-metro-validate) to catch it before rendering at all.
 
 To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](#nf-metro-validate-svg).
 
@@ -245,6 +260,11 @@ nf-metro info [OPTIONS] INPUT_FILE
 | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `--json`    | off     | Emit the full introspection as JSON, for scripting                                                                                     |
 | `--verbose` | off     | Add the section dependency graph, per-line routes, inferred auto-layout defaults, and synthetic ports and junctions to the text output |
+
+Parse warnings print as a `Warnings:` block on stderr, keeping the summary on
+stdout clean. `--verbose` and `--json` carry them in the report itself instead.
+
+`Style:` reports the theme the map resolves to, which is the name `render --theme` accepts.
 
 ## `nf-metro explain`
 

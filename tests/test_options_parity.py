@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+import click
 import pytest
 
 from nf_metro.api import apply_layout_overrides, resolve_theme
@@ -47,6 +48,31 @@ def test_every_option_is_in_both_planes():
         assert opt.target_attr in fields, (
             f"{opt.name}: no graph field {opt.target_attr}"
         )
+
+
+def test_numeric_flags_enforce_the_registry_bounds():
+    """Each numeric flag rejects exactly what the directive plane rejects.
+
+    ``sign`` and ``max_val`` gate a directive payload through
+    :func:`nf_metro.options.coerce`; the generated flag must carry the same
+    bounds so one plane cannot admit a value the other refuses.
+    """
+    params = {p.name: p for p in render.params}
+    for opt in LAYOUT_OPTIONS:
+        if opt.kind not in ("int", "float"):
+            continue
+        ptype = params[opt.name].type
+        assert isinstance(ptype, click.IntRange | click.FloatRange), (
+            f"{opt.name}: flag has no range"
+        )
+        assert ptype.min == (0 if opt.sign in ("nonneg", "positive") else None), (
+            f"{opt.name}: lower bound does not match sign={opt.sign!r}"
+        )
+        assert ptype.min_open is (opt.sign == "positive"), (
+            f"{opt.name}: zero is {'accepted' if ptype.min_open else 'rejected'} "
+            f"against sign={opt.sign!r}"
+        )
+        assert ptype.max == opt.max_val, f"{opt.name}: upper bound does not match"
 
 
 def test_no_duplicate_or_shadowed_options():
