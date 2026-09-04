@@ -1517,10 +1517,17 @@ def test_line_declaration_with_an_id_outside_the_identifier_charset_is_rejected(
     bad_id,
 ):
     """A line id lands in SVG class/data-* attributes verbatim, so it is
-    constrained to the same charset as node/section ids at declaration time."""
-    src = f"%%metro line: {bad_id} | Name | #ff0000\ngraph LR\n    a[A] -->|x| b[B]\n"
-    with pytest.raises(ValueError, match=r"\[a-zA-Z_\]\[a-zA-Z0-9_\]\*"):
-        parse_metro_mermaid(src)
+    constrained to the same charset as node/section ids at declaration time.
+    A rejected declaration is skipped (like every other malformed ``line:``
+    field), so the id is simply never declared; an edge that references it
+    is caught by the undeclared-line check instead."""
+    src = (
+        f"%%metro line: {bad_id} | Name | #ff0000\n"
+        f"graph LR\n    a[A] -->|{bad_id}| b[B]\n"
+    )
+    with pytest.warns(UserWarning, match=r"\[a-zA-Z_\]\[a-zA-Z0-9_\]\*"):
+        with pytest.raises(ValueError, match="undeclared metro lines"):
+            parse_metro_mermaid(src)
 
 
 def test_line_declaration_with_a_valid_identifier_id_is_accepted():

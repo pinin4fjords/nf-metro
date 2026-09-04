@@ -22,12 +22,19 @@ from nf_metro.parser.model import UNANNOTATED_LINE_ID
 # shaped endpoints.
 _SHAPE_INNER = r"(?:(?!-->|---|==>).)+"
 
+# Charset for node, section, and line ids. Exposed as a module-level constant
+# (rather than left inline in the NAME terminal below) so callers outside the
+# grammar - e.g. line-id validation in directives.py - can match it without
+# invoking the parser.
+_IDENTIFIER_CHARSET = r"[a-zA-Z_][a-zA-Z0-9_]*"
+
 # Grammar for the Mermaid subset nf-metro accepts. The document is a sequence
 # of newline-separated statements; inline whitespace (indentation, spacing
 # around arrows) is ignored, but whitespace inside the whole-line terminals
 # (labels, directive bodies) is part of the match. Whole-line terminals carry
 # an explicit priority so they win the tie against NAME on their keyword.
-# ``_I_`` in the SHAPE terminal is substituted with ``_SHAPE_INNER`` below.
+# ``_I_`` in the SHAPE terminal is substituted with ``_SHAPE_INNER``, and
+# ``_ID_`` in the NAME terminal with ``_IDENTIFIER_CHARSET``, below.
 _GRAMMAR = r"""
 start: (_statement? _NL)* _statement?
 
@@ -57,7 +64,7 @@ COMMENT.3: /%%[^\n]*/
 ARROW.4: /-->|---|==>/
 EDGELABEL.4: /\|[^|\n]*\|/
 SHAPE.4: /\(\[_I_\]\)|\[\[_I_\]\]|\(\(_I_\)\)|\[_I_\]|\(_I_\)|\{_I_\}/
-NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+NAME: /_ID_/
 JUNK.-10: /[^\n]+/
 
 _NL: /\r?\n/
@@ -261,7 +268,11 @@ class _StatementTransformer(Transformer[Token, list[_Statement]]):
 # low-priority junk rule and be dropped. A lalr/contextual parser commits
 # token-by-token and cannot backtrack such a line to junk, so it would turn a
 # dropped line (e.g. an inline-shaped edge endpoint) into a fatal error.
-_PARSER = Lark(_GRAMMAR.replace("_I_", _SHAPE_INNER), parser="earley", lexer="dynamic")
+_PARSER = Lark(
+    _GRAMMAR.replace("_I_", _SHAPE_INNER).replace("_ID_", _IDENTIFIER_CHARSET),
+    parser="earley",
+    lexer="dynamic",
+)
 _TRANSFORMER = _StatementTransformer()
 
 
