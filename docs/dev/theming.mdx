@@ -6,6 +6,7 @@ sidebar:
 ---
 
 import Metro from "@components/Metro.astro";
+import { Aside } from "@astrojs/starlight/components";
 
 An nf-metro SVG has no separate light and dark version, and nf-metro never
 re-renders it when the viewer's theme changes. Every themeable color is baked
@@ -91,27 +92,29 @@ the host's choice. That's why `--no-self-color-scheme` exists: leaving the
 property off the SVG root is what lets a host's manual toggle reach it at
 all.
 
-## What the docs site actually passes, and why
-
-`--no-self-color-scheme` alone isn't the whole story - it only decides _whose_
+`--no-self-color-scheme` alone isn't the whole story: it only decides _whose_
 preference wins. Something still has to supply a `light-dark()` pair to
-resolve in the first place, and that's the chrome CSS from the `var()`
-ingredient above. These are two independent levers, and every `<Metro>` embed
-on this site needs both set correctly. The actual settings, from
-`renderMetroFile` (`website/src/lib/render-metro.mjs:254-296`):
+resolve in the first place - that's a separate, independent job, done by the
+chrome CSS from the `var()` ingredient above. Both have to be right for an
+embedded map to stay theme-adaptive.
 
-| Flag                     | Inline embed (`<Metro>`) | OG image raster export |
-| ------------------------ | ------------------------ | ---------------------- |
-| `--no-self-color-scheme` | always                   | always                 |
-| `--no-chrome-css`        | never                    | always                 |
-| `--no-manifest`          | always                   | always                 |
+<Aside type="tip" title="What this docs site itself passes">
 
-`--no-chrome-css` is the one that would break theming here: it bakes chrome
-colors to one concrete value, so if it were passed to an inline embed there
-would be no `light-dark()` pair left for `--no-self-color-scheme` to matter
-about. It's reserved for the OG-image path, which needs one fixed image
-anyway. `--no-manifest` just skips per-node metadata `<Metro>` doesn't use;
-it has no effect on theming.
+From `renderMetroFile` (`website/src/lib/render-metro.mjs:254-296`):
+
+| Flag                     | `<Metro>` inline embed | OG image export |
+| ------------------------ | ---------------------- | --------------- |
+| `--no-self-color-scheme` | always                 | always          |
+| `--no-chrome-css`        | never                  | always          |
+
+`--no-chrome-css` bakes chrome colors to one concrete value, so if an inline
+embed passed it there would be no `light-dark()` pair left for
+`--no-self-color-scheme` to matter about. It's reserved for the OG-image
+path, which needs one fixed image anyway, not a page-following one.
+(`--no-manifest` is also passed to every embed here, but only skips per-node
+metadata `<Metro>` doesn't use - it has no effect on theming.)
+
+</Aside>
 
 ## The transparent-background fallback
 
