@@ -357,11 +357,15 @@ def _mode_colors(value):
     return fallback, fallback
 
 
-def test_chrome_css_cannot_repaint_a_muted_element():
+# The muted rules are built from the theme, and a single-mode theme emits a bare
+# colour where a light/dark pair emits ``light-dark()``, so both shapes are worth
+# covering.
+@pytest.mark.parametrize("brand", ["nfcore", "seqera", "light"])
+def test_chrome_css_cannot_repaint_a_muted_element(brand):
     # A presentation attribute loses to every author rule, so a muted colour
     # only survives in a browser if the rule that wins its property is also the
     # muted colour.  Asserting the attribute alone would pass either way.
-    svg = _svg(CASCADE_MAP)
+    svg = _svg(CASCADE_MAP, theme=brand)
     rules = _chrome_rules(svg)
     root = ET.fromstring(svg)
     covered = set()
