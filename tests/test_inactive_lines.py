@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from nf_metro import RenderConfig, UnknownInactiveLineError, render_string
+from nf_metro.api import prepare_graph
 from nf_metro.errors import NfMetroError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
@@ -14,8 +15,8 @@ from nf_metro.render.constants import (
     station_is_muted,
 )
 from nf_metro.render.plan import FrozenRecord
-from nf_metro.render.svg import _muted_line_theme
-from nf_metro.themes import NFCORE_DARK_THEME
+from nf_metro.render.svg import _muted_line_theme, render_svg
+from nf_metro.themes import NFCORE_DARK_THEME, resolve_theme
 
 MUTED = NFCORE_DARK_THEME.muted_line_color
 
@@ -401,6 +402,60 @@ def test_chrome_css_and_presentation_attribute_agree_on_muting(brand):
     assert ("fill", "Mid") in covered
     assert ("fill", "Sizes") in covered
     assert {prop for prop, _ in covered} == {"fill", "stroke"}
+
+
+# ---------------------------------------------------------------------------
+# render_svg direct entry point (playground / live server path)
+# ---------------------------------------------------------------------------
+
+# render_svg is the entry point the browser playground and the live-progress
+# server call directly, bypassing RenderConfig/render_graph_result. It must
+# resolve the map's declared-inactive set itself, or those surfaces silently
+# render every line active.
+
+
+def _render_svg(src, **kwargs):
+    graph = prepare_graph(src)
+    theme = resolve_theme(None, graph)
+    return graph, theme, render_svg(graph, theme, **kwargs)
+
+
+def test_render_svg_mutes_declared_inactive_by_default():
+    graph, theme, svg = _render_svg(DECLARED_INACTIVE_MAP)
+    muted = theme.muted_line_color
+    assert 'stroke="#ff0000"' not in svg
+    assert f'stroke="{muted}"' in svg
+    assert _rects_by_station(svg)["x"] == {muted}
+
+
+def test_render_svg_explicit_override_replaces_declared_set():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset({"b"}))
+    assert 'stroke="#ff0000"' in svg  # line a active
+    assert 'stroke="#0000ff"' not in svg  # line b muted
+    rects = _rects_by_station(svg)
+    assert theme.muted_line_color not in rects["x"]
+    assert rects["z"] == {theme.muted_line_color}
+
+
+def test_render_svg_empty_override_forces_all_active():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset())
+    assert 'stroke="#ff0000"' in svg
+    assert 'stroke="#0000ff"' in svg
+    rects = _rects_by_station(svg)
+    assert theme.muted_line_color not in rects["x"]
+    assert theme.muted_line_color not in rects["z"]
+
+
+def test_render_svg_unknown_inactive_line_raises():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    with pytest.raises(UnknownInactiveLineError) as exc:
+        render_svg(graph, theme, inactive_line_ids=frozenset({"nope"}))
+    assert "nope" in str(exc.value)
 
 
 def test_muted_theme_overrides_every_field_on_a_plain_theme():
