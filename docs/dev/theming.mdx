@@ -287,6 +287,34 @@ rendered branch preview in both directions
 Either way, inline the SVG for `var()` overrides too; nothing in the `<img>`
 exception carries those. That's why nf-metro's docs site inlines its maps.
 
+## Checklist: publishing a pre-defined nf-metro diagram
+
+For a diagram that's rendered once and committed (a pipeline's workflow map,
+say), rather than generated per-request by whatever displays it, one SVG can
+still be the whole answer. Getting there needs four things, pulled together
+from the sections above:
+
+1. **Pick a paired brand** - `nfcore` or `seqera` via `--theme`/`%%metro
+style:`. The standalone `light` theme has no dark sibling and will not
+   adapt beyond three text elements, no matter what else is done right (see
+   the Aside above).
+2. **Supply a light/dark logo pair** if there's a logo: `%%metro logo:
+light.png | dark.png`.
+3. **Don't render the copy you actually embed with `--no-chrome-css`.**
+   Reserve that flag for a separate raster-bound copy (PNG export via
+   `cairosvg` or similar); the file a viewer loads directly needs to keep
+   `light-dark()` intact.
+4. **Leave `self_color_scheme` at its default** (don't pass
+   `--no-self-color-scheme`) when the file will be referenced via `<img>`,
+   as opposed to inlined into a page you control. The `<img>`-embedding
+   substitution described above already overrides the SVG's own declared
+   `color-scheme` regardless, so there's nothing to opt out of.
+
+Do all four and the file adapts correctly in Chromium and Firefox,
+regardless of what embeds it, and falls back safely to the viewer's own OS
+setting in Safari rather than the host page's theme. That's the ceiling for
+a single file - there is no fifth step that closes the Safari gap.
+
 ## Using this outside nf-metro
 
 None of this is nf-metro-specific. Standalone:
