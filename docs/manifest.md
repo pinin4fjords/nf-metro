@@ -127,7 +127,8 @@ required fields are exactly the [minimum-conforming](#minimum-to-be-conforming)
 set.
 
 To validate an SVG, read its manifest out and check it against the schema. In
-Python (`pip install jsonschema` - it is not an nf-metro runtime dependency):
+Python (`jsonschema` is not an nf-metro runtime dependency; `pip install
+"nf-metro[validate]"` adds it):
 
 ```python
 import jsonschema
@@ -146,8 +147,8 @@ nf-metro validate-svg pipeline.svg
 # Valid: 42 nodes, schema version 1.0   (exits non-zero if it doesn't conform)
 ```
 
-(`validate-svg` uses `jsonschema`; install it with `pip install jsonschema` if it
-isn't already present.)
+(`validate-svg` needs the same package, so `pip install "nf-metro[validate]"`
+covers it too.)
 
 Add `--geometry` to also check the _drawn_ picture, not just the schema: it flags
 a route drawn through a station's label or marker (rail interchanges excepted).

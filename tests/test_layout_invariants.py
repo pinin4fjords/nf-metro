@@ -9788,7 +9788,7 @@ def test_debug_grid_overlay_boundaries_outside_section_bboxes(fixture):
     segment for that column is dropped.  This test asserts no emitted
     segment cuts any section bbox in the rows/columns it joins.
 
-    Bug: https://github.com/pinin4fjords/nf-metro/issues/316
+    Bug: https://github.com/seqeralabs/nf-metro/issues/316
     """
     from nf_metro.render.svg import (
         _compute_col_boundary_xs,

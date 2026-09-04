@@ -29,6 +29,8 @@ from nf_metro.parser.commitments import (
 from nf_metro.parser.directives import (
     _apply_directive,
     _deduplicate_section_number_overrides,
+    _resolve_legend_combos,
+    _warn_unresolved_references,
 )
 from nf_metro.parser.grammar import (
     _Comment,
@@ -115,7 +117,7 @@ def _check_unsupported_input(text: str) -> None:
             "without %%metro directives). Use 'nf-metro convert' to "
             "convert it to nf-metro format first, or pass "
             "'--from-nextflow' to 'nf-metro render'.\n\n"
-            "See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/"
+            "See: https://seqeralabs.github.io/nf-metro/latest/nextflow/"
         )
 
     if has_flowchart:
@@ -123,7 +125,7 @@ def _check_unsupported_input(text: str) -> None:
             "Mermaid 'flowchart' syntax is not supported. "
             "Use 'graph LR' with %%metro directives instead.\n\n"
             "See the guide: "
-            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+            "https://seqeralabs.github.io/nf-metro/latest/guide/"
         )
 
 
@@ -288,6 +290,8 @@ def _finalize_graph(
 ) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
+    _resolve_legend_combos(graph)
+    _warn_unresolved_references(graph)
     authored_routes = capture_authored_routes(graph)
     graph.layout_provenance.capture_authored_intent(
         graph,
@@ -441,21 +445,17 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
 
     scope = graph.process_scope
     for station_id, pattern in graph._pending_process:
-        if station_id in graph.stations:
-            # Under a scope the prefix anchors the start and the literal tail
-            # anchors the final segment(s), tolerating intermediate subworkflow
-            # nesting between them; without a scope the value is a regex matched
-            # as-is (the legacy behaviour).
-            if scope:
-                effective = rf"(?:^|:){re.escape(scope)}:(?:.+:)?{re.escape(pattern)}$"
-            else:
-                effective = pattern
-            graph.process_mapping.setdefault(station_id, []).append(effective)
+        if station_id not in graph.stations:
+            continue
+        # Under a scope the prefix anchors the start and the literal tail
+        # anchors the final segment(s), tolerating intermediate subworkflow
+        # nesting between them; without a scope the value is a regex matched
+        # as-is.
+        if scope:
+            effective = rf"(?:^|:){re.escape(scope)}:(?:.+:)?{re.escape(pattern)}$"
         else:
-            warnings.warn(
-                f"%%metro process: unknown station id {station_id!r}; ignoring",
-                stacklevel=2,
-            )
+            effective = pattern
+        graph.process_mapping.setdefault(station_id, []).append(effective)
 
     if graph.auto_process:
         for station_id, station in graph.stations.items():
