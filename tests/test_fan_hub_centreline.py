@@ -36,6 +36,7 @@ from nf_metro.layout.phases.guards import (
     _guard_fork_join_hub_centreline_agree,
 )
 from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.model import MetroGraph
 
 
 def _bare_fan(n: int) -> str:
@@ -124,27 +125,6 @@ def test_ported_fan_centreline_reaches_ports_and_trunk(n: int) -> None:
     assert not off, f"off the hub centreline y={centre}: {off}"
 
 
-def _single_fork_diamond() -> str:
-    return """%%metro title: diamond
-%%metro diamond_style: symmetric
-%%metro line: x | X | #24b064
-graph LR
-    subgraph s [S]
-        hub[Hub]
-        a[A]
-        b[B]
-        c[C]
-        j[Join]
-        hub -->|x| a
-        hub -->|x| b
-        hub -->|x| c
-        a -->|x| j
-        b -->|x| j
-        c -->|x| j
-    end
-"""
-
-
 def _two_overlapping_fans() -> str:
     return """%%metro title: overlapping fans
 %%metro diamond_style: symmetric
@@ -169,7 +149,12 @@ graph LR
 """
 
 
-def _seat_diamond_hub_off_centre(graph, hub_id: str) -> None:
+def _seat_diamond_hub_off_centre(
+    graph: MetroGraph,
+    hub_id: str,
+    branch_ids: tuple[str, str, str] = ("a", "b", "c"),
+    join_id: str = "j",
+) -> None:
     """Seat the three branches at 0/40/80 with the join on their 40 midpoint and
     ``hub_id`` a full 10px off it.
 
@@ -178,8 +163,9 @@ def _seat_diamond_hub_off_centre(graph, hub_id: str) -> None:
     sources - with the hub deliberately off the centreline so the guard reports
     it unless the pair is exempt.
     """
-    for sid, y in (("a", 0.0), ("b", 40.0), ("c", 80.0), ("j", 40.0)):
+    for sid, y in zip(branch_ids, (0.0, 40.0, 80.0), strict=True):
         graph.stations[sid].y = y
+    graph.stations[join_id].y = 40.0
     graph.stations[hub_id].y = 30.0
 
 
@@ -205,9 +191,9 @@ def test_centreline_guard_flags_broken_single_fork_diamond() -> None:
     Every branch here has ``hub`` as its only fork, so the pair is a real
     diamond; moving the hub off the join midpoint must still raise.
     """
-    graph = parse_metro_mermaid(_single_fork_diamond())
+    graph = parse_metro_mermaid(_bare_fan(3))
     compute_layout(graph, validate=False)
-    _seat_diamond_hub_off_centre(graph, "hub")
+    _seat_diamond_hub_off_centre(graph, "hub", branch_ids=("b0", "b1", "b2"))
     with pytest.raises(PhaseInvariantError, match="disagree on centreline"):
         _guard_fork_join_hub_centreline_agree(graph, "test")
 
