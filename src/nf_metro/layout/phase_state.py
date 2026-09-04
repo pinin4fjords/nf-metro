@@ -25,9 +25,9 @@ poke or a drifted document reds CI rather than rotting silently.
 :class:`GuardSpec`, the schema for one ``validate=True`` guard, sits here too.
 The guard registries that use it (``phases/guards.py`` and
 ``routing/invariants.py``) sit on opposite sides of the layout/routing boundary,
-so their shared schema belongs in a module with no ``nf_metro`` imports of its
-own; that also puts it beside the stage vocabulary its ``first_valid_stage``
-draws on.
+so their shared schema belongs in a module with no module-level ``nf_metro``
+imports of its own; that also puts it beside the stage vocabulary its
+``first_valid_stage`` draws on.
 """
 
 from __future__ import annotations
