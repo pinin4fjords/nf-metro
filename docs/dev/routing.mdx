@@ -297,9 +297,9 @@ where `exit_side` is `None` when the source is a junction without a port
 side, and `drow_sign` / `dcol_sign` are `sign()` values in
 `{-1, 0, +1}` describing the section-grid step. Each value is a
 `WrapDescriptor` recording the `RouteKind` (e.g. `L_SHAPE`,
-`TOP_ENTRY_L_SHAPE`, `LEFT_ENTRY_WRAP`, `RIGHT_ENTRY_WRAP`,
-`TB_BOTTOM_EXIT`) and a `TurnSequence` - the ordered
-list of `Corner`s (each an `(incoming, outgoing)` `Direction` pair).
+`TOP_ENTRY_L_SHAPE`, `LEFT_ENTRY_WRAP`, `RIGHT_ENTRY_WRAP`, `TB_BOTTOM_EXIT`)
+and a `TurnSequence` - the ordered list of `Corner`s (each an
+`(incoming, outgoing)` `Direction` pair).
 
 `TurnSequence.parity` counts how many times the corner handedness
 (`CW` / `CCW`) flips along the path; it is the contract pinned by
