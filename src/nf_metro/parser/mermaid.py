@@ -19,6 +19,7 @@ import re
 import warnings
 from collections import defaultdict
 from collections.abc import Callable
+from pathlib import Path
 
 from nf_metro.options import LineOrder, is_line_order
 from nf_metro.parser.commitments import (
@@ -198,6 +199,20 @@ def _validate_edge_annotations(graph: MetroGraph) -> None:
                 for lid in sorted(undeclared_lines)
             )
         )
+
+
+def parse_metro_mermaid_file(path: Path, **kwargs: object) -> MetroGraph:
+    """Parse the map at *path*, recording the directory it came from.
+
+    ``graph.source_dir`` is what a ``%%metro logo:`` path resolves against.
+    Reading a map's text and calling :func:`parse_metro_mermaid` directly drops
+    that, leaving the asset resolvable only while the process working directory
+    happens to sit where the path was written from; load from disk through here
+    instead so no caller has to remember.
+    """
+    graph = parse_metro_mermaid(path.read_text(), **kwargs)  # type: ignore[arg-type]
+    graph.source_dir = str(path.parent)
+    return graph
 
 
 def parse_metro_mermaid(

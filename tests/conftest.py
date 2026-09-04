@@ -150,6 +150,7 @@ def compute_corpus_layout(path: Path, is_nextflow: bool) -> MetroGraph:
     if is_nextflow:
         text = convert_nextflow_dag(text)
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(path.parent)
     compute_layout(graph, validate=True)
     return graph
 

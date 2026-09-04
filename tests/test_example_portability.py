@@ -40,16 +40,26 @@ def test_example_corpus_is_not_empty():
     assert LOGO_EXAMPLES
 
 
+# Its consumer hands `prepare_graph` the repository root as the source
+# directory, so this map's logo path is root-relative by design.
+_ROOT_RELATIVE_BY_DESIGN = {"tests/fixtures/candidate_executor/control.mmd"}
+
+
 def test_every_shipped_logo_path_resolves_from_its_own_map():
     """A logo path resolves against the directory its `.mmd` sits in.
 
     One written from the repository root instead resolves only while the
-    process working directory happens to be that root. This reads every map
-    under `examples/`, the render-heavy tests above being too slow to cover
-    the topology corpus.
+    process working directory happens to be that root. Reading the directives
+    covers every map in the repository, including the topology and fixture
+    corpora that the render-based tests above are too slow to sweep.
     """
     offenders = []
-    for mmd in sorted(EXAMPLES_DIR.rglob("*.mmd")):
+    corpus = sorted(EXAMPLES_DIR.rglob("*.mmd")) + sorted(
+        (REPO_ROOT / "tests").rglob("*.mmd")
+    )
+    for mmd in corpus:
+        if mmd.relative_to(REPO_ROOT).as_posix() in _ROOT_RELATIVE_BY_DESIGN:
+            continue
         for line in mmd.read_text().splitlines():
             if not line.startswith("%%metro logo:"):
                 continue

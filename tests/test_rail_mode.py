@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 
 from nf_metro.layout import compute_layout
-from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.mermaid import (
+    parse_metro_mermaid,
+    parse_metro_mermaid_file,
+)
 from nf_metro.parser.model import LineSpread, is_bypass_v
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -842,8 +845,7 @@ def test_no_rail_directive_default_off_byte_identical():
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 
-    src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    g = parse_metro_mermaid(src)
+    g = parse_metro_mermaid_file(EXAMPLES / "rnaseq_auto.mmd")
     assert g.has_rail_sections is False
     compute_layout(g)
     svg = render_svg(g, THEMES["nfcore"])

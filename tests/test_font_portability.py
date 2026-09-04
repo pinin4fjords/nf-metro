@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from nf_metro.layout import compute_layout
-from nf_metro.parser import parse_metro_mermaid
+from nf_metro.parser import parse_metro_mermaid_file
 from nf_metro.render.svg import render_svg
 from nf_metro.text_metrics import (
     DEFAULT_TEXT_METRICS,
@@ -28,8 +28,7 @@ FIXTURE_FILE = EXAMPLES[0] if EXAMPLES else None
 
 
 def _render(fixture: Path, font_portability: str | None = None) -> str:
-    text = fixture.read_text()
-    graph = parse_metro_mermaid(text)
+    graph = parse_metro_mermaid_file(fixture)
     compute_layout(graph)
     return render_svg(graph, THEMES["nfcore"], font_portability=font_portability)  # type: ignore[arg-type]
 
