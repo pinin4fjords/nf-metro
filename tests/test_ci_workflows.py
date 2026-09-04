@@ -1,6 +1,7 @@
 """Repository invariants for GitHub Actions resource usage."""
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,28 @@ def test_test_matrix_uses_committed_timings_and_reports_slow_tests():
     assert "fail-fast: true" in job
     assert "--splitting-algorithm least_duration" in job
     assert "--durations=25" in job
+
+
+def test_routing_gate_job_pins_the_baseline_interpreter_and_demands_a_run():
+    """The gate ratchet's job must be unable to pass without running it.
+
+    ``tests/test_routing_gate_coverage.py`` skips off the baseline interpreter
+    and is ``--ignore``d in the matrix, so a pin that drifted from
+    ``BASELINE_PYTHON`` would leave the two-sided ratchet reporting success
+    from a run of nothing.  ``NF_METRO_REQUIRE_GATE_COVERAGE`` turns that skip
+    into a failure for this job alone.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import routing_gate_coverage
+
+    major, minor = routing_gate_coverage.BASELINE_PYTHON
+    job = _jobs(WORKFLOWS / "ci.yml")["routing-gates"]
+    assert f'python-version: "{major}.{minor}"' in job
+    assert 'NF_METRO_REQUIRE_GATE_COVERAGE: "1"' in job
+    assert (
+        "--ignore=tests/test_routing_gate_coverage.py"
+        in _jobs(WORKFLOWS / "ci.yml")["test"]
+    )
 
 
 def test_render_diff_runs_independently_and_uses_content_cache_key():
