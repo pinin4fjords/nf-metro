@@ -14,6 +14,20 @@ in as a pair, and native CSS picks the right half at display time:
 
 ![Diagram: light-dark(#fff, #1a1a1a) resolves to #fff under a light color-scheme and to #1a1a1a under a dark one](../assets/theming_resolution.svg)
 
+<Aside type="note" title="The recipe, if you just want it">
+
+1. Use `light-dark(light, dark)` for every theme-dependent color.
+2. Set `color-scheme: light dark` on the root - required for `light-dark()`
+   to resolve at all.
+3. Embedding in a page with its own toggle? Drop that `color-scheme` so the
+   SVG inherits the page's instead.
+4. Need host CSS variables too, not just the toggle? Inline the SVG rather
+   than referencing it by URL.
+
+The rest of this page is the reasoning and the exceptions.
+
+</Aside>
+
 ## `light-dark()` and `color-scheme`
 
 `light-dark()` takes two color values and resolves to one of them. It works
