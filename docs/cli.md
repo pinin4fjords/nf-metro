@@ -149,7 +149,13 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 | `--no-self-color-scheme`               | off     | Omit `color-scheme: light dark` from the root `<svg>`. Use when inlining into a host page that owns the theme: the SVG then inherits the page's `color-scheme`, so a manual toggle drives `light-dark()` resolution rather than the viewer's OS preference  |
 | `--no-dark-mode-css`                   | off     | Suppress the `prefers-color-scheme: dark` `<style>` block when a host page manages its own theme and the injected media query would conflict                                                                                                                |
 | `--no-chrome-css`                      | off     | Omit the chrome `--nfm-*` CSS custom-property `<style>` block. Colors still render (they are baked as presentation attributes); only live host recoloring is dropped. Needed for raster export, since cairosvg and similar rasterizers cannot parse `var()` |
-| `--manifest / --no-manifest`           | on      | Embed the machine-readable [data manifest](/nf-metro/manifest/) (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default; `--no-manifest` emits the drawn map only. Directive twin: `%%metro manifest:`                     |
+
+Every SVG carries the machine-readable [data manifest](/nf-metro/manifest/) (the
+`<metadata>` block and per-node `data-node-*` attributes). Opt out per map with
+`%%metro manifest: false`. A `--manifest`/`--no-manifest` flag pair backs that
+directive but is deliberately absent from `render --help`: it is an internal
+escape hatch for a one-off render, used by nf-metro's own docs-site rendering,
+and the directive is the supported control.
 
 ### Interactive HTML output
 

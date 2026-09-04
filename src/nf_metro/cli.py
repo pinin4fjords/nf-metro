@@ -102,6 +102,7 @@ def _layout_cli_option(opt: LayoutOption) -> Callable[..., Any]:
             opt.name,
             default=None,
             help=opt.help,
+            hidden=opt.hidden,
         )
     ctype: Any
     metavar: str | None = None
@@ -121,6 +122,7 @@ def _layout_cli_option(opt: LayoutOption) -> Callable[..., Any]:
         default=None,
         help=opt.help,
         metavar=metavar,
+        hidden=opt.hidden,
     )
 
 

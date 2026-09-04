@@ -1073,11 +1073,36 @@ def test_render_validate_help_scopes_its_promise():
     assert "use --strict to fail on those" in help_text
 
 
-def test_manifest_flag_appears_in_help():
-    """The documented manifest opt-out is discoverable from `render --help`."""
-    result = CliRunner().invoke(cli, ["render", "--help"])
-    assert result.exit_code == 0
-    assert "--manifest / --no-manifest" in result.output
+def test_manifest_flag_is_an_undocumented_escape_hatch(tmp_path):
+    """The manifest opt-out works while staying out of `--help`."""
+    help_result = CliRunner().invoke(cli, ["render", "--help"])
+    assert help_result.exit_code == 0
+    assert "--manifest" not in help_result.output
+    assert "--no-manifest" not in help_result.output
+
+    out = tmp_path / "bare.svg"
+    result = CliRunner().invoke(
+        cli, ["render", str(_simple_map(tmp_path)), "-o", str(out), "--no-manifest"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "diagram-manifest" not in out.read_text()
+
+
+def test_manifest_flag_overrides_a_map_that_opted_out(tmp_path):
+    """`--manifest` restores the manifest `%%metro manifest: false` turned off."""
+    src = _simple_map(tmp_path, prelude="%%metro manifest: false\n")
+    without = tmp_path / "without.svg"
+    with_flag = tmp_path / "with.svg"
+
+    plain = CliRunner().invoke(cli, ["render", str(src), "-o", str(without)])
+    assert plain.exit_code == 0, plain.output
+    assert "diagram-manifest" not in without.read_text()
+
+    overridden = CliRunner().invoke(
+        cli, ["render", str(src), "-o", str(with_flag), "--manifest"]
+    )
+    assert overridden.exit_code == 0, overridden.output
+    assert "diagram-manifest" in with_flag.read_text()
 
 
 def test_theme_option_accepts_every_style_directive_value(tmp_path):
