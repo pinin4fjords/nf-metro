@@ -174,8 +174,8 @@ def test_inactive_only_terminus_icon_label_muted():
     svg = _svg(TERMINUS_MAP)
     active = _icon_label_fill(svg, "b_out", "BAM")
     assert _icon_label_fill(svg, "a_out", "SF") == MUTED
-    # Spelling the active fill out rather than comparing to the constant keeps
-    # the pair of assertions from both passing if the constant became the grey.
+    # A shared constant on both sides of the pair would let one wrong value
+    # satisfy both, so the active fill is pinned to a literal.
     assert active == "#000000"
     assert active != MUTED
 
@@ -301,16 +301,22 @@ def test_render_string_flat_kwarg_overrides():
 # Chrome-CSS cascade
 # ---------------------------------------------------------------------------
 
-# One inactive line carrying a plain station, a marked station and a captioned
-# file terminus, so every element that takes a muted presentation attribute is
-# present: name labels, a marker outline, and a terminus caption.
+# An inactive and an active line, each carrying a plain station, a marked station
+# and a captioned file terminus.  That reaches every element that takes a muted
+# presentation attribute (name labels, a marker outline, a terminus caption) and
+# gives each of them a full-strength counterpart.
 CASCADE_MAP = (
     "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #00ff00\n"
     "%%metro marker: mid | square, solid\n"
+    "%%metro marker: keep | square, solid\n"
     "%%metro file: out | SF | Sizes\n"
+    "%%metro file: kept | BAM | Alignments\n"
     "graph LR\n"
     "    x[X] -->|a| mid[Mid]\n"
     "    mid -->|a| out[ ]\n"
+    "    y[Y] -->|b| keep[Keep]\n"
+    "    keep -->|b| kept[ ]\n"
 )
 
 _CSS_RULE = re.compile(r"([^{}]+)\{([^}]*)\}")
@@ -361,10 +367,12 @@ def _mode_colors(value):
 # colour where a light/dark pair emits ``light-dark()``, so both shapes are worth
 # covering.
 @pytest.mark.parametrize("brand", ["nfcore", "seqera", "light"])
-def test_chrome_css_cannot_repaint_a_muted_element(brand):
-    # A presentation attribute loses to every author rule, so a muted colour
-    # only survives in a browser if the rule that wins its property is also the
-    # muted colour.  Asserting the attribute alone would pass either way.
+def test_chrome_css_and_presentation_attribute_agree_on_muting(brand):
+    # A presentation attribute loses to every author rule, so what a browser
+    # paints is the winning rule, not the attribute.  The two must therefore
+    # agree wherever either says muted: a rule that repaints a muted attribute
+    # drops the mute, and a rule that greys a full-strength attribute invents
+    # one.  Asserting the attribute alone would pass in both cases.
     svg = _svg(CASCADE_MAP, theme=brand)
     rules = _chrome_rules(svg)
     root = ET.fromstring(svg)
@@ -372,25 +380,32 @@ def test_chrome_css_cannot_repaint_a_muted_element(brand):
     for el in root.iter():
         classes = frozenset((el.get("class") or "").split())
         for prop in ("fill", "stroke"):
-            if el.get(prop) != MUTED:
+            attr = el.get(prop)
+            if attr is None:
                 continue
             winner = _winning_value(rules, classes, prop)
-            if winner is None:
+            css_mutes = winner is not None and _mode_colors(winner) == (MUTED, MUTED)
+            if attr != MUTED and not css_mutes:
                 continue
-            assert _mode_colors(winner) == (MUTED, MUTED), (
-                f"{prop} on <{el.tag}> {el.text!r} class={sorted(classes)} "
-                f"is repainted by the chrome rule {winner!r}"
+            where = f"{prop} on <{el.tag}> {el.text!r} class={sorted(classes)}"
+            assert attr == MUTED, (
+                f"{where} is greyed by the chrome rule {winner!r} but renders at {attr}"
+            )
+            assert winner is None or css_mutes, (
+                f"{where} is repainted by the chrome rule {winner!r}"
             )
             covered.add((prop, el.text))
-    # Both muted properties and the terminus caption must have been exercised,
-    # or the map has stopped reaching the elements this guards.
-    assert {prop for prop, _ in covered} == {"fill", "stroke"}
+    # Every element the muted rules exist for must have been reached, or the map
+    # has drifted away from what this guards: a station name label and a
+    # terminus caption for the fill rule, a marker outline for the stroke one.
+    assert ("fill", "Mid") in covered
     assert ("fill", "Sizes") in covered
+    assert {prop for prop, _ in covered} == {"fill", "stroke"}
 
 
 def test_muted_theme_overrides_every_field_on_a_plain_theme():
-    # Renders always pass the plan's FrozenRecord theme; a dataclass Theme takes
-    # the dataclasses.replace path, which this is the only cover for.
+    # A render always passes the plan's FrozenRecord theme; a dataclass Theme
+    # takes the dataclasses.replace path instead.
     muted = _muted_line_theme(NFCORE_DARK_THEME)
     assert not isinstance(muted, FrozenRecord)
     assert muted.station_stroke == MUTED
