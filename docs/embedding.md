@@ -309,7 +309,7 @@ except ValueError as e:
 | Raised when...                                                                   | Type                                                                     | When                 | Also a...    |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------- | ------------ |
 | The `.mmd` grammar or a directive is malformed                                   | plain `ValueError` (**not** an `NfMetroError`, see below)                | parsing              | -            |
-| The source parses to no stations at all                                          | `nf_metro.EmptyGraphError`                                               | parsing              | `ValueError` |
+| The source parses to no stations at all                                          | `nf_metro.EmptyGraphError`                                               | layout               | `ValueError` |
 | An edge or port survives parsing with a dangling reference                       | `nf_metro.parser.UnresolvedEndpointError` / `UnresolvedPortSectionError` | parsing/layout       | `ValueError` |
 | The station graph has a cycle                                                    | `nf_metro.parser.CyclicGraphError`                                       | layout               | `ValueError` |
 | An inter-section edge would have to flow backward                                | `nf_metro.layout.BackwardFlowError`                                      | layout               | `ValueError` |

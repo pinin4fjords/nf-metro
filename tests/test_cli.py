@@ -71,13 +71,14 @@ def test_validate_success():
 
 
 def test_validate_bad_file(tmp_path):
-    """validate command reports parse errors."""
+    """Prose the parser finds no station in is an error, not a valid map."""
     bad = tmp_path / "bad.mmd"
     bad.write_text("not a valid mermaid file")
     runner = CliRunner()
     result = runner.invoke(cli, ["validate", str(bad)])
-    # Should still succeed (no crash), but output says 0 stations
-    assert result.exit_code == 0
+    assert result.exit_code != 0
+    assert "defines no stations" in result.output
+    assert "Traceback" not in result.output
 
 
 @pytest.mark.parametrize("fixture", SEMANTIC_VALID_LAYOUT_BROKEN)
@@ -825,16 +826,20 @@ def test_render_source_without_recognised_stations_is_refused(tmp_path):
     assert "defines no stations" in result.output
 
 
-def test_validate_warns_on_a_station_less_map(tmp_path):
-    """`validate` says so rather than calling a map with nothing in it valid."""
+def test_validate_rejects_a_station_less_map(tmp_path):
+    """`validate` and `render` accept the same maps: neither takes an empty one."""
     src = tmp_path / "empty.mmd"
     src.write_text("")
-    result = CliRunner().invoke(cli, ["validate", str(src)])
-    assert result.exit_code == 0, result.output
-    assert "defines no stations" in result.output
 
-    strict = CliRunner().invoke(cli, ["validate", "--strict", str(src)])
-    assert strict.exit_code != 0
+    validated = CliRunner().invoke(cli, ["validate", str(src)])
+    assert validated.exit_code != 0, validated.output
+    assert "Validation errors:" in validated.output
+    assert "defines no stations" in validated.output
+
+    rendered = CliRunner().invoke(
+        cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
+    )
+    assert rendered.exit_code != 0
 
 
 @pytest.mark.parametrize(
@@ -1168,3 +1173,53 @@ def test_parse_failure_still_reports_earlier_warnings(tmp_path, command, label):
     assert result.exit_code != 0
     assert f"{label}:\n  - {_UNKNOWN_DIRECTIVE_WARNING}" in result.output
     assert "no metro line annotation" in result.output
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "1e400"])
+def test_render_rejects_a_non_finite_numeric_option(tmp_path, value):
+    """A non-finite scale would reach the SVG as an unusable attribute."""
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(
+        cli,
+        ["render", str(_simple_map(tmp_path)), "-o", str(out), "--font-scale", value],
+    )
+    assert result.exit_code == 2, result.output
+    assert "Invalid value for '--font-scale'" in result.output
+    assert not out.exists()
+
+
+def test_batch_failure_names_its_file_once(tmp_path):
+    """A batch labels each job with its file, so the message must not repeat it."""
+    good = _simple_map(tmp_path)
+    empty = tmp_path / "empty.mmd"
+    empty.write_text("")
+    result = CliRunner().invoke(cli, ["render", str(good), str(empty)])
+    assert result.exit_code != 0
+    fail_line = next(
+        line
+        for line in result.output.splitlines()
+        if "FAIL" in line and "empty" in line
+    )
+    assert fail_line.count("empty.mmd") == 1, fail_line
+
+
+def test_batch_failure_reraises_under_debug_env(tmp_path, monkeypatch):
+    """NF_METRO_DEBUG=1 reaches a batch too, where the failing input is unknown."""
+    monkeypatch.setenv("NF_METRO_DEBUG", "1")
+    good = _simple_map(tmp_path)
+    empty = tmp_path / "empty.mmd"
+    empty.write_text("")
+    result = CliRunner().invoke(cli, ["render", str(good), str(empty)])
+    assert type(result.exception).__name__ == "EmptyGraphError"
+
+
+def test_validate_geometry_refuses_a_map_without_a_manifest(tmp_path):
+    """The drawn-geometry guards read the SVG through its manifest."""
+    src = _simple_map(tmp_path, prelude="%%metro manifest: false\n")
+    out = tmp_path / "out.svg"
+    result = CliRunner().invoke(cli, ["render", str(src), "-o", str(out), "--validate"])
+    assert result.exit_code != 0
+    assert "embedded manifest" in result.output
+
+    without_flag = CliRunner().invoke(cli, ["render", str(src), "-o", str(out)])
+    assert without_flag.exit_code == 0, without_flag.output

@@ -297,7 +297,7 @@ HTML_TEMPLATE = """\
 <details class="intro">
 <summary>What is this page?</summary>
 <p>
-<a href="https://github.com/pinin4fjords/nf-metro">nf-metro</a>
+<a href="https://github.com/seqeralabs/nf-metro">nf-metro</a>
 generates metro-map-style SVG diagrams from Mermaid graph definitions.
 This page is automatically generated for every pull request and shows
 <strong>only the renders that changed</strong> compared to the

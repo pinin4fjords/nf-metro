@@ -2212,6 +2212,77 @@ def trunk_segments_cross(a: HTrunkSeg, b: HTrunkSeg) -> tuple[float, float] | No
     return next(iter(trunk_segment_crossings(a, b)), None)
 
 
+def inter_row_gap_band(graph: MetroGraph, y: float) -> tuple[float, float] | None:
+    """Return the ``(top, bottom)`` Y envelope of the inter-row gap holding *y*.
+
+    Scans adjacent grid rows for the gap whose ``[row_bottom, next_row_top]``
+    band contains *y*; returns ``None`` when *y* does not fall in any gap.
+    """
+    for _upper, top, bottom in iter_inter_row_gaps(graph):
+        if top - COORD_TOLERANCE <= y <= bottom + COORD_TOLERANCE:
+            return top, bottom
+    return None
+
+
+class ExemptDoglegLanes(NamedTuple):
+    """The two candidate placements of a movable trunk off an exempt run.
+
+    A trunk fused onto a ``normalize_exempt`` run can seat one corridor
+    ``separation`` below or above it, each clamped to the inter-row gap band.
+    ``below_crossing``/``above_crossing`` hold that placement's first
+    riser/run crossing with the exempt run, or ``None`` when the placement is a
+    clean parallel bundle; ``below_ok``/``above_ok`` record whether the band
+    admits it.
+    """
+
+    below_y: float
+    above_y: float
+    below_ok: bool
+    above_ok: bool
+    below_crossing: tuple[float, float] | None
+    above_crossing: tuple[float, float] | None
+
+
+def exempt_dogleg_lanes(
+    movable: HTrunkSeg,
+    exempt: HTrunkSeg,
+    *,
+    separation: float,
+    band: tuple[float, float] | None,
+) -> ExemptDoglegLanes:
+    """Resolve the below/above lanes a movable trunk can take off an exempt run.
+
+    The two candidate placements sit one *separation* either side of the exempt
+    run at ``exempt.y``; *band* clamps each to the inter-row gap so a placement
+    that would foul the next row's header badge is marked infeasible.
+    ``_dogleg_off_exempt_trunks`` picks the crossing-free side from this, and the
+    dogleg-crossing invariant reads it to tell a forced transit (both sides
+    cross) from an avoidable wrong-side landing.
+    """
+    below = exempt.y + separation
+    above = exempt.y - separation
+    if band is not None:
+        top, bottom = band
+        below_ok = below <= bottom - SECTION_HEADER_PROTRUSION
+        above_ok = above >= top
+    else:
+        below_ok = above_ok = True
+    below_seg = HTrunkSeg(
+        below, movable.xa, movable.xb, movable.before_y, movable.after_y
+    )
+    above_seg = HTrunkSeg(
+        above, movable.xa, movable.xb, movable.before_y, movable.after_y
+    )
+    return ExemptDoglegLanes(
+        below_y=below,
+        above_y=above,
+        below_ok=below_ok,
+        above_ok=above_ok,
+        below_crossing=trunk_segments_cross(below_seg, exempt),
+        above_crossing=trunk_segments_cross(above_seg, exempt),
+    )
+
+
 def compute_bundle_info(
     graph: MetroGraph,
     junction_ids: set[str],
@@ -3215,6 +3286,10 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     refuse the result both have to agree on which coordinates are theirs: a pass
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
+
+    This names one rank exactly.  A pass that translates a whole segment wants
+    :func:`planner_owns_segment_or_boundary` instead, which is the reading the
+    normalisation passes and the closing guards share.
     """
     return (
         convergence_owns_segment_boundary(route, rank)
@@ -3223,6 +3298,19 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
         or (
             route.exit_turn_axis_id is not None and route.exit_turn_segment_rank == rank
         )
+    )
+
+
+def planner_owns_segment_or_boundary(route: RoutedPath, rank: int) -> bool:
+    """Whether a plan fixes this segment or a corner at either end of it.
+
+    Translating a segment stretches its two flanking legs to meet it, so both
+    of its corners re-form: a segment beside a route-system-owned boundary is
+    as unavailable to a pass as an owned segment is.  The normalisation passes
+    and closing guards that read this wider rule read it from here.
+    """
+    return planner_owns_segment(route, rank) or route_system_owns_segment_boundary(
+        route, rank
     )
 
 

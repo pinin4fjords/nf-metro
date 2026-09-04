@@ -62,9 +62,10 @@ def test_numeric_flags_and_directives_accept_the_same_values():
         if opt.kind not in ("int", "float"):
             continue
         ceiling = 3 if opt.max_val is None else opt.max_val
-        probes = [-1, 0, 1, ceiling, ceiling + 1]
-        for probe in probes:
-            text = str(int(probe) if opt.kind == "int" else float(probe))
+        numbers = [-1, 0, 1, ceiling, ceiling + 1]
+        texts = [str(int(n) if opt.kind == "int" else float(n)) for n in numbers]
+        texts += ["nan", "inf", "-inf", "1e400", " 5 ", "+5", "0x10"]
+        for text in texts:
             directive_ok = coerce(opt, text)[0] is not INVALID
             try:
                 params[opt.name].type.convert(text, None, None)

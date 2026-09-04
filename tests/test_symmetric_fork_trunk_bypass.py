@@ -56,17 +56,25 @@ def test_riboseq_alignment_fork_kept_full_pitch_by_trunk_bypass():
     assert _fork_hub_bypasses_trunk_to_exit(
         graph, alignment, "genomecov", "salmon_quant"
     )
-    # The bypass disqualifies the fork from half-pitch compaction.
+    # The bypass disqualifies the fork from half-pitch compaction.  The section's
+    # only other on-track column-mate pair, the producers' output files
+    # bigwig_out/counts_out, is fed by two different stations, so it is not a
+    # fork off one hub and does not qualify either.
     assert not _section_has_symmetric_entry_fork(graph, alignment)
 
     trunk = graph.stations["umi_dedup"].y
     top = graph.stations["genomecov"].y
     bottom = graph.stations["salmon_quant"].y
     # Full pitch: each branch a whole grid unit off the trunk, declared order,
-    # with the trunk row left free for the bypass bundle.
+    # with the trunk row left free for the bypass bundle.  The invariant is this
+    # shape, not coordinate parity with the compact-then-detour path a plain
+    # non-centred layout takes to reach a similar result.
     assert top < trunk < bottom
     assert (trunk - top) == pytest.approx(bottom - trunk, abs=1.0)
     assert (bottom - top) == pytest.approx(116.8, abs=2.0)
+    # The full-pitch branch leaves room for its output file on-track, so the
+    # Coverage sink rides genomecov's branch rather than an off-track detour.
+    assert not graph.stations["bigwig_out"].off_track
 
 
 @pytest.mark.parametrize(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from collections.abc import Callable, Iterable
@@ -66,26 +67,43 @@ def _parse_inactive_lines(value: object) -> frozenset[str] | None:
     return frozenset(s for s in (str(i).strip() for i in items) if s)
 
 
-def _numeric_cli_type(
-    opt: LayoutOption,
-) -> click.IntRange | click.FloatRange | type[int] | type[float]:
+class _FiniteFloatRange(click.FloatRange):
+    """A float range that also refuses a non-finite value.
+
+    Every comparison against ``nan`` is false, so a range bound alone lets it
+    through and the value reaches the drawn SVG as ``font-size="nan"``.
+    ``inf`` clears an open upper bound for the same reason.
+    """
+
+    def _describe_range(self) -> str:
+        """Describe the bounds, or nothing when there are none to describe."""
+        if self.min is None and self.max is None:
+            return ""
+        return super()._describe_range()
+
+    def convert(
+        self, value: float, param: click.Parameter | None, ctx: click.Context | None
+    ) -> float:
+        converted = super().convert(value, param, ctx)
+        if not math.isfinite(converted):
+            self.fail(f"{value!r} is not a finite number", param, ctx)
+        return converted
+
+
+def _numeric_cli_type(opt: LayoutOption) -> click.IntRange | _FiniteFloatRange:
     """Build the click type enforcing a numeric option's declared bounds.
 
     The registry's ``sign`` and ``max_val`` gate the directive plane through
     :func:`nf_metro.options.coerce`; mirroring them here keeps a flag from
-    admitting a value the same option rejects as a ``%%metro`` directive. An
-    option with neither bound gets the plain converter, since click renders an
-    unbounded range as the nonsense hint ``[x<=None]``.
+    admitting a value the same option refuses as a ``%%metro`` directive,
+    where a refusal warns and keeps the default rather than exiting.
     """
-    plain: type[int] | type[float] = int if opt.kind == "int" else float
     lo = None if opt.sign == "any" else 0
-    if lo is None and opt.max_val is None:
-        return plain
     min_open = opt.sign == "positive"
     if opt.kind == "int":
         hi = None if opt.max_val is None else int(opt.max_val)
         return click.IntRange(min=lo, max=hi, min_open=min_open)
-    return click.FloatRange(min=lo, max=opt.max_val, min_open=min_open)
+    return _FiniteFloatRange(min=lo, max=opt.max_val, min_open=min_open)
 
 
 def _layout_cli_option(opt: LayoutOption) -> Callable[..., Any]:
@@ -155,9 +173,23 @@ def _echo_issues(
     _echo_block(label, (issue.format(path) for issue in issues))
 
 
+def _error_prefix(input_file: Path, quiet: bool) -> str:
+    """Return the file prefix an error message needs, if any.
+
+    A batch run labels each job with its file already, so repeating it inside
+    the message names the same file twice.
+    """
+    return "" if quiet else f"{input_file}: "
+
+
+def _debug_reraise() -> bool:
+    """Return whether ``NF_METRO_DEBUG=1`` asks for tracebacks over messages."""
+    return os.environ.get("NF_METRO_DEBUG") == "1"
+
+
 def _clean_error(exc: Exception, prefix: str = "") -> NoReturn:
     """Re-raise *exc* under ``NF_METRO_DEBUG=1``, else present it as one line."""
-    if os.environ.get("NF_METRO_DEBUG") == "1":
+    if _debug_reraise():
         raise exc
     raise click.ClickException(f"{prefix}{exc}")
 
@@ -224,6 +256,8 @@ def _run_batch(items: list[tuple[str, Callable[[], None]]]) -> None:
         try:
             job()
         except Exception as e:
+            if _debug_reraise():
+                raise
             failure_count += 1
             click.echo(f"[{idx}/{total}] FAIL  {label}: {e}", err=True)
         else:
@@ -395,7 +429,8 @@ def _run_batch(items: list[tuple[str, Callable[[], None]]]) -> None:
         "or two lines collapsed onto one stroke. These read the picture as "
         "drawn, including render-time offsets and label lifts. A Tier-A "
         "layout-invariant violation stays a warning; use --strict to fail on "
-        "those. SVG output only."
+        "those. SVG output only, and only for a map that keeps its manifest, "
+        "which the guards read the drawn geometry through."
     ),
 )
 @click.option(
@@ -553,7 +588,7 @@ def _render_one(
         except click.ClickException:
             raise
         except Exception as e:
-            _clean_error(e, f"{input_file}: unexpected error: ")
+            _clean_error(e, f"{_error_prefix(input_file, quiet)}unexpected error: ")
         finally:
             _report_render_warnings(
                 caught,
@@ -589,6 +624,7 @@ def _render_one_unsafe(
     quiet: bool,
 ) -> None:
     text = input_file.read_text()
+    error_prefix = _error_prefix(input_file, quiet)
 
     try:
         graph = prepare_graph(
@@ -610,7 +646,7 @@ def _render_one_unsafe(
         MixedEntryDirectionError,
         PhaseInvariantError,
     ) as e:
-        _clean_error(e, f"{input_file}: ")
+        _clean_error(e, error_prefix)
 
     theme_obj = resolve_theme(theme, graph, mode=mode)
 
@@ -661,11 +697,16 @@ def _render_one_unsafe(
         )
         content = rendered.content
     except (ValueError, FoldThresholdError, PhaseInvariantError) as e:
-        _clean_error(e, f"{input_file}: ")
+        _clean_error(e, error_prefix)
 
     if validate_geometry:
         if format_ == "html":
             raise click.ClickException("--validate applies to --format svg only.")
+        if not graph.embed_manifest:
+            raise click.ClickException(
+                "--validate reads the drawn SVG through its embedded manifest, "
+                "which this map turns off with %%metro manifest: false."
+            )
         findings = validate_render(content, plan=rendered.plan)
         if findings:
             detail = "\n".join(f"  - {f.message}" for f in findings)

@@ -235,8 +235,8 @@ def _prepare_graph_state(
     if not graph.stations:
         raise EmptyGraphError(
             "the map defines no stations, so there is nothing to lay out or "
-            "draw; check that the source declares a graph block and that its "
-            "node and edge lines sit inside it"
+            "draw; the source declares no node or edge lines the parser "
+            "recognised"
         )
 
     apply_layout_overrides(graph, opts)

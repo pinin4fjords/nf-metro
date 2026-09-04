@@ -160,8 +160,8 @@ def validate_graph(graph: MetroGraph) -> list[ValidationIssue]:
     if not graph.stations:
         issues.append(
             ValidationIssue(
-                WARNING,
-                "the map defines no stations; rendering it will be refused",
+                ERROR,
+                "the map defines no stations, so there is nothing to draw",
             )
         )
 

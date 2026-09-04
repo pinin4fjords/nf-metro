@@ -71,8 +71,9 @@ def test_authoring_error_is_nf_metro_error(error_type: type[Exception]) -> None:
 def test_authoring_error_keeps_its_value_error_base(
     error_type: type[Exception],
 ) -> None:
-    """Reparenting under NfMetroError must not drop the pre-existing base a
-    caller may already be catching (e.g. a bare ``except ValueError``)."""
+    """An authoring error stays a ``ValueError`` as well as an
+    ``NfMetroError``, so a caller's bare ``except ValueError`` keeps catching
+    it."""
     assert issubclass(error_type, ValueError)
 
 

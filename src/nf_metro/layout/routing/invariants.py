@@ -45,6 +45,7 @@ from nf_metro.layout.constants import (
 from nf_metro.layout.geometry import (
     AxisFrame,
     axis_split,
+    cotravelling_lane_clearance,
     lanes_run_along_y,
     point_to_polyline_distance,
 )
@@ -68,11 +69,13 @@ from nf_metro.layout.routing.common import (
     convergence_owns_segment_boundary,
     corridor_lanes,
     corridor_runs,
+    exempt_dogleg_lanes,
     feasible_same_destination_approach_proposals,
     gap_lo_for_x,
     gap_lookup_geometry,
     horizontal_direction,
     initial_fanout_descent_span,
+    inter_row_gap_band,
     is_orthogonal_turn,
     is_side_entry_port,
     iter_eligible_destination_tail_bundles,
@@ -86,10 +89,9 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
-    planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     resolve_section,
-    route_system_owns_segment_boundary,
     same_destination_approach_slots,
     segments_properly_cross,
     tail_on_slot,
@@ -335,12 +337,47 @@ class SharedRunTurnFlip:
 
 
 class _OpeningTurn(NamedTuple):
-    """A route's opening horizontal run and the vertical it turns onto."""
+    """A route's opening horizontal run and the vertical it turns onto.
+
+    ``corridor_y`` is the Y of a horizontal leg that immediately reverses the
+    run after the turn -- the bottom of a ``]``-shaped U-turn onto a corridor
+    running back against ``run_dir`` -- or ``None`` for a terminal turn or one
+    whose next leg continues in the run's own direction.
+    :func:`_shared_run_turn_flip` reads it to spot a translated fold, whose
+    reversal makes the pair's crossing structurally forced rather than a fixable
+    ordering bug; see that function for the geometric argument.
+    """
 
     run_y: float
     turn_x: float
     run_dir: Direction
     turn_dir: Direction
+    corridor_y: float | None
+
+
+def _reversed_corridor_y(
+    pts: Sequence[tuple[float, float]], run_dir: Direction
+) -> float | None:
+    """The Y of a corridor the route U-turns onto against ``run_dir``.
+
+    The leg right after the opening riser (``pts[2] -> pts[3]``): when it is
+    horizontal and travels opposite to ``run_dir`` the route has folded into a
+    ``]``-shape, and that leg's Y is the corridor the bundle re-forms on.  A
+    same-direction next leg is a staircase, not a U-turn, and yields ``None``.
+    """
+    if len(pts) < 4:
+        return None
+    (x2, y2), (x3, y3) = pts[2], pts[3]
+    if abs(y3 - y2) > COORD_TOLERANCE or abs(x3 - x2) <= COORD_TOLERANCE:
+        return None
+    if (x3 - x2 > 0) == (run_dir is Direction.R):
+        return None
+    return y2
+
+
+def _same_sign(a: float, b: float) -> bool:
+    """Whether two deltas point the same way -- one line on one side of another."""
+    return (a > 0) == (b > 0)
 
 
 def _opening_turn(pts: Sequence[tuple[float, float]]) -> _OpeningTurn | None:
@@ -349,11 +386,13 @@ def _opening_turn(pts: Sequence[tuple[float, float]]) -> _OpeningTurn | None:
     if opening is None:
         return None
     (x0, y0), (x1, y1), (_x2, y2) = opening
+    run_dir = horizontal_direction(x1 - x0)
     return _OpeningTurn(
         run_y=y0,
         turn_x=x1,
-        run_dir=horizontal_direction(x1 - x0),
+        run_dir=run_dir,
         turn_dir=vertical_direction(y2 - y1),
+        corridor_y=_reversed_corridor_y(pts, run_dir),
     )
 
 
@@ -365,12 +404,33 @@ def _shared_run_turn_flip(
     ``None`` also when either coordinate pair is within tolerance: two lines on
     one lane, or turning at one column, are a single track rather than a nesting
     to compare.
+
+    A ``]``-shaped U-turn folds the opening run down its turn column and back
+    onto a reversed corridor; each route's run->turn->corridor triple is one
+    bracket.  When both routes fold and their run-Y and corridor-Y order agree
+    -- concretely ``(a.run_y - b.run_y > 0) == (a.corridor_y - b.corridor_y > 0)``,
+    each line on the same side of the other on the run and on the corridor -- the
+    two brackets are congruent and translated the same way on both legs, so they
+    intersect wherever they are placed.  That crossing is inherent to the fold,
+    not a fixable bundle-order flip, so the pair is exempt.  A concentric fold
+    straddles a shared centre (the orders disagree), where the turn-column
+    comparison below reads the nesting correctly.
     """
+    if a.corridor_y is not None and b.corridor_y is not None:
+        run_dy = a.run_y - b.run_y
+        corridor_dy = a.corridor_y - b.corridor_y
+        is_forced_crossing = (
+            abs(run_dy) > COORD_TOLERANCE
+            and abs(corridor_dy) > COORD_TOLERANCE
+            and _same_sign(run_dy, corridor_dy)
+        )
+        if is_forced_crossing:
+            return None
     run_cmp = a.turn_dir.sign * (a.run_y - b.run_y)
     turn_cmp = a.run_dir.sign * (a.turn_x - b.turn_x)
     if abs(run_cmp) <= COORD_TOLERANCE or abs(turn_cmp) <= COORD_TOLERANCE:
         return None
-    if (run_cmp > 0) != (turn_cmp > 0):
+    if not _same_sign(run_cmp, turn_cmp):
         return None
     return SharedRunTurnFlip(
         source_id=source_id,
@@ -466,10 +526,7 @@ class MergeConfluenceBandCross:
 
 def _descent_is_plan_owned(route: RoutedPath) -> bool:
     """Whether a plan owns the final descent riser (``points[-3]``) of a tail."""
-    riser_rank = len(route.points) - 3
-    return planner_owns_segment(
-        route, riser_rank
-    ) or route_system_owns_segment_boundary(route, riser_rank)
+    return planner_owns_segment_or_boundary(route, len(route.points) - 3)
 
 
 def _terminal_entry_port_id(graph: MetroGraph, route: RoutedPath) -> str | None:
@@ -901,7 +958,7 @@ def check_seam_segments_meet_at_port(
 
 # A gap ALONG the upstream travel direction reads as a visible "bite"
 # at the corner apex (the line stops short of its own bend); anything
-# larger than this is the seam / notch the fix closes.  A PERPENDICULAR
+# larger than this is the seam / notch the tail join closes.  A PERPENDICULAR
 # gap up to a stroke width is hidden under the line and tolerated.
 _TAIL_JOIN_TANGENT_TOLERANCE = 1.0
 
@@ -2807,8 +2864,9 @@ def check_no_riser_hugs_section_edge(
     A junction feeding a TOP port directly below it (shared X) is exempt: its
     straight drop rides the junction's own lane, not a side-exit lead-in seated
     against a wall, so running a curve radius outside a flanking box is a clean
-    descent rather than a wall-hug.  This mirrors the straight-drop routing
-    decision in :func:`_straight_drop_column_clear`.
+    descent rather than a wall-hug.  This mirrors the routing decision in
+    :func:`_perp_entry_junction_straight_drop`, which takes that drop for the
+    same reason.
     """
     sections = [s for s in graph.sections.values() if s.bbox_w > 0 and s.bbox_h > 0]
     violations: list[RiserHugsSectionEdge] = []
@@ -3680,6 +3738,34 @@ class DoglegCrossesExemptTrunk:
         )
 
 
+def _exempt_dogleg_crossing_forced(
+    graph: MetroGraph | None, movable: HTrunkSeg, exempt: HTrunkSeg
+) -> bool:
+    """Whether no parallel lane clears *movable* off *exempt* crossing-free.
+
+    Asks the question ``_dogleg_off_exempt_trunks`` answers when it seats the
+    trunk: seated one corridor separation below or above the exempt run (each
+    clamped to the inter-row gap), does a candidate placement avoid the run?
+    When both candidates cross -- the movable trunk enters the run's span from
+    one side and leaves from the other -- the crossing is topological, not the
+    wrong-side #702 landing the check exists to catch, so it is not flagged.
+    """
+    counter_running = (movable.xb > movable.xa) != (exempt.xb > exempt.xa)
+    separation = cotravelling_lane_clearance(
+        # Callers reach this helper only for distinct-line pairs (the guard
+        # filters on edge.source, the remedy pass on line_id), so the movable
+        # and exempt run never share a line.
+        same_line=False,
+        counter_running=counter_running,
+        curve_radius=CURVE_RADIUS,
+    )
+    band = inter_row_gap_band(graph, movable.y) if graph is not None else None
+    lanes = exempt_dogleg_lanes(movable, exempt, separation=separation, band=band)
+    below_clear = lanes.below_ok and lanes.below_crossing is None
+    above_clear = lanes.above_ok and lanes.above_crossing is None
+    return not (below_clear or above_clear)
+
+
 def check_no_dogleg_crosses_exempt_trunk(
     graph: MetroGraph,
     routes: list[RoutedPath],
@@ -3692,7 +3778,9 @@ def check_no_dogleg_crosses_exempt_trunk(
     on the side whose riser pierces the exempt run trades one fused stroke for
     a double crossing (issue #702).  Only pairs sharing an inter-row channel
     (within ``2 * OFFSET_STEP`` in Y and overlapping in X) are considered, so a
-    legitimate bundle a full gap apart never flags.
+    legitimate bundle a full gap apart never flags.  A trunk that transits the
+    exempt run's span -- entering from one side and leaving on the other, so no
+    parallel lane is crossing-free -- crosses of necessity and is exempt.
     """
     exempt = [
         (rp, rank, seg)
@@ -3713,6 +3801,14 @@ def check_no_dogleg_crosses_exempt_trunk(
                 if abs(seg.y - eseg.y) >= 2 * OFFSET_STEP:
                     continue
                 if seg.x_lo >= eseg.x_hi or eseg.x_lo >= seg.x_hi:
+                    continue
+                # A crossing between two trunks off one junction is a
+                # shared-corner artifact, resolved per-crossing by the arc test
+                # below; the forced-transit exemption is its complement, for the
+                # distinct-source trunk that has to cross a run spanning it.
+                if rp.edge.source != erp.edge.source and _exempt_dogleg_crossing_forced(
+                    graph, seg, eseg
+                ):
                     continue
                 for pt in trunk_segment_crossings(seg, eseg):
                     if _same_source_corner_axis_contact(

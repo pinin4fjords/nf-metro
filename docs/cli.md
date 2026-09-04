@@ -55,13 +55,13 @@ Most of the options below also have a `%%metro` directive twin; an explicitly-pa
 
 ### Theme and branding
 
-| Option                                                                                        | Default                      | Description                                                                                                                                                                                                                     |
-| --------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. `dark` is a legacy alias for `nfcore`. Accepts exactly the values its directive twin `%%metro style:` accepts |
-| `--mode [light\|dark]`                                                                        | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`                                                                                |
-| `--logo PATH`                                                                                 | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                                                                                             |
-| `--title TEXT`                                                                                | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                                                                                                |
-| `--caption TEXT`                                                                              | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:`                                                                   |
+| Option                                                                                        | Default                      | Description                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--theme [dark\|light\|nfcore\|nfcore-dark\|nfcore-light\|seqera\|seqera-dark\|seqera-light]` | from `style:`, else `nfcore` | Visual theme. A bare brand name (`nfcore`, `seqera`) takes the mode from `--mode`; the suffixed names pin a mode. `dark` is a legacy alias for `nfcore`. Takes the same names as its directive twin `%%metro style:`, but exactly as spelled here: an unknown or wrong-case name exits with an error, where the directive warns and falls back |
+| `--mode [light\|dark]`                                                                        | from `mode:`, else `dark`    | Display mode, independent of the brand. Bakes the chosen mode's palette, so use it for light or dark PNG export. Directive twin: `%%metro mode:`                                                                                                                                                                                               |
+| `--logo PATH`                                                                                 | none                         | Logo image path (must exist; errors on a bad path). Directive twin: `%%metro logo:`                                                                                                                                                                                                                                                            |
+| `--title TEXT`                                                                                | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                                                                                                                                                                                                               |
+| `--caption TEXT`                                                                              | none                         | Free-text caption or attribution line rendered bottom-left of the map (e.g. `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:`                                                                                                                                                                                  |
 
 `--theme light` is the transparent embed theme rather than a brand: it has no
 light/dark pair, so `--mode` does not apply to it.
@@ -98,8 +98,10 @@ light/dark pair, so `--mode` does not apply to it.
 
 Spacings, scales, `--fold-threshold` and output dimensions must be greater
 than 0; the section gaps, `--track-gap`, `--legend-min-height` and
-`--legend-logo-gap` also accept 0. Out of range, the flag exits with an
-error and the equivalent `%%metro` directive warns and keeps the default.
+`--legend-logo-gap` also accept 0. Every numeric option also requires a
+finite number, so `nan` and `inf` are refused. Out of range, the flag exits
+with an error and the equivalent `%%metro` directive warns and keeps the
+default.
 
 ### Line styling
 
@@ -120,11 +122,11 @@ These carry into the rendered SVG's manifest and drive [live progress](/nf-metro
 
 ### Guard behaviour
 
-| Option                           | Default | Description                                                                                                                                                                                                                                                                         |
-| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--validate`                     | off     | After rendering, fail if the render-geometry guards find a defect in the produced SVG: a route drawn through a station's label or marker, or two lines collapsed onto one stroke. Tier-A layout-invariant violations stay warnings here; `--strict` fails on those. SVG output only |
-| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                                                                                                                                 |
-| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict`                                                                                                           |
+| Option                           | Default | Description                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--validate`                     | off     | After rendering, fail if the render-geometry guards find a defect in the produced SVG: a route drawn through a station's label or marker, or two lines collapsed onto one stroke. Tier-A layout-invariant violations stay warnings here; `--strict` fails on those. SVG output only, and only for a map that keeps its manifest, which the guards read the drawn geometry through |
+| `--strict / --no-strict`         | off     | Treat a Tier-A layout-invariant violation on the rendered geometry as an error (non-zero exit) instead of a warning                                                                                                                                                                                                                                                               |
+| `--permissive / --no-permissive` | off     | Downgrade layout and render guard failures to warnings and render best-effort on whatever geometry was computed, instead of aborting with no output. Overrides `--strict`                                                                                                                                                                                                         |
 
 ### Warnings
 
@@ -176,6 +178,8 @@ Pass `--validate` to check the _drawn_ SVG after rendering and fail (non-zero ex
 ```bash frame="terminal"
 nf-metro render pipeline.mmd -o pipeline.svg --validate
 ```
+
+The guards read the drawn SVG through its embedded manifest, so `--validate` refuses a map that turns the manifest off with `%%metro manifest: false` rather than reporting a pass it did not check.
 
 `--validate` covers those drawn-geometry guards only. A Tier-A layout-invariant violation (two stations landing on the same coordinate, say) is reported as a warning and still renders; pass `--strict` to exit non-zero on one, or use [`nf-metro validate --with-layout`](#nf-metro-validate) to catch it before rendering at all.
 
@@ -365,6 +369,13 @@ Validate a rendered SVG's embedded manifest against the [manifest JSON Schema](/
 
 ```bash frame="terminal"
 nf-metro validate-svg [OPTIONS] SVG_FILE
+```
+
+Schema validation needs `jsonschema`, which is not a runtime dependency. It
+ships in the `validate` extra:
+
+```bash frame="terminal"
+pip install "nf-metro[validate]"
 ```
 
 | Option       | Default | Description                                                                                                                                                                                                                                             |
