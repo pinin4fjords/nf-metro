@@ -78,10 +78,6 @@ class Corner:
         Direction it travels as it leaves the corner.  Must be
         perpendicular to ``in_tangent`` (no straight-through, no
         180-degree turn).
-    concentric:
-        ``True`` when this corner is part of a concentric bundle - i.e.
-        all lines in the bundle share the same arc centre and only
-        differ in radius.  ``False`` for an isolated turn.
     handedness:
         Computed property: ``CW`` for ``R->D / D->L / L->U / U->R``
         (the four screen-clockwise quarter turns), ``CCW`` for their
@@ -91,7 +87,6 @@ class Corner:
 
     in_tangent: Direction
     out_tangent: Direction
-    concentric: bool = True
 
     def __post_init__(self) -> None:
         pair = (self.in_tangent, self.out_tangent)
@@ -176,31 +171,12 @@ class RouteKind(Enum):
     TB_BOTTOM_EXIT = "tb_bottom_exit"
 
 
-class ChannelKind(Enum):
-    """Coarse classification of a route's main vertical/horizontal channel.
-
-    * ``L_SHAPE`` - single vertical channel in the inter-column gap.
-    * ``WRAP``    - route exits then re-enters the same column or wraps
-      around the target section.
-    * ``BYPASS``  - route goes around an intervening section.
-    * ``TB_EXIT`` - vertical drop from a TB BOTTOM port.
-    * ``STRAIGHT``- degenerate same-X or same-Y route.
-    """
-
-    L_SHAPE = "L_SHAPE"
-    WRAP = "WRAP"
-    BYPASS = "BYPASS"
-    TB_EXIT = "TB_EXIT"
-    STRAIGHT = "STRAIGHT"
-
-
 @dataclass(frozen=True)
 class WrapDescriptor:
     """Describes the corner sequence a routing handler produces."""
 
     kind: RouteKind
     turn_sequence: TurnSequence
-    channel_kind: ChannelKind
 
     @property
     def parity(self) -> bool:
@@ -286,26 +262,22 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
     (PortSide.RIGHT, PortSide.LEFT, 1, 1): WrapDescriptor(
         kind=RouteKind.L_SHAPE,
         turn_sequence=_L_RIGHT_DOWN_RIGHT,
-        channel_kind=ChannelKind.L_SHAPE,
     ),
     # Ascending L (serpentine return).
     (PortSide.RIGHT, PortSide.LEFT, -1, 1): WrapDescriptor(
         kind=RouteKind.L_SHAPE,
         turn_sequence=_L_RIGHT_UP_RIGHT,
-        channel_kind=ChannelKind.L_SHAPE,
     ),
     # ------- TOP entry L-shape -------------------------------------------
     # TB section reached from an LR predecessor on the LEFT.
     (PortSide.RIGHT, PortSide.TOP, 1, 1): WrapDescriptor(
         kind=RouteKind.TOP_ENTRY_L_SHAPE,
         turn_sequence=_TOP_ENTRY_L_DOWN_FROM_RIGHT,
-        channel_kind=ChannelKind.L_SHAPE,
     ),
     # TB section reached from an RL predecessor on the RIGHT.
     (PortSide.LEFT, PortSide.TOP, 1, -1): WrapDescriptor(
         kind=RouteKind.TOP_ENTRY_L_SHAPE,
         turn_sequence=_TOP_ENTRY_L_DOWN_FROM_LEFT,
-        channel_kind=ChannelKind.L_SHAPE,
     ),
     # ------- LEFT-entry cross-row wrap -----------------------------------
     # Source row above, target row below, entry on LEFT, source column
@@ -313,13 +285,11 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
     (PortSide.RIGHT, PortSide.LEFT, 1, -1): WrapDescriptor(
         kind=RouteKind.LEFT_ENTRY_WRAP,
         turn_sequence=_LEFT_ENTRY_WRAP_DOWN,
-        channel_kind=ChannelKind.WRAP,
     ),
     # Junction source (exit-chain wraps around): same shape.
     (None, PortSide.LEFT, 1, -1): WrapDescriptor(
         kind=RouteKind.LEFT_ENTRY_WRAP,
         turn_sequence=_LEFT_ENTRY_WRAP_DOWN,
-        channel_kind=ChannelKind.WRAP,
     ),
     # ------- RIGHT-entry cross-row wrap ----------------------------------
     # Source to the LEFT of the target column, entry on RIGHT.  Wraps
@@ -327,7 +297,6 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
     (PortSide.LEFT, PortSide.RIGHT, 1, 1): WrapDescriptor(
         kind=RouteKind.RIGHT_ENTRY_WRAP,
         turn_sequence=_RIGHT_ENTRY_WRAP_DOWN,
-        channel_kind=ChannelKind.WRAP,
     ),
     # ------- TB BOTTOM exit to side-entry --------------------------------
     # TB section exits via BOTTOM, target entry on LEFT side.  Vertical
@@ -335,18 +304,15 @@ WRAP_TABLE: dict[tuple[PortSide | None, PortSide, int, int], WrapDescriptor] = {
     (PortSide.BOTTOM, PortSide.LEFT, 1, 1): WrapDescriptor(
         kind=RouteKind.TB_BOTTOM_EXIT,
         turn_sequence=_L_RIGHT_DOWN_RIGHT,
-        channel_kind=ChannelKind.TB_EXIT,
     ),
     (PortSide.BOTTOM, PortSide.LEFT, 1, -1): WrapDescriptor(
         kind=RouteKind.TB_BOTTOM_EXIT,
         turn_sequence=_L_LEFT_DOWN_LEFT,
-        channel_kind=ChannelKind.TB_EXIT,
     ),
 }
 
 
 __all__ = [
-    "ChannelKind",
     "Corner",
     "CornerHandedness",
     "RouteKind",

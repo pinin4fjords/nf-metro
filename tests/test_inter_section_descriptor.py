@@ -9,7 +9,6 @@ from __future__ import annotations
 from nf_metro.layout.routing.common import Direction
 from nf_metro.layout.routing.inter_section import (
     WRAP_TABLE,
-    ChannelKind,
     Corner,
     CornerHandedness,
     RouteKind,
@@ -95,11 +94,7 @@ def test_wrap_descriptor_parity_delegates_to_turn_sequence():
             Corner(Direction.D, Direction.R),
         )
     )
-    desc = WrapDescriptor(
-        kind=RouteKind.L_SHAPE,
-        turn_sequence=seq,
-        channel_kind=ChannelKind.L_SHAPE,
-    )
+    desc = WrapDescriptor(kind=RouteKind.L_SHAPE, turn_sequence=seq)
     assert desc.parity == seq.parity is True
 
 

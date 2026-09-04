@@ -40,7 +40,6 @@ from nf_metro.parser.provenance import (
     DecisionOrigin,
     DecisionReason,
     EffectiveDecision,
-    FoldThresholdSource,
     GridCell,
     LineOrderSource,
 )
@@ -811,7 +810,6 @@ class ExitLaneOrderSource(str, Enum):
     """Evidence used to order one exit group's active source lanes."""
 
     STATION_OFFSETS = "station-offsets"
-    FRAME_CONSTRAINTS = "frame-constraints"
     GRAPH_LINE_ORDER_FALLBACK = "graph-line-order-fallback"
 
 
@@ -1032,7 +1030,6 @@ class RoutePlanProvenance:
     sections: tuple[SectionDecisionFacts, ...]
     connectors: tuple[ConnectorDecisionFacts, ...]
     fold_threshold: EffectiveDecision[int] | None
-    fold_threshold_source: FoldThresholdSource
     lane_order: LaneOrderFacts
 
 
@@ -2571,11 +2568,6 @@ def _plan_provenance(
         )
         for connector in connectors
     )
-    fold_source = (
-        provenance.authored.fold_threshold.selected_source
-        if provenance.authored is not None
-        else FoldThresholdSource.DEFAULT
-    )
     line_order = provenance.line_order_decision
     if line_order is None:
         raise ValueError("line-order provenance was not captured")
@@ -2588,7 +2580,6 @@ def _plan_provenance(
         sections,
         connector_facts,
         provenance.fold_threshold_decision,
-        fold_source,
         LaneOrderFacts(
             line_order,
             line_source,
