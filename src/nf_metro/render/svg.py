@@ -2603,7 +2603,7 @@ def _emit_render_plan(
     # Chrome CSS: custom properties so hosts can recolor without re-rendering.
     # Injected before the background rect so browser parsing order is correct.
     if chrome_css:
-        _inject_chrome_css(d, theme)
+        _inject_chrome_css(d, theme, bool(inactive_line_ids))
 
     # Dark-mode CSS for transparent-background themes so that elements
     # rendered directly on the canvas (section labels, number badges,
@@ -3043,7 +3043,9 @@ def _station_label_class(muted: bool) -> str:
     )
 
 
-def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
+def _inject_chrome_css(
+    d: draw.Drawing, theme: Theme, any_inactive: bool = False
+) -> None:
     """Inject CSS custom properties for chrome colors.
 
     Defines ``--nfm-map-*`` properties on the chrome element classes so a host
@@ -3054,6 +3056,9 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
     has no light/dark family), so the map follows the viewer's ``color-scheme``
     with no host intervention.  Line/route colors carry semantic meaning and
     remain as baked presentation attributes.
+
+    ``any_inactive`` adds the muted-state rules; a map with no inactive line
+    has nothing for them to match, so it ships without them.
     """
     from nf_metro.themes import mode_pair
 
@@ -3132,11 +3137,12 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
     # author rule outranks, so the full-strength rules above would repaint it.
     # Each muted state therefore needs a selector that outranks its own plain
     # rule, and its own property so a host can recolor the two states apart.
-    muted_val = _prop("--nfm-map-muted-color", "muted_line_color")
-    lines += [
-        _muted_rule("nf-metro-station-label", f"fill: {muted_val}"),
-        _muted_rule("nf-metro-marker-stroke", f"stroke: {muted_val}"),
-    ]
+    if any_inactive:
+        muted_val = _prop("--nfm-map-muted-color", "muted_line_color")
+        lines += [
+            _muted_rule("nf-metro-station-label", f"fill: {muted_val}"),
+            _muted_rule("nf-metro-marker-stroke", f"stroke: {muted_val}"),
+        ]
     d.append(draw.Raw(f"<style>{chr(10).join(lines)}</style>"))
 
 
@@ -4024,9 +4030,11 @@ def _muted_line_theme(theme: Theme) -> Theme:
 
     A render plan carries its theme as a :class:`FrozenRecord`, which cannot be
     :func:`dataclasses.replace`-d, so that case rebuilds the record directly.
+    Both branches read the same override map, so neither representation can be
+    left behind when a field joins the muted set.
     """
     muted = theme.muted_line_color
-    overrides = {
+    overrides: dict[str, Any] = {
         "station_stroke": muted,
         "marker_stroke": muted,
         "terminus_stroke": muted,
@@ -4036,14 +4044,7 @@ def _muted_line_theme(theme: Theme) -> Theme:
     if isinstance(theme, FrozenRecord):
         entries = tuple((k, overrides.get(k, v)) for k, v in theme.values.entries)
         return cast(Theme, FrozenRecord(kind=theme.kind, values=FrozenMap(entries)))
-    return replace(
-        theme,
-        station_stroke=muted,
-        marker_stroke=muted,
-        terminus_stroke=muted,
-        terminus_font_color=muted,
-        label_color=muted,
-    )
+    return replace(theme, **overrides)
 
 
 def _render_stations(

@@ -1,5 +1,6 @@
 """Tests for the --inactive-lines / inactive_line_ids muting feature."""
 
+import re
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -9,10 +10,11 @@ from nf_metro.errors import NfMetroError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
     FALLBACK_LINE_COLOR,
-    TERMINUS_FONT_COLOR,
     effective_line_color,
     station_is_muted,
 )
+from nf_metro.render.plan import FrozenRecord
+from nf_metro.render.svg import _muted_line_theme
 from nf_metro.themes import NFCORE_DARK_THEME
 
 MUTED = NFCORE_DARK_THEME.muted_line_color
@@ -170,8 +172,12 @@ TERMINUS_MAP = (
 
 def test_inactive_only_terminus_icon_label_muted():
     svg = _svg(TERMINUS_MAP)
+    active = _icon_label_fill(svg, "b_out", "BAM")
     assert _icon_label_fill(svg, "a_out", "SF") == MUTED
-    assert _icon_label_fill(svg, "b_out", "BAM") == TERMINUS_FONT_COLOR
+    # Spelling the active fill out rather than comparing to the constant keeps
+    # the pair of assertions from both passing if the constant became the grey.
+    assert active == "#000000"
+    assert active != MUTED
 
 
 # ---------------------------------------------------------------------------
@@ -289,3 +295,103 @@ def test_cli_empty_override_forces_all_active():
 def test_render_string_flat_kwarg_overrides():
     svg = _svg(TWO_LINE_MAP, inactive_line_ids=frozenset({"a"}))
     assert _rects_by_station(svg)["x"] == {MUTED}
+
+
+# ---------------------------------------------------------------------------
+# Chrome-CSS cascade
+# ---------------------------------------------------------------------------
+
+# One inactive line carrying a plain station, a marked station and a captioned
+# file terminus, so every element that takes a muted presentation attribute is
+# present: name labels, a marker outline, and a terminus caption.
+CASCADE_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro marker: mid | square, solid\n"
+    "%%metro file: out | SF | Sizes\n"
+    "graph LR\n"
+    "    x[X] -->|a| mid[Mid]\n"
+    "    mid -->|a| out[ ]\n"
+)
+
+_CSS_RULE = re.compile(r"([^{}]+)\{([^}]*)\}")
+
+
+def _chrome_rules(svg):
+    """Parse the injected chrome stylesheet into ordered declarations.
+
+    Each entry is ``(class names the selector requires, property, value)``.
+    """
+    blocks = re.findall(r"<style>(.*?)</style>", svg, re.S)
+    style = next(b for b in blocks if "--nfm-map-" in b)
+    rules = []
+    for selector, body in _CSS_RULE.findall(style):
+        classes = frozenset(selector.strip().lstrip(".").split("."))
+        for decl in body.split(";"):
+            if ":" in decl:
+                prop, value = decl.split(":", 1)
+                rules.append((classes, prop.strip(), value.strip()))
+    return rules
+
+
+def _winning_value(rules, classes, prop):
+    """Value of the chrome declaration that wins *prop* on an element in *classes*.
+
+    Every chrome selector is a class chain in a single stylesheet, so the winner
+    is the longest chain that matches, and the last declared one at that length.
+    """
+    winner = None
+    for selector, rule_prop, value in rules:
+        if rule_prop == prop and selector <= classes:
+            if winner is None or len(selector) >= len(winner[0]):
+                winner = (selector, value)
+    return winner[1] if winner else None
+
+
+def _mode_colors(value):
+    """The ``(light, dark)`` colours a chrome declaration resolves to."""
+    var_ref = re.fullmatch(r"var\(--[\w-]+,\s*(.*)\)", value)
+    fallback = var_ref.group(1) if var_ref else value
+    pair = re.fullmatch(r"light-dark\((.*?),\s*(.*)\)", fallback)
+    if pair:
+        return pair.group(1).strip(), pair.group(2).strip()
+    return fallback, fallback
+
+
+def test_chrome_css_cannot_repaint_a_muted_element():
+    # A presentation attribute loses to every author rule, so a muted colour
+    # only survives in a browser if the rule that wins its property is also the
+    # muted colour.  Asserting the attribute alone would pass either way.
+    svg = _svg(CASCADE_MAP)
+    rules = _chrome_rules(svg)
+    root = ET.fromstring(svg)
+    covered = set()
+    for el in root.iter():
+        classes = frozenset((el.get("class") or "").split())
+        for prop in ("fill", "stroke"):
+            if el.get(prop) != MUTED:
+                continue
+            winner = _winning_value(rules, classes, prop)
+            if winner is None:
+                continue
+            assert _mode_colors(winner) == (MUTED, MUTED), (
+                f"{prop} on <{el.tag}> {el.text!r} class={sorted(classes)} "
+                f"is repainted by the chrome rule {winner!r}"
+            )
+            covered.add((prop, el.text))
+    # Both muted properties and the terminus caption must have been exercised,
+    # or the map has stopped reaching the elements this guards.
+    assert {prop for prop, _ in covered} == {"fill", "stroke"}
+    assert ("fill", "Sizes") in covered
+
+
+def test_muted_theme_overrides_every_field_on_a_plain_theme():
+    # Renders always pass the plan's FrozenRecord theme; a dataclass Theme takes
+    # the dataclasses.replace path, which this is the only cover for.
+    muted = _muted_line_theme(NFCORE_DARK_THEME)
+    assert not isinstance(muted, FrozenRecord)
+    assert muted.station_stroke == MUTED
+    assert muted.marker_stroke == MUTED
+    assert muted.terminus_stroke == MUTED
+    assert muted.terminus_font_color == MUTED
+    assert muted.label_color == MUTED
+    assert muted.station_fill == NFCORE_DARK_THEME.station_fill
