@@ -493,8 +493,6 @@ class FanPlanQuery:
 
     plans: tuple[FanPlan, ...]
     _by_id: Mapping[FanPlanId, FanPlan]
-    _by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
-    _by_member: Mapping[EmissionMemberId, FanPlan]
     _by_fork: Mapping[str, FanPlan]
     _by_authored_edge: Mapping[ConnectorId, FanPlan]
     _structural_by_resolved_edge: Mapping[ResolvedEdge, FanPlan]
@@ -502,12 +500,10 @@ class FanPlanQuery:
     _route_emission_by_resolved_edge: Mapping[
         ResolvedEdge, tuple[FanPlan, FanBranchPlan, FanRouteEmission]
     ]
-    _by_station: Mapping[str, FanPlan]
 
     @classmethod
     def build(cls, plans: tuple[FanPlan, ...]) -> FanPlanQuery:
         by_id: dict[FanPlanId, FanPlan] = {}
-        by_system: dict[RouteSystemId, list[FanPlan]] = defaultdict(list)
         by_member: dict[EmissionMemberId, FanPlan] = {}
         by_fork: dict[str, FanPlan] = {}
         by_authored_edge: dict[ConnectorId, FanPlan] = {}
@@ -522,8 +518,6 @@ class FanPlanQuery:
             if plan.id in by_id:
                 raise ValueError(f"duplicate fan plan id {plan.id!r}")
             by_id[plan.id] = plan
-            if plan.system_id is not None:
-                by_system[plan.system_id].append(plan)
             if plan.disposition is not FanPlanDisposition.PLANNED:
                 continue
             for member_id in plan.member_ids:
@@ -571,10 +565,6 @@ class FanPlanQuery:
         return cls(
             plans=plans,
             _by_id=MappingProxyType(by_id),
-            _by_system=MappingProxyType(
-                {key: tuple(value) for key, value in by_system.items()}
-            ),
-            _by_member=MappingProxyType(by_member),
             _by_fork=MappingProxyType(by_fork),
             _by_authored_edge=MappingProxyType(by_authored_edge),
             _structural_by_resolved_edge=MappingProxyType(structural_by_resolved_edge),
@@ -584,17 +574,10 @@ class FanPlanQuery:
             _route_emission_by_resolved_edge=MappingProxyType(
                 route_emission_by_resolved_edge
             ),
-            _by_station=MappingProxyType(by_station),
         )
 
     def plan(self, plan_id: FanPlanId) -> FanPlan:
         return self._by_id[plan_id]
-
-    def plans_for_system(self, system_id: RouteSystemId) -> tuple[FanPlan, ...]:
-        return self._by_system.get(system_id, ())
-
-    def owner_for_member(self, member_id: EmissionMemberId) -> FanPlan | None:
-        return self._by_member.get(member_id)
 
     def __deepcopy__(self, memo: dict[int, object]) -> FanPlanQuery:
         del memo
@@ -618,9 +601,6 @@ class FanPlanQuery:
         self, edge: ResolvedEdge
     ) -> tuple[FanPlan, FanBranchPlan, FanRouteEmission] | None:
         return self._route_emission_by_resolved_edge.get(edge)
-
-    def owner_for_station(self, station_id: str) -> FanPlan | None:
-        return self._by_station.get(station_id)
 
 
 @dataclass(frozen=True, slots=True)

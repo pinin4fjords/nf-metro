@@ -3538,7 +3538,6 @@ class RoutePlanQuery:
     _bindings: Mapping[EmissionMemberId, tuple[EmissionBinding, ...]]
     _exit_turn_plans: Mapping[ExitTurnPlanId, ExitTurnPlan]
     _exit_turns_by_source: Mapping[str, tuple[ExitTurnPlan, ...]]
-    _exit_turns_by_member: Mapping[EmissionMemberId, tuple[ExitTurnPlan, ...]]
     _fan_plans: Mapping[FanPlanId, FanPlan]
     _fan_plans_by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
     _fan_plans_by_member: Mapping[EmissionMemberId, tuple[FanPlan, ...]]
@@ -3579,11 +3578,6 @@ class RoutePlanQuery:
 
     def exit_turn_plans_for_source(self, source_id: str) -> tuple[ExitTurnPlan, ...]:
         return self._exit_turns_by_source.get(source_id, ())
-
-    def exit_turn_plans_for_member(
-        self, member_id: EmissionMemberId
-    ) -> tuple[ExitTurnPlan, ...]:
-        return self._exit_turns_by_member.get(member_id, ())
 
     def fan_plan(self, plan_id: FanPlanId) -> FanPlan:
         return self._fan_plans[plan_id]
@@ -4305,11 +4299,7 @@ def _validate_exit_turn_diagnostics(plan: RoutePlan) -> None:
 def _validate_exit_turn_records(
     plan: RoutePlan,
     members: Mapping[EmissionMemberId, EmissionMember],
-) -> tuple[
-    dict[ExitTurnPlanId, ExitTurnPlan],
-    dict[str, list[ExitTurnPlan]],
-    dict[EmissionMemberId, list[ExitTurnPlan]],
-]:
+) -> tuple[dict[ExitTurnPlanId, ExitTurnPlan], dict[str, list[ExitTurnPlan]]]:
     systems = {system.id: system for system in plan.systems}
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -4392,7 +4382,7 @@ def _validate_exit_turn_records(
         for item in plan.exit_turn_plans
     ):
         raise ValueError("exit-turn foreign-reference index is inconsistent")
-    return exit_turn_plans, by_source, by_member
+    return exit_turn_plans, by_source
 
 
 def _validate_fan_records(
@@ -5029,9 +5019,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     if len(members) != len(plan.members):
         raise ValueError("route plan contains duplicate emission member ids")
     _validate_route_system_records(plan, members)
-    exit_turn_plans, exit_turns_by_source, exit_turns_by_member = (
-        _validate_exit_turn_records(plan, members)
-    )
+    exit_turn_plans, exit_turns_by_source = _validate_exit_turn_records(plan, members)
     bindings: dict[EmissionMemberId, list[EmissionBinding]] = defaultdict(list)
     for binding in plan.bindings:
         if binding.member_id not in members:
@@ -5094,9 +5082,6 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
         MappingProxyType(exit_turn_plans),
         MappingProxyType(
             {key: tuple(value) for key, value in exit_turns_by_source.items()}
-        ),
-        MappingProxyType(
-            {key: tuple(value) for key, value in exit_turns_by_member.items()}
         ),
         MappingProxyType(fan_plans),
         MappingProxyType(
