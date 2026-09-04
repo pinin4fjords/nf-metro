@@ -4,11 +4,11 @@ layout settling.
 Named ``engine.py`` call sites exist purely to correct a side effect an
 *earlier* stage introduced (a bbox push, a bbox grow, a consumer move) --
 see ``COMPENSATION_PASSES`` in ``conftest.py`` for the stage/disturber table.
-The property that matters for a compensation pass is not
-``test_content_placement_idempotent``'s back-to-back ``P(P(x)) == P(x))``:
-because a compensation pass exists to correct the disturber stage that ran
-before it, the meaningful question is whether it remains a no-op once every
-later stage has also run and the whole layout has settled. Finding movement
+The property that matters for a compensation pass is not the back-to-back
+``P(P(x)) == P(x))`` of ``tests/test_content_placement_idempotent.py``: because
+a compensation pass exists to correct the disturber stage that ran before it,
+the meaningful question is whether it remains a no-op once every later stage
+has also run and the whole layout has settled. Finding movement
 here is the start of an investigation, not proof of a bug: a later stage may
 be violating the precondition the compensation pass assumed, but it may
 instead have an independently documented, tested reason to diverge from it

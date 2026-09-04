@@ -230,9 +230,9 @@ structure)**. The Y it assigns to the stations it governs depends only on the
 frozen port anchors and the section structure (tracks, edges, columns), never on
 the mutable intermediate state earlier phases happen to have left behind
 (current station Y, section `bbox` geometry). This is strictly stronger than the
-idempotence locked by `test_content_placement_idempotent` (#488): purity means
-re-running, re-ordering, *or perturbing the non-anchor state* cannot change a
-phase's output. `tests/test_content_placement_pure.py` (#491) is the guard - it
+idempotence locked by `tests/test_content_placement_idempotent.py` (#488):
+purity means re-running, re-ordering, *or perturbing the non-anchor state*
+cannot change a phase's output. `tests/test_content_placement_pure.py` (#491) is the guard - it
 perturbs the non-anchor state before each phase and asserts the governed
 stations land identically, the test-time counterpart to the anchor-frozen guard.
 
@@ -554,7 +554,7 @@ in pipeline order.
   re-flush preserves port-on-edge by shifting ports with stations).
 - **Related tests**: `test_no_kink_at_section_boundary`,
   `test_inter_section_route_y_stays_within_row_band`,
-  `test_exit_port_row_reflush`.
+  `test_align_exit_ports_reflushes_disturbed_rows`.
 - **Lifecycle:** invariant - the fold/TB exit-port no-kink Y holds at
   the end (re-asserted by Stage 5.5).
 
@@ -877,7 +877,7 @@ in pipeline order.
 - **Invariants preserved**: On-track station Y. Other sections' Ys
   (only the canvas Y-offset may shift the world uniformly).
 - **Related tests**: `test_off_track_inputs_above_consumer`,
-  `test_off_track_outputs_above_and_adjacent_to_producer`,
+  `test_off_track_outputs_on_lift_side_and_adjacent_to_producer`,
   `test_off_track_icons_ordered_by_consumer_y`.
 - **Lifecycle:** invariant - off-track stations sit a step clear of their
   anchor on the cross axis at the final boundary. *liftable:* only behind
@@ -1077,7 +1077,7 @@ in pipeline order.
   helper).
 - **Invariants preserved**: On-track station Y.
 - **Related tests**: `test_off_track_inputs_above_consumer`,
-  `test_off_track_outputs_above_and_adjacent_to_producer`,
+  `test_off_track_outputs_on_lift_side_and_adjacent_to_producer`,
   `test_reanchor_off_track_requires_snapped_consumers`,
   `test_reanchor_off_track_bbox_fit_is_reversible`.
 - **Lifecycle:** invariant - off-track stations sit a step clear of their
