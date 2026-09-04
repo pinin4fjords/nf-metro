@@ -46,7 +46,9 @@ def _as_written(content: str) -> str:
 def test_render_string_matches_cli_svg(name: str, tmp_path: Path) -> None:
     src = EXAMPLES / name
     cli_out = _cli_render(src, tmp_path / "cli.svg")
-    assert cli_out == _as_written(render_string(src.read_text()))
+    assert cli_out == _as_written(
+        render_string(src.read_text(), source_dir=str(src.parent))
+    )
 
 
 @pytest.mark.parametrize("name", PARITY_FIXTURES)
@@ -75,6 +77,7 @@ def test_render_string_matches_cli_with_explicit_options(tmp_path: Path) -> None
     )
     api_out = render_string(
         src.read_text(),
+        source_dir=str(src.parent),
         responsive=True,
         embed_font=True,
         layout_options={"animate": True, "center_ports": True, "x_spacing": 80.0},
@@ -84,17 +87,20 @@ def test_render_string_matches_cli_with_explicit_options(tmp_path: Path) -> None
 
 def test_render_string_honours_theme_and_layout_options() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    light = render_string(src, theme="light")
-    dark = render_string(src, theme="nfcore")
+    where = str(EXAMPLES)
+    light = render_string(src, source_dir=where, theme="light")
+    dark = render_string(src, source_dir=where, theme="nfcore")
     assert light != dark
 
-    narrow = render_string(src, layout_options={"x_spacing": 60.0})
-    wide = render_string(src, layout_options={"x_spacing": 200.0})
+    narrow = render_string(src, source_dir=where, layout_options={"x_spacing": 60.0})
+    wide = render_string(src, source_dir=where, layout_options={"x_spacing": 200.0})
     assert narrow != wide
 
 
 def test_prepare_graph_returns_settled_graph() -> None:
-    graph = prepare_graph((EXAMPLES / "rnaseq_auto.mmd").read_text())
+    graph = prepare_graph(
+        (EXAMPLES / "rnaseq_auto.mmd").read_text(), source_dir=str(EXAMPLES)
+    )
     assert graph.stations
     # compute_layout has run: every real station carries coordinates.
     assert all(s.x is not None and s.y is not None for s in graph.stations.values())
@@ -152,6 +158,18 @@ def test_render_string_embeds_data_uri_logo_with_no_source_dir() -> None:
     assert pixel in svg
 
 
+def test_render_string_resolves_a_logo_against_source_dir(tmp_path) -> None:
+    """A logo named relative to the map file resolves wherever the process runs.
+
+    The cwd is deliberately somewhere the bare name does not resolve, so only
+    *source_dir* can find the asset.
+    """
+    logo = tmp_path / "logo.png"
+    logo.write_bytes((EXAMPLES / "placeholder_logo.png").read_bytes())
+    svg = render_string(_data_uri_logo_mmd("logo.png"), source_dir=str(tmp_path))
+    assert "data:image/png;base64," in svg
+
+
 def test_prepare_graph_rejects_unresolvable_logo_path() -> None:
     with pytest.raises(ValueError, match="does/not/exist.png"):
         prepare_graph(_data_uri_logo_mmd("does/not/exist.png"))
@@ -159,30 +177,38 @@ def test_prepare_graph_rejects_unresolvable_logo_path() -> None:
 
 def test_render_string_self_color_scheme_parity() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    with_cs = render_string(src)
-    without_cs = render_string(src, self_color_scheme=False)
+    where = str(EXAMPLES)
+    with_cs = render_string(src, source_dir=where)
+    without_cs = render_string(src, source_dir=where, self_color_scheme=False)
     assert "color-scheme" in with_cs
     assert "color-scheme" not in without_cs
 
 
 def test_render_string_accepts_render_config() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
-    via_config = render_string(src, config=RenderConfig(responsive=True))
-    via_kwargs = render_string(src, responsive=True)
+    where = str(EXAMPLES)
+    via_config = render_string(
+        src, source_dir=where, config=RenderConfig(responsive=True)
+    )
+    via_kwargs = render_string(src, source_dir=where, responsive=True)
     assert via_config == via_kwargs
 
 
 def test_render_string_warns_when_config_shadows_flat_kwargs() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    where = str(EXAMPLES)
     with pytest.warns(UserWarning, match=r"ignoring \[.*'responsive'"):
-        out = render_string(src, config=RenderConfig(), responsive=True)
+        out = render_string(
+            src, source_dir=where, config=RenderConfig(), responsive=True
+        )
     # config wins: the flat responsive=True is ignored.
-    assert out == render_string(src)
+    assert out == render_string(src, source_dir=where)
 
 
 def test_render_string_no_shadow_warning_when_only_config() -> None:
     src = (EXAMPLES / "rnaseq_auto.mmd").read_text()
+    where = str(EXAMPLES)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        render_string(src, config=RenderConfig(responsive=True))
+        render_string(src, source_dir=where, config=RenderConfig(responsive=True))
     assert not [w for w in caught if "supersedes" in str(w.message)]

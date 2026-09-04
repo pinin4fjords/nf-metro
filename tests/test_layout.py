@@ -1625,8 +1625,6 @@ def test_port_terminus_spacing_no_station_as_elbow():
     from pathlib import Path
 
     example = Path(__file__).parent.parent / "examples" / "variant_calling_tuned.mmd"
-    if not example.exists():
-        return
     graph = parse_metro_mermaid(example.read_text())
     compute_layout(graph)
 
@@ -1817,8 +1815,9 @@ TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
 class TestPhaseGuards:
     """Verify that phase-boundary invariants hold across all fixtures."""
 
-    def _layout_validated(self, mmd_text: str) -> None:
-        graph = parse_metro_mermaid(mmd_text)
+    def _layout_validated(self, path: Path) -> None:
+        graph = parse_metro_mermaid(path.read_text())
+        graph.source_dir = str(path.parent)
         compute_layout(graph, validate=True)
 
     @pytest.mark.parametrize(
@@ -1827,15 +1826,13 @@ class TestPhaseGuards:
         ids=lambda p: p.stem,
     )
     def test_topology_fixtures(self, fixture):
-        self._layout_validated(fixture.read_text())
+        self._layout_validated(fixture)
 
     def test_rnaseq_sections(self):
-        self._layout_validated((EXAMPLES_DIR / "rnaseq_sections.mmd").read_text())
+        self._layout_validated(EXAMPLES_DIR / "rnaseq_sections.mmd")
 
     def test_rnaseq_auto(self):
-        path = EXAMPLES_DIR / "rnaseq_auto.mmd"
-        if path.exists():
-            self._layout_validated(path.read_text())
+        self._layout_validated(EXAMPLES_DIR / "rnaseq_auto.mmd")
 
     def test_differentialabundance(self):
         """``differentialabundance.mmd`` is the only gallery fixture that
@@ -1843,7 +1840,7 @@ class TestPhaseGuards:
         and a sparse loop-side station; exercises the bisection guard
         phase-gating policy.
         """
-        self._layout_validated((EXAMPLES_DIR / "differentialabundance.mmd").read_text())
+        self._layout_validated(EXAMPLES_DIR / "differentialabundance.mmd")
 
     def test_simple_two_sections(self):
         self._layout_validated(

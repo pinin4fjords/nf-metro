@@ -76,9 +76,10 @@ def _parse_path_commands(d: str) -> list[tuple[str, list[float]]]:
     return commands
 
 
-def _layout_and_route(mmd_text: str) -> tuple:
+def _layout_and_route(mmd_text: str, source_dir: str = "") -> tuple:
     """Parse, layout, route, and render. Returns (graph, routes, offsets, svg)."""
     graph = parse_metro_mermaid(mmd_text)
+    graph.source_dir = source_dir
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
@@ -88,7 +89,7 @@ def _layout_and_route(mmd_text: str) -> tuple:
 
 def _layout_and_route_file(path: Path) -> tuple:
     """Load a .mmd file and run the full pipeline."""
-    return _layout_and_route(path.read_text())
+    return _layout_and_route(path.read_text(), source_dir=str(path.parent))
 
 
 # ---------------------------------------------------------------------------
@@ -362,9 +363,6 @@ class TestConcentricBundles:
     def test_multi_line_bundle_fixture(self):
         """The multi_line_bundle topology fixture should have distinct radii."""
         fixture = TOPOLOGIES_DIR / "multi_line_bundle.mmd"
-        if not fixture.exists():
-            pytest.skip("multi_line_bundle.mmd not found")
-
         graph = parse_metro_mermaid(fixture.read_text())
         compute_layout(graph)
         offsets = compute_station_offsets(graph)
@@ -534,8 +532,6 @@ class TestLineZOrderConsistent:
 
     def test_rnaseq_sections(self):
         fixture = EXAMPLES_DIR / "rnaseq_sections.mmd"
-        if not fixture.exists():
-            pytest.skip(f"fixture not available: {fixture}")
         _, _, _, svg = _layout_and_route_file(fixture)
         self._check(svg)
 
@@ -668,8 +664,6 @@ class TestConcentricArcCenters:
 
     def test_stacked_collector_corridor(self):
         fixture = EXAMPLES_DIR / "genomic_pipeline.mmd"
-        if not fixture.exists():
-            pytest.skip(f"fixture not available: {fixture}")
         _, routes, offsets, _ = _layout_and_route_file(fixture)
         self._check(routes, offsets)
 

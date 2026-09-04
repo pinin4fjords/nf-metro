@@ -223,6 +223,7 @@ def _layout(fixture: str, *, _cache: bool = True, **kwargs) -> MetroGraph:
         return copy.deepcopy(_LAYOUT_CACHE[key])
     text = path.read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(path.parent)
     # Legacy fixtures under tests/fixtures/ were authored before the
     # parser parsed center_ports directly; preserve their implicit
     # center_ports=True default.  Examples set the directive in-file.
@@ -244,6 +245,7 @@ def _layout_example(name: str, *, _cache: bool = True, **kwargs) -> MetroGraph:
     if _cache and key in _LAYOUT_CACHE:
         return copy.deepcopy(_LAYOUT_CACHE[key])
     graph = parse_metro_mermaid(path.read_text())
+    graph.source_dir = str(path.parent)
     compute_layout(graph, **kwargs)
     if not _cache:
         return graph
