@@ -169,6 +169,7 @@ def test_unknown_directive_warns():
 
 
 MALFORMED_DIRECTIVES = [
+    "%%metro style: bogus",
     "%%metro line: onlyone",
     "%%metro line: b | B | #000 | wiggly",
     "%%metro grid: sec | notints",
@@ -179,6 +180,13 @@ MALFORMED_DIRECTIVES = [
     "%%metro line_order: sideways",
     "%%metro compact_offsets: maybe",
     "%%metro file: nolabels",
+    "%%metro off_track:",
+    "%%metro marker: | square",
+    "%%metro line: b | B |",
+    "%%metro line: b |  | #000",
+    "%%metro file: a |",
+    "%%metro line_spread: rails |",
+    "%%metro marker_legend: square, solid |",
 ]
 
 
