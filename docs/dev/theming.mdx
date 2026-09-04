@@ -165,24 +165,15 @@ not a property like `color-scheme` that `light-dark()` resolves per value
 `--no-dark-mode-css` turns it off, for a host whose own theming it would
 otherwise fight.
 
-<Aside type="note" title="A real example: nf-core/rnaseq's README map">
+<Aside type="note" title="One theme opts out of all of this on purpose">
 
 nf-metro ships one theme with no light/dark sibling at all - `light`
 (`THEME_MODES`, `src/nf_metro/themes/__init__.py`). For it, `mode_pair(theme)`
 returns `None`: every `--nfm-*` fallback is a single baked value, no
 `light-dark()` anywhere, and `self_color_scheme` has nothing to do (no
 `color-scheme` gets declared either way). The media query above is the only
-adaptation such a theme gets.
-
-This is exactly the theme [nf-core/rnaseq](https://github.com/nf-core/rnaseq)
-renders for its README map (`--theme light`, per its own
-[`docs/dev/metro_map.md`](https://github.com/nf-core/rnaseq/blob/master/docs/dev/metro_map.md)),
-embedded the ordinary way, as a committed SVG referenced by URL. Its checked-in
-file confirms it: zero `light-dark(`, zero `var(--nfm`, no `color-scheme` on
-the root - it predates chrome CSS, pinned to `nf-metro>=0.5.4`. Regenerating
-it with a current release would add `var(--nfm-*, ...)` fallbacks (still
-single-valued, `light` still has no pair to offer `light-dark()`), but the
-map's actual light/dark behavior wouldn't change either way.
+adaptation such a theme gets - reach for it deliberately, not by leaving
+`--theme`/`%%metro style:` unset.
 
 </Aside>
 
@@ -230,6 +221,19 @@ Chromium, WebKit, and Firefox.
 `<object>`/`<embed>` don't get this: they open a full nested browsing context,
 which the spec excludes. Chromium and WebKit keep them OS-only; Firefox
 propagates the host's `color-scheme` into them too - don't rely on either.
+
+<Aside type="note" title="A real example: nf-core/rnaseq's README map">
+
+[nf-core/rnaseq](https://github.com/nf-core/rnaseq) embeds its pipeline map
+the ordinary way - `![...](docs/images/..._animated.svg)`, which GitHub
+renders as a plain `<img>`. Its map uses the paired `nfcore` theme with a
+light/dark logo pair, self_color_scheme left at its default, and no other
+flags. On GitHub's own rendered page, that's enough: the whole map - not just
+text - now follows GitHub's light/dark setting, confirmed on the actual
+rendered branch preview in both directions
+([PR #1876](https://github.com/nf-core/rnaseq/pull/1876)).
+
+</Aside>
 
 Either way, inline the SVG for `var()` overrides too; nothing in the `<img>`
 exception carries those. That's why nf-metro's docs site inlines its maps.
