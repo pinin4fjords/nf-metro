@@ -146,6 +146,24 @@ nf-metro render b.mmd -o b.svg --svg-class-prefix mapB
 `data-*` attributes and the manifest element id are never prefixed, so the
 [contract](/nf-metro/embed/) is unchanged.
 
+### Following your page's own theme toggle - `--no-self-color-scheme`
+
+By default the map's root `<svg>` declares its own `color-scheme: light dark`,
+so it follows the **viewer's OS/browser** preference regardless of anything
+your page does. If your page has its own light/dark toggle, pass
+`--no-self-color-scheme` so the map inherits `color-scheme` from your page
+instead:
+
+```bash
+nf-metro render pipeline.mmd -o pipeline.svg --no-self-color-scheme
+```
+
+Your page then needs to actually set `color-scheme` where the map can inherit
+it - a class or `data-theme` attribute toggled by your theme switch, each
+setting `color-scheme: light` or `color-scheme: dark` (a single value, not
+`light dark`) on an ancestor. See [Theming](/nf-metro/dev/theming/) for why
+this flag exists and how the docs site itself uses it.
+
 ### Dark-mode opt-out - `--no-dark-mode-css`
 
 When a theme has a transparent background, the SVG injects a

@@ -1,0 +1,164 @@
+---
+title: "Theming"
+description: How nf-metro builds one SVG that adapts to a light or dark viewer, and how to reuse the same technique outside nf-metro.
+sidebar:
+  order: 9
+---
+
+import Metro from "@components/Metro.astro";
+
+An nf-metro SVG has no separate light and dark version, and nf-metro never
+re-renders it when the viewer's theme changes. Every themeable color is baked
+in as a pair, and native CSS picks the right half at display time:
+
+![Diagram: light-dark(#fff, #1a1a1a) resolves to #fff under a light color-scheme and to #1a1a1a under a dark one](../assets/theming_resolution.svg)
+
+## `light-dark()` and `color-scheme`
+
+`light-dark()` takes two color values and resolves to one of them. It works
+on any color property, so it drops straight into SVG presentation attributes
+and `<style>` rules:
+
+```css
+fill: light-dark(#ffffff, #1a1a1a);
+```
+
+It resolves against the nearest `color-scheme` in effect - without one,
+`light-dark()` values sit in the CSS inert, with nothing to pick a side:
+
+```css
+:root {
+  color-scheme: light dark;
+}
+```
+
+`light dark` means "both are supported here - pick whichever the current
+preference is." Pinning one side instead (`color-scheme: dark`) forces every
+`light-dark()` under it to that value regardless of preference - a
+deterministic escape hatch for something like a PNG export.
+
+## `var()` for host overrides (optional)
+
+```css
+fill: var(--my-bg, light-dark(#ffffff, #1a1a1a));
+```
+
+A host page can set `--my-bg` on a wrapper to override the color outright; if
+it doesn't, the light/dark pair still runs. This layer is optional -
+`light-dark()` + `color-scheme` is the whole mechanism.
+
+## Where `color-scheme` should live
+
+`color-scheme` is inherited, but redeclaring it resets what "current
+preference" means for everything under it. That matters once the SVG is
+embedded, because a host page and the SVG can disagree about who owns that
+decision. nf-metro has two modes, controlled by `self_color_scheme` on
+`render_svg` (`--no-self-color-scheme` on the CLI):
+
+**Standalone (the default).** The root `<svg>` declares its own
+`color-scheme: light dark` (`src/nf_metro/render/svg.py:2595-2597`), so
+`light-dark()` resolves against **the viewer's OS/browser preference** -
+correct for a file opened on its own, or dropped into a page that has no
+opinion about theme.
+
+**Embedded in a page that already manages theme.** Passing
+`--no-self-color-scheme` (used for every `<Metro>` embed on this docs site -
+`website/src/lib/render-metro.mjs:277`) omits that declaration, so the `<svg>`
+inherits `color-scheme` from its host instead. This site's theme picker sets
+it on `<html>`:
+
+```css
+/* Starlight's reset.css */
+html {
+  color-scheme: dark;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+}
+```
+
+This map has no `color-scheme` of its own, so it follows _that_ - use the
+theme picker in the nav to switch it, independent of your OS setting:
+
+<Metro src="examples/guide/01_minimal.mmd" clean />
+
+The two modes aren't interchangeable: an SVG that declares its own
+`color-scheme: light dark` while embedded ignores a host's forced single
+value and falls back to the OS preference regardless of what the host's
+toggle says - redeclaring `light dark` reopens both options, so the "current
+preference" it resolves against reverts to the browser/OS signal rather than
+the host's choice. That's why `--no-self-color-scheme` exists: leaving the
+property off the SVG root is what lets a host's manual toggle reach it at
+all.
+
+## The transparent-background fallback
+
+A transparent-background theme has no `--nfm-bg` pair to lean on, so text
+drawn straight onto the canvas (titles, section labels) can still turn
+illegible against whatever the host page's background is. For that one case,
+nf-metro adds a second, coarser path - a media query rather than a per-value
+pair (`src/nf_metro/render/svg.py`, `_inject_dark_mode_style`):
+
+```css
+@media (prefers-color-scheme: dark) {
+  .nf-metro-section-label {
+    fill: #d0d0d0;
+  }
+  .nf-metro-title {
+    fill: #ffffff;
+  }
+}
+```
+
+`--no-dark-mode-css` turns it off, for a host whose own theming it would
+otherwise fight.
+
+## Consumers that can't parse any of this
+
+Some SVG consumers - `cairosvg` among them - parse a restricted CSS subset
+and abort outright on `light-dark()` or `var()`. nf-metro's export flags map
+directly onto the ingredients above:
+
+```bash
+# bake one concrete palette; no var()/light-dark() left to choke on
+nf-metro render pipeline.mmd -o pipeline.svg --no-chrome-css --mode light
+
+# pin color-scheme for a consumer that DOES understand light-dark(),
+# so the result is deterministic rather than following its own environment
+nf-metro render pipeline.mmd -o pipeline.svg --mode dark
+```
+
+Full flag reference: [Embedding](/nf-metro/embedding/).
+
+## `<img>`, `<object>`, `<embed>` isolate the document
+
+These load the SVG into its own internal document, which never inherits a
+host page's `color-scheme` - only the OS-level preference reaches it, exactly
+as in standalone mode above, no matter how the SVG was rendered. That's the
+other reason (alongside `--no-self-color-scheme`) nf-metro's docs site inlines
+its maps instead of pointing an `<img>` at them.
+
+## Using this outside nf-metro
+
+None of this is nf-metro-specific. Standalone:
+
+```html
+<svg viewBox="0 0 200 100" style="color-scheme: light dark">
+  <style>
+    rect {
+      fill: light-dark(#ffffff, #1a1a1a);
+    }
+    text {
+      fill: light-dark(#111111, #eeeeee);
+    }
+  </style>
+  <rect width="200" height="100" />
+  <text x="10" y="50">Adapts to the viewer's theme</text>
+</svg>
+```
+
+Inline it in an HTML page (not `<img src="...">`) and it follows the OS
+preference. To make it follow a manual toggle on your own site instead, mirror
+Starlight's pattern: force a single `color-scheme` value on your root element
+from the toggle's state, and leave `color-scheme` off the SVG itself so it
+inherits that value rather than reopening both options.
