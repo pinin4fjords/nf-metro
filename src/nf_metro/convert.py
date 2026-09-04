@@ -10,6 +10,7 @@ lines, and emits a ``graph LR`` nf-metro .mmd file.
 from __future__ import annotations
 
 import re
+import warnings
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
@@ -30,6 +31,29 @@ LINE_COLORS = [
     "#00bcd4",  # cyan
     "#795548",  # brown
 ]
+
+
+FEEDBACK_COMMENT_HEADER = (
+    "    %% Feedback removed: the process graph loops back here, and nf-metro's",
+    "    %% layout requires a DAG, so these connections were left out of the map.",
+    "    %% Each one may run through channel or operator nodes rather than being",
+    "    %% a single declared edge.",
+)
+"""Preamble for the ``%%`` block listing the back edges the converter removed.
+
+Plain ``%%`` lines are comments the nf-metro parser ignores, so the block
+travels with the converted file without changing what it renders.
+"""
+
+
+class FeedbackEdgesDroppedWarning(UserWarning):
+    """Warns that converting a cyclic Nextflow DAG had to remove edges.
+
+    nf-metro's layout engine requires an acyclic graph, so a pipeline whose
+    process graph loops cannot be converted edge-for-edge. The converter
+    removes a deterministic set of back edges; this warning names them, so the
+    loop is reported to the caller instead of vanishing.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -236,10 +260,27 @@ def _reconnect_edges(
 # ---------------------------------------------------------------------------
 # Cycle breaking
 # ---------------------------------------------------------------------------
-def _break_cycles(
-    nodes: set[str], edges: list[tuple[str, str]]
-) -> list[tuple[str, str]]:
-    """Remove the deterministic DFS back edges that make the graph cyclic."""
+@dataclass
+class _CycleBreak:
+    """The two halves of :func:`_break_cycles`: what survives and what does not.
+
+    ``kept`` is the acyclic edge list every later pass consumes. ``removed``
+    holds the back edges in the same order they appeared in the input, so the
+    loop the pipeline declared can be reported rather than silently dropped.
+    """
+
+    kept: list[tuple[str, str]] = field(default_factory=list)
+    removed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _break_cycles(nodes: set[str], edges: list[tuple[str, str]]) -> _CycleBreak:
+    """Split ``edges`` into the acyclic remainder and the DFS back edges.
+
+    The back edges are the deterministic set whose removal makes the graph a
+    DAG. They are returned rather than discarded: nf-metro cannot lay out a
+    cycle, but losing one without saying so hides a real feature of the
+    pipeline.
+    """
     graph = directed_graph(sorted(nodes), edges)
     active: set[str] = set()
     back_edges: set[tuple[str, str]] = set()
@@ -250,7 +291,10 @@ def _break_cycles(
             active.discard(target)
         elif label == "nontree" and target in active:
             back_edges.add((source, target))
-    return [(s, t) for s, t in edges if (s, t) not in back_edges]
+    return _CycleBreak(
+        kept=[(s, t) for s, t in edges if (s, t) not in back_edges],
+        removed=[(s, t) for s, t in edges if (s, t) in back_edges],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -588,8 +632,15 @@ def _emit_mmd(
     lines: _LineAssignment,
     station_ids: dict[str, str],
     nodes: dict[str, _NfNode],
+    dropped_feedback: list[tuple[str, str]] | None = None,
 ) -> str:
-    """Assemble the nf-metro ``.mmd`` text from the resolved layout."""
+    """Assemble the nf-metro ``.mmd`` text from the resolved layout.
+
+    ``dropped_feedback`` carries the back edges :func:`_break_cycles` removed.
+    They are written as a trailing ``%%`` comment block: the parser ignores
+    plain comments, so the file still renders, and the loop stays visible to
+    whoever hand-tunes the output.
+    """
     main_line_id, main_line_name, main_color = lines.main
 
     out: list[str] = []
@@ -639,7 +690,35 @@ def _emit_mmd(
             lid = lines.edge_line.get((src, tgt), main_line_id)
             out.append(f"    {station_ids[src]} -->|{lid}| {station_ids[tgt]}")
 
+    if dropped_feedback:
+        out.append("")
+        out.extend(FEEDBACK_COMMENT_HEADER)
+        for src, tgt in dropped_feedback:
+            src_label = _humanize_label(nodes[src].label)
+            tgt_label = _humanize_label(nodes[tgt].label)
+            out.append(
+                f"    %%   {station_ids[src]} ({src_label}) "
+                f"-> {station_ids[tgt]} ({tgt_label})"
+            )
+
     return "\n".join(out) + "\n"
+
+
+def _warn_feedback_edges_dropped(
+    dropped: list[tuple[str, str]], nodes: dict[str, _NfNode]
+) -> None:
+    """Report the back edges removed to make the process graph acyclic."""
+    pairs = ", ".join(
+        f"{_humanize_label(nodes[src].label)} -> {_humanize_label(nodes[tgt].label)}"
+        for src, tgt in dropped
+    )
+    warnings.warn(
+        f"{len(dropped)} feedback connection(s) removed to make the graph "
+        f"acyclic, which nf-metro's layout requires: {pairs}. "
+        "They are listed as a comment at the end of the converted file.",
+        FeedbackEdgesDroppedWarning,
+        stacklevel=3,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +738,14 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     -------
     str
         nf-metro ``.mmd`` text ready for ``nf-metro render``.
+
+    Warns
+    -----
+    FeedbackEdgesDroppedWarning
+        When the pipeline's process graph loops. nf-metro's layout engine
+        requires a DAG, so a deterministic set of back edges is removed; the
+        warning and a trailing ``%%`` comment block in the output both name
+        them.
     """
     dag = _parse_nextflow_mermaid(text)
 
@@ -667,8 +754,8 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     if not kept_ids:
         return "%%metro title: Empty Pipeline\n\ngraph LR\n"
 
-    edges = _reconnect_edges(kept_ids, dag.edges)
-    edges = _break_cycles(kept_ids, edges)
+    cycle_break = _break_cycles(kept_ids, _reconnect_edges(kept_ids, dag.edges))
+    edges = cycle_break.kept
 
     sections = _assign_sections(kept_ids, dag, title)
     section_order = _topological_order(
@@ -692,6 +779,9 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
     if not title:
         title = _infer_title(sections.names, section_order)
 
+    if cycle_break.removed:
+        _warn_feedback_edges_dropped(cycle_break.removed, dag.nodes)
+
     return _emit_mmd(
         title,
         section_order,
@@ -701,6 +791,7 @@ def convert_nextflow_dag(text: str, title: str = "") -> str:
         lines,
         station_ids,
         dag.nodes,
+        cycle_break.removed,
     )
 
 

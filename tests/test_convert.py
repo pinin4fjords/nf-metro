@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 
 import pytest
 
 from nf_metro.convert import (
+    FeedbackEdgesDroppedWarning,
     _break_cycles,
     _humanize_label,
     _order_section_nodes,
@@ -184,17 +186,20 @@ class TestBreakCycles:
     def test_no_cycle(self):
         edges = [("a", "b"), ("b", "c")]
         result = _break_cycles({"a", "b", "c"}, edges)
-        assert len(result) == 2
+        assert result.kept == edges
+        assert result.removed == []
 
     def test_simple_cycle(self):
         edges = [("a", "b"), ("b", "a")]
         result = _break_cycles({"a", "b"}, edges)
-        assert len(result) == 1  # one back edge removed
+        assert result.kept == [("a", "b")]
+        assert result.removed == [("b", "a")]
 
     def test_triangle_cycle(self):
         edges = [("a", "b"), ("b", "c"), ("c", "a")]
         result = _break_cycles({"a", "b", "c"}, edges)
-        assert len(result) == 2  # one back edge removed
+        assert result.kept == [("a", "b"), ("b", "c")]
+        assert result.removed == [("c", "a")]
 
     def test_preserves_dfs_back_edge_choice_and_edge_order(self):
         edges = [
@@ -206,12 +211,27 @@ class TestBreakCycles:
             ("d", "b"),
         ]
 
-        assert _break_cycles({"a", "b", "c", "d"}, edges) == [
+        result = _break_cycles({"a", "b", "c", "d"}, edges)
+        assert result.kept == [
             ("a", "b"),
             ("a", "d"),
             ("b", "c"),
             ("c", "d"),
         ]
+        assert result.removed == [("c", "a"), ("d", "b")]
+
+    def test_kept_and_removed_partition_the_input(self):
+        edges = [
+            ("a", "b"),
+            ("a", "d"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "b"),
+        ]
+
+        result = _break_cycles({"a", "b", "c", "d"}, edges)
+        assert sorted(result.kept + result.removed) == sorted(edges)
 
 
 class TestDeterministicTopologicalOrdering:
@@ -463,6 +483,7 @@ class TestRoundtrip:
             "variant_calling",
             "unquoted_labels",
             "duplicate_processes",
+            "feedback_loop",
         ]
     )
     def fixture_name(self, request):
@@ -512,3 +533,44 @@ class TestRoundtrip:
 
         assert "<svg" in svg
         assert "metro" in svg.lower() or "station" in svg.lower() or "<circle" in svg
+
+
+# ---------------------------------------------------------------------------
+# Feedback edges
+# ---------------------------------------------------------------------------
+class TestFeedbackEdgesReported:
+    """A cyclic pipeline loses edges; it must not lose them quietly."""
+
+    def _convert(self):
+        text = (FIXTURES / "feedback_loop.mmd").read_text()
+        with pytest.warns(FeedbackEdgesDroppedWarning) as caught:
+            mmd = convert_nextflow_dag(text)
+        return mmd, caught
+
+    def test_warns_naming_both_endpoints(self):
+        _, caught = self._convert()
+        message = str(caught[0].message)
+        assert "Polish" in message
+        assert "Assemble" in message
+
+    def test_output_comments_the_removed_connection(self):
+        mmd, _ = self._convert()
+        comment_lines = [ln for ln in mmd.splitlines() if ln.strip().startswith("%%")]
+        assert any("Feedback removed" in ln for ln in comment_lines)
+        assert any("Polish" in ln and "Assemble" in ln for ln in comment_lines)
+
+    def test_removed_connection_is_absent_from_the_graph(self):
+        """The comment records the loop; it must not re-introduce the edge."""
+        from nf_metro.parser import parse_metro_mermaid
+        from nf_metro.parser.validate import find_cycle
+
+        mmd, _ = self._convert()
+        graph = parse_metro_mermaid(mmd)
+        assert find_cycle(graph) is None
+
+    def test_acyclic_input_neither_warns_nor_comments(self):
+        text = (FIXTURES / "flat_pipeline.mmd").read_text()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FeedbackEdgesDroppedWarning)
+            mmd = convert_nextflow_dag(text)
+        assert "Feedback removed" not in mmd
