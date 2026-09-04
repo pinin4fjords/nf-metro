@@ -19,9 +19,11 @@ from __future__ import annotations
 import warnings
 
 import pytest
+from conftest import parse_and_layout
 
 from nf_metro.api import prepare_graph
 from nf_metro.layout.constants import SAME_COORD_TOLERANCE
+from nf_metro.layout.phases._common import _section_lr_port_anchor_y
 
 _BASE = """\
 %%metro title: nf-core/riboseq
@@ -235,3 +237,24 @@ def test_orf_calling_reconvergence_is_fan_centred(text: str) -> None:
     """``Merge ORF catalogue`` stays at the vertical centre of the fan."""
     fan_mid, reconvergence_y = _fan_is_trunk_centred(text)
     assert abs(fan_mid - reconvergence_y) <= SAME_COORD_TOLERANCE
+
+
+@pytest.mark.parametrize(
+    "text", [WITHOUT_SINK, WITH_SINK], ids=["without_sink", "with_sink"]
+)
+def test_orf_calling_trunk_stays_on_row_grid(text: str) -> None:
+    """``orf_calling``'s trunk sits an integer slot count from its row siblings.
+
+    The off-track P-site sinks grow ``psite_id`` and open top slack in the
+    row-mate ``orf_calling``.  Fanning a fan-in branch into that slack would
+    drag the reconvergence join a half slot off the row grid; the join must
+    instead stay an exact multiple of ``y_spacing`` from the sibling trunk.
+    """
+    y_spacing = 55.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        graph = parse_and_layout(text, y_spacing=y_spacing)
+    orf_port = _section_lr_port_anchor_y(graph, graph.sections["orf_calling"])
+    sibling_port = _section_lr_port_anchor_y(graph, graph.sections["psite_id"])
+    slots = (orf_port - sibling_port) / y_spacing
+    assert abs(slots - round(slots)) * y_spacing <= SAME_COORD_TOLERANCE
