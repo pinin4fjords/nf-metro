@@ -67,10 +67,10 @@ overlays built from the manifest still line up (see
 By default the SVG references a system font family, which renders differently
 (or falls back) on a host without that font. Two flags make it self-contained:
 
-| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                             |
-| ----------------- | --------------------------------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                          |
-| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `fonttools[woff]`. |
+| Flag              | What it does                                              | Keeps selectable text?        | Trade-off                                            |
+| ----------------- | --------------------------------------------------------- | ----------------------------- | ---------------------------------------------------- |
+| `--embed-font`    | Inlines a subset of Inter as a base64 `@font-face` block. | Yes (and `data-*` on labels). | Larger file.                                         |
+| `--text-to-paths` | Converts every glyph to a vector `<path>`.                | No.                           | Smallest dependency surface; needs `nf-metro[font]`. |
 
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --embed-font      # portable, still selectable
@@ -317,6 +317,7 @@ except ValueError as e:
 | Raised when...                                                                   | Type                                                                     | When                 | Also a...    |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------- | ------------ |
 | The `.mmd` grammar or a directive is malformed                                   | plain `ValueError` (**not** an `NfMetroError`, see below)                | parsing              | -            |
+| The source parses to no stations at all                                          | `nf_metro.EmptyGraphError`                                               | layout               | `ValueError` |
 | An edge or port survives parsing with a dangling reference                       | `nf_metro.parser.UnresolvedEndpointError` / `UnresolvedPortSectionError` | parsing/layout       | `ValueError` |
 | The station graph has a cycle                                                    | `nf_metro.parser.CyclicGraphError`                                       | layout               | `ValueError` |
 | An inter-section edge would have to flow backward                                | `nf_metro.layout.BackwardFlowError`                                      | layout               | `ValueError` |

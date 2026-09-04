@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from nf_metro.errors import UnknownInactiveLineError
+from nf_metro.errors import EmptyGraphError, UnknownInactiveLineError
 from nf_metro.layout import PhaseInvariantError, compute_layout
 from nf_metro.options import LAYOUT_OPTIONS, is_line_order
 from nf_metro.parser import parse_metro_mermaid
@@ -232,6 +232,12 @@ def _prepare_graph_state(
         ),
         _layout_commitments=layout_commitments,
     )
+    if not graph.stations:
+        raise EmptyGraphError(
+            "the map defines no stations, so there is nothing to lay out or "
+            "draw; the source declares no node or edge lines the parser "
+            "recognised"
+        )
 
     apply_layout_overrides(graph, opts)
 
@@ -299,6 +305,9 @@ def prepare_graph(
     not through a dedicated type); catch ``ValueError`` separately to cover
     that case too.
 
+    - A source that parses to no stations at all (an empty file, or one whose
+      ``graph`` block holds nothing the grammar recognises):
+      :class:`~nf_metro.errors.EmptyGraphError` (also a :class:`ValueError`).
     - A dangling edge or port reference that survived parsing:
       :class:`~nf_metro.parser.UnresolvedEndpointError` /
       :class:`~nf_metro.parser.UnresolvedPortSectionError` (both also
