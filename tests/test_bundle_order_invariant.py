@@ -352,38 +352,19 @@ def test_riboseq_u_turn_corridor_is_accepted() -> None:
     )
 
 
-def _u_turn_route(
-    line_id: str, target: str, points: list[tuple[float, float]]
-) -> RoutedPath:
-    """A ``RoutedPath`` sharing one source, for the shared-run U-turn checks.
-
-    All routes carry source ``'__hub__'`` so they land in one shared-run group;
-    the ``target`` varies so the pair heads for different sections the way a real
-    U-turn corridor peels off at different columns.
-    """
-    return RoutedPath(
-        edge=Edge(source="__hub__", target=target, line_id=line_id),
-        line_id=line_id,
-        points=points,
-        is_inter_section=True,
-        offset_regime=OffsetRegime.BAKED,
-    )
-
-
 def test_translated_u_turn_fold_is_exempt() -> None:
     """Two congruent U-turn brackets offset the same way are a forced crossing.
 
     ``A`` sits above ``B`` on the run and stays above it on the reversed
-    corridor, so their U's are congruent brackets translated down-right together.
-    Congruent brackets offset that way intersect wherever placed, so the crossing
-    is inherent to the fold; the single-corner proxy would flag it (the upper
-    line turns at the smaller x), and this pins that the fold is exempt.
+    corridor, so their U's are congruent brackets translated down-right together;
+    congruent brackets offset that way intersect wherever they are placed.  The
+    crossing is topologically forced, not an ordering bug, so the fold is exempt.
     """
-    a = _u_turn_route(
-        "A", "left_a", [(0.0, 100.0), (200.0, 100.0), (200.0, 396.0), (50.0, 396.0)]
+    a = _synthetic_route(
+        "A", [(0.0, 100.0), (200.0, 100.0), (200.0, 396.0), (50.0, 396.0)], "__hub__"
     )
-    b = _u_turn_route(
-        "B", "left_b", [(0.0, 104.0), (204.0, 104.0), (204.0, 400.0), (60.0, 400.0)]
+    b = _synthetic_route(
+        "B", [(0.0, 104.0), (204.0, 104.0), (204.0, 400.0), (60.0, 400.0)], "__hub__"
     )
     assert check_shared_run_turn_preserves_bundle_order([a, b], {}) == []
 
@@ -397,11 +378,11 @@ def test_concentric_u_turn_fold_with_wrong_turn_column_is_caught() -> None:
     bracket crosses the inner one at the corner.  The exemption is scoped to
     translated folds, so this concentric crossing is surfaced.
     """
-    a = _u_turn_route(
-        "A", "left_a", [(0.0, 100.0), (200.0, 100.0), (200.0, 400.0), (50.0, 400.0)]
+    a = _synthetic_route(
+        "A", [(0.0, 100.0), (200.0, 100.0), (200.0, 400.0), (50.0, 400.0)], "__hub__"
     )
-    b = _u_turn_route(
-        "B", "left_b", [(0.0, 104.0), (204.0, 104.0), (204.0, 396.0), (60.0, 396.0)]
+    b = _synthetic_route(
+        "B", [(0.0, 104.0), (204.0, 104.0), (204.0, 396.0), (60.0, 396.0)], "__hub__"
     )
     violations = check_shared_run_turn_preserves_bundle_order([a, b], {})
     assert [(v.line_a, v.line_b) for v in violations] == [("A", "B")], (
@@ -410,16 +391,19 @@ def test_concentric_u_turn_fold_with_wrong_turn_column_is_caught() -> None:
     )
 
 
-def _synthetic_route(line_id: str, points: list[tuple[float, float]]) -> RoutedPath:
+def _synthetic_route(
+    line_id: str, points: list[tuple[float, float]], source: str = "__src__"
+) -> RoutedPath:
     """Build a ``RoutedPath`` from a points list for testing.
 
-    Source/target IDs are fixed (``'__src__'``, ``'__tgt__'``) so the
-    paths share a bundle key.  The ``Edge`` carries the line id; the
-    rest of the routing metadata is irrelevant to
-    :func:`check_bundle_order_preserved`.
+    ``source`` and the target ``'__tgt__'`` default to fixed ids so a pair
+    shares a bundle key; :func:`check_shared_run_turn_preserves_bundle_order`
+    groups routes by ``source`` alone, so a shared source with differing targets
+    stands in for a bundle that peels to different sections.  The ``Edge`` carries
+    the line id; the rest of the routing metadata is irrelevant to the checks.
     """
     return RoutedPath(
-        edge=Edge(source="__src__", target="__tgt__", line_id=line_id),
+        edge=Edge(source=source, target="__tgt__", line_id=line_id),
         line_id=line_id,
         points=points,
         is_inter_section=True,
