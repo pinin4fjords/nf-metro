@@ -676,11 +676,7 @@ def render_svg(
     if animate is None:
         animate = graph.animate
 
-    effective_inactive = (
-        inactive_line_ids
-        if inactive_line_ids is not None
-        else graph.default_inactive_line_ids()
-    )
+    effective_inactive = graph.resolve_inactive_line_ids(inactive_line_ids)
 
     metrics_face = metrics_face_for_portability(font_portability)
     with class_prefix_context(svg_class_prefix):

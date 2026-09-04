@@ -34,16 +34,16 @@ MMD = (
 )
 
 
-def _graph():
+def _graph(src: str = MMD):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        graph = parse_metro_mermaid(MMD)
+        graph = parse_metro_mermaid(src)
     compute_layout(graph)
     return graph
 
 
-def _model() -> MapModel:
-    return MapModel(_graph(), THEMES["nfcore"])
+def _model(src: str = MMD) -> MapModel:
+    return MapModel(_graph(src), THEMES["nfcore"])
 
 
 def _ev(event, task_id, process, status=""):
@@ -60,21 +60,16 @@ def test_only_mapped_stations_are_overlaid():
 
 
 def test_declared_inactive_line_is_muted_in_served_svg():
-    src = (
+    model = _model(
         "%%metro line: a | A | #ff0000 | solid\n"
         "%%metro line: b | B | #0000ff | solid | inactive\n"
         "graph LR\n"
         "    input[In] -->|a| trim[Trim]\n"
         "    trim -->|b| qc[QC]\n"
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        graph = parse_metro_mermaid(src)
-    compute_layout(graph)
-    theme = THEMES["nfcore"]
-    model = MapModel(graph, theme)
+    muted = THEMES["nfcore"].muted_line_color
     assert 'stroke="#0000ff"' not in model.svg_body
-    assert f'stroke="{theme.muted_line_color}"' in model.svg_body
+    assert f'stroke="{muted}"' in model.svg_body
 
 
 def test_state_machine_queued_running_done():

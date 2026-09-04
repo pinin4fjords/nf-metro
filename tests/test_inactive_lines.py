@@ -450,6 +450,14 @@ def test_render_svg_empty_override_forces_all_active():
     assert theme.muted_line_color not in rects["z"]
 
 
+def test_render_svg_unknown_inactive_line_raises():
+    graph = prepare_graph(DECLARED_INACTIVE_MAP)
+    theme = resolve_theme(None, graph)
+    with pytest.raises(UnknownInactiveLineError) as exc:
+        render_svg(graph, theme, inactive_line_ids=frozenset({"nope"}))
+    assert "nope" in str(exc.value)
+
+
 def test_muted_theme_overrides_every_field_on_a_plain_theme():
     # A render always passes the plan's FrozenRecord theme; a dataclass Theme
     # takes the dataclasses.replace path instead.

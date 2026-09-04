@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypedDict
 
-from nf_metro.errors import NfMetroError
+from nf_metro.errors import NfMetroError, UnknownInactiveLineError
 from nf_metro.parser.provenance import LayoutProvenance
 
 if TYPE_CHECKING:
@@ -769,6 +769,26 @@ class MetroGraph:
         return frozenset(
             line_id for line_id, line in self.lines.items() if line.default_inactive
         )
+
+    def resolve_inactive_line_ids(
+        self, override: frozenset[str] | None
+    ) -> frozenset[str]:
+        """Inactive-line set for a render: *override* if given, else the default.
+
+        ``None`` falls back to :meth:`default_inactive_line_ids`. A supplied set
+        replaces that default outright and is validated against the known lines,
+        raising :class:`~nf_metro.errors.UnknownInactiveLineError` on any ID the
+        map does not declare.
+        """
+        if override is None:
+            return self.default_inactive_line_ids()
+        bad = override - self.lines.keys()
+        if bad:
+            raise UnknownInactiveLineError(
+                f"unknown line ID(s) {sorted(bad)}; "
+                f"known lines are {sorted(self.lines)}"
+            )
+        return override
 
     def add_station(self, station: Station) -> None:
         self.stations[station.id] = station
