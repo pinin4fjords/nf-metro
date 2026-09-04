@@ -4686,7 +4686,9 @@ def compute_station_offsets(
 
     Runs in ordered phases, one per call in the body below.  Each phase's
     own docstring carries its conditions; the notes here are the ordering
-    constraints that are not visible from a single phase.
+    constraints that are not visible from a single phase.  The labels are
+    identifiers rather than positions -- ``CONTRACT.md`` documents 14b and 14c
+    under those names, and there is no phase 11.
 
     1. **Base offsets** - global priority (or compact-mode) assignment.
     2. **Section-local re-indexing** - closes priority gaps within

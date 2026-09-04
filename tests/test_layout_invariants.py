@@ -7833,9 +7833,9 @@ def test_loop_column_stations_share_x(fixture):
       sits ON the trunk row (the column's trunk station, which pass
       2 snaps onto the clean-sibling midpoint).
 
-    The failure this rules out is ``limma`` sitting at the raw layer X
-    (e.g. 629.4) while its off-trunk siblings ``propd``, ``dream`` and
-    ``DESeq2`` are recentered to the column midpoint (~648.6).
+    The failure this rules out is ``limma`` left at its raw layer X while
+    its off-trunk siblings ``propd``, ``dream`` and ``DESeq2`` are recentered
+    to the column midpoint, splitting one visual column across two Xs.
     """
     from nf_metro.parser.model import PortSide
 
@@ -9913,7 +9913,7 @@ def test_thick_bundle_row_pitch(fixture):
     ``min_track_gap = (max_lines-1)*OFFSET_STEP + 2*STATION_RADIUS_APPROX
     + LABEL_OFFSET + FONT_HEIGHT``; a flat ``y_spacing`` crowds the stack.
     Evidence (rnaseq_sections_manual.mmd ``preprocessing``): the 6-line
-    bundle stacks at a 50px pitch, equal to ``min_track_gap``, where a
+    bundle stacks at a 55px pitch, equal to ``min_track_gap``, where a
     flat ``y_spacing`` would give 40px.
     """
     from nf_metro.layout.constants import (

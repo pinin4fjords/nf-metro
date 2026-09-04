@@ -232,9 +232,10 @@ the mutable intermediate state earlier phases happen to have left behind
 (current station Y, section `bbox` geometry). This is strictly stronger than the
 idempotence locked by `tests/test_content_placement_idempotent.py` (#488):
 purity means re-running, re-ordering, *or perturbing the non-anchor state*
-cannot change a phase's output. `tests/test_content_placement_pure.py` (#491) is the guard - it
-perturbs the non-anchor state before each phase and asserts the governed
-stations land identically, the test-time counterpart to the anchor-frozen guard.
+cannot change a phase's output. `tests/test_content_placement_pure.py` (#491)
+is the guard - it perturbs the non-anchor state before each phase and asserts
+the governed stations land identically, the test-time counterpart to the
+anchor-frozen guard.
 
 The phases that genuinely need an intermediate quantity - the empty-band slack
 in 6.1 / 6.2, the balance arrangement in 6.11 - read it from a frozen *placement

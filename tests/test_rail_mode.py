@@ -971,8 +971,8 @@ def test_angled_rail_labels_render_rotated():
 
 
 def test_label_angle_default_off_byte_identical():
-    """A graph with no ``label_angle`` directive renders unrotated: no
-    rotation transforms in the SVG and no angle-driven spacing."""
+    """A graph with no ``label_angle`` directive renders unrotated: the SVG
+    carries no rotation transform at all."""
     from nf_metro.render import render_svg
     from nf_metro.themes import THEMES
 

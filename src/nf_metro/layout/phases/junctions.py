@@ -21,8 +21,7 @@ def _required_junction_margin(n: int) -> float:
     before the curve (``CURVE_RADIUS``), not on the fan width.
 
     Returns ``JUNCTION_MARGIN`` directly: the baseline already exceeds the
-    curve-start clearance at any fan width, so ``n`` is accepted but never
-    read.
+    curve-start clearance at any fan width.
     """
     del n
     return JUNCTION_MARGIN

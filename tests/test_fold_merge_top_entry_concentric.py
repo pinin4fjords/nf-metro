@@ -19,11 +19,9 @@ Anchoring the drop on each line's index in the *whole* cross-boundary bundle
 lines past the feeder lane (a jog at the port) and straddle the merge station
 (a non-concentric corner).
 
-The fold directive is injected at test time rather than shipped as a fixture:
-the folded ``shared_sink_parallel`` also stacks its branches in one column, so a
-separate open defect (feeders routing through the intervening branch boxes,
-#1148) would fail the corpus-wide invariant tests on a committed fixture. This
-test scopes itself to the corner/seam geometry, which is exercised regardless.
+The fold directive is injected at test time rather than shipped as a fixture;
+this test scopes itself to the corner and seam geometry, which is exercised
+regardless.
 """
 
 from __future__ import annotations

@@ -201,10 +201,11 @@ CROWDING_PITCH = 40.0
 """One lane pitch, mirroring ``nf_metro.layout.constants.Y_SPACING``.
 
 Clearance beyond one pitch is room enough, so this is where
-:func:`marker_crowding` saturates. Hardcoded to match the literal in
-``extract_features``: a feature's meaning must not track a constant the engine
-may retune, or a vector measured today would not be comparable with one
-measured at an older revision.
+:func:`marker_crowding` saturates. Hardcoded to match the literal the frozen
+preference dataset measured with (``datasets/layout_preferences/README.md``):
+a feature's meaning must not track a constant the engine may retune, or a
+vector measured today would not be comparable with one measured at an older
+revision.
 """
 
 
