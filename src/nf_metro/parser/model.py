@@ -303,6 +303,12 @@ class Station:
         )
 
 
+# ``Edge.line_id`` for an edge the source wrote without a ``|line_id|``
+# annotation. An unannotated edge and one naming an undeclared line are
+# separate authoring defects, so the sentinel keeps them apart.
+UNANNOTATED_LINE_ID = "default"
+
+
 @dataclass
 class Edge:
     """A directed edge between stations, belonging to a metro line."""
@@ -488,11 +494,6 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
-    # True once a ``%%metro line:`` directive has been rejected as unusable.
-    # A rejected declaration establishes that the map declares its lines, so an
-    # edge naming an undeclared line is an error rather than an annotation on a
-    # line-less map.
-    line_declaration_rejected: bool = False
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)
