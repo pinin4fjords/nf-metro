@@ -1125,3 +1125,21 @@ def test_serve_multi_accepts_the_theme_alias(monkeypatch):
     result = CliRunner().invoke(cli, ["serve-multi", "--theme", "dark"])
     assert isinstance(result.exception, _ServerStarted), result.output
     assert started["theme"] is THEMES["nfcore"]
+
+
+@pytest.mark.parametrize(
+    "command, label",
+    [
+        ("validate", "Validation warnings"),
+        ("info", "Warnings"),
+        ("explain", "Warnings"),
+    ],
+)
+def test_parse_failure_still_reports_earlier_warnings(tmp_path, command, label):
+    """A warning naming the fault outlives the error naming its consequence."""
+    src = tmp_path / "warned.mmd"
+    src.write_text(_UNKNOWN_DIRECTIVE + "graph LR\n    a[A] --> b[B]\n")
+    result = CliRunner().invoke(cli, [command, str(src)])
+    assert result.exit_code != 0
+    assert f"{label}:\n  - {_UNKNOWN_DIRECTIVE_WARNING}" in result.output
+    assert "no metro line annotation" in result.output

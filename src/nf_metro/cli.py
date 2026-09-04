@@ -33,6 +33,7 @@ from nf_metro.parser import (
 )
 from nf_metro.parser.model import (
     LineSpread,
+    MetroGraph,
     PermissiveGuardWarning,
     split_guard_warnings,
 )
@@ -157,6 +158,26 @@ def _clean_error(exc: Exception, prefix: str = "") -> NoReturn:
     if os.environ.get("NF_METRO_DEBUG") == "1":
         raise exc
     raise click.ClickException(f"{prefix}{exc}")
+
+
+def _parse_reporting_warnings(
+    input_file: Path, text: str, *, label: str = "Warnings"
+) -> tuple[MetroGraph, list[str]]:
+    """Parse *text*, returning the graph and the warnings the parse raised.
+
+    A parse failure reports what was recorded before it under *label*: where a
+    malformed directive is the real fault, the warning names it and the error
+    names only the consequence.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            graph = parse_metro_mermaid(text)
+        except ValueError as e:
+            if caught:
+                _echo_block(label, [str(w.message) for w in caught])
+            _clean_error(e, f"{input_file}: ")
+    return graph, [str(w.message) for w in caught]
 
 
 def _report_render_warnings(
@@ -843,14 +864,13 @@ def validate(input_file: Path, with_layout: bool, strict: bool) -> None:
     """
     text = input_file.read_text()
 
-    issues: list[ValidationIssue] = []
+    graph, parse_warnings = _parse_reporting_warnings(
+        input_file, text, label="Validation warnings"
+    )
+
+    issues = [ValidationIssue(WARNING, message) for message in parse_warnings]
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        try:
-            graph = parse_metro_mermaid(text)
-        except ValueError as e:
-            _clean_error(e, f"{input_file}: ")
-
         issues.extend(validate_graph(graph))
 
         if with_layout:
@@ -909,13 +929,7 @@ def info(input_file: Path, as_json: bool, verbose: bool) -> None:
     emits the complete structure for scripting.
     """
     text = input_file.read_text()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        try:
-            graph = parse_metro_mermaid(text)
-        except ValueError as e:
-            _clean_error(e, f"{input_file}: ")
-    messages = [str(w.message) for w in caught]
+    graph, messages = _parse_reporting_warnings(input_file, text)
 
     # The JSON and the verbose text report both carry the captured warnings;
     # the default summary does not, so they surface on stderr instead.
@@ -967,13 +981,7 @@ def explain(
     output on decisions involving a specific element.
     """
     text = input_file.read_text()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        try:
-            graph = parse_metro_mermaid(text)
-        except ValueError as e:
-            _clean_error(e, f"{input_file}: ")
-    messages = [str(w.message) for w in caught]
+    graph, messages = _parse_reporting_warnings(input_file, text)
 
     report = build_explain(
         graph,
