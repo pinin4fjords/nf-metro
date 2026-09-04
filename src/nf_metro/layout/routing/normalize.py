@@ -1159,12 +1159,17 @@ def _declared_htrunks(routes: list[RoutedPath]) -> list[_HTrunk]:
     The trunks the materialization pass owns: exempt and non-exempt alike,
     filtered to those carrying a declared slot so an undeclared leg (which would
     have no gap to fan into) is left to :func:`_dogleg_off_exempt_trunks`.
+
+    Read on :func:`planner_owns_segment_or_boundary` rather than the
+    segment-boundary half alone, which is the rule the guards that close on the
+    result read: a trunk leg can itself be a planned exit turn's segment, whose
+    Y the fan would then choose against the plan.
     """
     return [
         t
         for t in _collect_htrunks(routes, include_exempt=True)
         if t.route.trunk_slot is not None
-        and not route_system_owns_segment_boundary(t.route, t.idx)
+        and not planner_owns_segment_or_boundary(t.route, t.idx)
     ]
 
 
@@ -3101,6 +3106,11 @@ def _bundle_divergent_distinct_descents(
         # arc centre there and nowhere later.
         if frozen and not (settle_frozen_arcs and tight):
             continue
+        # Reaching the next gate with an owned channel means the gate above let
+        # it through on ``settle_frozen_arcs and tight``, since a route-system
+        # boundary is one of the ways :func:`_planner_owns_channel` answers
+        # true.  Its ``not tight`` is therefore already false: it declines a
+        # group no construction produces.
         if (
             any(
                 route_system_owns_segment_boundary(channel.route, channel.idx)
@@ -4213,10 +4223,19 @@ def _separate_fused_cotravelling_runs(
             eligible_route_ids is None
             or all(id(run.route) in eligible_route_ids for run in lane.runs)
         )
+        # Plan ownership binds outside the carve-out, which waives the wider
+        # boundary reading alone, and only for a route whose route-system ranks
+        # this caller is itself still allocating.  ``CorridorLane.pinned``
+        # keeps a plan-owned lane out of ``_reseating_order`` either way;
+        # naming the rule here keeps this pass on the one
+        # ``check_no_fused_cotravelling_lines`` closes on, which attributes a
+        # lane to exactly the plan kinds :func:`planner_owns_segment` names.
         and not any(
             planner_owns_segment(run.route, run.idx)
-            or route_system_owns_segment_boundary(run.route, run.idx)
-            and id(run.route) not in secondary_movable_route_ids
+            or (
+                route_system_owns_segment_boundary(run.route, run.idx)
+                and id(run.route) not in secondary_movable_route_ids
+            )
             for run in lane.runs
         )
         and not any((id(run.route), run.idx) in fixed_segment_keys for run in lane.runs)
