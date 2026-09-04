@@ -9,11 +9,7 @@
 
 Generate metro-map-style SVG diagrams from Mermaid graph definitions with `%%metro` directives. Designed for visualizing bioinformatics pipeline workflows (e.g., nf-core pipelines) as transit-style maps where each analysis route is a colored "metro line."
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/seqeralabs/nf-metro/main/examples/rnaseq_dark_animated.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/seqeralabs/nf-metro/main/examples/rnaseq_light_animated.svg">
-  <img alt="nf-core/rnaseq metro map" src="https://raw.githubusercontent.com/seqeralabs/nf-metro/main/examples/rnaseq_auto_dark.png">
-</picture>
+<img alt="nf-core/rnaseq metro map" src="https://raw.githubusercontent.com/seqeralabs/nf-metro/main/examples/rnaseq_hero_animated.svg">
 
 **Try it without installing:** the [nf-metro playground](https://seqeralabs.github.io/nf-metro/latest/playground/) runs the full layout engine in your browser. Edit a `.mmd` file, preview the result live, import a Nextflow `-with-dag` diagram directly, and tweak layout options - no Python, no CLI needed.
 
