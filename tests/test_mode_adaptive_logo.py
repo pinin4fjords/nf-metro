@@ -3,7 +3,6 @@
 import base64
 import io
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -261,6 +260,15 @@ def test_open_logo_image_rejects_non_base64_data_uri():
         open_logo_image("data:image/png,not-base64")
 
 
+def test_open_logo_image_rejects_corrupt_base64_payload():
+    """A well-formed ``;base64,`` header with a payload that fails to decode
+    (e.g. bytes appended after the legitimate base64 alphabet) raises a
+    ``ValueError`` rather than an unhandled ``binascii.Error``."""
+    corrupt = _png_data_uri(width=40, height=20) + '" onerror="alert(1)'
+    with pytest.raises(ValueError, match="base64"):
+        open_logo_image(corrupt)
+
+
 def test_resolve_logo_accepts_data_uri_single_path():
     """A data URI needs no filesystem access, so it resolves with no source_dir."""
     g = MetroGraph()
@@ -321,10 +329,14 @@ def test_logo_image_kwargs_escapes_quote_in_data_uri():
     assert "&quot;" in kwargs["path"]
 
 
-def test_data_uri_logo_with_quote_does_not_break_out_of_href():
-    """A data URI is directive-authored text landing verbatim in an
-    ``xlink:href`` attribute, so a literal ``"`` in it must not escape that
-    attribute's quoting."""
+def test_data_uri_logo_with_quote_is_rejected_before_rendering():
+    """Appending an attack suffix to a data-URI logo's base64 payload
+    corrupts it; ``open_logo_image`` (via ``compute_logo_dimensions``,
+    called while resolving the logo) rejects that corrupt payload with a
+    ``ValueError`` before any rendering happens, rather than letting the
+    corrupt bytes reach ``PIL.Image.open`` unguarded, or letting a
+    malformed-but-decodable payload's escaped text reach SVG attribute
+    emission with no dimensions computed for it."""
     malicious = _png_data_uri(width=40, height=20) + '" onerror="alert(1)'
     text = (
         f"%%metro logo: {malicious}\n"
@@ -333,9 +345,5 @@ def test_data_uri_logo_with_quote_does_not_break_out_of_href():
         "    a[A] -->|main| b[B]\n"
     )
 
-    svg = render_string(text, chrome_css=False)
-
-    root = ET.fromstring(svg)
-    for el in root.iter():
-        assert "onerror" not in el.attrib, f"{el.tag} attrib={el.attrib}"
-    assert "alert(1)" in svg
+    with pytest.raises(ValueError, match="base64"):
+        render_string(text, chrome_css=False)

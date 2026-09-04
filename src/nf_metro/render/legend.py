@@ -16,6 +16,7 @@ __all__ = [
 ]
 
 import base64
+import binascii
 import html
 from dataclasses import dataclass
 from io import BytesIO
@@ -98,14 +99,32 @@ def resolve_logo_file(raw: str, source_dir: str) -> str:
 
 
 def open_logo_image(path: str) -> "PILImageType":
-    """Open a logo image from a data URI or a file path."""
+    """Open a logo image from a data URI or a file path.
+
+    Raises ``ValueError`` for a data URI whose payload cannot be decoded and
+    opened as an image, rather than letting a malformed or truncated payload
+    surface a raw ``binascii``/PIL exception to the caller. Decoding is
+    strict (``validate=True``): a payload byte outside the base64 alphabet
+    is rejected outright rather than silently discarded, since Python's
+    lenient (default) decoder would otherwise skip such bytes and decode
+    whatever remains - an outcome that depends on incidental byte-length
+    arithmetic rather than on whether the payload is well-formed.
+    """
     from PIL import Image as PILImage
+    from PIL import UnidentifiedImageError
 
     if path.startswith("data:"):
         header, _, payload = path.partition(",")
         if ";base64" not in header:
             raise ValueError("logo data URI must be base64-encoded")
-        return PILImage.open(BytesIO(base64.b64decode(payload)))
+        try:
+            decoded = base64.b64decode(payload, validate=True)
+            return PILImage.open(BytesIO(decoded))
+        except (binascii.Error, UnidentifiedImageError, OSError) as exc:
+            raise ValueError(
+                "logo data URI's base64 payload could not be decoded as an "
+                f"image: {exc}"
+            ) from exc
     return PILImage.open(path)
 
 
