@@ -39,6 +39,7 @@ ANIMATION_FIXTURE_IDS = [p.stem for p in ANIMATION_FIXTURES]
 def _build(fixture: Path):
     """Parse, layout, route, and build animation motion paths for a fixture."""
     graph = parse_metro_mermaid(fixture.read_text())
+    graph.source_dir = str(fixture.parent)
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
@@ -155,6 +156,7 @@ def test_motion_path_segments_lie_on_rendered_geometry(fixture: Path):
 
 def _render_animated(fixture: Path, theme_key: str = "nfcore") -> str:
     graph = parse_metro_mermaid(fixture.read_text())
+    graph.source_dir = str(fixture.parent)
     compute_layout(graph)
     return render_svg(graph, THEMES[theme_key], animate=True)
 
