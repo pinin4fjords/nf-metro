@@ -383,10 +383,13 @@ _URL_REF_RE = re.compile(r"url\(#([^)]+)\)")
 _CLASS_ATTR_RE = re.compile(r'(?<![\w-])class="([^"]*)"')
 _STYLE_BLOCK_RE = re.compile(r"(<style>)(.*?)(</style>)", re.DOTALL)
 _CLASS_SELECTOR_RE = re.compile(r"\.([A-Za-z_][\w-]*)")
-# The url(...) branch is tried first, so a dotted token inside a url(...) span
-# (e.g. a filename) is consumed whole and never reaches the class-selector
-# branch; only group(1) marks a real class-selector match.
-_STYLE_BODY_REWRITE_RE = re.compile(r"url\([^)]*\)|" + _CLASS_SELECTOR_RE.pattern)
+# The url(...) alternative is tried first, so a dotted filename inside a
+# simple url(...) span matches as part of that alternative instead of the
+# class-selector one. It does not account for nested parens, a quoted ")",
+# or an uppercase "URL(".
+_STYLE_BODY_REWRITE_RE = re.compile(
+    r"url\([^)]*\)|(?P<class_selector>" + _CLASS_SELECTOR_RE.pattern + ")"
+)
 
 
 def _namespace_referenced_ids(content: str, namespace: str) -> str:
@@ -441,9 +444,10 @@ def _namespace_presentation_classes(content: str, namespace: str) -> str:
         return f'class="{renamed}"'
 
     def repl_token(tm: re.Match[str]) -> str:
-        name = tm.group(1)
-        if name is None:  # a url(...) span, not a class selector
+        selector = tm.group("class_selector")
+        if selector is None:  # a url(...) span, not a class selector
             return tm.group(0)
+        name = selector[1:]  # drop the leading "."
         return f".{name}--{namespace}"
 
     def repl_style(m: re.Match[str]) -> str:
