@@ -95,6 +95,9 @@ jobs:
           echo "pr=$(cat artifact/preview_meta/pr_number.txt)" >> "$GITHUB_OUTPUT"
           echo "has_changes=$(cat artifact/preview_meta/has_changes.txt)" >> "$GITHUB_OUTPUT"
 
+      # gh-pages must already exist; the docs deploy is what bootstraps it (and
+      # what keeps the root .nojekyll in place), so there is no orphan-branch
+      # fallback here.
       - name: Check out gh-pages
         if: steps.meta.outputs.has_changes == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -103,9 +106,10 @@ jobs:
           fetch-depth: 1
           path: gh-pages
 
-      # gh-pages accumulates independent subtrees (_pr/<N>/, the versioned docs
-      # builds), so a rejected push only ever means a sibling writer committed
-      # first: replay this commit onto the new tip and push again.
+      # A rejected push means another gh-pages writer committed first. The
+      # commit is re-derived on the refetched tip rather than replayed as a diff,
+      # so a cleanup that removed this directory in between cannot leave a
+      # conflict behind.
       - name: Publish preview to gh-pages
         if: steps.meta.outputs.has_changes == 'true'
         working-directory: gh-pages
@@ -119,22 +123,22 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf "_pr/$PR"
-          mkdir -p "_pr/$PR"
-          cp -a ../artifact/diff_site/. "_pr/$PR/"
-          git add -A "_pr/$PR"
-          if git diff --staged --quiet; then
-            echo "Preview for PR #$PR is already published verbatim."
-            exit 0
-          fi
-          git commit -m "Publish render preview for PR #$PR"
-          for delay in 5 10 20 40 0; do
+          for delay in 0 5 10 20 40; do
+            sleep "$delay"
+            git fetch --depth=1 origin gh-pages
+            git reset --hard FETCH_HEAD
+            rm -rf "_pr/$PR"
+            mkdir -p "_pr/$PR"
+            cp -a ../artifact/diff_site/. "_pr/$PR/"
+            git add -A "_pr/$PR"
+            if git diff --staged --quiet; then
+              echo "Preview for PR #$PR is already published verbatim."
+              exit 0
+            fi
+            git commit -m "Publish render preview for PR #$PR"
             if git push origin HEAD:gh-pages; then
               exit 0
             fi
-            sleep "$delay"
-            git fetch --depth=1 origin gh-pages
-            git rebase --onto FETCH_HEAD HEAD~1
           done
           echo "Could not push the preview for PR #$PR to gh-pages." >&2
           exit 1

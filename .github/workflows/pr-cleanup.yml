@@ -42,24 +42,25 @@ jobs:
             echo "Refusing to act on non-numeric PR number '$PR'." >&2
             exit 1
           fi
-          if [ -d "_pr/$PR" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # A rejected push means another gh-pages writer committed first. The
+          # commit is re-derived on the refetched tip rather than replayed as a
+          # diff, so a preview publish that rewrote this directory in between
+          # cannot leave a conflict behind.
+          for delay in 0 5 10 20 40; do
+            sleep "$delay"
+            git fetch --depth=1 origin gh-pages
+            git reset --hard FETCH_HEAD
+            if [ ! -d "_pr/$PR" ]; then
+              echo "No preview directory found for PR #$PR, nothing to clean up."
+              exit 0
+            fi
             git rm -rf "_pr/$PR"
             git commit -m "Clean up render preview for PR #$PR"
-            # A rejected push means another gh-pages writer committed first. Its
-            # subtree is disjoint from the directory removed here, so replay this
-            # commit onto the new tip and retry.
-            for delay in 5 10 20 40 0; do
-              if git push origin HEAD:gh-pages; then
-                exit 0
-              fi
-              sleep "$delay"
-              git fetch --depth=1 origin gh-pages
-              git rebase --onto FETCH_HEAD HEAD~1
-            done
-            echo "Could not remove the preview for PR #$PR from gh-pages." >&2
-            exit 1
-          else
-            echo "No preview directory found for PR #$PR, nothing to clean up."
-          fi
+            if git push origin HEAD:gh-pages; then
+              exit 0
+            fi
+          done
+          echo "Could not remove the preview for PR #$PR from gh-pages." >&2
+          exit 1
