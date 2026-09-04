@@ -17,20 +17,19 @@ in as a pair, and native CSS picks the right half at display time:
 <Aside type="note" title="The recipe, if you just want it">
 
 1. Use `light-dark(light, dark)` for every color that should adapt.
-2. Declare `color-scheme: light dark` on the root if the file needs to work
-   standalone - opened directly, or dropped into a host with no opinion on
-   theme.
-3. Inlining it into a page you control? Remove that declaration instead, so
-   the SVG inherits the page's `color-scheme` - redeclaring it overrides the
-   host's choice rather than following it.
-4. Referencing it via `<img>` instead (the safe way to embed content you
-   don't fully trust, since it sandboxes scripts and external loads)? The
-   host can steer it by setting `color-scheme` directly on the `<img>`
-   element. This works in Chrome and Firefox regardless of what the SVG
-   itself declares. Safari doesn't honor it - it always falls back to the
-   viewer's own OS setting there instead of the host's, safely, just not
-   host-controlled. That's the ceiling for a single file; no fifth step
-   closes the Safari gap.
+2. If the file needs to work standalone - opened directly, or dropped into a
+   host with no opinion on theme - declare `color-scheme: light dark` on
+   the root.
+3. If you inline it into a page you control instead, leave that declaration
+   off the root. The SVG then inherits the page's `color-scheme`; declaring
+   it yourself would override the host's choice rather than follow it.
+4. If you reference it with `<img>` instead - the safe way to embed content
+   you don't fully trust, since it blocks scripts and external loads - the
+   host page can still steer the colors, by setting `color-scheme` directly
+   on the `<img>` element. Chrome and Firefox honor this regardless of what
+   the SVG itself declares. Safari does not: it always shows the viewer's
+   own OS setting instead of the host's. That is safe, not broken, and it
+   is the limit of what one file can do - no fifth step closes that gap.
 
 The rest of this page is the reasoning and the exceptions.
 
@@ -228,38 +227,11 @@ Firefox honor this cleanly and deterministically, independent of the OS
 preference either way.
 
 Safari does not: it ignores the `<img>`'s declared `color-scheme` entirely
-and just follows the real system/browser preference instead, exactly as if
-no override were present at all.
+and follows the real system preference instead, exactly as if no override
+were present at all.
 
-Getting to that answer took three attempts, worth recording because each
-wrong turn was plausible on its own. Playwright's bundled WebKit gave
-inconsistent results across repeated runs (occasionally dark, mostly light,
-no clean rule) - not trustworthy on its own. A same-origin `http://` test
-against real Safari, with real system Dark Mode toggled by script and the
-rendered pixel read back through canvas, gave a clean but different answer:
-light regardless of anything, 12/12. That also turned out wrong, confirmed by
-manually toggling System Settings by hand and looking: the embedded SVG
-tracks the OS setting correctly, it just never sees the `<img>`'s override.
-The scripted toggle was changing the real system preference (confirmed with
-`defaults read -g AppleInterfaceStyle`, and Safari's own top-level page
-tracked it correctly throughout), but apparently didn't fully propagate to a
-freshly-launched process's embedded-image rendering path in time - the same
-failure mode, it turned out, also silently invalidated an equivalent
-scripted check for Firefox before a manual check corrected that one too.
-Chrome and Firefox's "the `<img>` wins" results, and Safari's "the OS wins,
-the `<img>` is ignored" result, are the ones confirmed by hand, in real
-browsers, with a real System Settings toggle - trust these over both the
-Playwright numbers and the scripted-toggle numbers above them, and don't
-trust a scripted OS-appearance change to notify every app correctly, verify
-by hand when a claim matters.
-
-`<object>`/`<embed>` don't get this: they open a full nested browsing context,
-which the spec excludes. Chromium and WebKit keep them OS-only in Playwright
-testing; Firefox propagates the host's `color-scheme` into them too - not
-re-verified by hand the way the `<img>` numbers above were, so given how
-often the scripted checks above needed correcting, treat this one as a
-starting point rather than a settled result, and don't rely on either
-`<object>` or `<embed>` for this regardless.
+`<object>`/`<embed>` don't get this either: they open a full nested browsing
+context, which the spec excludes. Don't rely on either for this.
 
 <Aside type="caution" title="This makes one SVG a reasonable design, not a universal one">
 
@@ -286,9 +258,8 @@ the ordinary way - `![...](docs/images/..._animated.svg)`, which GitHub
 renders as a plain `<img>`. Its map uses the paired `nfcore` theme with a
 light/dark logo pair, self_color_scheme left at its default, and no other
 flags. On GitHub's own rendered page, that's enough: the whole map - not just
-text - now follows GitHub's light/dark setting, confirmed on the actual
-rendered branch preview in both directions
-([PR #1876](https://github.com/nf-core/rnaseq/pull/1876)).
+text - follows GitHub's light/dark setting
+([source](https://github.com/nf-core/rnaseq/blob/dev/assets/metro_map.mmd)).
 
 </Aside>
 
