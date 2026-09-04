@@ -77,6 +77,7 @@ FIXTURES_WITHOUT_CROSSINGS = [
 def _bridges(path: Path):
     """Return (graph, routes, polylines, bridges) for a fixture."""
     graph = parse_metro_mermaid(path.read_text())
+    graph.source_dir = str(path.parent)
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)

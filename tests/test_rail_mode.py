@@ -630,6 +630,7 @@ def test_angled_rail_labels_do_not_rake_lower_rail_markers():
     from nf_metro.layout.routing import compute_station_offsets, route_edges
 
     graph = parse_metro_mermaid((EXAMPLES / "sarek_metro.mmd").read_text())
+    graph.source_dir = str(EXAMPLES)
     assert graph.is_rail_section("calling"), "sarek_metro flags 'calling' as rails"
     assert graph.label_angle, "sarek_metro opts into 45-degree labels"
     compute_layout(graph)
@@ -1647,6 +1648,7 @@ def test_rails_place_one_station_per_column_on_sarek():
     rail transient that the content corpus excludes for rails.
     """
     graph = parse_metro_mermaid(SAREK_MMD.read_text())
+    graph.source_dir = str(SAREK_MMD.parent)
     compute_layout(graph)
     section = graph.sections["calling"]
     xs: dict[int, str] = {}

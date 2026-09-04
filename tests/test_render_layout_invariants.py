@@ -61,6 +61,7 @@ CLEAN_FIXTURES = [
 
 def _laid_out(name: str) -> MetroGraph:
     graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    graph.source_dir = str((EXAMPLES / name).parent)
     compute_layout(graph)
     return graph
 
@@ -411,6 +412,7 @@ def _laid_out_repro(fixture_dir: str, name: str, fold: int | None) -> MetroGraph
         "topologies": EXAMPLES / "topologies",
     }[fixture_dir]
     graph = parse_metro_mermaid((base / name).read_text(), max_station_columns=fold)
+    graph.source_dir = str((base / name).parent)
     compute_layout(graph)
     return graph
 

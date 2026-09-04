@@ -55,6 +55,7 @@ def _load_and_layout(path: Path, max_station_columns: int = 15):
     """Parse a .mmd file and run layout."""
     text = path.read_text()
     graph = parse_metro_mermaid(text, max_station_columns=max_station_columns)
+    graph.source_dir = str(path.parent)
     compute_layout(graph)
     return graph
 
