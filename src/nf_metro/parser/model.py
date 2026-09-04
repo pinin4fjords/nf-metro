@@ -63,8 +63,8 @@ def split_guard_warnings(
 
     Returns ``(guard_warnings, other_warnings)``: entries categorised
     :class:`PermissiveGuardWarning` (a guard downgrade), and everything else,
-    so a caller can report the former distinctly and replay the latter
-    through the normal warning printer (``warnings.showwarning``).
+    so a caller can report the former distinctly from a warning about
+    something the engine merely ignored or adjusted.
     """
     guard = [w for w in caught if issubclass(w.category, PermissiveGuardWarning)]
     other = [w for w in caught if not issubclass(w.category, PermissiveGuardWarning)]
@@ -303,6 +303,12 @@ class Station:
         )
 
 
+# ``Edge.line_id`` for an edge the source wrote without a ``|line_id|``
+# annotation. An unannotated edge and one naming an undeclared line are
+# separate authoring defects, so the sentinel keeps them apart.
+UNANNOTATED_LINE_ID = "default"
+
+
 @dataclass
 class Edge:
     """A directed edge between stations, belonging to a metro line."""
@@ -433,18 +439,6 @@ class Section:
     off_track_lead_extra: dict[str, int] = field(default_factory=dict)
 
 
-@dataclass
-class RouteSegment:
-    """A segment of a routed edge path (populated by routing engine)."""
-
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    line_id: str
-    edge: Edge | None = None
-
-
 class UnresolvedEndpointError(NfMetroError, ValueError):
     """Raised when an edge references a station id that is not in the graph.
 
@@ -488,11 +482,6 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
-    # True once a ``%%metro line:`` directive has been rejected as unusable.
-    # A rejected declaration establishes that the map declares its lines, so an
-    # edge naming an undeclared line is an error rather than an annotation on a
-    # line-less map.
-    line_declaration_rejected: bool = False
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)

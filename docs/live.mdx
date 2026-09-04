@@ -144,9 +144,9 @@ re-render.
 The manifest format is tool-neutral (a station is a _node_, a line a _group_, a
 section a _region_); its schema, matching semantics, and reader/matcher tooling
 are a standalone contract documented on the [Data manifest](/nf-metro/manifest/) page -
-the same standard any non-metro tool can emit. Set `%%metro manifest: false`
-(or `--no-manifest`) to emit the drawn map only, with no manifest, no
-`data-node-*` attributes, and no station-group wrapper.
+the same standard any non-metro tool can emit. Set `%%metro manifest: false` to emit
+the drawn map only, with no manifest, no `data-node-*` attributes, and no
+station-group wrapper.
 
 The manifest is only the static half of the contract. The **runtime state**
 this section drives an overlay from - the `pending`/`queued`/`running`/`done`/
@@ -185,8 +185,8 @@ or runs side by side, use the dashboard in §2b instead.
 
 :::tip[SVG must carry a manifest]
 The SVG path requires the manifest embedded in the file. `nf-metro render`
-embeds it by default. If you opted out with `--no-manifest`, re-render
-without that flag before serving.
+embeds it by default. If the map opted out with `%%metro manifest: false`,
+drop that directive and re-render before serving.
 :::
 
 ### One-liner (recommended)

@@ -55,19 +55,29 @@ THEMES = {
 STYLE_NAMES = frozenset(THEMES) | frozenset(_STYLE_THEME_ALIASES)
 
 
+def resolve_style(style: str) -> str:
+    """Return the theme name a ``%%metro style:`` value selects.
+
+    Resolves the alias map and the fallback :func:`resolve_theme` applies to a
+    name no registered theme matches, so a caller can report the brand a map
+    will actually render with rather than the raw directive value.
+    """
+    name = style.strip().lower()
+    name = _STYLE_THEME_ALIASES.get(name, name)
+    return name if name in THEMES else "nfcore"
+
+
 def resolve_theme(
     theme: str | None, graph: MetroGraph, mode: str | None = None
 ) -> Theme:
     """Resolve a concrete theme from independent brand and mode axes.
 
-    Brand comes from the explicit ``theme`` name or the graph's style. Mode
-    comes from the explicit argument, the graph directive, or ``DEFAULT_MODE``.
+    Brand comes from the explicit ``theme`` name or the graph's style, and
+    both go through the same alias map, so a name works identically whichever
+    plane supplied it. Mode comes from the explicit argument, the graph
+    directive, or ``DEFAULT_MODE``.
     """
-    if theme is not None:
-        brand = theme
-    else:
-        name = graph.style.strip().lower()
-        brand = _STYLE_THEME_ALIASES.get(name, name)
+    brand = resolve_style(theme if theme is not None else graph.style)
 
     resolved_mode = (mode or graph.mode).strip().lower() or DEFAULT_MODE
     family = THEME_MODES.get(brand)
@@ -94,6 +104,7 @@ __all__ = [
     "STYLE_NAMES",
     "THEME_MODES",
     "DEFAULT_MODE",
+    "resolve_style",
     "resolve_theme",
     "mode_pair",
     "LIGHT_THEME",
