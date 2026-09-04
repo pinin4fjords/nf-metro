@@ -62,9 +62,14 @@ embedded, because a host page and the SVG can disagree about who owns that
 decision. nf-metro has two modes, controlled by `self_color_scheme` on
 `render_svg` (`--no-self-color-scheme` on the CLI):
 
-**Standalone (the default).** The root `<svg>` declares its own
-`color-scheme: light dark` (`src/nf_metro/render/svg.py:2595-2597`), so
-`light-dark()` resolves against **the viewer's OS/browser preference** -
+**Standalone (the default).** The root `<svg>` declares its own `color-scheme`
+(`src/nf_metro/render/svg.py:2595-2597`):
+
+```html
+<svg style="color-scheme: light dark"></svg>
+```
+
+so `light-dark()` resolves against **the viewer's OS/browser preference** -
 correct for a file opened on its own, or dropped into a page that has no
 opinion about theme.
 
@@ -165,11 +170,20 @@ Full flag reference: [Embedding](/nf-metro/embedding/).
 
 ## `<img>`, `<object>`, `<embed>` isolate the document
 
-These load the SVG into its own internal document, which never inherits a
-host page's `color-scheme` - only the OS-level preference reaches it, exactly
-as in standalone mode above, no matter how the SVG was rendered. That's the
-other reason (alongside `--no-self-color-scheme`) nf-metro's docs site inlines
-its maps instead of pointing an `<img>` at them.
+```html
+<!-- isolated: never sees the host page's color-scheme, no matter how the
+     SVG file itself was rendered -->
+<img src="map.svg" />
+
+<!-- in the page's own document: inherits color-scheme normally -->
+<svg>...</svg>
+```
+
+The `<img>` tag loads the SVG into its own internal document, which never
+inherits a host page's `color-scheme` - only the OS-level preference reaches
+it, exactly as in standalone mode above. `<object>` and `<embed>` behave the
+same way. That's the other reason (alongside `--no-self-color-scheme`)
+nf-metro's docs site inlines its maps instead of pointing an `<img>` at them.
 
 ## Using this outside nf-metro
 
@@ -191,7 +205,23 @@ None of this is nf-metro-specific. Standalone:
 ```
 
 Inline it in an HTML page (not `<img src="...">`) and it follows the OS
-preference. To make it follow a manual toggle on your own site instead, mirror
-Starlight's pattern: force a single `color-scheme` value on your root element
-from the toggle's state, and leave `color-scheme` off the SVG itself so it
-inherits that value rather than reopening both options.
+preference. To make it follow a manual toggle on your own site instead, drop
+the SVG's own `style="color-scheme: light dark"` and drive `color-scheme` from
+your toggle at the page level instead, the same way Starlight's reset.css does:
+
+```css
+:root {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+```
+
+```js
+// wherever your toggle's click handler lives
+document.documentElement.dataset.theme = "light";
+```
+
+Any inlined SVG with no `color-scheme` of its own now inherits from `:root`
+and follows the toggle - not the OS setting.
