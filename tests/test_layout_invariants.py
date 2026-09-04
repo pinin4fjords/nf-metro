@@ -16,7 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import warnings
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import replace
 from functools import lru_cache
@@ -9275,6 +9275,62 @@ def test_label_x_anchored_to_station_marker_on_horizontal_runs(fixture):
 # ---------------------------------------------------------------------------
 
 
+def _dist_to_shared_reconvergence(graph, members: list[str]) -> dict[str, int | None]:
+    """Map each member to its hop-distance to the group's shared reconvergence.
+
+    The shared reconvergence set is the intersection of every member's
+    descendant set (nodes reachable via forward edges).  For each member,
+    the value is the length of the shortest forward path to the nearest node
+    in that set; a member with no reachable shared descendant maps to
+    ``None``, which partitions as its own value distinct from any integer.
+
+    This is a pure graph-structure property computed from ``graph.edges``
+    alone: it depends on neither engine placement coordinates nor successor
+    identity, which is what lets it separate members that reach the section's
+    reconvergence at different topological depths without keying on successors
+    (see the test docstring for why successor keying is the #514 hazard).
+    """
+    succs: dict[str, set[str]] = defaultdict(set)
+    for e in graph.edges:
+        succs[e.source].add(e.target)
+
+    def descendants(start: str) -> set[str]:
+        seen: set[str] = set()
+        queue = deque(succs[start])
+        while queue:
+            node = queue.popleft()
+            if node in seen:
+                continue
+            seen.add(node)
+            queue.extend(succs[node])
+        return seen
+
+    desc_by_member = {m: descendants(m) for m in members}
+    common: set[str] = (
+        set.intersection(*desc_by_member.values()) if desc_by_member else set()
+    )
+
+    result: dict[str, int | None] = {}
+    for m in members:
+        if not common:
+            result[m] = None
+            continue
+        seen = {m}
+        queue = deque((s, 1) for s in succs[m])
+        hop: int | None = None
+        while queue:
+            node, dist = queue.popleft()
+            if node in common:
+                hop = dist
+                break
+            if node in seen:
+                continue
+            seen.add(node)
+            queue.extend((s, dist + 1) for s in succs[node])
+        result[m] = hop
+    return result
+
+
 @pytest.mark.parametrize(
     "fixture",
     ALL_FIXTURES,
@@ -9293,6 +9349,26 @@ def test_visual_stack_station_xs_share_column(fixture):
     and lets a mis-placed member slip past (issue #514: ``propd`` shares
     the ``differential`` column with ``dream``/``limma``/``deseq2`` but
     its extra exit-port edge gave it a distinct successor set).
+
+    Within each (preds, layer) group the members are then partitioned by
+    hop-distance to the group's shared reconvergence node, and the X-drift
+    check runs separately per partition.  This discriminator is a pure
+    graph-structure property (intersection of descendant sets, then the
+    shortest forward hop-count to it) that is independent of BOTH successor
+    identity and engine placement.  It is *not* the successor-set keying
+    #514 rejected: in ``da_pipeline``'s ``differential`` section
+    ``limma``/``deseq2``/``dream``/``propd`` all sit one hop from their
+    shared merge (``annotate``), so they stay in a single partition and a
+    mis-placed ``propd`` is still caught, whereas successor keying would
+    have fragmented them into singletons.  The partition only separates
+    members whose paths to reconvergence differ in depth: a fan-out member
+    that reaches the merge via an extra intermediate station is placed one
+    column earlier than its direct-merging siblings, and that offset is
+    genuine topology, not a stack regression.
+
+    ``da_pipeline``'s ``data_prep`` section is the known-safe mixed case:
+    its six entry stations split into a hop-1 pair and a hop-2 quartet,
+    each internally X-aligned, so partitioning loses no coverage there.
 
     The Y-window distinguishes visually-stacked stations (close enough
     in Y that a viewer reads them as a column) from:
@@ -9335,27 +9411,34 @@ def test_visual_stack_station_xs_share_column(fixture):
                 continue
             key = (frozenset(preds[sid]), st.layer)
             groups[key].append(sid)
-        for members in groups.values():
-            if len(members) < 2:
+        for group_members in groups.values():
+            if len(group_members) < 2:
                 continue
-            xs = [graph.stations[s].x for s in members]
-            ys = [graph.stations[s].y for s in members]
-            x_drift = max(xs) - min(xs)
-            if x_drift <= X_TOL:
-                continue
-            visual_stack = any(
-                0 < abs(ys[i] - ys[j]) <= STACK_Y_WINDOW
-                for i in range(len(members))
-                for j in range(i + 1, len(members))
-            )
-            if not visual_stack:
-                continue
-            rounded_xs = [round(x, 1) for x in xs]
-            rounded_ys = [round(y, 1) for y in ys]
-            offenders.append(
-                f"section={sec.id!r} stack {members} xs={rounded_xs} "
-                f"ys={rounded_ys} dx={x_drift:.1f}"
-            )
+            hops = _dist_to_shared_reconvergence(graph, group_members)
+            partitions: dict[int | None, list[str]] = defaultdict(list)
+            for sid in group_members:
+                partitions[hops[sid]].append(sid)
+            for members in partitions.values():
+                if len(members) < 2:
+                    continue
+                xs = [graph.stations[s].x for s in members]
+                ys = [graph.stations[s].y for s in members]
+                x_drift = max(xs) - min(xs)
+                if x_drift <= X_TOL:
+                    continue
+                visual_stack = any(
+                    0 < abs(ys[i] - ys[j]) <= STACK_Y_WINDOW
+                    for i in range(len(members))
+                    for j in range(i + 1, len(members))
+                )
+                if not visual_stack:
+                    continue
+                rounded_xs = [round(x, 1) for x in xs]
+                rounded_ys = [round(y, 1) for y in ys]
+                offenders.append(
+                    f"section={sec.id!r} stack {members} xs={rounded_xs} "
+                    f"ys={rounded_ys} dx={x_drift:.1f}"
+                )
     assert not offenders, f"{fixture}: " + "; ".join(offenders[:3])
 
 
