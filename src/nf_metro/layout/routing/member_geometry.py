@@ -1540,7 +1540,7 @@ def _seat_claimed_segments_before_freeze(
     planned axis (and, where the corridor is shared with a bundle bound
     elsewhere, onto that bundle's lane).  A pinned member is left where its plan
     placed it.  The pin is read from the segment rank -- as
-    :func:`_planner_owns_channel` reads it -- not the plan id: the settled
+    :func:`_upstream_plan_fixes_channel` reads it -- not the plan id: the settled
     two-pass path clears a member's segment rank (restoring it after this pass)
     to hand it to seating, and reads as unpinned here.
     """
