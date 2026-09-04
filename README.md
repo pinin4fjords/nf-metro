@@ -306,12 +306,12 @@ The full example is at [`examples/rnaseq_sections.mmd`](examples/rnaseq_sections
 ```
 %%metro title: nf-core/rnaseq
 %%metro logo: nf-core-rnaseq_logo_dark.png
-%%metro style: dark
+%%metro style: nfcore
 ```
 
 - `title:` sets the map title (shown top-left unless a logo is provided)
 - `logo:` embeds a PNG image in place of the text title
-- `style:` selects a theme (`dark` or `light`)
+- `style:` selects a brand theme (`nfcore`, `seqera`, or `light`)
 
 #### Lines (routes)
 
