@@ -26,6 +26,18 @@ history.
   map that relied on the exemption needs one `%%metro line:` directive per id
   its edges name, and the error names the missing ids with the source line of
   each.
+- **Breaking: a duplicate `%%metro line:` id now keeps the first declaration
+  rather than the last, and warns.** A map declaring the same id twice silently
+  took the later spelling, so redeclaring a line late in the file was a working
+  way to change its colour, style or `inactive` state. The redeclaration is now
+  reported and dropped. A map that relied on the old precedence needs its
+  intended values on the first declaration of each id.
+- Unknown values and unresolvable references in `%%metro` directives are
+  reported instead of ignored. `style:` validates against the theme names;
+  `off_track:`, `group:`, `marker:`, `grid:`, `line_spread:`, `file:`, `files:`,
+  `dir:`, `entry:`, `exit:` and `interchange:` warn on a station, section or
+  line id the map never defines; and a `line:` declaration missing its id, name
+  or colour is rejected whole rather than registering a partial line.
 
 ---
 
