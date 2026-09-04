@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from typing import Literal
 
 from nf_metro.options import (
@@ -93,7 +93,11 @@ def _dir_logo(value: str, graph: MetroGraph) -> None:
 
 
 def _dir_off_track(value: str, graph: MetroGraph) -> None:
-    graph._pending_off_track.extend(_split_csv(value))
+    station_ids = _split_csv(value)
+    if not station_ids:
+        _warn_malformed("off_track", value, "'station1[, station2, ...]'")
+        return
+    graph._pending_off_track.extend(station_ids)
 
 
 def _dir_process(value: str, graph: MetroGraph) -> None:
@@ -126,16 +130,19 @@ _COLOR_KEYWORDS = frozenset({"currentcolor", "transparent", "none"})
 def _is_color(value: str) -> bool:
     """True when *value* is a colour an SVG stroke can resolve.
 
-    Hex forms, CSS named colours and the numeric functional notations are
-    checked by Pillow. The CSS keywords and functional forms Pillow does not
-    know (``var()``, ``light-dark()``, ...) are accepted on shape alone, so a
-    colour syntax newer than Pillow is never called wrong.
+    Any functional notation and the three CSS keywords are accepted on shape
+    alone, so a colour syntax this check does not model (``var()``,
+    ``light-dark()``, ``oklch()``) is never called wrong; hex forms and named
+    colours are resolved by Pillow. A caller warns on a False and keeps the
+    value, since being unmodelled is not the same as being invalid.
     """
-    from PIL import ImageColor
-
     text = value.strip()
     if text.lower() in _COLOR_KEYWORDS or _COLOR_FUNCTION.match(text):
         return True
+    # Deferred so a parse-only command (``validate``, ``info``) loads Pillow
+    # only for a map that reaches this branch.
+    from PIL import ImageColor
+
     try:
         ImageColor.getrgb(text)
     except ValueError:
@@ -145,27 +152,25 @@ def _is_color(value: str) -> bool:
 
 def _dir_line(value: str, graph: MetroGraph) -> None:
     parts = _split_fields(value)
-    if len(parts) < 3 or not parts[0]:
+    line_id = parts[0]
+    if len(parts) < 3 or not line_id:
         _warn_malformed(
             "line",
             value,
             f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
         )
-        if parts[0]:
-            graph.rejected_line_ids.add(parts[0])
+        graph.line_declaration_rejected = True
         return
-    if parts[0] in graph.lines:
+    if line_id in graph.lines:
         _warn_directive(
             "line",
-            f"{parts[0]!r} is already declared; ignoring the redeclaration",
+            f"{line_id!r} is already declared; ignoring the redeclaration",
         )
         return
     if not _is_color(parts[2]):
-        # Warn only: a value this check cannot model may be valid CSS, so it
-        # reaches the SVG as written.
         _warn_directive(
             "line",
-            f"{parts[0]!r} colour {parts[2]!r} is not a recognised colour; "
+            f"{line_id!r} colour {parts[2]!r} is not a recognised colour; "
             "expected a hex value like '#4caf50'",
         )
     style = "solid"
@@ -184,7 +189,7 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
             _warn_malformed("line state", parts[4], LINE_INACTIVE_KEYWORD)
     graph.add_line(
         MetroLine(
-            id=parts[0],
+            id=line_id,
             display_name=parts[1],
             color=parts[2],
             style=style,
@@ -427,11 +432,9 @@ def _parse_interchange_directive(value: str, graph: MetroGraph) -> None:
 def _parse_legend_combo_directive(value: str, graph: MetroGraph) -> None:
     """Parse %%metro legend_combo: lineA, lineB[, ...] | Display Label.
 
-    Stores a (line_ids, label) entry on ``graph.legend_combos``. The named
-    lines are rendered as a single combined legend row and (in rail mode)
-    share a single rail slot. A combo referencing unknown lines is warned
-    about and ignored; unknown members of an otherwise-valid combo are
-    dropped (with a warning) and the remaining members kept.
+    The named lines render as a single combined legend row and (in rail mode)
+    share a single rail slot. Only the payload's shape is checked here; the
+    member line ids are resolved by :func:`_resolve_legend_combos`.
     """
     parts = value.split("|", 1)
     if len(parts) != 2:
@@ -448,21 +451,7 @@ def _parse_legend_combo_directive(value: str, graph: MetroGraph) -> None:
             f"invalid {value!r}; expected at least two line IDs and a non-empty label",
         )
         return
-    known = [lid for lid in line_ids if lid in graph.lines]
-    unknown = [lid for lid in line_ids if lid not in graph.lines]
-    if unknown:
-        _warn_directive(
-            "legend_combo",
-            f"{label!r} references unknown line(s) "
-            f"{', '.join(unknown)}; ignoring those",
-        )
-    if len(known) < 2:
-        _warn_directive(
-            "legend_combo",
-            f"{label!r} has fewer than two known lines; ignoring",
-        )
-        return
-    graph.legend_combos.append((tuple(known), label))
+    graph._pending_legend_combos.append((line_ids, label))
 
 
 def _parse_marker_style(key: str, spec: str) -> MarkerStyle | None:
@@ -493,6 +482,7 @@ def _parse_marker_directive(value: str, graph: MetroGraph) -> None:
     node_part, sep, style_part = value.partition("|")
     node_id = node_part.strip()
     if not node_id:
+        _warn_malformed("marker", value, "'node_id | shape, fill'")
         return
     style = _parse_marker_style("marker", style_part.strip() if sep else "")
     if style is not None:
@@ -649,38 +639,43 @@ def _apply_directive(
         _warn_directive(key, "unknown directive; ignoring")
 
 
-_STATION, _SECTION, _LINE = "station", "section", "line"
+IdKind = Literal["station", "section", "line"]
 
 
-def _directive_references(graph: MetroGraph) -> Iterator[tuple[str, str, str]]:
+def _directive_references(graph: MetroGraph) -> Iterator[tuple[str, IdKind, str]]:
     """Yield ``(directive key, id kind, id)`` for every id a directive names.
 
     Covers the directives whose payload points at something declared elsewhere
-    in the source. ``interchange:`` and ``legend_combo:`` name ids too but
-    report their own unknowns while resolving them.
+    in the source. The ``interchange:`` node id is resolved by the expansion
+    that consumes it and the ``legend_combo:`` members by
+    :func:`_resolve_legend_combos`, both of which report their own unknowns.
     """
     for station_id in graph._pending_off_track:
-        yield "off_track", _STATION, station_id
+        yield "off_track", "station", station_id
     for station_id in graph._pending_markers:
-        yield "marker", _STATION, station_id
+        yield "marker", "station", station_id
     for station_id, _pattern in graph._pending_process:
-        yield "process", _STATION, station_id
+        yield "process", "station", station_id
     for station_id, entries in graph._pending_terminus.items():
         for _label, icon_type, _name, _banner in entries:
-            yield icon_type, _STATION, station_id
+            yield icon_type, "station", station_id
     for group in graph.groups:
         for station_id in group.station_ids:
-            yield "group", _STATION, station_id
+            yield "group", "station", station_id
     for section_id in graph.grid_overrides:
-        yield "grid", _SECTION, section_id
+        yield "grid", "section", section_id
     for section_id in graph.line_spread_overrides:
-        yield "line_spread", _SECTION, section_id
+        yield "line_spread", "section", section_id
+    for interchange in graph.interchanges:
+        for rail in interchange.rails:
+            for line_id in rail:
+                yield "interchange", "line", line_id
     for section in graph.sections.values():
         hints = (("entry", section.entry_hints), ("exit", section.exit_hints))
         for key, side_hints in hints:
             for _side, line_ids in side_hints:
                 for line_id in line_ids:
-                    yield key, _LINE, line_id
+                    yield key, "line", line_id
 
 
 def _warn_unresolved_references(graph: MetroGraph) -> None:
@@ -690,18 +685,37 @@ def _warn_unresolved_references(graph: MetroGraph) -> None:
     precede the node or subgraph it names, and before layout inference, which
     synthesises stations and fills ``grid_overrides`` for auto-placed sections.
     """
-    known = {
-        _STATION: graph.stations.keys(),
-        _SECTION: graph.sections.keys(),
-        _LINE: graph.lines.keys(),
+    known: dict[IdKind, Collection[str]] = {
+        "station": graph.stations.keys(),
+        "section": graph.sections.keys(),
+        "line": graph.lines.keys(),
     }
-    warned: set[tuple[str, str, str]] = set()
-    for reference in _directive_references(graph):
-        key, kind, ref_id = reference
-        if ref_id in known[kind] or reference in warned:
+    for key, kind, ref_id in dict.fromkeys(_directive_references(graph)):
+        if ref_id not in known[kind]:
+            _warn_directive(key, f"unknown {kind} id {ref_id!r}; ignoring")
+
+
+def _resolve_legend_combos(graph: MetroGraph) -> None:
+    """Resolve buffered ``%%metro legend_combo:`` members into ``legend_combos``.
+
+    An unknown member is dropped with a warning and the rest kept; a combo left
+    with fewer than two known lines is dropped whole.
+    """
+    for line_ids, label in graph._pending_legend_combos:
+        known = [lid for lid in line_ids if lid in graph.lines]
+        if unknown := [lid for lid in line_ids if lid not in graph.lines]:
+            _warn_directive(
+                "legend_combo",
+                f"{label!r} references unknown line(s) "
+                f"{', '.join(unknown)}; ignoring those",
+            )
+        if len(known) < 2:
+            _warn_directive(
+                "legend_combo",
+                f"{label!r} has fewer than two known lines; ignoring",
+            )
             continue
-        warned.add(reference)
-        _warn_directive(key, f"unknown {kind} id {ref_id!r}; ignoring")
+        graph.legend_combos.append((tuple(known), label))
 
 
 def _deduplicate_section_number_overrides(graph: MetroGraph) -> None:

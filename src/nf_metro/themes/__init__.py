@@ -51,8 +51,7 @@ THEMES = {
 }
 
 
-# Accepted ``%%metro style:`` values: every by-name theme plus the aliases that
-# stand in for a brand.
+# Accepted ``%%metro style:`` values.
 STYLE_NAMES = frozenset(THEMES) | frozenset(_STYLE_THEME_ALIASES)
 
 

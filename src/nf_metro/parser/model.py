@@ -488,11 +488,11 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
-    # Ids from ``%%metro line:`` directives whose payload was unusable. They
-    # never become lines, but they do establish that the map declares its
-    # lines, so an edge naming one is an error rather than an annotation on a
+    # True once a ``%%metro line:`` directive has been rejected as unusable.
+    # A rejected declaration establishes that the map declares its lines, so an
+    # edge naming an undeclared line is an error rather than an annotation on a
     # line-less map.
-    rejected_line_ids: set[str] = field(default_factory=set)
+    line_declaration_rejected: bool = False
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)
@@ -594,6 +594,12 @@ class MetroGraph:
     )
     # %%metro legend_combo entries: (line_ids, label) pairs.
     legend_combos: list[tuple[tuple[str, ...], str]] = field(default_factory=list)
+    # Shape-checked %%metro legend_combo payloads as (line_ids, label) pairs,
+    # resolved into ``legend_combos`` after parse so a combo may precede the
+    # ``line:`` directives it names.
+    _pending_legend_combos: list[tuple[list[str], str]] = field(
+        default_factory=list, repr=False
+    )
     # Placement modifiers for the bundled legend+logo block. The corner/edge
     # keyword lives in legend_position; these refine where that block lands.
     legend_anchor: str = "content"  # "content" (section bbox) or "canvas"

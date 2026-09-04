@@ -409,12 +409,16 @@ A value outside a directive's accepted set (`style:`, `mode:`, `line_order:`, a
 port side, and so on) is reported the same way, leaving the default or the
 inferred value in place.
 
-For `%%metro line:` specifically: a second declaration of an id already
-declared is dropped, so the first one wins; a declaration missing its id, name
-or colour is dropped whole, which leaves the id undeclared and makes any edge
-annotated with it a hard error; and a colour that is neither a hex value, a CSS
-colour name, nor a functional notation like `rgb(...)` is reported but kept, so
-a colour syntax nf-metro does not model reaches the SVG untouched.
+`%%metro line:` has three rules of its own:
+
+- A second declaration of an already-declared id is dropped, so the first one
+  wins.
+- A declaration missing its id, name or colour is dropped whole. Any edge
+  annotated with a line the map only tried to declare is then a hard error,
+  rather than a map that renders with no lines.
+- A colour that is neither a hex value, a CSS colour name nor a functional
+  notation like `rgb(...)` is reported but kept, so a colour syntax nf-metro
+  does not model reaches the SVG as written.
 
 ## CLI flags and directive precedence
 

@@ -29,6 +29,7 @@ from nf_metro.parser.commitments import (
 from nf_metro.parser.directives import (
     _apply_directive,
     _deduplicate_section_number_overrides,
+    _resolve_legend_combos,
     _warn_unresolved_references,
 )
 from nf_metro.parser.grammar import (
@@ -158,9 +159,9 @@ def _validate_edge_annotations(graph: MetroGraph) -> None:
     for edge in graph.edges:
         if edge.line_id == "default":
             bad_edges.append(edge)
-        elif (graph.lines or graph.rejected_line_ids) and (
-            edge.line_id not in graph.lines
-        ):
+        elif (
+            graph.lines or graph.line_declaration_rejected
+        ) and edge.line_id not in graph.lines:
             if edge.source_line is not None:
                 undeclared_lines[edge.line_id].add(edge.source_line)
             else:
@@ -281,6 +282,7 @@ def _finalize_graph(
 ) -> None:
     """Validate, run the post-parse resolution, and apply buffered metadata."""
     _validate_edge_annotations(graph)
+    _resolve_legend_combos(graph)
     _warn_unresolved_references(graph)
     authored_routes = capture_authored_routes(graph)
     graph.layout_provenance.capture_authored_intent(
@@ -440,7 +442,7 @@ def _apply_pending_metadata(graph: MetroGraph) -> None:
         # Under a scope the prefix anchors the start and the literal tail
         # anchors the final segment(s), tolerating intermediate subworkflow
         # nesting between them; without a scope the value is a regex matched
-        # as-is (the legacy behaviour).
+        # as-is.
         if scope:
             effective = rf"(?:^|:){re.escape(scope)}:(?:.+:)?{re.escape(pattern)}$"
         else:

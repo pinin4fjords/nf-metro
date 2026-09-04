@@ -1327,7 +1327,7 @@ def test_max_station_columns_arg_overrides_fold_threshold():
     assert max(rows) > 0, "explicit max_station_columns=15 should force a wrap"
 
 
-# --- Directive value and reference validation -----------------------------
+# --- Directive value and reference validation tests ---
 
 _ONE_LINE_SECTION = """%%metro line: l1 | One | #ff0000
 graph LR
@@ -1343,9 +1343,12 @@ def test_parse_style_unknown_warns_and_keeps_default():
     assert graph.style == "dark"
 
 
-def test_parse_style_alias_accepted():
-    graph = parse_metro_mermaid("%%metro style: dark\ngraph LR\n")
-    assert graph.style == "dark"
+@pytest.mark.parametrize("name", ["dark", "seqera", "nfcore-light"])
+def test_parse_style_accepted_names_are_silent(name):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        graph = parse_metro_mermaid(f"%%metro style: {name}\ngraph LR\n")
+    assert graph.style == name
 
 
 @pytest.mark.parametrize(
@@ -1376,7 +1379,7 @@ def test_directive_naming_declared_id_is_silent():
     assert graph.stations["a"].off_track
 
 
-def test_unknown_id_warns_once_per_directive_key():
+def test_repeated_unknown_id_warns_once():
     src = _ONE_LINE_SECTION + "%%metro off_track: ghost, ghost\n"
     with pytest.warns(UserWarning) as record:
         parse_metro_mermaid(src)
@@ -1384,27 +1387,24 @@ def test_unknown_id_warns_once_per_directive_key():
     assert len(matched) == 1
 
 
-def test_port_hint_unknown_line_warns():
-    src = """%%metro line: l1 | One | #ff0000
+@pytest.mark.parametrize("key", ["entry", "exit"])
+def test_port_hint_unknown_line_warns(key):
+    src = f"""%%metro line: l1 | One | #ff0000
 graph LR
     subgraph sec [Sec]
-        %%metro entry: left | l1, ghost
+        %%metro {key}: left | l1, ghost
         a[A] -->|l1| b[B]
     end
 """
-    with pytest.warns(UserWarning, match=r"%%metro entry: unknown line id 'ghost'"):
+    with pytest.warns(UserWarning, match=rf"%%metro {key}: unknown line id 'ghost'"):
         parse_metro_mermaid(src)
 
 
-def test_exit_hint_unknown_line_warns():
-    src = """%%metro line: l1 | One | #ff0000
-graph LR
-    subgraph sec [Sec]
-        %%metro exit: right | ghost
-        a[A] -->|l1| b[B]
-    end
-"""
-    with pytest.warns(UserWarning, match=r"%%metro exit: unknown line id 'ghost'"):
+def test_interchange_rail_unknown_line_warns():
+    src = _ONE_LINE_SECTION + "%%metro interchange: b | l1 | ghost\n"
+    with pytest.warns(
+        UserWarning, match=r"%%metro interchange: unknown line id 'ghost'"
+    ):
         parse_metro_mermaid(src)
 
 
@@ -1418,9 +1418,10 @@ def test_rejected_line_declaration_leaves_its_id_undeclared():
 
 
 def test_line_declaration_without_an_id_is_rejected():
+    src = "%%metro line: | One | #ff0000\ngraph LR\n    a[A] -->|l1| b[B]\n"
     with pytest.warns(UserWarning, match="expected 'id | name | #color'"):
-        graph = parse_metro_mermaid("%%metro line: | One | #ff0000\ngraph LR\n")
-    assert graph.lines == {}
+        with pytest.raises(ValueError, match="undeclared metro lines: 'l1'"):
+            parse_metro_mermaid(src)
 
 
 def test_line_unrecognised_colour_warns_and_keeps_the_value():
@@ -1439,17 +1440,15 @@ def test_line_accepted_colour_forms_are_silent(color):
     assert graph.lines["l1"].color == color
 
 
-def test_line_functional_colour_notation_is_silent():
-    """A functional notation is taken on shape, so a colour syntax the checker
-    does not model is not called wrong."""
-    src = (
-        "%%metro line: l1 | One | light-dark(#fff, #000)\n"
-        "graph LR\n    a[A] -->|l1| b[B]\n"
-    )
+@pytest.mark.parametrize(
+    "color", ["light-dark(#fff, #000)", "var(--line)", "transparent", "currentColor"]
+)
+def test_line_unmodelled_colour_forms_are_silent(color):
+    src = f"%%metro line: l1 | One | {color}\ngraph LR\n    a[A] -->|l1| b[B]\n"
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         graph = parse_metro_mermaid(src)
-    assert graph.lines["l1"].color == "light-dark(#fff, #000)"
+    assert graph.lines["l1"].color == color
 
 
 def test_redeclared_line_id_keeps_the_first_declaration():

@@ -180,6 +180,8 @@ MALFORMED_DIRECTIVES = [
     "%%metro line_order: sideways",
     "%%metro compact_offsets: maybe",
     "%%metro file: nolabels",
+    "%%metro off_track:",
+    "%%metro marker: | square",
 ]
 
 
