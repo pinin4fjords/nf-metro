@@ -3286,9 +3286,14 @@ def planner_owns_segment(route: RoutedPath, rank: int) -> bool:
     reading a wider rule than its guard would move geometry the guard then
     refuses, and a narrower one would leave a defect neither reports.
 
-    This names one rank exactly.  A pass that translates a whole segment wants
+    A pass that translates a whole segment wants
     :func:`planner_owns_segment_or_boundary` instead, which is the reading the
-    normalisation passes and the closing guards share.
+    normalisation passes and the closing guards share.  Only the convergence arm
+    here reaches a boundary beside *rank*, because a trunk axis states a run
+    whose two corners it fixes as well; a member plan and an exit turn each
+    enumerate the segments they own, so those arms match *rank* exactly.  A
+    caller wanting the widening on one side only says which side, as
+    ``_corridor_run_band`` does for the leg feeding a planned turn.
     """
     return (
         convergence_owns_segment_boundary(route, rank)

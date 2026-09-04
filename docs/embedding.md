@@ -134,6 +134,11 @@ grey.
 Line and route colors are **not** recolorable - they carry meaning, so they
 stay baked as presentation attributes.
 
+The fallback behind each property isn't a single color - it's a `light-dark()`
+pair, so the map already adapts to the viewer's `color-scheme` even before any
+host override. See [Theming](/nf-metro/dev/theming/) for how that mechanism
+works and how to reuse it in your own SVGs.
+
 ### Multiple maps on one page - `--svg-class-prefix`
 
 Two inline SVGs on the same page share class names (`nf-metro-station`, …),
@@ -149,6 +154,24 @@ nf-metro render b.mmd -o b.svg --svg-class-prefix mapB
 `data-*` attributes and the manifest element id are never prefixed, so the
 [contract](/nf-metro/embed/) is unchanged.
 
+### Following your page's own theme toggle - `--no-self-color-scheme`
+
+By default the map's root `<svg>` declares its own `color-scheme: light dark`,
+so it follows the **viewer's OS/browser** preference regardless of anything
+your page does. If your page has its own light/dark toggle, pass
+`--no-self-color-scheme` so the map inherits `color-scheme` from your page
+instead:
+
+```bash
+nf-metro render pipeline.mmd -o pipeline.svg --no-self-color-scheme
+```
+
+Your page then needs to actually set `color-scheme` where the map can inherit
+it - a class or `data-theme` attribute toggled by your theme switch, each
+setting `color-scheme: light` or `color-scheme: dark` (a single value, not
+`light dark`) on an ancestor. See [Theming](/nf-metro/dev/theming/) for why
+this flag exists and how the docs site itself uses it.
+
 ### Dark-mode opt-out - `--no-dark-mode-css`
 
 When a theme has a transparent background, the SVG injects a
@@ -159,6 +182,11 @@ suppress it:
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --no-dark-mode-css
 ```
+
+This block is a separate, coarser fallback from the `--nfm-*` custom
+properties above - it exists because a transparent background has no color of
+its own to carry a `light-dark()` pair. See [Theming](/nf-metro/dev/theming/)
+for why the two mechanisms differ.
 
 ### Raster export (PNG) - `--mode` and `--no-chrome-css`
 
