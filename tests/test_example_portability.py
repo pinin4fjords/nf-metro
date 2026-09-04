@@ -40,6 +40,30 @@ def test_example_corpus_is_not_empty():
     assert LOGO_EXAMPLES
 
 
+def test_every_shipped_logo_path_resolves_from_its_own_map():
+    """A logo path resolves against the directory its `.mmd` sits in.
+
+    One written from the repository root instead resolves only while the
+    process working directory happens to be that root. This reads every map
+    under `examples/`, the render-heavy tests above being too slow to cover
+    the topology corpus.
+    """
+    offenders = []
+    for mmd in sorted(EXAMPLES_DIR.rglob("*.mmd")):
+        for line in mmd.read_text().splitlines():
+            if not line.startswith("%%metro logo:"):
+                continue
+            _, _, value = line.partition(":")
+            for raw in (part.strip() for part in value.split("|")):
+                if not raw or raw.startswith("data:"):
+                    continue
+                if Path(raw).is_absolute() or not (mmd.parent / raw).is_file():
+                    offenders.append(f"{mmd.relative_to(REPO_ROOT)}: {raw!r}")
+    assert not offenders, "logo paths unresolvable from their own map:\n" + "\n".join(
+        offenders
+    )
+
+
 @pytest.mark.parametrize("source", EXAMPLE_FILES, ids=lambda p: p.stem)
 def test_example_renders_from_a_foreign_cwd(source, tmp_path, monkeypatch):
     svg = _render(source, tmp_path / "out.svg", tmp_path, monkeypatch)
