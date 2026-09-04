@@ -1513,13 +1513,27 @@ def _carry_seated_run(
 def _seat_claimed_segments_before_freeze(
     candidates: tuple[_MemberCandidate, ...], ctx: _RoutingCtx
 ) -> None:
-    """Seat reservation-owned interior runs before their member plan freezes."""
+    """Seat reservation-owned interior runs before their member plan freezes.
+
+    A member whose exit-turn plan pins its turn column has that column checked
+    against the plan by the closing validator; the clearance band a shared gap
+    corridor realises can be tighter than the nested ladder the plan seated
+    outside it, so seating such a member to the band would slide it off its
+    planned axis (and, where the corridor is shared with a bundle bound
+    elsewhere, onto that bundle's lane).  A pinned member is left where its plan
+    placed it.  The pin is read from the segment rank -- as
+    :func:`_planner_owns_channel` reads it -- not the plan id: the settled
+    two-pass path clears a member's segment rank (restoring it after this pass)
+    to hand it to seating, and reads as unpinned here.
+    """
     grouped: defaultdict[
         tuple[RouteSystemId, str, int, int],
         list[tuple[RoutedPath, int, float, ReservedBand]],
     ] = defaultdict(list)
     for candidate in candidates:
         route = candidate.route
+        if route.exit_turn_segment_rank is not None:
+            continue
         for rank, (start, end) in enumerate(zip(route.points, route.points[1:])):
             if not 1 <= rank <= len(route.points) - 3:
                 continue

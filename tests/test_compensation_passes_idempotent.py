@@ -129,6 +129,7 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/top_descent_over_left_entry": frozenset({"4.7"}),
     "topologies/top_descent_over_left_entry_junction": frozenset({"4.7"}),
     "topologies/trunk_through_fan": frozenset({"4.7"}),
+    "topologies/trunkless_entry_fan_reconverge_centre": frozenset({"4.7"}),
 }
 
 

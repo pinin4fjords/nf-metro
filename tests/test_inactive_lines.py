@@ -9,6 +9,7 @@ from nf_metro.errors import NfMetroError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
     FALLBACK_LINE_COLOR,
+    TERMINUS_FONT_COLOR,
     effective_line_color,
     station_is_muted,
 )
@@ -55,6 +56,18 @@ def _label_fill_by_station(svg):
         if sid is not None and "label" in cls:
             out[sid] = el.get("fill")
     return out
+
+
+def _icon_label_fill(svg, station_id, label):
+    """Fill of the ``label`` text drawn inside ``station_id``'s terminus icon."""
+    root = ET.fromstring(svg)
+    for group in root.iter():
+        if group.get("data-node-id") != station_id:
+            continue
+        for el in group.iter():
+            if el.tag.endswith("text") and el.text == label:
+                return el.get("fill")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +155,23 @@ def test_muted_station_keeps_fill():
         if el.tag.endswith("rect") and el.get("data-station-id") == "x":
             # Fill is the theme station fill, not the muted grey.
             assert el.get("fill") == NFCORE_DARK_THEME.station_fill
+
+
+TERMINUS_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "%%metro file: a_out | SF\n"
+    "%%metro file: b_out | BAM\n"
+    "graph LR\n"
+    "    x[X] -->|a| a_out[ ]\n"
+    "    x -->|b| b_out[ ]\n"
+)
+
+
+def test_inactive_only_terminus_icon_label_muted():
+    svg = _svg(TERMINUS_MAP)
+    assert _icon_label_fill(svg, "a_out", "SF") == MUTED
+    assert _icon_label_fill(svg, "b_out", "BAM") == TERMINUS_FONT_COLOR
 
 
 # ---------------------------------------------------------------------------

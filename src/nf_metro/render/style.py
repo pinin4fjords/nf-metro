@@ -76,7 +76,9 @@ class Theme:
     terminus_stroke_width: float = 1.5
     terminus_corner_radius: float = 2.0
     terminus_font_size: float = 7.5
-    terminus_font_color: str = ""  # empty = inherit label_color
+    # Ink for the label inside the icon body; empty takes TERMINUS_FONT_COLOR.
+    # label_color tracks the map background, which this label never sits on.
+    terminus_font_color: str = ""
     # Bridge glyph at non-merging line crossings
     bridge_glyph: bool = True
     # Interior fill for "open" markers (%%metro marker: ... | open). Empty

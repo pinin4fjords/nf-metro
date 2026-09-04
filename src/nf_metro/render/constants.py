@@ -297,7 +297,11 @@ def station_is_muted(
 
 
 TERMINUS_FONT_COLOR: str = "#000000"
-"""Font color for terminus file icon labels."""
+"""Font color for terminus file icon labels.
+
+The icon body carries a light fill in every theme and mode, so this ink stays
+dark rather than pairing through ``light-dark()``.
+"""
 
 # ---------------------------------------------------------------------------
 # Debug overlay colors

@@ -5186,6 +5186,15 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     centreline (issue #1595).  A diamond whose branches share a row (no
     single well-defined pitch) or are unevenly spaced is out of scope.
 
+    Set equality of targets and sources is necessary but not sufficient for a
+    single diamond: two overlapping fans can share a join, one hub reaching
+    every branch while another reaches a subset, so their sets coincide with
+    neither hub being the sole apex (issue #1874).  A branch fed by that second
+    fork carries a non-port predecessor besides the candidate hub, so
+    :func:`_branches_fork_only_from` gates the pair out - the shared join has no
+    single fork centreline to agree with, and each hub is legitimately seated by
+    the fan that actually owns it.
+
     Eligibility here is deliberately independent of the hub's own current Y -
     unlike :func:`_divergence_midpoint_targets`, which additionally requires
     the hub to already sit at the midpoint before deciding whether to
@@ -5196,10 +5205,18 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
     A rail-laid station's Y is the centre of the rail span it carries, not a
     marker centreline, so a fork and join carrying different line sets have
     different centres by construction; such a pair is out of scope.
+
+    The pre-bypass and geometric-bypass passes settle a diamond's hubs onto
+    their shared centreline only by the closing stages, so an intermediate
+    checkpoint can catch a hub mid-descent and disagree transiently while the
+    final geometry agrees.  Deferring the raise while ``_defer_final_guards``
+    is set (as the sibling settled-geometry guards do) reports only a
+    disagreement that survives to the ``after final`` checkpoint.
     """
     if graph.diamond_style != "symmetric":
         return
     from nf_metro.layout.phases.fan_bundles import (
+        _branches_fork_only_from,
         _convergence_source_ys,
         _divergence_target_successors,
         _evenly_spaced_ys,
@@ -5215,6 +5232,8 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
             continue
         if graph.station_is_rail(hub_id) or graph.station_is_rail(join_id):
             continue
+        if not _branches_fork_only_from(graph, hub_id, tgt_ids):
+            continue
         tgt_ys = [graph.stations[t].y for t in tgt_ids if t in graph.stations]
         if _evenly_spaced_ys(tgt_ys) is None:
             continue
@@ -5225,6 +5244,8 @@ def _guard_fork_join_hub_centreline_agree(graph: MetroGraph, phase: str) -> None
         if abs(hub_st.y - join_st.y) > 1.0:
             offenders.append((hub_id, hub_st.y, join_id, join_st.y))
     if offenders:
+        if graph._defer_final_guards:
+            return
         hub_id, hub_y, join_id, join_y = offenders[0]
         raise PhaseInvariantError(
             f"{phase}: fork hub {hub_id!r} (y={hub_y:.1f}) and join hub "
@@ -5649,7 +5670,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         bisection_safe=True,
         first_valid_stage="after Stage 6.4",
-        issue_pin=("#1595", "#1615"),
+        issue_pin=("#1595", "#1615", "#1874"),
         narrow_reason=(
             "Scoped to diamond_style: symmetric diamonds whose fork target set "
             "exactly matches a join's source set (_divergence_target_successors "
