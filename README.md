@@ -305,7 +305,7 @@ The full example is at [`examples/rnaseq_sections.mmd`](examples/rnaseq_sections
 
 ```
 %%metro title: nf-core/rnaseq
-%%metro logo: examples/nf-core-rnaseq_logo_dark.png
+%%metro logo: nf-core-rnaseq_logo_dark.png
 %%metro style: dark
 ```
 
