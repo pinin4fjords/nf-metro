@@ -7,6 +7,7 @@ a map looks different in the editor than on the command line.
 
 from __future__ import annotations
 
+import base64
 import warnings
 from pathlib import Path
 
@@ -171,6 +172,31 @@ def test_render_string_resolves_a_logo_against_source_dir(tmp_path) -> None:
     logo.write_bytes((EXAMPLES / "placeholder_logo.png").read_bytes())
     svg = render_string(_data_uri_logo_mmd("logo.png"), source_dir=str(tmp_path))
     assert "data:image/png;base64," in svg
+
+
+def test_render_string_prefers_source_dir_logo_over_a_same_named_cwd_file(
+    tmp_path, monkeypatch
+) -> None:
+    """A directive logo resolves against the map, not a same-named cwd file.
+
+    Both *source_dir* and the cwd hold a file named ``logo.png``, with
+    different image bytes; only the *source_dir* copy is the map's actual
+    asset, so its bytes -- not the cwd file's -- must end up embedded.
+    """
+    map_dir = tmp_path / "map_dir"
+    map_dir.mkdir()
+    map_logo_bytes = (EXAMPLES / "placeholder_logo.png").read_bytes()
+    (map_dir / "logo.png").write_bytes(map_logo_bytes)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    cwd_logo_bytes = (EXAMPLES / "nf-core-rnaseq_logo_light.png").read_bytes()
+    (cwd / "logo.png").write_bytes(cwd_logo_bytes)
+    monkeypatch.chdir(cwd)
+
+    svg = render_string(_data_uri_logo_mmd("logo.png"), source_dir=str(map_dir))
+
+    assert base64.b64encode(map_logo_bytes).decode() in svg
+    assert base64.b64encode(cwd_logo_bytes).decode() not in svg
 
 
 def test_prepare_graph_rejects_unresolvable_logo_path() -> None:

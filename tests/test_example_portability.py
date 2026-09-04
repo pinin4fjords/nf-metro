@@ -12,6 +12,7 @@ import pytest
 from click.testing import CliRunner
 
 from nf_metro.cli import cli
+from nf_metro.parser import parse_metro_mermaid_file
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_DIR = REPO_ROOT / "examples"
@@ -32,6 +33,23 @@ def _render(source: Path, out: Path, cwd: Path, monkeypatch) -> str:
         f"{source.name} failed to render from {cwd}:\n{result.output}"
     )
     return out.read_text()
+
+
+def test_parse_metro_mermaid_file_source_dir_survives_a_later_chdir(
+    tmp_path, monkeypatch
+):
+    """``source_dir`` must stay anchored to where the map was loaded from.
+
+    A caller may parse a map given by a relative path and only change the
+    process cwd afterwards (e.g. before rendering). A relative *path* passed
+    to the loader must not leave ``source_dir`` relative too, or that later
+    chdir would silently change what it resolves against.
+    """
+    source = EXAMPLES_DIR / "rnaseq_auto.mmd"
+    monkeypatch.chdir(source.parent)
+    graph = parse_metro_mermaid_file(Path(source.name))
+    monkeypatch.chdir(tmp_path)
+    assert graph.source_dir == str(source.parent)
 
 
 def test_example_corpus_is_not_empty():

@@ -220,8 +220,11 @@ def parse_metro_mermaid_file(path: Path, **kwargs: object) -> MetroGraph:
     Reading a map's text and calling :func:`parse_metro_mermaid` directly drops
     that, leaving the asset resolvable only while the process working directory
     happens to sit where the path was written from; load from disk through here
-    instead so no caller has to remember.
+    instead so no caller has to remember. *path* is resolved to an absolute
+    path before its parent is recorded, so a later change to the process
+    working directory can't shift what ``source_dir`` means.
     """
+    path = path.resolve()
     graph = parse_metro_mermaid(path.read_text(), **kwargs)  # type: ignore[arg-type]
     graph.source_dir = str(path.parent)
     return graph

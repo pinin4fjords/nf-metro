@@ -17,6 +17,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from nf_metro.errors import EmptyGraphError, UnknownInactiveLineError
@@ -31,11 +32,7 @@ from nf_metro.parser.directives import apply_legend_directive
 from nf_metro.parser.model import LineSpread, MetroGraph, PermissiveGuardWarning
 from nf_metro.render.font_embed import apply_font_portability
 from nf_metro.render.html import emit_render_plan_html
-from nf_metro.render.legend import (
-    logo_certainly_shows,
-    logo_is_resolvable,
-    resolve_logo_file,
-)
+from nf_metro.render.legend import logo_certainly_shows, logo_is_resolvable
 from nf_metro.render.ns import class_prefix_context
 from nf_metro.render.plan import RenderPlan
 from nf_metro.render.style import Theme
@@ -245,9 +242,18 @@ def _prepare_graph_state(
         graph.source_dir = source_dir
         for attr in ("logo_path", "logo_path_light", "logo_path_dark"):
             raw: str = getattr(graph, attr)
-            resolved = resolve_logo_file(raw, source_dir) if raw else ""
-            if resolved:
-                setattr(graph, attr, resolved)
+            if not raw:
+                continue
+            # A %%metro logo: directive is a path the author wrote relative to
+            # their .mmd file, so it must win over a same-named file that
+            # happens to sit in the caller's cwd -- source_dir first, unlike
+            # resolve_logo_file's raw-first order (which suits `logo=`, below,
+            # a path the caller wrote relative to their own cwd).
+            candidate = Path(source_dir) / raw
+            if candidate.is_file():
+                setattr(graph, attr, str(candidate))
+            elif logo_is_resolvable(raw):
+                setattr(graph, attr, raw)
     if line_spread is not None:
         graph.line_spread = LineSpread(line_spread)
     if logo is not None:
