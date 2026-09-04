@@ -10,7 +10,7 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
-from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.mermaid import parse_metro_mermaid, parse_metro_mermaid_file
 from nf_metro.parser.model import is_bypass_v
 
 
@@ -1815,9 +1815,12 @@ TOPOLOGIES_DIR = EXAMPLES_DIR / "topologies"
 class TestPhaseGuards:
     """Verify that phase-boundary invariants hold across all fixtures."""
 
-    def _layout_validated(self, path: Path) -> None:
-        graph = parse_metro_mermaid(path.read_text())
-        graph.source_dir = str(path.parent)
+    def _layout_validated(self, mmd_text: str) -> None:
+        graph = parse_metro_mermaid(mmd_text)
+        compute_layout(graph, validate=True)
+
+    def _layout_validated_file(self, path: Path) -> None:
+        graph = parse_metro_mermaid_file(path)
         compute_layout(graph, validate=True)
 
     @pytest.mark.parametrize(
@@ -1826,13 +1829,13 @@ class TestPhaseGuards:
         ids=lambda p: p.stem,
     )
     def test_topology_fixtures(self, fixture):
-        self._layout_validated(fixture)
+        self._layout_validated_file(fixture)
 
     def test_rnaseq_sections(self):
-        self._layout_validated(EXAMPLES_DIR / "rnaseq_sections.mmd")
+        self._layout_validated_file(EXAMPLES_DIR / "rnaseq_sections.mmd")
 
     def test_rnaseq_auto(self):
-        self._layout_validated(EXAMPLES_DIR / "rnaseq_auto.mmd")
+        self._layout_validated_file(EXAMPLES_DIR / "rnaseq_auto.mmd")
 
     def test_differentialabundance(self):
         """``differentialabundance.mmd`` is the only gallery fixture that
@@ -1840,7 +1843,7 @@ class TestPhaseGuards:
         and a sparse loop-side station; exercises the bisection guard
         phase-gating policy.
         """
-        self._layout_validated(EXAMPLES_DIR / "differentialabundance.mmd")
+        self._layout_validated_file(EXAMPLES_DIR / "differentialabundance.mmd")
 
     def test_simple_two_sections(self):
         self._layout_validated(
