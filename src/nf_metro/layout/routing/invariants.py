@@ -371,7 +371,7 @@ def _reversed_corridor_y(
     (x2, y2), (x3, y3) = pts[2], pts[3]
     if abs(y3 - y2) > COORD_TOLERANCE or abs(x3 - x2) <= COORD_TOLERANCE:
         return None
-    if horizontal_direction(x3 - x2) is run_dir:
+    if (x3 - x2 > 0) == (run_dir is Direction.R):
         return None
     return y2
 

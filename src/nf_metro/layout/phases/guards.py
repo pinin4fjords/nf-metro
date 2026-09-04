@@ -5670,7 +5670,7 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
         "A",
         bisection_safe=True,
         first_valid_stage="after Stage 6.4",
-        issue_pin=("#1595", "#1615"),
+        issue_pin=("#1595", "#1615", "#1874"),
         narrow_reason=(
             "Scoped to diamond_style: symmetric diamonds whose fork target set "
             "exactly matches a join's source set (_divergence_target_successors "
