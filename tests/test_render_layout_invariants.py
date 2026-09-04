@@ -724,6 +724,7 @@ def test_label_grown_box_edge_carries_its_port(name: str) -> None:
     """A box edge grown to seat a label keeps the port anchored to it, and the
     runs landing on that port keep terminating on it."""
     graph = parse_metro_mermaid((EXAMPLES / name).read_text())
+    graph.source_dir = str((EXAMPLES / name).parent)
     compute_layout(graph)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
