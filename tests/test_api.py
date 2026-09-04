@@ -57,7 +57,10 @@ def test_render_string_matches_cli_html(name: str, tmp_path: Path) -> None:
     out = tmp_path / "cli.html"
     cli_out = _cli_render(src, out, "--format", "html")
     api_out = render_string(
-        src.read_text(), output_format="html", embed_basename=out.name
+        src.read_text(),
+        source_dir=str(src.parent),
+        output_format="html",
+        embed_basename=out.name,
     )
     assert cli_out == _as_written(api_out)
 
