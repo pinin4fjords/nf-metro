@@ -1,8 +1,6 @@
 ---
 title: "Theming"
 description: How nf-metro builds one SVG that adapts to a light or dark viewer, and how to reuse the same technique outside nf-metro.
-sidebar:
-  order: 9
 ---
 
 import Metro from "@components/Metro.astro";
@@ -12,7 +10,7 @@ An nf-metro SVG has no separate light and dark version, and nf-metro never
 re-renders it when the viewer's theme changes. Every themeable color is baked
 in as a pair, and native CSS picks the right half at display time:
 
-![Diagram: light-dark(#fff, #1a1a1a) resolves to #fff under a light color-scheme and to #1a1a1a under a dark one](../assets/theming_resolution.svg)
+![Diagram: light-dark(#fff, #1a1a1a) resolves to #fff under a light color-scheme and to #1a1a1a under a dark one](assets/theming_resolution.svg)
 
 <Aside type="note" title="The recipe, if you just want it">
 
