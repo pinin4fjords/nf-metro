@@ -16,8 +16,10 @@ from nf_metro.cli import cli
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_DIR = REPO_ROOT / "examples"
 
-EXAMPLE_FILES = sorted(EXAMPLES_DIR.glob("*.mmd")) + sorted(
-    (EXAMPLES_DIR / "showcase").glob("*.mmd")
+EXAMPLE_FILES = (
+    sorted(EXAMPLES_DIR.glob("*.mmd"))
+    + sorted((EXAMPLES_DIR / "showcase").glob("*.mmd"))
+    + sorted((EXAMPLES_DIR / "guide").glob("*.mmd"))
 )
 LOGO_EXAMPLES = [p for p in EXAMPLE_FILES if "%%metro logo:" in p.read_text()]
 
