@@ -108,7 +108,7 @@ def _expand_interchanges(graph: MetroGraph, lineage: AuthoredEdgeLineage) -> Non
         orig = graph.stations.get(ic.node_id)
         if orig is None:
             warnings.warn(
-                f"interchange: node {ic.node_id!r} is not a defined station; ignoring",
+                f"%%metro interchange: unknown station id {ic.node_id!r}; ignoring",
                 stacklevel=2,
             )
             continue
@@ -124,8 +124,8 @@ def _expand_interchanges(graph: MetroGraph, lineage: AuthoredEdgeLineage) -> Non
         surviving = sorted(set(line_rail.values()))
         if len(surviving) < 2:
             warnings.warn(
-                f"interchange: node {ic.node_id!r} resolves to fewer than two "
-                "rails carrying its lines; ignoring",
+                f"%%metro interchange: node {ic.node_id!r} resolves to fewer "
+                "than two rails carrying its lines; ignoring",
                 stacklevel=2,
             )
             continue

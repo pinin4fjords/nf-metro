@@ -392,6 +392,30 @@ Entry/exit hints tell the layout engine which side of the section box lines shou
 
 Automatic section numbers follow connected visual routes. Numbering prefers the nearest connected section on the current row, keeps parallel branch starts together, and completes independent inputs before a merge. A clear primary row can finish before numbering a secondary route that rejoins it. An explicit `number:` stays fixed, and automatic sections use the lowest positive numbers not already reserved. Duplicate or invalid overrides are ignored with a warning.
 
+### Typos and duplicate declarations
+
+A directive can name a station, section, or line the file defines further down,
+so ids are resolved once the whole file has been read. An id that appears
+nowhere - a typo, usually - is reported and its directive dropped:
+
+```console
+$ nf-metro validate map.mmd
+Validation warnings:
+  - %%metro off_track: unknown station id 'sample_shet'; ignoring
+Valid: 24 stations, 26 edges, 3 lines, 5 sections
+```
+
+A value outside a directive's accepted set (`style:`, `mode:`, `line_order:`, a
+port side, and so on) is reported the same way, leaving the default or the
+inferred value in place.
+
+For `%%metro line:` specifically: a second declaration of an id already
+declared is dropped, so the first one wins; a declaration missing its id, name
+or colour is dropped whole, which leaves the id undeclared and makes any edge
+annotated with it a hard error; and a colour that is neither a hex value, a CSS
+colour name, nor a functional notation like `rgb(...)` is reported but kept, so
+a colour syntax nf-metro does not model reaches the SVG untouched.
+
 ## CLI flags and directive precedence
 
 Every layout and render option can be set two ways: a `%%metro` directive in the file, or the matching `nf-metro render` CLI flag. They share one precedence rule:

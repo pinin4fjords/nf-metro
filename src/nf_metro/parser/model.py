@@ -488,6 +488,11 @@ class MetroGraph:
     # Empty means unset: the brand's own default mode applies.
     mode: str = ""
     lines: dict[str, MetroLine] = field(default_factory=dict)
+    # Ids from ``%%metro line:`` directives whose payload was unusable. They
+    # never become lines, but they do establish that the map declares its
+    # lines, so an edge naming one is an error rather than an annotation on a
+    # line-less map.
+    rejected_line_ids: set[str] = field(default_factory=set)
     stations: dict[str, Station] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     sections: dict[str, Section] = field(default_factory=dict)

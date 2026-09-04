@@ -169,6 +169,7 @@ def test_unknown_directive_warns():
 
 
 MALFORMED_DIRECTIVES = [
+    "%%metro style: bogus",
     "%%metro line: onlyone",
     "%%metro line: b | B | #000 | wiggly",
     "%%metro grid: sec | notints",

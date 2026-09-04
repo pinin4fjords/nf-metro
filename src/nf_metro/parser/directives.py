@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Literal
 
 from nf_metro.options import (
@@ -65,6 +65,13 @@ def _dir_title(value: str, graph: MetroGraph) -> None:
 
 
 def _dir_style(value: str, graph: MetroGraph) -> None:
+    # Imported here because the theme registry reaches the render package,
+    # which imports the parser back.
+    from nf_metro.themes import STYLE_NAMES
+
+    if value.strip().lower() not in STYLE_NAMES:
+        _warn_malformed("style", value, "/".join(sorted(STYLE_NAMES)))
+        return
     graph.style = value
 
 
@@ -112,15 +119,55 @@ def _dir_process(value: str, graph: MetroGraph) -> None:
     graph._pending_process.append((station_id, pattern))
 
 
+_COLOR_FUNCTION = re.compile(r"[A-Za-z-]+\(.*\)\Z")
+_COLOR_KEYWORDS = frozenset({"currentcolor", "transparent", "none"})
+
+
+def _is_color(value: str) -> bool:
+    """True when *value* is a colour an SVG stroke can resolve.
+
+    Hex forms, CSS named colours and the numeric functional notations are
+    checked by Pillow. The CSS keywords and functional forms Pillow does not
+    know (``var()``, ``light-dark()``, ...) are accepted on shape alone, so a
+    colour syntax newer than Pillow is never called wrong.
+    """
+    from PIL import ImageColor
+
+    text = value.strip()
+    if text.lower() in _COLOR_KEYWORDS or _COLOR_FUNCTION.match(text):
+        return True
+    try:
+        ImageColor.getrgb(text)
+    except ValueError:
+        return False
+    return True
+
+
 def _dir_line(value: str, graph: MetroGraph) -> None:
     parts = _split_fields(value)
-    if len(parts) < 3:
+    if len(parts) < 3 or not parts[0]:
         _warn_malformed(
             "line",
             value,
             f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
         )
+        if parts[0]:
+            graph.rejected_line_ids.add(parts[0])
         return
+    if parts[0] in graph.lines:
+        _warn_directive(
+            "line",
+            f"{parts[0]!r} is already declared; ignoring the redeclaration",
+        )
+        return
+    if not _is_color(parts[2]):
+        # Warn only: a value this check cannot model may be valid CSS, so it
+        # reaches the SVG as written.
+        _warn_directive(
+            "line",
+            f"{parts[0]!r} colour {parts[2]!r} is not a recognised colour; "
+            "expected a hex value like '#4caf50'",
+        )
     style = "solid"
     if len(parts) >= 4 and parts[3]:
         raw_style = parts[3].lower()
@@ -600,6 +647,61 @@ def _apply_directive(
         handler(value, graph)
     else:
         _warn_directive(key, "unknown directive; ignoring")
+
+
+_STATION, _SECTION, _LINE = "station", "section", "line"
+
+
+def _directive_references(graph: MetroGraph) -> Iterator[tuple[str, str, str]]:
+    """Yield ``(directive key, id kind, id)`` for every id a directive names.
+
+    Covers the directives whose payload points at something declared elsewhere
+    in the source. ``interchange:`` and ``legend_combo:`` name ids too but
+    report their own unknowns while resolving them.
+    """
+    for station_id in graph._pending_off_track:
+        yield "off_track", _STATION, station_id
+    for station_id in graph._pending_markers:
+        yield "marker", _STATION, station_id
+    for station_id, _pattern in graph._pending_process:
+        yield "process", _STATION, station_id
+    for station_id, entries in graph._pending_terminus.items():
+        for _label, icon_type, _name, _banner in entries:
+            yield icon_type, _STATION, station_id
+    for group in graph.groups:
+        for station_id in group.station_ids:
+            yield "group", _STATION, station_id
+    for section_id in graph.grid_overrides:
+        yield "grid", _SECTION, section_id
+    for section_id in graph.line_spread_overrides:
+        yield "line_spread", _SECTION, section_id
+    for section in graph.sections.values():
+        hints = (("entry", section.entry_hints), ("exit", section.exit_hints))
+        for key, side_hints in hints:
+            for _side, line_ids in side_hints:
+                for line_id in line_ids:
+                    yield key, _LINE, line_id
+
+
+def _warn_unresolved_references(graph: MetroGraph) -> None:
+    """Warn about directives naming a station, section or line the map lacks.
+
+    Must run once the whole source has been applied, because a directive may
+    precede the node or subgraph it names, and before layout inference, which
+    synthesises stations and fills ``grid_overrides`` for auto-placed sections.
+    """
+    known = {
+        _STATION: graph.stations.keys(),
+        _SECTION: graph.sections.keys(),
+        _LINE: graph.lines.keys(),
+    }
+    warned: set[tuple[str, str, str]] = set()
+    for reference in _directive_references(graph):
+        key, kind, ref_id = reference
+        if ref_id in known[kind] or reference in warned:
+            continue
+        warned.add(reference)
+        _warn_directive(key, f"unknown {kind} id {ref_id!r}; ignoring")
 
 
 def _deduplicate_section_number_overrides(graph: MetroGraph) -> None:
