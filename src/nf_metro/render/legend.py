@@ -16,6 +16,8 @@ __all__ = [
 ]
 
 import base64
+import binascii
+import html
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -97,14 +99,32 @@ def resolve_logo_file(raw: str, source_dir: str) -> str:
 
 
 def open_logo_image(path: str) -> "PILImageType":
-    """Open a logo image from a data URI or a file path."""
+    """Open a logo image from a data URI or a file path.
+
+    Raises ``ValueError`` for a data URI whose payload cannot be decoded and
+    opened as an image, rather than letting a malformed or truncated payload
+    surface a raw ``binascii``/PIL exception to the caller. Decoding is
+    strict (``validate=True``): a payload byte outside the base64 alphabet
+    is rejected outright rather than silently discarded, since Python's
+    lenient (default) decoder would otherwise skip such bytes and decode
+    whatever remains - an outcome that depends on incidental byte-length
+    arithmetic rather than on whether the payload is well-formed.
+    """
     from PIL import Image as PILImage
+    from PIL import UnidentifiedImageError
 
     if path.startswith("data:"):
         header, _, payload = path.partition(",")
         if ";base64" not in header:
             raise ValueError("logo data URI must be base64-encoded")
-        return PILImage.open(BytesIO(base64.b64decode(payload)))
+        try:
+            decoded = base64.b64decode(payload, validate=True)
+            return PILImage.open(BytesIO(decoded))
+        except (binascii.Error, UnidentifiedImageError, OSError) as exc:
+            raise ValueError(
+                "logo data URI's base64 payload could not be decoded as an "
+                f"image: {exc}"
+            ) from exc
     return PILImage.open(path)
 
 
@@ -112,10 +132,13 @@ def logo_image_kwargs(path: str) -> dict[str, str | bool]:
     """``drawsvg.Image`` kwargs that embed a logo from a data URI or file path.
 
     A data URI is already a self-contained ``data:`` href, so it is passed
-    through unembedded; a file path is read and base64-embedded as usual.
+    through unembedded (HTML-escaped, since it is directive-authored text
+    landing verbatim in an ``xlink:href`` attribute); a file path is read and
+    base64-embedded as usual, where drawsvg generates its own href from the
+    decoded bytes.
     """
     if path.startswith("data:"):
-        return {"path": path, "embed": False}
+        return {"path": html.escape(path), "embed": False}
     return {"path": path, "embed": True}
 
 
@@ -124,7 +147,9 @@ def marker_fill_color(fill: str, theme: Theme) -> str:
 
     ``open`` renders the theme's open-marker interior (falling back to the
     background, or white on transparent themes); ``solid`` uses the default
-    station fill; anything else is taken as a literal colour.
+    station fill; anything else is taken as a literal colour, directive-
+    authored text that is HTML-escaped here before it lands in an SVG
+    attribute (a no-op on every legitimate CSS colour form).
     """
     if fill == MARKER_FILL_OPEN:
         if theme.marker_open_fill:
@@ -134,7 +159,7 @@ def marker_fill_color(fill: str, theme: Theme) -> str:
         return "#ffffff"
     if fill == MARKER_FILL_SOLID:
         return theme.station_fill
-    return fill
+    return html.escape(fill)
 
 
 def marker_corner_radius(shape: str, r: float) -> float:

@@ -6,6 +6,7 @@ Theme-dependent values remain in style.py.
 
 from __future__ import annotations
 
+import html
 from typing import TYPE_CHECKING
 
 from nf_metro.layout.constants import (
@@ -275,12 +276,16 @@ def effective_line_color(
     when given, is the colour for an *active* line, taking priority over the
     line's own (the chevron site passes ``theme.directional_marker_color`` so a
     themed marker colour wins); an inactive line mutes regardless.
+
+    The line's own colour is directive-authored text that lands verbatim in
+    an SVG attribute, so it is HTML-escaped here (a no-op on every legitimate
+    CSS colour form).
     """
     if line is not None and line.id in inactive_line_ids:
         return theme.muted_line_color
     if active_color:
         return active_color
-    return line.color if line is not None else FALLBACK_LINE_COLOR
+    return html.escape(line.color) if line is not None else FALLBACK_LINE_COLOR
 
 
 def station_is_muted(

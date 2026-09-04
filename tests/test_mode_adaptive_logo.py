@@ -10,7 +10,11 @@ from PIL import Image as PILImage
 
 from nf_metro.api import render_string
 from nf_metro.parser.model import MetroGraph
-from nf_metro.render.legend import logo_is_resolvable, open_logo_image
+from nf_metro.render.legend import (
+    logo_image_kwargs,
+    logo_is_resolvable,
+    open_logo_image,
+)
 from nf_metro.render.ns import adaptive_logo_mask_ids as _adaptive_logo_mask_ids
 from nf_metro.render.svg import (
     _effective_logo_path,
@@ -323,6 +327,15 @@ def test_open_logo_image_rejects_non_base64_data_uri():
         open_logo_image("data:image/png,not-base64")
 
 
+def test_open_logo_image_rejects_corrupt_base64_payload():
+    """A well-formed ``;base64,`` header with a payload that fails to decode
+    (e.g. bytes appended after the legitimate base64 alphabet) raises a
+    ``ValueError`` rather than an unhandled ``binascii.Error``."""
+    corrupt = _png_data_uri(width=40, height=20) + '" onerror="alert(1)'
+    with pytest.raises(ValueError, match="base64"):
+        open_logo_image(corrupt)
+
+
 def test_resolve_logo_accepts_data_uri_single_path():
     """A data URI needs no filesystem access, so it resolves with no source_dir."""
     g = MetroGraph()
@@ -372,3 +385,32 @@ def test_baked_mode_embeds_matching_logo_variant(tmp_path):
 
     assert _embedded_image_bytes(light_svg) == light_file.read_bytes()
     assert _embedded_image_bytes(dark_svg) == dark_file.read_bytes()
+
+
+def test_logo_image_kwargs_escapes_quote_in_data_uri():
+    malicious = _png_data_uri() + '" onerror="alert(1)'
+    kwargs = logo_image_kwargs(malicious)
+
+    assert kwargs["embed"] is False
+    assert '"' not in kwargs["path"]
+    assert "&quot;" in kwargs["path"]
+
+
+def test_data_uri_logo_with_quote_is_rejected_before_rendering():
+    """Appending an attack suffix to a data-URI logo's base64 payload
+    corrupts it; ``open_logo_image`` (via ``compute_logo_dimensions``,
+    called while resolving the logo) rejects that corrupt payload with a
+    ``ValueError`` before any rendering happens, rather than letting the
+    corrupt bytes reach ``PIL.Image.open`` unguarded, or letting a
+    malformed-but-decodable payload's escaped text reach SVG attribute
+    emission with no dimensions computed for it."""
+    malicious = _png_data_uri(width=40, height=20) + '" onerror="alert(1)'
+    text = (
+        f"%%metro logo: {malicious}\n"
+        "%%metro line: main | Main | #0570b0\n"
+        "graph LR\n"
+        "    a[A] -->|main| b[B]\n"
+    )
+
+    with pytest.raises(ValueError, match="base64"):
+        render_string(text, chrome_css=False)
