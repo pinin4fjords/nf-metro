@@ -44,14 +44,20 @@ deterministic escape hatch for something like a PNG export.
 fill: var(--my-bg, light-dark(#ffffff, #1a1a1a));
 ```
 
-A host page can set `--my-bg` on a wrapper to override the color outright; if
-it doesn't, the light/dark pair still runs. This layer is optional -
-`light-dark()` + `color-scheme` is the whole mechanism.
+A page embedding the SVG (the **host page**) can set `--my-bg` on a wrapper to
+override the color outright; if it doesn't, the light/dark pair still runs.
+This layer is optional - `light-dark()` + `color-scheme` is the whole
+mechanism. nf-metro calls the properties it exposes this way (background,
+title, labels, section boxes, legend) **chrome** - as opposed to line and
+route colors, which carry meaning and stay fixed.
 
 ## Where `color-scheme` should live
 
-`color-scheme` is inherited, but redeclaring it resets what "current
-preference" means for everything under it. That matters once the SVG is
+`color-scheme` is **inherited**: an element with no `color-scheme` of its own
+takes its ancestor's computed value, the same as `font-family` or `color`
+normally would. But redeclaring it resets what "current preference" means for
+everything under it - an element that sets its own `color-scheme` stops
+inheriting and starts from scratch. That matters once the SVG is
 embedded, because a host page and the SVG can disagree about who owns that
 decision. nf-metro has two modes, controlled by `self_color_scheme` on
 `render_svg` (`--no-self-color-scheme` on the CLI):
@@ -69,7 +75,7 @@ inherits `color-scheme` from its host instead. This site's theme picker sets
 it on `<html>`:
 
 ```css
-/* Starlight's reset.css */
+/* reset.css, from Starlight - the framework this docs site is built with */
 html {
   color-scheme: dark;
 }
@@ -121,8 +127,10 @@ metadata `<Metro>` doesn't use - it has no effect on theming.)
 A transparent-background theme has no `--nfm-bg` pair to lean on, so text
 drawn straight onto the canvas (titles, section labels) can still turn
 illegible against whatever the host page's background is. For that one case,
-nf-metro adds a second, coarser path - a media query rather than a per-value
-pair (`src/nf_metro/render/svg.py`, `_inject_dark_mode_style`):
+nf-metro adds a second, coarser path, built on a different feature -
+`prefers-color-scheme`, a media query you branch a whole stylesheet rule on,
+not a property like `color-scheme` that `light-dark()` resolves per value
+(`src/nf_metro/render/svg.py`, `_inject_dark_mode_style`):
 
 ```css
 @media (prefers-color-scheme: dark) {
