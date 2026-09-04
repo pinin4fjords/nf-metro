@@ -380,7 +380,7 @@ _WIDTH_RE = re.compile(r'\bwidth="(\d+)"')
 _HEIGHT_RE = re.compile(r'\bheight="(\d+)"')
 _ID_ATTR_RE = re.compile(r'\bid="([^"]+)"')
 _URL_REF_RE = re.compile(r"url\(#([^)]+)\)")
-_CLASS_ATTR_RE = re.compile(r'\bclass="([^"]*)"')
+_CLASS_ATTR_RE = re.compile(r'(?<![\w-])class="([^"]*)"')
 _STYLE_BLOCK_RE = re.compile(r"(<style>)(.*?)(</style>)", re.DOTALL)
 _CLASS_SELECTOR_RE = re.compile(r"\.([A-Za-z_][\w-]*)")
 
