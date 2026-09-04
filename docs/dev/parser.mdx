@@ -255,6 +255,12 @@ that names no metro line is a real modelling error.
 Broader graph-semantic checks (beyond edge annotations) live in the
 separate `validate` phase, `nf_metro.parser.validate.validate_graph`.
 
+The undeclared-line half of the edge check is the one place both phases
+read: `find_undeclared_line_edges`, next to `validate_graph`. That is what
+keeps `nf-metro validate` and `nf-metro render` accepting the same maps.
+A map declaring no `%%metro line:` directive at all is no exception, since
+every annotated edge in it names an undeclared line.
+
 The unrecognised-line case is handled in the grammar by a low-priority
 catch-all:
 

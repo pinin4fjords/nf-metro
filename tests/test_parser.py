@@ -181,7 +181,10 @@ def test_parse_quoted_subgraph_title_strips_quotes():
 
 
 def test_parse_edges():
-    text = "graph LR\n    a[Input]\n    b[Output]\n    a -->|main| b\n"
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n    a[Input]\n    b[Output]\n    a -->|main| b\n"
+    )
     graph = parse_metro_mermaid(text)
     assert len(graph.edges) == 1
     assert graph.edges[0].source == "a"
@@ -605,7 +608,10 @@ def test_hidden_station_underscore_prefix():
 
 def test_hidden_station_auto_created_from_edge():
     """Stations with _ prefix are hidden even when auto-created from edges."""
-    text = "graph LR\n    a -->|main| _split\n    _split -->|main| b\n"
+    text = (
+        "%%metro line: main | Main | #ff0000\n"
+        "graph LR\n    a -->|main| _split\n    _split -->|main| b\n"
+    )
     graph = parse_metro_mermaid(text)
     assert graph.stations["_split"].is_hidden is True
     assert graph.stations["a"].is_hidden is False
@@ -615,6 +621,7 @@ def test_hidden_station_auto_created_from_edge():
 def test_hidden_station_edge_before_definition():
     """Hidden flag is set correctly when edge precedes node definition."""
     text = (
+        "%%metro line: main | Main | #ff0000\n"
         "graph LR\n    a -->|main| _split\n    _split[Split]\n    _split -->|main| b\n"
     )
     graph = parse_metro_mermaid(text)
@@ -625,6 +632,7 @@ def test_hidden_station_edge_before_definition():
 def test_hidden_station_definition_before_edge():
     """Hidden flag is set correctly when node definition precedes edge."""
     text = (
+        "%%metro line: main | Main | #ff0000\n"
         "graph LR\n    _split[Split]\n    a -->|main| _split\n    _split -->|main| b\n"
     )
     graph = parse_metro_mermaid(text)

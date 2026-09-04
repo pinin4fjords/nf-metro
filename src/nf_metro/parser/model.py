@@ -303,6 +303,12 @@ class Station:
         )
 
 
+# ``Edge.line_id`` for an edge the source wrote without a ``|line_id|``
+# annotation. An unannotated edge and one naming an undeclared line are
+# separate authoring defects, so the sentinel keeps them apart.
+UNANNOTATED_LINE_ID = "default"
+
+
 @dataclass
 class Edge:
     """A directed edge between stations, belonging to a metro line."""
