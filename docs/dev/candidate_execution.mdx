@@ -5,9 +5,10 @@ sidebar:
   order: 6
 ---
 
-Candidate execution is an internal safety boundary for layout recovery. It can
-answer, "what would this exact set of layout commitments produce?" It does not
-generate candidates, rank them, choose one, or retry a normal render.
+Candidate execution is an internal safety boundary for layout recovery. It
+answers one question: what would this exact set of layout commitments produce?
+It does not generate candidates, rank them, choose one or retry a normal
+render.
 
 The normal CLI and Python rendering APIs never call the executor.
 
@@ -18,8 +19,8 @@ source checkout.
 
 A candidate is an immutable set of typed commitments. It may pin section grid
 cells, section directions, a fold threshold, exact connector entry or exit
-sides, and line ordering. The request separately records caller-owned layout
-options and pins.
+sides, and line ordering. The request records caller-owned layout options and
+pins separately.
 
 The parser captures authored and caller provenance before it sees a candidate.
 It then validates the complete overlay at one pre-inference boundary. A
@@ -28,8 +29,8 @@ contradictory, malformed, partial, and unknown commitments are rejected before
 layout.
 
 Accepted candidate values are recorded as inferred, locked decisions. After
-layout, the executor checks the effective provenance and settled graph again.
-This catches a commitment that inference accepted but failed to honour.
+layout, the executor checks the effective provenance and the settled graph
+again, which catches a commitment that inference accepted but failed to honour.
 
 ## One attempt
 
@@ -49,10 +50,10 @@ Every baseline and candidate attempt starts a new Python process using the
 8. Plan-aware artifact validation checks label strikes, marker crossings, and
    collapsed offsets.
 
-The result keeps every completed piece of evidence. For example, an SVG
-emission failure still carries the settled graph, route plan, and RenderPlan.
-Route-plan diagnostics and artifact findings are structured rejection data,
-not text parsed from an exception.
+The result keeps every completed piece of evidence, so an SVG emission failure
+still carries the settled graph, route plan and RenderPlan. Route-plan
+diagnostics and artifact findings are structured rejection data rather than
+text parsed from an exception.
 
 ## Warnings
 
@@ -66,14 +67,14 @@ Warning messages do not decide policy.
 
 The coordinator enforces three independent limits: a maximum attempt count, a
 deadline for each worker, and one deadline for the complete request. The
-baseline always runs first. Candidates that cannot start because of a limit
-are returned explicitly as unattempted; they are not reported as timeouts.
+baseline always runs first. Candidates that cannot start because of a limit are
+returned explicitly as unattempted rather than reported as timeouts.
 
 Workers send versioned, sequenced frames over a one-way pipe. Large evidence is
-split into small atomic frames, so receiving cannot block indefinitely after
+split into small atomic frames, so a receive cannot block indefinitely after
 only part of a message arrives. The parent receives and verifies the complete
 payload before joining a successful worker. It joins before reading the exit
-code, and terminates or kills and reaps every timed-out worker.
+code, and it terminates or kills and reaps every timed-out worker.
 
 The outcome distinguishes accepted execution, validation rejection, engine
 failure, timeout, worker crash, and communication or infrastructure failure.
@@ -81,11 +82,11 @@ It records no elapsed times, process IDs, or temporary paths.
 
 ## Determinism
 
-General mapping keys are sorted by their canonical encoded key. Semantic
-tuples and lists keep their order. Sets are sorted by canonical value. Route
-plans use their own canonical serializer. The settled graph, route plan,
-RenderPlan, SVG, findings, diagnostics, and failure details must match across
-fresh interpreters with different `PYTHONHASHSEED` values.
+General mapping keys are sorted by their canonical encoded key. Semantic tuples
+and lists keep their order, and sets are sorted by canonical value. Route plans
+use their own canonical serializer. The settled graph, route plan, RenderPlan,
+SVG, findings, diagnostics and failure details must match across fresh
+interpreters with different `PYTHONHASHSEED` values.
 
 The frozen fuzz sources are determinism inputs only. Their current success or
 failure stage is not part of the executor contract.
