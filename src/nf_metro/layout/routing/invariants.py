@@ -48,7 +48,7 @@ from nf_metro.layout.geometry import (
     lanes_run_along_y,
     point_to_polyline_distance,
 )
-from nf_metro.layout.phases.guards import GuardSpec
+from nf_metro.layout.phase_state import GuardSpec
 from nf_metro.layout.route_plan import FanRouteEmitter
 from nf_metro.layout.route_topology import (
     convergence_entry_port_id,
