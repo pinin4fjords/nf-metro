@@ -126,6 +126,11 @@ by setting these on a wrapping element:
 Line and route colors are **not** recolorable - they carry meaning, so they
 stay baked as presentation attributes.
 
+The fallback behind each property isn't a single color - it's a `light-dark()`
+pair, so the map already adapts to the viewer's `color-scheme` even before any
+host override. See [Theming](/nf-metro/dev/theming/) for how that mechanism
+works and how to reuse it in your own SVGs.
+
 ### Multiple maps on one page - `--svg-class-prefix`
 
 Two inline SVGs on the same page share class names (`nf-metro-station`, …),
@@ -151,6 +156,11 @@ suppress it:
 ```bash
 nf-metro render pipeline.mmd -o pipeline.svg --no-dark-mode-css
 ```
+
+This block is a separate, coarser fallback from the `--nfm-*` custom
+properties above - it exists because a transparent background has no color of
+its own to carry a `light-dark()` pair. See [Theming](/nf-metro/dev/theming/)
+for why the two mechanisms differ.
 
 ### Raster export (PNG) - `--mode` and `--no-chrome-css`
 
