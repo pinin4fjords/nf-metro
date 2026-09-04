@@ -3016,6 +3016,33 @@ def _render_adaptive_logo(
         )
 
 
+_MUTED_CLASS = "nf-metro-muted"
+"""Class marking an element greyed because every line touching it is inactive."""
+
+
+def _muted_class(*names: str) -> str:
+    """Return a class attribute for *names* plus the muted marker."""
+    return " ".join(_ns(n) for n in (*names, _MUTED_CLASS))
+
+
+def _muted_rule(cls: str, props: str) -> str:
+    """Return a CSS rule for *cls* in its muted state.
+
+    Two classes outrank the single-class rule for the same element, so this
+    wins the cascade over the full-strength rule regardless of source order.
+    """
+    return f".{_ns(cls)}.{_ns(_MUTED_CLASS)} {{ {props}; }}"
+
+
+def _station_label_class(muted: bool) -> str:
+    """Return the class attribute for a station name label or terminus caption."""
+    return (
+        _muted_class("nf-metro-station-label")
+        if muted
+        else _ns("nf-metro-station-label")
+    )
+
+
 def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
     """Inject CSS custom properties for chrome colors.
 
@@ -3101,6 +3128,15 @@ def _inject_chrome_css(d: draw.Drawing, theme: Theme) -> None:
         lines.append(
             _rule("nf-metro-label-halo", f"fill: {halo_val}; stroke: {halo_val}")
         )
+    # A muted element carries its grey as a presentation attribute, which any
+    # author rule outranks, so the full-strength rules above would repaint it.
+    # Each muted state therefore needs a selector that outranks its own plain
+    # rule, and its own property so a host can recolor the two states apart.
+    muted_val = _prop("--nfm-map-muted-color", "muted_line_color")
+    lines += [
+        _muted_rule("nf-metro-station-label", f"fill: {muted_val}"),
+        _muted_rule("nf-metro-marker-stroke", f"stroke: {muted_val}"),
+    ]
     d.append(draw.Raw(f"<style>{chr(10).join(lines)}</style>"))
 
 
@@ -3639,10 +3675,13 @@ def _append_terminus_icons(
     r: float,
     min_off: float,
     max_off: float,
+    muted: bool = False,
 ) -> None:
     """Render a station's terminus icons into their own data-tagged group."""
     icon_group = draw.Group(**{"data-station-id": station.id})
-    _render_terminus_icons(icon_group, station, graph, theme, r, min_off, max_off)
+    _render_terminus_icons(
+        icon_group, station, graph, theme, r, min_off, max_off, muted
+    )
     d.append(icon_group)
 
 
@@ -3656,6 +3695,7 @@ def _render_marker_station(
     max_off: float,
     is_tb_vert: bool,
     station_data: dict[str, str],
+    muted: bool = False,
 ) -> None:
     """Draw a shape/fill marker glyph over the station's line bundle.
 
@@ -3669,9 +3709,14 @@ def _render_marker_station(
     )
     x, y, w, h = _pill_box(station, r, min_off, max_off, is_tb_vert, flow_len=flow_len)
     rx = marker_corner_radius(marker.shape, r)
+    stroke_cls = (
+        _muted_class("nf-metro-marker-stroke")
+        if muted
+        else _ns("nf-metro-marker-stroke")
+    )
     marker_data = {
         **station_data,
-        "class_": f"{station_data['class_']} {_ns('nf-metro-marker-stroke')}",
+        "class_": f"{station_data['class_']} {stroke_cls}",
     }
     d.append(
         draw.Rectangle(
@@ -4027,23 +4072,20 @@ def _render_stations(
     for station in graph.stations.values():
         if station.is_port or station.is_hidden:
             continue
-        station_theme = (
-            muted_theme
-            if station_is_muted(graph, station.id, inactive_line_ids)
-            else theme
-        )
+        muted = station_is_muted(graph, station.id, inactive_line_ids)
+        station_theme = muted_theme if muted else theme
         if graph.embed_manifest:
             attrs = _station_group_attrs(
                 graph, theme, station, station_offsets, positive_fan
             )
             g = draw.Group(**attrs)
             _render_station_into(
-                g, graph, station_theme, station, station_offsets, positive_fan
+                g, graph, station_theme, station, station_offsets, positive_fan, muted
             )
             d.append(g)
         else:
             _render_station_into(
-                d, graph, station_theme, station, station_offsets, positive_fan
+                d, graph, station_theme, station, station_offsets, positive_fan, muted
             )
 
 
@@ -4054,6 +4096,7 @@ def _render_station_into(
     station: Station,
     station_offsets: dict[tuple[str, str], float] | None,
     positive_fan: set[str],
+    muted: bool = False,
 ) -> None:
     """Draw one station's glyph and terminus icons into a container.
 
@@ -4095,7 +4138,7 @@ def _render_station_into(
         _draw_blank_terminus_nub(
             d, station, r, t_min, t_max, _station_data_attrs(graph, station), theme
         )
-        _append_terminus_icons(d, station, graph, theme, r, t_min, t_max)
+        _append_terminus_icons(d, station, graph, theme, r, t_min, t_max, muted)
         return
 
     # Rail mode: a multi-rail station draws as a spanning interchange; a
@@ -4155,9 +4198,10 @@ def _render_station_into(
             max_off,
             is_tb_vert,
             station_data,
+            muted,
         )
         if station.is_terminus:
-            _append_terminus_icons(d, station, graph, theme, r, min_off, max_off)
+            _append_terminus_icons(d, station, graph, theme, r, min_off, max_off, muted)
         return
 
     x, y, w, h = _pill_box(station, r, min_off, max_off, is_tb_vert)
@@ -4184,7 +4228,7 @@ def _render_station_into(
         )
 
     if station.is_terminus:
-        _append_terminus_icons(d, station, graph, theme, r, min_off, max_off)
+        _append_terminus_icons(d, station, graph, theme, r, min_off, max_off, muted)
 
 
 def caption_aware_icon_step(
@@ -4356,6 +4400,7 @@ def _render_terminus_icons(
     r: float,
     min_off: float,
     max_off: float,
+    muted: bool = False,
 ) -> None:
     """Render file icon(s) adjacent to a terminus station.
 
@@ -4484,7 +4529,7 @@ def _render_terminus_icons(
                     font_weight=theme.label_font_weight,
                     text_anchor="middle",
                     dominant_baseline="hanging",
-                    class_=_ns("nf-metro-station-label"),
+                    class_=_station_label_class(muted),
                 )
             )
 
@@ -4577,18 +4622,17 @@ def _render_labels(
                 # Keep the bottom line near the station
                 y -= (n_lines - 1) * line_spacing
 
+        muted = bool(label.station_id) and station_is_muted(
+            graph, label.station_id, inactive_line_ids
+        )
+
         # Skip emitting data-station-id for synthetic obstacle placements.
         label_data: dict[str, str] = {}
         if label.station_id and not label.station_id.startswith("__"):
             label_data["data-station-id"] = label.station_id
-            label_data["class_"] = _ns("nf-metro-station-label")
+            label_data["class_"] = _station_label_class(muted)
 
-        label_fill = (
-            theme.muted_line_color
-            if label.station_id
-            and station_is_muted(graph, label.station_id, inactive_line_ids)
-            else theme.label_color
-        )
+        label_fill = theme.muted_line_color if muted else theme.label_color
 
         if label.angle:
             # Diagonal labels: anchor at the pill and rotate about
