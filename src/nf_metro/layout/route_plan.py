@@ -40,7 +40,6 @@ from nf_metro.parser.provenance import (
     DecisionOrigin,
     DecisionReason,
     EffectiveDecision,
-    FoldThresholdSource,
     GridCell,
     LineOrderSource,
 )
@@ -409,9 +408,6 @@ class CompatibilityFamily:
             raise ValueError("a compatibility family states why it is retained")
         if self.follow_up is not None and not self.follow_up:
             raise ValueError("a compatibility family's follow-up names an issue")
-
-
-_ISSUE = "https://github.com/seqeralabs/nf-metro/issues/{}"
 
 
 def _reasons(
@@ -814,7 +810,6 @@ class ExitLaneOrderSource(str, Enum):
     """Evidence used to order one exit group's active source lanes."""
 
     STATION_OFFSETS = "station-offsets"
-    FRAME_CONSTRAINTS = "frame-constraints"
     GRAPH_LINE_ORDER_FALLBACK = "graph-line-order-fallback"
 
 
@@ -1035,7 +1030,6 @@ class RoutePlanProvenance:
     sections: tuple[SectionDecisionFacts, ...]
     connectors: tuple[ConnectorDecisionFacts, ...]
     fold_threshold: EffectiveDecision[int] | None
-    fold_threshold_source: FoldThresholdSource
     lane_order: LaneOrderFacts
 
 
@@ -2574,11 +2568,6 @@ def _plan_provenance(
         )
         for connector in connectors
     )
-    fold_source = (
-        provenance.authored.fold_threshold.selected_source
-        if provenance.authored is not None
-        else FoldThresholdSource.DEFAULT
-    )
     line_order = provenance.line_order_decision
     if line_order is None:
         raise ValueError("line-order provenance was not captured")
@@ -2591,7 +2580,6 @@ def _plan_provenance(
         sections,
         connector_facts,
         provenance.fold_threshold_decision,
-        fold_source,
         LaneOrderFacts(
             line_order,
             line_source,
@@ -3543,14 +3531,9 @@ class RoutePlanQuery:
     """Transient read-only indexes over canonical route-plan tuples."""
 
     plan: RoutePlan
-    _endpoint_groups: Mapping[EndpointGroupId, ResolvedEndpointGroup]
-    _divergences: Mapping[DivergenceId, RouteDivergence]
-    _convergences: Mapping[ConvergenceId, RouteConvergence]
     _members: Mapping[EmissionMemberId, EmissionMember]
     _bindings: Mapping[EmissionMemberId, tuple[EmissionBinding, ...]]
-    _exit_turn_plans: Mapping[ExitTurnPlanId, ExitTurnPlan]
     _exit_turns_by_source: Mapping[str, tuple[ExitTurnPlan, ...]]
-    _exit_turns_by_member: Mapping[EmissionMemberId, tuple[ExitTurnPlan, ...]]
     _fan_plans: Mapping[FanPlanId, FanPlan]
     _fan_plans_by_system: Mapping[RouteSystemId, tuple[FanPlan, ...]]
     _fan_plans_by_member: Mapping[EmissionMemberId, tuple[FanPlan, ...]]
@@ -3571,31 +3554,14 @@ class RoutePlanQuery:
     _reservations_by_system: Mapping[RouteSystemId, tuple[RouteReservation, ...]]
     _reservations_by_member: Mapping[EmissionMemberId, tuple[RouteReservation, ...]]
 
-    def endpoint_group(self, group_id: EndpointGroupId) -> ResolvedEndpointGroup:
-        return self._endpoint_groups[group_id]
-
-    def divergence(self, divergence_id: DivergenceId) -> RouteDivergence:
-        return self._divergences[divergence_id]
-
-    def convergence(self, convergence_id: ConvergenceId) -> RouteConvergence:
-        return self._convergences[convergence_id]
-
     def member(self, member_id: EmissionMemberId) -> EmissionMember:
         return self._members[member_id]
 
     def bindings_for(self, member_id: EmissionMemberId) -> tuple[EmissionBinding, ...]:
         return self._bindings.get(member_id, ())
 
-    def exit_turn_plan(self, plan_id: ExitTurnPlanId) -> ExitTurnPlan:
-        return self._exit_turn_plans[plan_id]
-
     def exit_turn_plans_for_source(self, source_id: str) -> tuple[ExitTurnPlan, ...]:
         return self._exit_turns_by_source.get(source_id, ())
-
-    def exit_turn_plans_for_member(
-        self, member_id: EmissionMemberId
-    ) -> tuple[ExitTurnPlan, ...]:
-        return self._exit_turns_by_member.get(member_id, ())
 
     def fan_plan(self, plan_id: FanPlanId) -> FanPlan:
         return self._fan_plans[plan_id]
@@ -4317,11 +4283,7 @@ def _validate_exit_turn_diagnostics(plan: RoutePlan) -> None:
 def _validate_exit_turn_records(
     plan: RoutePlan,
     members: Mapping[EmissionMemberId, EmissionMember],
-) -> tuple[
-    dict[ExitTurnPlanId, ExitTurnPlan],
-    dict[str, list[ExitTurnPlan]],
-    dict[EmissionMemberId, list[ExitTurnPlan]],
-]:
+) -> dict[str, list[ExitTurnPlan]]:
     systems = {system.id: system for system in plan.systems}
     endpoint_groups = {item.id: item for item in plan.endpoint_groups}
     divergences = {item.id: item for item in plan.divergences}
@@ -4404,7 +4366,7 @@ def _validate_exit_turn_records(
         for item in plan.exit_turn_plans
     ):
         raise ValueError("exit-turn foreign-reference index is inconsistent")
-    return exit_turn_plans, by_source, by_member
+    return by_source
 
 
 def _validate_fan_records(
@@ -5041,9 +5003,7 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     if len(members) != len(plan.members):
         raise ValueError("route plan contains duplicate emission member ids")
     _validate_route_system_records(plan, members)
-    exit_turn_plans, exit_turns_by_source, exit_turns_by_member = (
-        _validate_exit_turn_records(plan, members)
-    )
+    exit_turns_by_source = _validate_exit_turn_records(plan, members)
     bindings: dict[EmissionMemberId, list[EmissionBinding]] = defaultdict(list)
     for binding in plan.bindings:
         if binding.member_id not in members:
@@ -5098,17 +5058,10 @@ def build_route_plan_query(plan: RoutePlan) -> RoutePlanQuery:
     reservation_indexes = build_reservation_query_indexes(plan, members, bindings)
     return RoutePlanQuery(
         plan,
-        MappingProxyType(endpoint_groups),
-        MappingProxyType(divergences),
-        MappingProxyType(convergences),
         MappingProxyType(members),
         MappingProxyType({key: tuple(value) for key, value in bindings.items()}),
-        MappingProxyType(exit_turn_plans),
         MappingProxyType(
             {key: tuple(value) for key, value in exit_turns_by_source.items()}
-        ),
-        MappingProxyType(
-            {key: tuple(value) for key, value in exit_turns_by_member.items()}
         ),
         MappingProxyType(fan_plans),
         MappingProxyType(

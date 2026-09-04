@@ -398,7 +398,7 @@ def _synthetic_route(
 
 def test_check_skips_clean_bundle() -> None:
     """Two paths that share waypoints exactly produce zero violations:
-    the COINCIDENT path-pair has nothing to compare on either side.
+    a coincident path-pair has nothing to compare on either side.
     """
     pts = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (200.0, 100.0)]
     routes = [_synthetic_route("A", pts), _synthetic_route("B", pts)]

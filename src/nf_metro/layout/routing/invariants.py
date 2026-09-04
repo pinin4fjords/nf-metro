@@ -129,7 +129,6 @@ class Side(Enum):
 
     LEFT = "LEFT"
     RIGHT = "RIGHT"
-    COINCIDENT = "COINCIDENT"
 
 
 @dataclass(frozen=True)
@@ -184,7 +183,7 @@ def _side_sign(
     b_p1: tuple[float, float],
     perp: tuple[float, float],
 ) -> int:
-    """Sign of ``(A - B) . perp``: +1 LEFT, -1 RIGHT, 0 COINCIDENT."""
+    """Sign of ``(A - B) . perp``: +1 LEFT, -1 RIGHT, 0 for a coincident pair."""
     dxp = a_p1[0] - b_p1[0]
     dyp = a_p1[1] - b_p1[1]
     proj = dxp * perp[0] + dyp * perp[1]
