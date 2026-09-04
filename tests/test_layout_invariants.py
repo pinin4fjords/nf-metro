@@ -9275,24 +9275,30 @@ def test_label_x_anchored_to_station_marker_on_horizontal_runs(fixture):
 # ---------------------------------------------------------------------------
 
 
-def _dist_to_shared_reconvergence(graph, members: list[str]) -> dict[str, int | None]:
+def _dist_to_shared_reconvergence(
+    succs: dict[str, set[str]], members: list[str]
+) -> dict[str, int | None]:
     """Map each member to its hop-distance to the group's shared reconvergence.
 
-    The shared reconvergence set is the intersection of every member's
-    descendant set (nodes reachable via forward edges).  For each member,
-    the value is the length of the shortest forward path to the nearest node
-    in that set; a member with no reachable shared descendant maps to
-    ``None``, which partitions as its own value distinct from any integer.
+    ``succs`` is a forward-adjacency map (source -> set of targets) built once
+    from ``graph.edges``; ``members`` are the stations of one (preds, layer)
+    group, of which there are always at least two (callers filter singletons).
 
-    This is a pure graph-structure property computed from ``graph.edges``
-    alone: it depends on neither engine placement coordinates nor successor
-    identity, which is what lets it separate members that reach the section's
+    The shared reconvergence set is the intersection of every member's
+    descendant set (nodes reachable via forward edges).  When that
+    intersection is non-empty, every member gets an integer: the length of
+    its shortest forward path to the nearest node in the set (any such node
+    is reachable from every member by construction).  The ``None`` value is a
+    group-wide fallback, not a per-member one: it is returned for *all*
+    members exactly when the intersection is empty (the group shares no common
+    descendant), and partitions as its own value distinct from any integer.
+
+    This is a pure graph-structure property computed from the edge set alone:
+    it depends on neither engine placement coordinates nor successor identity,
+    which is what lets it separate members that reach the section's
     reconvergence at different topological depths without keying on successors
     (see the test docstring for why successor keying is the #514 hazard).
     """
-    succs: dict[str, set[str]] = defaultdict(set)
-    for e in graph.edges:
-        succs[e.source].add(e.target)
 
     def descendants(start: str) -> set[str]:
         seen: set[str] = set()
@@ -9309,12 +9315,11 @@ def _dist_to_shared_reconvergence(graph, members: list[str]) -> dict[str, int | 
     common: set[str] = (
         set.intersection(*desc_by_member.values()) if desc_by_member else set()
     )
+    if not common:
+        return {m: None for m in members}
 
     result: dict[str, int | None] = {}
     for m in members:
-        if not common:
-            result[m] = None
-            continue
         seen = {m}
         queue = deque((s, 1) for s in succs[m])
         hop: int | None = None
@@ -9355,20 +9360,24 @@ def test_visual_stack_station_xs_share_column(fixture):
     check runs separately per partition.  This discriminator is a pure
     graph-structure property (intersection of descendant sets, then the
     shortest forward hop-count to it) that is independent of BOTH successor
-    identity and engine placement.  It is *not* the successor-set keying
-    #514 rejected: in ``da_pipeline``'s ``differential`` section
-    ``limma``/``deseq2``/``dream``/``propd`` all sit one hop from their
-    shared merge (``annotate``), so they stay in a single partition and a
-    mis-placed ``propd`` is still caught, whereas successor keying would
-    have fragmented them into singletons.  The partition only separates
-    members whose paths to reconvergence differ in depth: a fan-out member
-    that reaches the merge via an extra intermediate station is placed one
-    column earlier than its direct-merging siblings, and that offset is
-    genuine topology, not a stack regression.
+    identity and engine placement.  The partition only separates members
+    whose paths to reconvergence differ in depth: a fan-out member that
+    reaches the merge via an extra intermediate station is seated one column
+    earlier than its direct-merging siblings, and that offset is genuine
+    topology, not a stack regression.
 
-    ``da_pipeline``'s ``data_prep`` section is the known-safe mixed case:
-    its six entry stations split into a hop-1 pair and a hop-2 quartet,
-    each internally X-aligned, so partitioning loses no coverage there.
+    Crucially this is *not* the successor-set keying #514 rejected.
+    Successor keying fragments a fan-out column into singletons whenever
+    members differ in where they go next (e.g. one carries an extra exit-port
+    edge), hiding a mis-placed member.  Hop-distance instead keeps members
+    that merge at the same depth together regardless of successor identity,
+    so a fan-out column whose members all merge directly stays one partition
+    and a mis-placed member is still caught.  The following are illustrative
+    observations from the current corpus, not invariants this test enforces:
+    in ``da_pipeline``'s ``differential`` section the four differential-method
+    stations sit one hop from their shared merge and remain a single
+    partition; that section's ``data_prep`` mixes hop-1 and hop-2 entry
+    stations that stay X-aligned within each partition.
 
     The Y-window distinguishes visually-stacked stations (close enough
     in Y that a viewer reads them as a column) from:
@@ -9394,8 +9403,10 @@ def test_visual_stack_station_xs_share_column(fixture):
 
     graph = _layout(fixture)
     preds: dict[str, set[str]] = defaultdict(set)
+    succs: dict[str, set[str]] = defaultdict(set)
     for e in graph.edges:
         preds[e.target].add(e.source)
+        succs[e.source].add(e.target)
 
     offenders: list[str] = []
     for sec in graph.sections.values():
@@ -9414,7 +9425,7 @@ def test_visual_stack_station_xs_share_column(fixture):
         for group_members in groups.values():
             if len(group_members) < 2:
                 continue
-            hops = _dist_to_shared_reconvergence(graph, group_members)
+            hops = _dist_to_shared_reconvergence(succs, group_members)
             partitions: dict[int | None, list[str]] = defaultdict(list)
             for sid in group_members:
                 partitions[hops[sid]].append(sid)
