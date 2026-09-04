@@ -234,6 +234,15 @@ def test_directive_bundles_multiple_lines_on_one_rail():
     assert svg.count('class="nf-metro-rail-knob"') >= 3
 
 
+def test_directive_naming_an_undeclared_node_warns():
+    src = _THREE.format(directive="%%metro interchange: ghost | a | b\n")
+    with pytest.warns(
+        UserWarning, match=r"%%metro interchange: unknown station id 'ghost'"
+    ):
+        g = parse_metro_mermaid(src)
+    assert not next(c for c in g.interchanges if c.node_id == "ghost").member_ids
+
+
 def test_directive_skipped_when_under_two_live_rails():
     """A directive whose rails resolve to fewer than two lines the node carries
     is warned about and left unexpanded (the node renders normally)."""
