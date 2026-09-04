@@ -175,6 +175,25 @@ Graphs parsed from Mermaid always carry both topology records. Hand-built
 from final graph structure. Supplying only one record is invalid because it would
 mix authored identity with an incomplete resolver mapping.
 
+## Two plan-ownership rules
+
+A pass asking whether it may move a coordinate reads one of two predicates in
+`common.py`, and neither contains the other:
+
+- `planner_owns_segment(route, rank)` asks whether a plan states _that_ segment.
+  A member plan's and an exit turn's arms match the rank exactly; only the
+  convergence arm reaches a rank either side, because a trunk axis states a run
+  whose two corners it fixes as well.
+- `route_system_owns_segment_boundary(route, rank)` asks whether a convergence or
+  member plan owns a corner at either end of the segment, which is what a pass
+  translating the segment re-forms.
+
+A pass that moves a whole segment reads both, and the guards that close on the
+result read them the same way: `check_no_fused_cotravelling_lines` attributes a
+lane to exactly the plan kinds `planner_owns_segment` names. A caller wanting the
+widening on one side only says which side, as `_corridor_run_band` does for the
+leg whose length a planned turn's runway fixes.
+
 ## Bundles and offsets
 
 When several lines travel between the same pair of endpoints they form a
