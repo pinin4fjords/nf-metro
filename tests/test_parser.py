@@ -516,7 +516,7 @@ def test_subgraph_without_display_name():
 def test_empty_section_removed():
     """Subgraphs with only edges (no node definitions) are removed.
 
-    Regression test for https://github.com/pinin4fjords/nf-metro/issues/51.
+    Regression test for https://github.com/seqeralabs/nf-metro/issues/51.
     When nodes are defined outside a subgraph but edges referencing them
     appear inside the subgraph, the section has no stations. The parser
     should remove it and fall back to flat layout instead of crashing.

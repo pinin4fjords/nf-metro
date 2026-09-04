@@ -105,7 +105,7 @@ def _check_unsupported_input(text: str) -> None:
             "without %%metro directives). Use 'nf-metro convert' to "
             "convert it to nf-metro format first, or pass "
             "'--from-nextflow' to 'nf-metro render'.\n\n"
-            "See: https://pinin4fjords.github.io/nf-metro/latest/nextflow/"
+            "See: https://seqeralabs.github.io/nf-metro/latest/nextflow/"
         )
 
     if has_flowchart:
@@ -113,7 +113,7 @@ def _check_unsupported_input(text: str) -> None:
             "Mermaid 'flowchart' syntax is not supported. "
             "Use 'graph LR' with %%metro directives instead.\n\n"
             "See the guide: "
-            "https://pinin4fjords.github.io/nf-metro/latest/guide/"
+            "https://seqeralabs.github.io/nf-metro/latest/guide/"
         )
 
 
