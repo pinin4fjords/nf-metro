@@ -22,7 +22,7 @@
 %%metro grid: preprocessing, alignment, novel_transcripts | 0,0
 %%metro grid: orf_calling, psite_id, te, reporting | 0,1
 %%metro x_spacing: 70
-%%metro legend: br | 10,100
+%%metro legend: br | 10,130
 
 graph LR
     subgraph preprocessing [Read pre-processing]
@@ -107,18 +107,13 @@ graph LR
         psite_counts_gene[Gene in-frame\nP-sites]
         psite_orf_out[ ]
         psite_gene_out[ ]
-        _psite_exit[ ]
-        _ribowaltz_relay[ ]
 
+        ribowaltz -->|riboseq| plastid_psite
         plastid_psite -->|riboseq| plastid_wiggle
         plastid_wiggle -->|riboseq| quantify_orf_psite
         plastid_wiggle -->|riboseq| psite_counts_gene
         quantify_orf_psite -->|riboseq| psite_orf_out
         psite_counts_gene -->|riboseq| psite_gene_out
-        quantify_orf_psite -->|riboseq| _psite_exit
-        psite_counts_gene -->|riboseq| _psite_exit
-        ribowaltz -->|riboseq| _ribowaltz_relay
-        _ribowaltz_relay -->|riboseq| _psite_exit
     end
 
     subgraph te [Translational efficiency]
@@ -157,12 +152,11 @@ graph LR
     umi_dedup -->|riboseq| rpbp
     umi_dedup -->|riboseq| price
     umi_dedup -->|riboseq| ribowaltz
-    umi_dedup -->|riboseq| plastid_psite
-    orf_merge -->|riboseq| quantify_orf_psite
+    orf_merge -->|riboseq| ribowaltz
     salmon_quant -->|rnaseq| te_prep_gene
     salmon_quant -->|rnaseq| te_prep_orf
-    _psite_exit -->|riboseq| te_prep_gene
-    _psite_exit -->|riboseq| te_prep_orf
+    psite_counts_gene -->|riboseq| te_prep_gene
+    quantify_orf_psite -->|riboseq| te_prep_orf
     _te_merge -->|riboseq,rnaseq| multiqc_final
     hybrid_merge -->|annotation| star_hybrid
     hybrid_merge -->|annotation| ribotish
