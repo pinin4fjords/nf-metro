@@ -117,7 +117,9 @@
 .nf-metro-legend-bg { fill: var(--nfm-map-legend-bg, light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.3))); }
 .nf-metro-legend-text { fill: var(--nfm-map-legend-text-color, light-dark(#333333, #e0e0e0)); }
 .nf-metro-marker-stroke { stroke: var(--nfm-map-marker-stroke, light-dark(#333333, #f0f0f0)); }
-.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }</style>
+.nf-metro-label-halo { fill: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); stroke: var(--nfm-map-bg, light-dark(#f5f5f5, #2b2b2b)); }
+.nf-metro-station-label.nf-metro-muted { fill: var(--nfm-map-muted-color, #888888); }
+.nf-metro-marker-stroke.nf-metro-muted { stroke: var(--nfm-map-muted-color, #888888); }</style>
 <rect x="0" y="0" width="524" height="310" fill="#2b2b2b" class="nf-metro-bg" />
 <text x="60.0" y="30.0" font-size="24.0" fill="#ffffff" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" class="nf-metro-title">Inactive Lines</text>
 <path d="M236.0,128.0 L268.75,128.0 Q278.75,128.0,284.75,136.0 L302.75,160.0 Q308.75,168.0,318.75,168.0 L368.0,168.0" stroke="#888888" stroke-width="3.0" fill="none" stroke-linecap="round" stroke-linejoin="round" class="metro-line-sv" data-line-id="sv" stroke-dasharray="8,4" />
@@ -144,11 +146,11 @@
 <text x="236.0" y="136.8" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">STAR</text>
 <text x="236.0" y="136.8" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="star_align" class="nf-metro-station-label">STAR</text>
 <text x="236.0" y="175.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="hanging">Salmon</text>
-<text x="236.0" y="175.0" font-size="13.0" fill="#888888" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="salmon_align" class="nf-metro-station-label">Salmon</text>
+<text x="236.0" y="175.0" font-size="13.0" fill="#888888" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="hanging" data-station-id="salmon_align" class="nf-metro-station-label nf-metro-muted">Salmon</text>
 <text x="368.0" y="106.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">tximport</text>
 <text x="368.0" y="106.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="quant" class="nf-metro-station-label">tximport</text>
 <text x="368.0" y="154.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">Manta</text>
-<text x="368.0" y="154.0" font-size="13.0" fill="#888888" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="manta" class="nf-metro-station-label">Manta</text>
+<text x="368.0" y="154.0" font-size="13.0" fill="#888888" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="manta" class="nf-metro-station-label nf-metro-muted">Manta</text>
 <text x="464.0" y="109.0" font-size="13.0" fill="#2b2b2b" stroke="#2b2b2b" stroke-width="3.0" stroke-linejoin="round" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" aria-hidden="true" class="nf-metro-label-halo" text-anchor="middle" dominant-baseline="auto">MultiQC</text>
 <text x="464.0" y="109.0" font-size="13.0" fill="#e0e0e0" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="bold" text-anchor="middle" dominant-baseline="auto" data-station-id="report" class="nf-metro-station-label">MultiQC</text>
 <rect x="60.0" y="190.0" width="321.8" height="96.0" rx="6" ry="6" fill="rgba(0, 0, 0, 0.3)" class="nf-metro-legend-bg" />

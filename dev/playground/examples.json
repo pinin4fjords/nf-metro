@@ -284,7 +284,7 @@
       },
       {
         "name": "internal_source_equal_sibling_2fan",
-        "mmd": "%%metro title: Internal-source equal-sibling 2-fan\n%%metro center_ports: true\n\ngraph LR\n    subgraph run_folder [Run Folder]\n        rundir_in[ ]\n        checkqc[CheckQC]\n        rundirparser[Rundirparser]\n        rundir_in -->|run_folder| checkqc\n        rundir_in -->|run_folder| rundirparser\n    end\n    subgraph sink [Aggregate]\n        out[MultiQC]\n        checkqc -->|run_folder| out\n        rundirparser -->|run_folder| out\n    end\n"
+        "mmd": "%%metro title: Internal-source equal-sibling 2-fan\n%%metro line: run_folder | Run folder | #0570b0\n%%metro center_ports: true\n\ngraph LR\n    subgraph run_folder [Run Folder]\n        rundir_in[ ]\n        checkqc[CheckQC]\n        rundirparser[Rundirparser]\n        rundir_in -->|run_folder| checkqc\n        rundir_in -->|run_folder| rundirparser\n    end\n    subgraph sink [Aggregate]\n        out[MultiQC]\n        checkqc -->|run_folder| out\n        rundirparser -->|run_folder| out\n    end\n"
       },
       {
         "name": "trunk_through_fan",
