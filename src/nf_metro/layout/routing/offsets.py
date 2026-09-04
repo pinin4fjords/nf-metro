@@ -4756,9 +4756,10 @@ def compute_station_offsets(
        whose snapping would pull the port back onto the rail-laid
        neighbour's offsets.
     14a. **Corridor-fed solo entry re-anchoring** - a single-line LR/RL
-        section fed up or down a corridor holds an upstream lane its own
-        trunk does not use; re-anchor the entry port (and a straight
-        consumer chain behind it) to offset 0.
+        section holds the lane its line rode upstream, which its own trunk
+        does not use; re-anchor the entry port (and a straight consumer
+        chain behind it) to offset 0 where the step can resolve in a
+        vertical corridor, or where a flat feeder already rides the trunk.
     14b. **Entry-arrival lane slotting** - exchanges an arriving line's slot
         for the one holding the lane it actually arrives on, so the run from a
         flow-side entry port into its first station stays flat rather than
