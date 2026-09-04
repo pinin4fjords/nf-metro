@@ -10,6 +10,8 @@
 %%metro file: orf_catalogue | BED | ORF catalogue
 %%metro file: bigwig_out | BW | Coverage
 %%metro file: counts_out | TSV | Gene counts
+%%metro file: psite_orf_out | TSV | ORF P-site counts
+%%metro file: psite_gene_out | TSV | Gene P-site counts
 %%metro file: te_out | TSV | TE results
 %%metro file: report_final | HTML | MultiQC
 %%metro line: riboseq | Ribo-seq | #e6007e
@@ -20,7 +22,7 @@
 %%metro grid: preprocessing, alignment, novel_transcripts | 0,0
 %%metro grid: orf_calling, psite_id, te, reporting | 0,1
 %%metro x_spacing: 70
-%%metro legend: br | 10,60
+%%metro legend: br | 10,160
 
 graph LR
     subgraph preprocessing [Read pre-processing]
@@ -103,11 +105,15 @@ graph LR
         plastid_wiggle[plastid\nwiggle]
         quantify_orf_psite[Quantify ORF\nP-sites]
         psite_counts_gene[Gene in-frame\nP-sites]
+        psite_orf_out[ ]
+        psite_gene_out[ ]
 
         ribowaltz -->|riboseq| quantify_orf_psite
         plastid_psite -->|riboseq| plastid_wiggle
         plastid_wiggle -->|riboseq| quantify_orf_psite
         plastid_wiggle -->|riboseq| psite_counts_gene
+        quantify_orf_psite -->|riboseq| psite_orf_out
+        psite_counts_gene -->|riboseq| psite_gene_out
     end
 
     subgraph te [Translational efficiency]
