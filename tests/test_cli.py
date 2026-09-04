@@ -10,6 +10,9 @@ from nf_metro.layout import FoldThresholdError
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 RNASEQ_MMD = EXAMPLES_DIR / "rnaseq_sections.mmd"
+# Copied into a temp directory by the tests below, so it must name no asset
+# that resolves relative to the map file.
+STANDALONE_MMD = EXAMPLES_DIR / "variant_calling.mmd"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 INVALID_DIR = FIXTURES_DIR / "invalid"
 
@@ -55,7 +58,7 @@ def test_render_produces_svg(tmp_path):
 def test_render_default_output(tmp_path):
     """render command uses input stem + .svg when no -o given."""
     mmd = tmp_path / "test.mmd"
-    mmd.write_text(RNASEQ_MMD.read_text())
+    mmd.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(mmd)])
     assert result.exit_code == 0, result.output
@@ -299,7 +302,7 @@ def test_render_unexpected_exception_becomes_click_exception(tmp_path, monkeypat
     monkeypatch.delenv("NF_METRO_DEBUG", raising=False)
     monkeypatch.setattr("nf_metro.cli.render_graph_result", _boom)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    src.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(src), "-o", str(tmp_path / "out.svg")])
     assert result.exit_code != 0
@@ -316,7 +319,7 @@ def test_render_unexpected_exception_reraises_under_debug_env(tmp_path, monkeypa
     monkeypatch.setenv("NF_METRO_DEBUG", "1")
     monkeypatch.setattr("nf_metro.cli.render_graph_result", _boom)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    src.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(src), "-o", str(tmp_path / "out.svg")])
     assert isinstance(result.exception, KeyError)
@@ -340,7 +343,7 @@ def test_render_permissive_flag_reports_downgraded_guards(tmp_path, monkeypatch)
 
     monkeypatch.setattr("nf_metro.cli.render_graph_result", _render_graph_with_warning)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    src.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(
         cli, ["render", "--permissive", str(src), "-o", str(tmp_path / "out.svg")]
@@ -355,8 +358,8 @@ def test_render_multiple_files(tmp_path):
     """render accepts more than one INPUT_FILE, each to its own sibling output."""
     a = tmp_path / "a.mmd"
     b = tmp_path / "b.mmd"
-    a.write_text(RNASEQ_MMD.read_text())
-    b.write_text(RNASEQ_MMD.read_text())
+    a.write_text(STANDALONE_MMD.read_text())
+    b.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(a), str(b)])
     assert result.exit_code == 0, result.output
@@ -370,8 +373,8 @@ def test_render_multiple_files_rejects_output_flag(tmp_path):
     """-o/--output is only valid with a single INPUT_FILE."""
     a = tmp_path / "a.mmd"
     b = tmp_path / "b.mmd"
-    a.write_text(RNASEQ_MMD.read_text())
-    b.write_text(RNASEQ_MMD.read_text())
+    a.write_text(STANDALONE_MMD.read_text())
+    b.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(
         cli, ["render", str(a), str(b), "-o", str(tmp_path / "out.svg")]
@@ -391,7 +394,7 @@ def test_render_multiple_files_partial_failure(tmp_path):
         "graph LR\n"
         "    a[Foo] -->|x| b[Bar]\n"
     )
-    good.write_text(RNASEQ_MMD.read_text())
+    good.write_text(STANDALONE_MMD.read_text())
     runner = CliRunner()
     result = runner.invoke(cli, ["render", str(bad), str(good)])
     assert result.exit_code != 0
@@ -427,7 +430,7 @@ def test_render_center_ports_cli_overrides_directive(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api_mod, "compute_layout", spy_compute_layout)
 
-    mmd_text = "%%metro center_ports: true\n" + RNASEQ_MMD.read_text()
+    mmd_text = "%%metro center_ports: true\n" + STANDALONE_MMD.read_text()
     mmd = tmp_path / "with_directive.mmd"
     mmd.write_text(mmd_text)
     out = tmp_path / "out.svg"
@@ -879,7 +882,7 @@ def test_render_rejection_is_one_line_without_debug_env(tmp_path, monkeypatch):
     monkeypatch.delenv("NF_METRO_DEBUG", raising=False)
     monkeypatch.setattr("nf_metro.cli.render_graph_result", _reject)
     src = tmp_path / "a.mmd"
-    src.write_text(RNASEQ_MMD.read_text())
+    src.write_text(STANDALONE_MMD.read_text())
     result = CliRunner().invoke(
         cli, ["render", str(src), "-o", str(tmp_path / "out.svg")]
     )
@@ -1224,3 +1227,54 @@ def test_validate_geometry_refuses_a_map_without_a_manifest(tmp_path):
 
     without_flag = CliRunner().invoke(cli, ["render", str(src), "-o", str(out)])
     assert without_flag.exit_code == 0, without_flag.output
+
+
+# ---------------------------------------------------------------------------
+# convert: feedback reporting
+# ---------------------------------------------------------------------------
+NEXTFLOW_DIR = FIXTURES_DIR / "nextflow"
+
+
+def test_convert_reports_removed_feedback_on_stderr(tmp_path):
+    """The converter's warning reaches the user as a labelled block.
+
+    A warning left to Python's own handler names the category and the
+    internal source line that raised it, neither of which means anything to
+    someone converting a pipeline.
+    """
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "feedback_loop.mmd"), "-o", str(out)],
+    )
+
+    assert result.exit_code == 0
+    assert "Warnings:" in result.output
+    assert "- 1 feedback connection(s) removed" in result.output
+    assert "Polish -> Assemble" in result.output
+    assert "FeedbackEdgesDroppedWarning" not in result.output
+    assert "cli.py" not in result.output
+
+
+def test_convert_summary_line_counts_removed_feedback(tmp_path):
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "feedback_loop.mmd"), "-o", str(out)],
+    )
+
+    assert "1 feedback connection removed -> " in result.output
+
+
+def test_convert_summary_line_is_unchanged_for_an_acyclic_pipeline(tmp_path):
+    runner = CliRunner()
+    out = tmp_path / "out.mmd"
+    result = runner.invoke(
+        cli,
+        ["convert", str(NEXTFLOW_DIR / "flat_pipeline.mmd"), "-o", str(out)],
+    )
+
+    assert "feedback" not in result.output
+    assert "Converted 5 processes, 1 sections -> " in result.output

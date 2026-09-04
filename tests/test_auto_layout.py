@@ -528,6 +528,7 @@ def test_rnaseq_auto_renders():
 
     text = (EXAMPLES / "rnaseq_auto.mmd").read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(EXAMPLES)
     compute_layout(graph)
     svg = render_svg(graph, NFCORE_DARK_THEME)
 

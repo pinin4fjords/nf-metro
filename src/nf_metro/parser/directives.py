@@ -20,7 +20,12 @@ from nf_metro.options import (
     coerce,
     is_line_order,
 )
-from nf_metro.parser.grammar import _normalize_multiline_text, _split_csv, _unquote
+from nf_metro.parser.grammar import (
+    _IDENTIFIER_CHARSET,
+    _normalize_multiline_text,
+    _split_csv,
+    _unquote,
+)
 from nf_metro.parser.model import (
     FLOW_DIRECTIONS,
     LINE_INACTIVE_KEYWORD,
@@ -126,6 +131,15 @@ def _dir_process(value: str, graph: MetroGraph) -> None:
 _COLOR_FUNCTION = re.compile(r"[A-Za-z-]+\(.*\)\Z")
 _COLOR_KEYWORDS = frozenset({"currentcolor", "transparent", "none"})
 
+_LINE_ID_PATTERN = re.compile(_IDENTIFIER_CHARSET)
+"""Built from the same charset as the ``NAME`` grammar token for node/section
+ids (:data:`nf_metro.parser.grammar._IDENTIFIER_CHARSET`).
+
+A declared line id lands in SVG ``class=``/``data-*`` attributes verbatim, so
+constraining it here (rather than escaping at every emission site) rules out
+attribute-injection through this vector entirely.
+"""
+
 
 def _is_color(value: str) -> bool:
     """True when *value* is a colour an SVG stroke can resolve.
@@ -158,6 +172,15 @@ def _dir_line(value: str, graph: MetroGraph) -> None:
             "line",
             value,
             f"'id | name | #color' [| style [| {LINE_INACTIVE_KEYWORD}]]",
+        )
+        return
+    if not _LINE_ID_PATTERN.fullmatch(line_id):
+        _warn_directive(
+            "line",
+            f"id {line_id!r} is invalid; ignoring the declaration. Line ids "
+            "must match [a-zA-Z_][a-zA-Z0-9_]* (the same charset as node and "
+            "section ids), since they land in SVG class/data-* attributes "
+            "verbatim",
         )
         return
     if line_id in graph.lines:

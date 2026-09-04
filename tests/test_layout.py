@@ -10,7 +10,7 @@ from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.labels import label_text_width
 from nf_metro.layout.layers import assign_layers
 from nf_metro.layout.ordering import assign_tracks
-from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.mermaid import parse_metro_mermaid, parse_metro_mermaid_file
 from nf_metro.parser.model import is_bypass_v
 
 
@@ -1624,8 +1624,6 @@ def test_port_terminus_spacing_no_station_as_elbow():
     from pathlib import Path
 
     example = Path(__file__).parent.parent / "examples" / "variant_calling_tuned.mmd"
-    if not example.exists():
-        return
     graph = parse_metro_mermaid(example.read_text())
     compute_layout(graph)
 
@@ -1820,21 +1818,23 @@ class TestPhaseGuards:
         graph = parse_metro_mermaid(mmd_text)
         compute_layout(graph, validate=True)
 
+    def _layout_validated_file(self, path: Path) -> None:
+        graph = parse_metro_mermaid_file(path)
+        compute_layout(graph, validate=True)
+
     @pytest.mark.parametrize(
         "fixture",
         sorted(TOPOLOGIES_DIR.glob("*.mmd")),
         ids=lambda p: p.stem,
     )
     def test_topology_fixtures(self, fixture):
-        self._layout_validated(fixture.read_text())
+        self._layout_validated_file(fixture)
 
     def test_rnaseq_sections(self):
-        self._layout_validated((EXAMPLES_DIR / "rnaseq_sections.mmd").read_text())
+        self._layout_validated_file(EXAMPLES_DIR / "rnaseq_sections.mmd")
 
     def test_rnaseq_auto(self):
-        path = EXAMPLES_DIR / "rnaseq_auto.mmd"
-        if path.exists():
-            self._layout_validated(path.read_text())
+        self._layout_validated_file(EXAMPLES_DIR / "rnaseq_auto.mmd")
 
     def test_differentialabundance(self):
         """``differentialabundance.mmd`` is the only gallery fixture that
@@ -1842,7 +1842,7 @@ class TestPhaseGuards:
         and a sparse loop-side station; exercises the bisection guard
         phase-gating policy.
         """
-        self._layout_validated((EXAMPLES_DIR / "differentialabundance.mmd").read_text())
+        self._layout_validated_file(EXAMPLES_DIR / "differentialabundance.mmd")
 
     def test_simple_two_sections(self):
         self._layout_validated(

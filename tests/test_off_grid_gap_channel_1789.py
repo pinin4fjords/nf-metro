@@ -106,9 +106,9 @@ def _routed_points(graph: MetroGraph) -> list[tuple[tuple[float, float], ...]]:
     return [tuple(route.points) for route in routes]
 
 
-def _assert_routes_move_rigidly(source: str) -> None:
-    fixed = _routed_points(prepare_graph(source))
-    moved_graph = prepare_graph(source)
+def _assert_routes_move_rigidly(source: str, source_dir: str = "") -> None:
+    fixed = _routed_points(prepare_graph(source, source_dir=source_dir))
+    moved_graph = prepare_graph(source, source_dir=source_dir)
     translate_graph(moved_graph, _MOVE, 0.0)
     moved = _routed_points(moved_graph)
 
@@ -130,7 +130,8 @@ def test_routing_the_moved_riboseq_map_moves_every_route_with_it() -> None:
 
 @pytest.mark.parametrize("name", RIGID_FIXTURES)
 def test_routing_a_moved_corpus_map_moves_every_route_with_it(name: str) -> None:
-    _assert_routes_move_rigidly((ROOT / name).read_text())
+    path = ROOT / name
+    _assert_routes_move_rigidly(path.read_text(), source_dir=str(path.parent))
 
 
 def test_the_riboseq_map_settles_clear_of_the_canvas_margin() -> None:
