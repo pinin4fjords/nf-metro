@@ -86,10 +86,9 @@ from nf_metro.layout.routing.common import (
     opposing_entry_confluence_slots,
     peeloff_target_slots,
     perp_entry_consumer,
-    planner_owns_segment,
+    planner_owns_segment_or_boundary,
     port_peeloff_tail,
     resolve_section,
-    route_system_owns_segment_boundary,
     same_destination_approach_slots,
     segments_properly_cross,
     tail_on_slot,
@@ -466,10 +465,7 @@ class MergeConfluenceBandCross:
 
 def _descent_is_plan_owned(route: RoutedPath) -> bool:
     """Whether a plan owns the final descent riser (``points[-3]``) of a tail."""
-    riser_rank = len(route.points) - 3
-    return planner_owns_segment(
-        route, riser_rank
-    ) or route_system_owns_segment_boundary(route, riser_rank)
+    return planner_owns_segment_or_boundary(route, len(route.points) - 3)
 
 
 def _terminal_entry_port_id(graph: MetroGraph, route: RoutedPath) -> str | None:
