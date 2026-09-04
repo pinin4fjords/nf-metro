@@ -45,8 +45,9 @@ and `<style>` rules:
 fill: light-dark(#ffffff, #1a1a1a);
 ```
 
-It resolves against the nearest `color-scheme` in effect - without one,
-`light-dark()` values sit in the CSS inert, with nothing to pick a side:
+It resolves against the element's used `color-scheme`. Nothing declared
+anywhere still resolves - to the browser's own default, generally light,
+not the viewer's OS preference. Declare one to let that preference in:
 
 ```css
 :root {
