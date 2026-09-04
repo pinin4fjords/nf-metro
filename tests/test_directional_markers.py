@@ -6,7 +6,7 @@ import pytest
 
 from nf_metro.layout.engine import compute_layout
 from nf_metro.layout.routing import compute_station_offsets, route_edges_centred
-from nf_metro.parser.mermaid import parse_metro_mermaid
+from nf_metro.parser.mermaid import parse_metro_mermaid_file
 from nf_metro.render.svg import (
     _chevron_samples,
     apply_route_offsets,
@@ -25,7 +25,7 @@ DIRECTION_FIXTURES = [
 
 
 def _laid_out(stem: str):
-    graph = parse_metro_mermaid((EXAMPLES_DIR / f"{stem}.mmd").read_text())
+    graph = parse_metro_mermaid_file(EXAMPLES_DIR / f"{stem}.mmd")
     compute_layout(graph)
     return graph
 

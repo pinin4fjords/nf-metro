@@ -567,6 +567,7 @@ def test_render_rnaseq_sections_example():
     examples = Path(__file__).parent.parent / "examples"
     text = (examples / "rnaseq_sections.mmd").read_text()
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(examples)
     compute_layout(graph)
     svg = render_svg(graph, NFCORE_DARK_THEME)
     # Title text is replaced by embedded logo, so check section labels

@@ -214,6 +214,9 @@ def _parse_reporting_warnings(
             if caught:
                 _echo_block(label, [str(w.message) for w in caught])
             _clean_error(e, f"{input_file}: ")
+    # A `%%metro logo:` path resolves against the directory the map came from,
+    # which only this function knows here.
+    graph.source_dir = str(input_file.resolve().parent)
     return graph, [str(w.message) for w in caught]
 
 
@@ -863,7 +866,11 @@ def convert(
     it to nf-metro format. The output can then be rendered with `nf-metro render`
     or hand-tuned before rendering.
     """
-    from nf_metro.convert import convert_nextflow_dag, is_nextflow_dag
+    from nf_metro.convert import (
+        FeedbackEdgesDroppedWarning,
+        convert_nextflow_dag,
+        is_nextflow_dag,
+    )
 
     text = input_file.read_text()
 
@@ -874,7 +881,18 @@ def convert(
             err=True,
         )
 
-    result = convert_nextflow_dag(text, title=title or "")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = convert_nextflow_dag(text, title=title or "")
+
+    if caught:
+        _echo_block("Warnings", [str(w.message) for w in caught])
+
+    dropped = sum(
+        len(w.message.connections)
+        for w in caught
+        if isinstance(w.message, FeedbackEdgesDroppedWarning)
+    )
 
     if output is None:
         click.echo(result, nl=False)
@@ -883,7 +901,11 @@ def convert(
         # Count sections and processes in the output
         sections = result.count("subgraph ")
         processes = result.count("([")
-        click.echo(f"Converted {processes} processes, {sections} sections -> {output}")
+        summary = f"Converted {processes} processes, {sections} sections"
+        if dropped:
+            plural = "" if dropped == 1 else "s"
+            summary += f", {dropped} feedback connection{plural} removed"
+        click.echo(f"{summary} -> {output}")
 
 
 @cli.command()

@@ -43,12 +43,13 @@ def _with_legend(path: Path, directive: str) -> str:
     return f"%%metro legend: {directive}\n" + "\n".join(body) + "\n"
 
 
-def _place(text: str):
+def _place(text: str, source_dir: Path):
     """Run the render-time legend placement and return its geometry.
 
     Returns (graph, (lx, ly, lw, lh, show), max_x, max_y, content_left).
     """
     graph = parse_metro_mermaid(text)
+    graph.source_dir = str(source_dir)
     compute_layout(graph)
     offsets = S.compute_station_offsets(graph)
     routes = route_edges_centred(graph, station_offsets=offsets)
@@ -58,10 +59,10 @@ def _place(text: str):
     )
     max_x, max_y = S._compute_canvas_bounds(graph, routes, False)
     pos = graph.legend_position
-    show_logo = bool(graph.logo_path and Path(graph.logo_path).is_file())
-    logo_in_legend = show_logo and pos != "none"
+    resolved_logo = S.resolve_logo_file(graph.logo_path, graph.source_dir)
+    logo_in_legend = bool(resolved_logo) and pos != "none"
     logo_w, logo_h = (
-        S.compute_logo_dimensions(graph.logo_path) if show_logo else (0.0, 0.0)
+        S.compute_logo_dimensions(resolved_logo) if resolved_logo else (0.0, 0.0)
     )
     res = S._position_legend(
         graph,
@@ -83,7 +84,9 @@ def _place(text: str):
 @pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.stem)
 def test_legend_absolute_coordinates_land_exactly(fixture):
     """`legend: X,Y` pins the block top-left to exactly (X, Y)."""
-    graph, (lx, ly, _lw, _lh, show), *_ = _place(_with_legend(fixture, "137,529"))
+    graph, (lx, ly, _lw, _lh, show), *_ = _place(
+        _with_legend(fixture, "137,529"), fixture.parent
+    )
     assert graph.legend_at == (137.0, 529.0)
     assert show
     assert lx == pytest.approx(137.0)
@@ -99,7 +102,7 @@ def test_legend_offset_applies_and_skips_fallback(fixture):
     """
     dx, dy = 40.0, -30.0
     _g, (lx, ly, lw, lh, show), max_x, max_y, _cl, _routes = _place(
-        _with_legend(fixture, f"br | {dx:+},{dy:+}")
+        _with_legend(fixture, f"br | {dx:+},{dy:+}"), fixture.parent
     )
     assert show
     inset = S.LEGEND_INSET
@@ -115,7 +118,7 @@ def test_legend_canvas_anchor_pins_bottom_right(fixture):
     pinned right rather than relocating to the bottom-left.
     """
     _g, (lx, ly, lw, lh, show), max_x, max_y, content_left, _routes = _place(
-        _with_legend(fixture, "br | canvas")
+        _with_legend(fixture, "br | canvas"), fixture.parent
     )
     assert show
     inset = S.LEGEND_INSET
@@ -133,7 +136,7 @@ def test_bare_corner_keeps_overlap_fallback():
     """
     fixture = EXAMPLES / "rnaseq_sections.mmd"
     _g, (lx, ly, _lw, lh, show), _max_x, max_y, content_left, _routes = _place(
-        _with_legend(fixture, "br")
+        _with_legend(fixture, "br"), fixture.parent
     )
     assert show
     assert lx == pytest.approx(content_left)
@@ -184,7 +187,7 @@ def test_keyword_legend_never_overlaps_routes():
     """
     fixture = EXAMPLES / "legend_logo_placement.mmd"
     _g, (lx, ly, lw, lh, show), _mx, _my, _cl, routes = _place(
-        _with_legend(fixture, "bl")
+        _with_legend(fixture, "bl"), fixture.parent
     )
     assert show
     assert not S._legend_overlaps_routes(
@@ -196,4 +199,4 @@ def test_explicit_pin_warns_on_route_overlap():
     """An explicit pin is honoured as placed but warns when it hits a route."""
     fixture = EXAMPLES / "legend_logo_placement.mmd"
     with pytest.warns(UserWarning, match="overlaps a section or route"):
-        _place(_with_legend(fixture, "bl | canvas"))
+        _place(_with_legend(fixture, "bl | canvas"), fixture.parent)

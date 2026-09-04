@@ -4,15 +4,15 @@ description: Keep a pipeline's metro-map SVG in sync with its .mmd source using 
 ---
 
 Commit a metro-map `.mmd` to your pipeline repo and let automation keep the
-rendered SVG in sync. nf-metro ships two integration modes:
+rendered SVG in sync. nf-metro ships two integrations:
 
-- a **composite GitHub Action** — install + render, you decide what to do with the result;
-- a **pre-commit hook** — re-render locally on every commit.
+- A composite GitHub Action that installs nf-metro and renders the map, leaving
+  you to decide what to do with the result.
+- A pre-commit hook that re-renders the SVG locally on every commit.
 
 ## GitHub Action
 
-The composite action uses nf-metro to render the map, and reports whether the
-SVG changed.
+The composite action renders the map and reports whether the SVG changed.
 
 ```yaml
 - uses: actions/checkout@v4
@@ -26,15 +26,15 @@ SVG changed.
 # steps.metro.outputs.changed     — 'true' when it differs from the committed SVG
 ```
 
-Inputs (all optional): `input` (default `assets/metro_map.mmd`), `output`
+Every input is optional: `input` (default `assets/metro_map.mmd`), `output`
 (default: the sibling `.svg` of the input), `theme` (default `nfcore`), `mode`,
-`embed-font` (default `true`), `version` (nf-metro version to install), and
-`extra-args` for any other `nf-metro render` flag (e.g.
-`extra-args: "--fold-threshold 20"`).
+`embed-font` (default `true`), `version` (the nf-metro version to install), and
+`extra-args` for any other `nf-metro render` flag, such as
+`extra-args: "--fold-threshold 20"`.
 
 ## Pre-commit hook
 
-Re-render the SVG locally on every commit, so it never drifts from the source.
+Re-render the SVG locally on every commit so it cannot drift from the source.
 
 ```yaml
 # .pre-commit-config.yaml
@@ -45,9 +45,9 @@ repos:
       - id: nf-metro
 ```
 
-The hook matches `*.mmd` and writes the sibling `.svg`
-(`assets/metro_map.mmd` becomes `assets/metro_map.svg`). It runs with
-`--theme nfcore --embed-font` by default; setting `args` replaces that whole
+The hook matches `*.mmd` and writes the sibling `.svg`, so
+`assets/metro_map.mmd` becomes `assets/metro_map.svg`. It runs with
+`--theme nfcore --embed-font` by default. Setting `args` replaces that whole
 list, so repeat the flags you want to keep alongside the new one:
 
 ```yaml

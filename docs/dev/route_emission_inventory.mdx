@@ -6,11 +6,11 @@ sidebar:
 ---
 
 This inventory names every production stage that can create, move, suppress,
-validate, or observe routed geometry. Its boundary is `_route_edges`: section
-placement and reservation settlement happen before it, while SVG drawing reads
-its final `RoutedPath` values afterwards.
+validate or observe routed geometry. Its boundary is `_route_edges`. Section
+placement and reservation settlement happen before it, and SVG drawing reads its
+final `RoutedPath` values afterwards.
 
-## What dispatcher retirement means
+## One classification per member
 
 Every inter-section member is classified once during planning. Planning then
 does one of two things:
@@ -20,11 +20,11 @@ does one of two things:
   production path.
 
 Production emission consumes that decision. It does not run an ordered handler
-chain, retry another family, or reconstruct a legacy route. There is therefore
-one inter-section dispatch surface: the planned family classification.
+chain, retry another family or reconstruct a legacy route. There is therefore one
+inter-section dispatch surface: the planned family classification.
 
-TB-section, entry-runway, and intra-section handlers remain for local edges.
-They are not an alternative inter-section routing system.
+TB-section, entry-runway and intra-section handlers remain for local edges. They
+are not an alternative inter-section routing system.
 
 ## System execution
 
@@ -59,17 +59,17 @@ cannot recreate the former compatibility route by moving the copied path.
 
 Shared channel settlement runs while member paths are mutable. Gap slots, trunk
 slots, opposing flows, peel-off risers, same-line coincidence, fan traverses,
-convergent descents, destination-tail bundles, and corridor-clearance bands are
-resolved before the owning plan freezes them.
+convergent descents, destination-tail bundles and corridor-clearance bands are
+all resolved before the owning plan freezes them.
 
 Destination-tail settlement returns the exact horizontal segment identities it
 owns. Corridor holding treats only those segments as fixed, so perpendicular
-channels remain free to settle. This keeps ownership narrow and avoids freezing
-an entire route merely because one tail band is planned.
+channels remain free to settle. That keeps ownership narrow and avoids freezing
+an entire route just because one tail band is planned.
 
 The post-emission pass chain remains for local edges and unowned coordinates.
 Its ownership predicates prevent it from moving a frozen convergence or member
-path. The old compatibility-only wrap repair, merge-feeder landing, and
+path. The old compatibility-only wrap repair, merge-feeder landing and
 covered-hop deletion machinery has been removed.
 
 ## Compatibility records
@@ -79,10 +79,10 @@ for hand-built or unsupported inputs. They do not select a production emitter.
 On the routable corpus, every system reaches emission as `PLANNED`, and every
 diagnostic reason is owned by its named planner.
 
-`RouteSystem.superseded_verdicts` explains cases where a child planner
-declined a local ownership claim but the system’s actual geometry owner still
-planned the complete path. An unregistered reason, a missing member template,
-or a production compatibility disposition aborts routing.
+`RouteSystem.superseded_verdicts` explains cases where a child planner declined
+a local ownership claim but the system’s actual geometry owner still planned the
+complete path. An unregistered reason, a missing member template or a production
+compatibility disposition aborts routing.
 
 ## Validation and observation
 
@@ -91,12 +91,12 @@ The closing checks require:
 - one emitted or explicitly covered binding per canonical member;
 - one geometry owner per emitted member;
 - immutable planned coordinates at every owned segment;
-- exact route-system, member, plan, and reservation attribution;
-- valid fan, exit-turn, convergence, and curve geometry.
+- exact route-system, member, plan and reservation attribution;
+- valid fan, exit-turn, convergence and curve geometry.
 
-Observation uses the same planning and emission path as ordinary routing. It
-adds `RoutePlan` records and bindings but cannot select another family or
-change the rendered geometry.
+Observation uses the same planning and emission path as ordinary routing. It adds
+`RoutePlan` records and bindings, but it cannot select another family or change
+the rendered geometry.
 
 The family table is documented in
 [inter-section dispatch](/nf-metro/dev/inter_section_dispatch/), and gate-arm

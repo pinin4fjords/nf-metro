@@ -28,11 +28,14 @@ _TITLED_MMD = (
     "    a[Input] -->|main| b[Output]\n"
 )
 
-_MULTI_SECTION_MMD = Path("examples/rnaseq_sections.mmd")
+_MULTI_SECTION_MMD = (
+    Path(__file__).resolve().parent.parent / "examples" / "rnaseq_sections.mmd"
+)
 
 
-def _graph(text: str):
+def _graph(text: str, source_dir: str = ""):
     g = parse_metro_mermaid(text)
+    g.source_dir = source_dir
     compute_layout(g)
     return g
 
@@ -83,9 +86,9 @@ def test_bare_canvas_narrower_than_full():
 
 def test_bare_canvas_narrower_multi_section():
     """Right-padding removal holds for a multi-section diagram."""
-    if not _MULTI_SECTION_MMD.exists():
-        pytest.skip("rnaseq_sections.mmd not found")
-    g = _graph(_MULTI_SECTION_MMD.read_text())
+    g = _graph(
+        _MULTI_SECTION_MMD.read_text(), source_dir=str(_MULTI_SECTION_MMD.parent)
+    )
     full_svg = render_svg(g, NFCORE_DARK_THEME)
     bare_svg = render_svg(g, NFCORE_DARK_THEME, bare=True)
 
@@ -132,9 +135,7 @@ def test_bare_is_valid_svg():
 def test_bare_cli_flag(tmp_path):
     """--bare CLI flag produces tighter output than default."""
     runner = CliRunner()
-    src = Path("examples/rnaseq_sections.mmd")
-    if not src.exists():
-        pytest.skip("rnaseq_sections.mmd not found")
+    src = _MULTI_SECTION_MMD
 
     full_out = tmp_path / "full.svg"
     bare_out = tmp_path / "bare.svg"

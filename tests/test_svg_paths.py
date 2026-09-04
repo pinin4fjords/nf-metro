@@ -81,9 +81,10 @@ def _parse_path_commands(d: str) -> list[tuple[str, list[float]]]:
     return commands
 
 
-def _layout_and_route(mmd_text: str) -> tuple:
+def _layout_and_route(mmd_text: str, source_dir: str = "") -> tuple:
     """Parse, layout, route, and render. Returns (graph, routes, offsets, svg)."""
     graph = parse_metro_mermaid(mmd_text)
+    graph.source_dir = source_dir
     compute_layout(graph)
     offsets = compute_station_offsets(graph)
     routes = route_edges(graph, station_offsets=offsets)
@@ -93,7 +94,7 @@ def _layout_and_route(mmd_text: str) -> tuple:
 
 def _layout_and_route_file(path: Path) -> tuple:
     """Load a .mmd file and run the full pipeline."""
-    return _layout_and_route(path.read_text())
+    return _layout_and_route(path.read_text(), source_dir=str(path.parent))
 
 
 # ---------------------------------------------------------------------------

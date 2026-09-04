@@ -44,6 +44,7 @@ EPS = 0.5
 
 def _laid_out(name: str):
     graph = parse_metro_mermaid((EXAMPLES_DIR / name).read_text())
+    graph.source_dir = str((EXAMPLES_DIR / name).parent)
     compute_layout(graph)
     return graph
 
