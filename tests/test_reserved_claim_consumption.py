@@ -67,6 +67,8 @@ KNOWN_NOT_RENDERING = frozenset(
         # Raw Nextflow DAG output, which needs convert_nextflow_dag before it
         # is a metro source at all.
         "tests/fixtures/nextflow/duplicate_processes.mmd",
+        "tests/fixtures/nextflow/feedback_loop.mmd",
+        "tests/fixtures/nextflow/feedback_self_loop.mmd",
         "tests/fixtures/nextflow/flat_pipeline.mmd",
         "tests/fixtures/nextflow/unquoted_labels.mmd",
         "tests/fixtures/nextflow/variant_calling.mmd",

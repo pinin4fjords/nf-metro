@@ -290,11 +290,21 @@ The converter:
 
 2. **Reconnects edges** -- edges that went through dropped nodes are stitched back together. For example, `SORT_BAM --> v8 --> MULTIQC` becomes `SORT_BAM --> MULTIQC`, and `FASTQC --> v8 --> MULTIQC` becomes `FASTQC --> MULTIQC`.
 
-3. **Maps subworkflows to sections** -- Nextflow subworkflows become nf-metro `subgraph` sections. Processes not in any subworkflow are grouped into auto-generated sections.
+3. **Breaks cycles** -- nf-metro's layout engine requires a DAG, so a process graph that loops cannot be drawn edge-for-edge. The converter removes a deterministic set of back edges, including any process that reaches itself. It does not do this quietly: the removed connections are reported on stderr and listed in a `%%` comment block at the end of the output, so a loop can be redrawn by hand instead of vanishing.
 
-4. **Assigns metro lines** -- the longest path gets the "main" line. Edges that skip sections get their own bypass lines. Dead-end processes get spur lines.
+   ```
+   %% Feedback removed: the process graph loops back here, and nf-metro's
+   %% layout requires a DAG, so these connections were left out of the map.
+   %% Each one may run through channel or operator nodes rather than being
+   %% a single declared edge.
+   %%   polish (Polish) -> assemble (Assemble)
+   ```
 
-5. **Cleans up labels** -- `SCREAMING_SNAKE_CASE` becomes `Title Case`, and long names are abbreviated.
+4. **Maps subworkflows to sections** -- Nextflow subworkflows become nf-metro `subgraph` sections. Processes not in any subworkflow are grouped into auto-generated sections.
+
+5. **Assigns metro lines** -- the longest path gets the "main" line. Edges that skip sections get their own bypass lines. Dead-end processes get spur lines.
+
+6. **Cleans up labels** -- `SCREAMING_SNAKE_CASE` becomes `Title Case`, and long names are abbreviated.
 
 The result for this example:
 
