@@ -168,22 +168,27 @@ nf-metro render pipeline.mmd -o pipeline.svg --mode dark
 
 Full flag reference: [Embedding](/nf-metro/embedding/).
 
-## `<img>`, `<object>`, `<embed>` isolate the document
+## `<img>` is a special case; `<object>`/`<embed>` are not consistent
 
 ```html
-<!-- isolated: never sees the host page's color-scheme, no matter how the
-     SVG file itself was rendered -->
 <img src="map.svg" />
-
-<!-- in the page's own document: inherits color-scheme normally -->
-<svg>...</svg>
 ```
 
-The `<img>` tag loads the SVG into its own internal document, which never
-inherits a host page's `color-scheme` - only the OS-level preference reaches
-it, exactly as in standalone mode above. `<object>` and `<embed>` behave the
-same way. That's the other reason (alongside `--no-self-color-scheme`)
-nf-metro's docs site inlines its maps instead of pointing an `<img>` at them.
+`<img>` loads the SVG into its own document, so ordinary CSS - custom
+properties, cascade, inheritance - stops there; `var()` overrides never
+arrive. `color-scheme` is the one deliberate exception: per [Media Queries
+Level 5](https://www.w3.org/TR/mediaqueries-5/#prefers-color-scheme), an
+`<img>`-loaded SVG resolves `prefers-color-scheme` and `light-dark()` against
+**the used `color-scheme` of the `<img>` element**, not the OS preference -
+overriding even the SVG's own `color-scheme: light dark`. Verified in
+Chromium, WebKit, and Firefox.
+
+`<object>`/`<embed>` don't get this: they open a full nested browsing context,
+which the spec excludes. Chromium and WebKit keep them OS-only; Firefox
+propagates the host's `color-scheme` into them too - don't rely on either.
+
+Either way, inline the SVG for `var()` overrides too; nothing in the `<img>`
+exception carries those. That's why nf-metro's docs site inlines its maps.
 
 ## Using this outside nf-metro
 
@@ -204,8 +209,8 @@ None of this is nf-metro-specific. Standalone:
 </svg>
 ```
 
-Inline it in an HTML page (not `<img src="...">`) and it follows the OS
-preference. To make it follow a manual toggle on your own site instead, drop
+Inline it in an HTML page and it follows the OS preference. To make it follow
+a manual toggle on your own site instead, drop
 the SVG's own `style="color-scheme: light dark"` and drive `color-scheme` from
 your toggle at the page level instead, the same way Starlight's reset.css does:
 
