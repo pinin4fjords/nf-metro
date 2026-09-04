@@ -39,6 +39,7 @@ from nf_metro.layout.constants import (
     FLOW_ALIGNED_PORT_ADVICE,
     MIN_CORRIDOR_Y_OVERLAP,
     OFFSET_STEP,
+    SAME_COORD_TOLERANCE,
     SAME_Y_TOLERANCE,
     graph_offset_step,
 )
@@ -964,7 +965,7 @@ def check_seam_segments_meet_at_port(
 # at the corner apex (the line stops short of its own bend); anything
 # larger than this is the seam / notch the fix closes.  A PERPENDICULAR
 # gap up to a stroke width is hidden under the line and tolerated.
-_TAIL_JOIN_TANGENT_TOLERANCE = 1.0
+_TAIL_JOIN_TANGENT_TOLERANCE = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -1154,7 +1155,7 @@ def check_fanout_lane_continuity(
 # deliberately asked for a tighter arc.  Below this, a horizontal-to-vertical
 # turn reads as a hard corner rather than a formed curve.
 _ORTHOGONAL_TURN_FLOOR = 3.0
-_ORTHOGONAL_TURN_TOL = 0.5
+_ORTHOGONAL_TURN_TOL = SAME_COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -2066,7 +2067,7 @@ class DiagonalOverlapViolation:
         )
 
 
-_COLLINEAR_LATERAL_TOL = 1.0
+_COLLINEAR_LATERAL_TOL = COORD_TOLERANCE
 _COLLINEAR_MIN_SPAN = 40.0
 
 # A diagonal bundle's lines must keep a true perpendicular separation, not a
@@ -4090,11 +4091,11 @@ def check_stacked_elbow_clearance(
 # ---------------------------------------------------------------------------
 
 # Arc-centre spread above this reads as a visible pinch/gap through the bend.
-_CONCENTRIC_CENTRE_TOLERANCE = 1.0
+_CONCENTRIC_CENTRE_TOLERANCE = COORD_TOLERANCE
 # A corner counts as wholesale-translated only when both flanking legs are
 # offset from the bundle-mate by the same amount; a difference above this means
 # one leg is pinned (a transition corner), where non-concentric is intended.
-_WHOLESALE_LEG_TOLERANCE = 1.0
+_WHOLESALE_LEG_TOLERANCE = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -5170,7 +5171,7 @@ def check_no_hanging_routes(
 # px: doubles as the floor below which an endpoint offset is negligible and the
 # slack within which a terminal segment counts as horizontal (so its Y-shift is
 # a lateral separation rather than an along-travel displacement).
-_LATERAL_OFFSET_TOL = 1.0
+_LATERAL_OFFSET_TOL = COORD_TOLERANCE
 
 
 @dataclass(frozen=True)
