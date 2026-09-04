@@ -383,6 +383,10 @@ _URL_REF_RE = re.compile(r"url\(#([^)]+)\)")
 _CLASS_ATTR_RE = re.compile(r'(?<![\w-])class="([^"]*)"')
 _STYLE_BLOCK_RE = re.compile(r"(<style>)(.*?)(</style>)", re.DOTALL)
 _CLASS_SELECTOR_RE = re.compile(r"\.([A-Za-z_][\w-]*)")
+# The url(...) branch is tried first, so a dotted token inside a url(...) span
+# (e.g. a filename) is consumed whole and never reaches the class-selector
+# branch; only group(1) marks a real class-selector match.
+_STYLE_BODY_REWRITE_RE = re.compile(r"url\([^)]*\)|" + _CLASS_SELECTOR_RE.pattern)
 
 
 def _namespace_referenced_ids(content: str, namespace: str) -> str:
@@ -436,9 +440,15 @@ def _namespace_presentation_classes(content: str, namespace: str) -> str:
         renamed = " ".join(f"{t}--{namespace}" for t in tokens)
         return f'class="{renamed}"'
 
+    def repl_token(tm: re.Match[str]) -> str:
+        name = tm.group(1)
+        if name is None:  # a url(...) span, not a class selector
+            return tm.group(0)
+        return f".{name}--{namespace}"
+
     def repl_style(m: re.Match[str]) -> str:
         open_tag, body, close_tag = m.group(1), m.group(2), m.group(3)
-        body = _CLASS_SELECTOR_RE.sub(rf".\g<1>--{namespace}", body)
+        body = _STYLE_BODY_REWRITE_RE.sub(repl_token, body)
         return f"{open_tag}{body}{close_tag}"
 
     content = _CLASS_ATTR_RE.sub(repl_attr, content)

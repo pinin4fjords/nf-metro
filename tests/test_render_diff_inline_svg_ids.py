@@ -195,6 +195,35 @@ def test_build_diff_output_isolates_panel_stylesheets(tmp_path):
     _assert_no_cross_panel_class_match(side_base, side_pr)
 
 
+def test_style_block_url_with_dotted_filename_survives_class_rewrite(tmp_path):
+    """A dotted filename inside url(...) is not a class selector, so the
+    <style> rewrite must leave it verbatim while namespacing the surrounding
+    selectors and their matching class attributes together."""
+    svg_text = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">\n'
+        "<style>.nf-metro-bg { fill: url(sprite.png); }\n"
+        ".nf-metro-title { fill: #111; }</style>\n"
+        '<rect class="nf-metro-bg" />\n'
+        '<text class="nf-metro-title">Hi</text>\n'
+        "</svg>"
+    )
+    path = tmp_path / "synthetic.svg"
+    path.write_text(svg_text)
+
+    inlined = _inline_svg(path, "synthetic-pr")
+
+    assert "url(sprite.png)" in inlined
+
+    style_match = re.search(r"<style>(.*?)</style>", inlined, re.DOTALL)
+    assert style_match
+    style_body = style_match.group(1)
+    assert ".nf-metro-bg--synthetic-pr {" in style_body
+    assert ".nf-metro-title--synthetic-pr {" in style_body
+
+    assert 'class="nf-metro-bg--synthetic-pr"' in inlined
+    assert 'class="nf-metro-title--synthetic-pr"' in inlined
+
+
 def test_build_diff_leaves_corpus_svgs_byte_unchanged(tmp_path):
     """Generating the diff page must not modify the on-disk SVGs the gate compares."""
     svg_text = _render_inactive_lines_svg()
