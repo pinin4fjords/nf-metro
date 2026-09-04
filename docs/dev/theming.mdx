@@ -113,10 +113,10 @@ embedded map to stay theme-adaptive.
 
 From `renderMetroFile` (`website/src/lib/render-metro.mjs:254-296`):
 
-| Flag                     | `<Metro>` inline embed | OG image export |
-| ------------------------ | ---------------------- | --------------- |
-| `--no-self-color-scheme` | always                 | always          |
-| `--no-chrome-css`        | never                  | always          |
+| Flag                     | `<Metro>` embed | OG image export |
+| ------------------------ | --------------- | --------------- |
+| `--no-self-color-scheme` | always          | always          |
+| `--no-chrome-css`        | never           | always          |
 
 `--no-chrome-css` bakes chrome colors to one concrete value, so if an inline
 embed passed it there would be no `light-dark()` pair left for
@@ -170,8 +170,17 @@ Full flag reference: [Embedding](/nf-metro/embedding/).
 
 ## `<img>` is a special case; `<object>`/`<embed>` are not consistent
 
+"Inline" means the SVG's own markup is pasted directly into the host page, as
+opposed to referenced by URL:
+
 ```html
+<!-- referenced: a separate document -->
 <img src="map.svg" />
+
+<!-- inline: part of this document -->
+<svg>
+  <rect fill="light-dark(#fff, #1a1a1a)" ... />
+</svg>
 ```
 
 `<img>` loads the SVG into its own document, so ordinary CSS - custom
