@@ -16,10 +16,8 @@ from nf_metro.render.constants import (
     FOLDER_TAB_WIDTH_RATIO,
     ICON_BANNER_BOTTOM_MARGIN_RATIO,
     ICON_BANNER_FILL,
-    ICON_BANNER_FILL_MUTED,
     ICON_BANNER_HEIGHT_RATIO,
     ICON_BANNER_TEXT_COLOR,
-    ICON_BANNER_TEXT_COLOR_MUTED,
     ICON_FOLD_CREASE_RATIO,
     ICON_FOLD_OVERLAY_OPACITY,
     ICON_LABEL_CLEARANCE,
@@ -146,20 +144,20 @@ def _append_icon_banner_band(
     height: float,
     font_size: float,
     font_family: str,
-    muted: bool = False,
+    band_fill: str = ICON_BANNER_FILL,
+    text_color: str = ICON_BANNER_TEXT_COLOR,
 ) -> None:
     """Render a banner strip with bold text across the icon.
 
     The strip spans the icon width and sits in the lower portion, leaving
     white document visible both above and below it. Used when a terminus
-    directive sets the ``banner`` option. When ``muted`` (every line touching
-    the icon is inactive), band fill and text grey together so the strip
-    recedes as one unit rather than leaving legible text on a dark band.
+    directive sets the ``banner`` option. The caller passes a greyed
+    ``band_fill``/``text_color`` pair when every line touching the icon is
+    inactive, so the strip recedes as one unit rather than leaving legible
+    text on a dark band.
     """
     if not label:
         return
-    band_fill = ICON_BANNER_FILL_MUTED if muted else ICON_BANNER_FILL
-    text_color = ICON_BANNER_TEXT_COLOR_MUTED if muted else ICON_BANNER_TEXT_COLOR
     band_h = height * ICON_BANNER_HEIGHT_RATIO
     band_bottom = cy + height / 2 - height * ICON_BANNER_BOTTOM_MARGIN_RATIO
     band_top = band_bottom - band_h
@@ -201,7 +199,8 @@ def render_file_icon(
     font_color: str,
     font_family: str,
     banner: bool = False,
-    muted: bool = False,
+    banner_fill: str = ICON_BANNER_FILL,
+    banner_text_color: str = ICON_BANNER_TEXT_COLOR,
 ) -> None:
     """Render a file/document icon with a dog-ear fold at top-right.
 
@@ -270,7 +269,16 @@ def render_file_icon(
 
     if banner:
         _append_icon_banner_band(
-            d, label, cx, cy, width, height, font_size, font_family, muted
+            d,
+            label,
+            cx,
+            cy,
+            width,
+            height,
+            font_size,
+            font_family,
+            banner_fill,
+            banner_text_color,
         )
     else:
         # Label centred in the body, shifted down slightly to clear the fold.
@@ -298,7 +306,8 @@ def render_files_icon(
     banner: bool = False,
     back_dx_sign: float = 1.0,
     back_dy_sign: float = -1.0,
-    muted: bool = False,
+    banner_fill: str = ICON_BANNER_FILL,
+    banner_text_color: str = ICON_BANNER_TEXT_COLOR,
 ) -> None:
     """Render a stacked-files icon (two overlapping documents).
 
@@ -347,7 +356,8 @@ def render_files_icon(
         font_color=font_color,
         font_family=font_family,
         banner=banner,
-        muted=muted,
+        banner_fill=banner_fill,
+        banner_text_color=banner_text_color,
     )
 
 

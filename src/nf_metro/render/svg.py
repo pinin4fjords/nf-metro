@@ -168,6 +168,9 @@ from nf_metro.render.constants import (
     GROUP_LABEL_UNDERLINE_GAP,
     GROUP_LABEL_UNDERLINE_OPACITY,
     GROUP_LABEL_UNDERLINE_WIDTH,
+    ICON_BANNER_FILL,
+    ICON_BANNER_TEXT_COLOR,
+    ICON_BANNER_TEXT_COLOR_MUTED,
     ICON_BBOX_MARGIN,
     ICON_CLEARANCE_MARGIN,
     ICON_INTER_GAP,
@@ -4468,6 +4471,11 @@ def _render_terminus_icons(
             font_family=theme.label_font_family,
         )
 
+        banner_fill = theme.muted_line_color if muted else ICON_BANNER_FILL
+        banner_text_color = (
+            ICON_BANNER_TEXT_COLOR_MUTED if muted else ICON_BANNER_TEXT_COLOR
+        )
+
         if icon_type == ICON_TYPE_DIR:
             render_folder_icon(d, **common)
         elif icon_type == ICON_TYPE_FILES:
@@ -4481,7 +4489,8 @@ def _render_terminus_icons(
                 banner=banner,
                 back_dx_sign=back_dx_sign,
                 back_dy_sign=back_dy_sign,
-                muted=muted,
+                banner_fill=banner_fill,
+                banner_text_color=banner_text_color,
             )
         else:
             render_file_icon(
@@ -4489,7 +4498,8 @@ def _render_terminus_icons(
                 **common,
                 fold_size=theme.terminus_fold_size,
                 banner=banner,
-                muted=muted,
+                banner_fill=banner_fill,
+                banner_text_color=banner_text_color,
             )
 
         # Optional caption rendered below the icon so the type chip

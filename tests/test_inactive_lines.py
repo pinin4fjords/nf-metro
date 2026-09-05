@@ -12,7 +12,6 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
     FALLBACK_LINE_COLOR,
     ICON_BANNER_FILL,
-    ICON_BANNER_FILL_MUTED,
     ICON_BANNER_TEXT_COLOR,
     ICON_BANNER_TEXT_COLOR_MUTED,
     effective_line_color,
@@ -223,7 +222,7 @@ def test_inactive_only_banner_band_muted_as_a_unit():
     # as one unit -- grey text on an unmuted black band would read worse than
     # the bug it replaces.
     muted_fill, muted_text = _icon_banner(svg, "a_out")
-    assert muted_fill == ICON_BANNER_FILL_MUTED
+    assert muted_fill == MUTED
     assert muted_text == ICON_BANNER_TEXT_COLOR_MUTED
     assert muted_fill != ICON_BANNER_FILL
     assert muted_text != ICON_BANNER_TEXT_COLOR
