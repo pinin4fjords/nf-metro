@@ -4481,10 +4481,15 @@ def _render_terminus_icons(
                 banner=banner,
                 back_dx_sign=back_dx_sign,
                 back_dy_sign=back_dy_sign,
+                muted=muted,
             )
         else:
             render_file_icon(
-                d, **common, fold_size=theme.terminus_fold_size, banner=banner
+                d,
+                **common,
+                fold_size=theme.terminus_fold_size,
+                banner=banner,
+                muted=muted,
             )
 
         # Optional caption rendered below the icon so the type chip

@@ -384,6 +384,20 @@ ICON_BANNER_FILL: str = "#222222"
 ICON_BANNER_TEXT_COLOR: str = "#ffffff"
 """Text colour of the bold label on the banner strip (banner style)."""
 
+ICON_BANNER_FILL_MUTED: str = FALLBACK_LINE_COLOR
+"""Banner strip fill when every line touching the icon is inactive.
+
+The muted grey used for line identity elsewhere, so the band recedes to the
+same weight as a greyed station and mutes as one unit with its text.
+"""
+
+ICON_BANNER_TEXT_COLOR_MUTED: str = "#eeeeee"
+"""Banner label colour paired with :data:`ICON_BANNER_FILL_MUTED`.
+
+Near-white rather than pure white keeps the text legible against the grey band
+while reading as muted; a shared grey with the band would erase the label.
+"""
+
 # ---------------------------------------------------------------------------
 # Animation styling
 # ---------------------------------------------------------------------------
