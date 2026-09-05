@@ -31,11 +31,15 @@ from __future__ import annotations
 
 import warnings
 
+import pytest
 from conftest import parse_and_layout
 
 from nf_metro.layout.constants import SAME_COORD_TOLERANCE
 from nf_metro.layout.phases._common import _section_lr_port_anchor_y
 
+# title/center_ports/diamond_style/directional are kept: each feeds the balance
+# passes under test (the title's header band opens the fix-#2 slack; the others
+# gate the fan geometry).  Only the per-line/file cosmetic labels were dropped.
 _FROZEN_MMD = r"""%%metro title: nf-core/riboseq
 %%metro center_ports: true
 %%metro diamond_style: symmetric
@@ -210,27 +214,30 @@ def _layout(**kwargs):
         return parse_and_layout(_FROZEN_MMD, **kwargs)
 
 
-def test_orf_calling_reconvergence_is_fan_centred() -> None:
+@pytest.fixture(scope="module")
+def frozen_map():
+    return _layout()
+
+
+def test_orf_calling_reconvergence_is_fan_centred(frozen_map) -> None:
     """``Merge ORF catalogue`` stays at the vertical centre of the five-way fan.
 
     Reverting the Stage 6.11 trunk-symmetry gate reads the sibling-grown bbox
     top as room and lifts ``price``, de-centring the join by more than a slot.
     """
-    graph = _layout()
-    fan_ys = [graph.stations[sid].y for sid in _FAN_COLUMN]
+    fan_ys = [frozen_map.stations[sid].y for sid in _FAN_COLUMN]
     fan_mid = (min(fan_ys) + max(fan_ys)) / 2
-    assert abs(fan_mid - graph.stations[_RECONVERGENCE].y) <= SAME_COORD_TOLERANCE
+    assert abs(fan_mid - frozen_map.stations[_RECONVERGENCE].y) <= SAME_COORD_TOLERANCE
 
 
-def test_orf_calling_fan_out_keeps_price_at_the_bottom() -> None:
+def test_orf_calling_fan_out_keeps_price_at_the_bottom(frozen_map) -> None:
     """The below-trunk branch ``price`` is not lifted to the top of the fan.
 
     Reverting the Stage 6.11 gate lifts ``price`` from the bottom of the fan to
     the top, reordering the whole fan-out.
     """
-    graph = _layout()
-    fan_ys = [graph.stations[sid].y for sid in _FAN_COLUMN]
-    assert graph.stations["price"].y == max(fan_ys)
+    fan_ys = [frozen_map.stations[sid].y for sid in _FAN_COLUMN]
+    assert frozen_map.stations["price"].y == max(fan_ys)
 
 
 def test_orf_calling_trunk_stays_on_row_grid() -> None:
