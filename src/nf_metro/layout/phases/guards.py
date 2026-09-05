@@ -753,7 +753,13 @@ def _guard_side_entered_vertical_top_not_below_feeder(
     internal station, so the content-hug shrink must not lower the top below
     the feeder row-mate that flows into it (which would drop the section badge
     beneath the rest of its grid row).
+
+    Only meaningful under ``row_align == "top"``: the content default lets a
+    section hug its own content, so a badge sitting below a taller feeder
+    row-mate is expected rather than a violation.
     """
+    if graph.row_align != "top":
+        return
     tol = SAME_COORD_TOLERANCE
     for section, neighbour in _side_entered_vertical_feeder_pairs(graph):
         if section.bbox_y - neighbour.bbox_y > tol:
@@ -5498,12 +5504,15 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_coordinates_finite, "A", bisection_safe=True),
     GuardSpec(_guard_section_bboxes_positive, "A", bisection_safe=True),
     # Stage 5.2 lifts off-track stations above their section's pre-grow bbox
-    # top; Stage 5.3's row top-align grows the bbox upward to enclose them.
+    # top.  Under ``row_align == "top"`` Stage 5.3's row top-align grows the
+    # bbox upward early enough to enclose them; under the content default the
+    # bbox top is not finalized until the Stage 6.15a content fit, so the
+    # containment guarantee only holds from the "after Stage 6.15" checkpoint on.
     GuardSpec(
         _guard_stations_in_sections,
         "A",
         bisection_safe=True,
-        first_valid_stage="after Stage 5.3",
+        first_valid_stage="after Stage 6.15",
     ),
     GuardSpec(_guard_ports_on_boundaries, "A", bisection_safe=True),
     # Pre-snap fan placement can sit a fraction of a pitch off the row grid;

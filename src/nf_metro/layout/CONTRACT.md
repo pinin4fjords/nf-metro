@@ -547,15 +547,17 @@ in pipeline order.
 - **Precondition**: Entry ports aligned (Stage 3.2); target sections
   positioned (Stage 1.3/4).
 - **Postcondition**: Exit ports on fold/TB sections sit at the same Y
-  as their target section's entry port (within section bbox extent);
-  same-row contiguous-column sections whose top the exit move disturbed
-  share `bbox_y` again (station/port Ys shift by the same delta,
-  preserving Stage 3.2 alignment). The row re-flush is a transient
-  intermediate property, not a final guarantee: Stage 6.15a later grows
-  a fanned section's bbox top above the flush line, so finished same-row
-  tops are not guaranteed flush (measured ~40px non-flush on
-  `terminal_symmetric_fan` / `trunk_through_fan`; see Stage 4.7, which
-  re-flushes and carries the same transient tag).
+  as their target section's entry port (within section bbox extent).
+  Under `row_align == "top"`, same-row contiguous-column sections whose
+  top the exit move disturbed share `bbox_y` again (station/port Ys shift
+  by the same delta, preserving Stage 3.2 alignment); the content default
+  skips this row re-flush (`_top_align_row_sections` returns early). Even
+  under `top` the re-flush is a transient intermediate property, not a
+  final guarantee: Stage 6.15a later grows a fanned section's bbox top
+  above the flush line, so finished same-row tops are not guaranteed flush
+  (measured ~40px non-flush on `terminal_symmetric_fan` /
+  `trunk_through_fan`; see Stage 4.7, which re-flushes and carries the same
+  transient tag).
 - **Invariants preserved**: Real station coords. Entry-port Ys.
 - **Validate guard after**: `_guard_ports_on_boundaries` (the row
   re-flush preserves port-on-edge by shifting ports with stations).
@@ -719,11 +721,14 @@ in pipeline order.
 ### Stage 4.7: re-run top-align
 - **Purpose**: Re-flush row tops after Stage 4.5 expanded bboxes via
   `_expand_bbox_for_y` (the same row-top alignment Stage 3.4 applies to
-  the rows it pushes, here run over every row).
+  the rows it pushes, here run over every row). Runs only under
+  `row_align == "top"`; the content default returns early, leaving each
+  section's bbox top at its own content.
 - **Helper**: `_top_align_row_sections` (`phases/row_align.py`).
 - **Precondition**: Stages 4.5 / 4.6 complete.
-- **Postcondition**: Same-row contiguous-column sections share
-  `bbox_y` (station/port Ys shift by the same delta).
+- **Postcondition**: Under `row_align == "top"`, same-row contiguous-column
+  sections share `bbox_y` (station/port Ys shift by the same delta). A no-op
+  under the content default.
 - **Invariants preserved**: Relative station-to-section position inside
   each shifted section. Bbox heights.
 - **Lifecycle:** transient - superseded by Stage 6.15a, which grows a
@@ -894,11 +899,15 @@ in pipeline order.
 ### Stage 5.3: re-align row bbox tops only
 - **Purpose**: After Stage 5.2 grew some bboxes upward, grow other
   same-row bboxes upward to match. Station Ys in unlifted sections
-  preserved.
+  preserved. Runs only under `row_align == "top"`; the content default
+  returns early, so off-track containment established by Stage 5.2's own
+  bbox growth is finalized later by Stage 6.15a's content fit rather than
+  here.
 - **Helper**: `_top_align_row_bboxes_only` (`phases/row_align.py`).
 - **Precondition**: Stage 5.2 may have lifted some bboxes.
-- **Postcondition**: Within each row's contiguous column group, all
-  bboxes share `bbox_y` (heights extended upward as needed).
+- **Postcondition**: Under `row_align == "top"`, within each row's
+  contiguous column group all bboxes share `bbox_y` (heights extended
+  upward as needed). A no-op under the content default.
 - **Invariants preserved**: All station / port Ys.
 - **Lifecycle:** transient - superseded by Stage 6.15a (flush row tops,
   as Stage 4.7).
@@ -908,7 +917,8 @@ in pipeline order.
   above-content slack, then shrink bbox heights to remove the empty
   band. Preserves trunk alignment.
 - **Helper**: `_compact_row_content_to_bbox_top` (`phases/row_align.py`).
-- **Precondition**: Bbox tops aligned (Stage 5.3).
+- **Precondition**: Under `row_align == "top"`, bbox tops aligned (Stage 5.3);
+  under the content default each bbox top hugs its own content.
 - **Postcondition**: Each row's contiguous column group's bbox top
   sits at `min(content_top) - section_y_padding`, except where
   `_perp_port_lead_edge_reserve` caps the shift so a perpendicular port
@@ -1230,10 +1240,11 @@ in pipeline order.
 - **Purpose**: A Stage 6.8 bbox grow can leave the grown section's
   bbox top above its row mates'. Pull row mates' bbox tops up to
   match so the section row stays flush along its top edge. Gated on
-  `center_ports`.
+  `center_ports`, and a no-op unless `row_align == "top"`.
 - **Helper**: `_top_align_row_bboxes_only` (same helper as Stage 5.3).
 - **Precondition**: Stage 6.8 has re-anchored off-track inputs.
-- **Postcondition**: Row bboxes flush at the top across all row mates.
+- **Postcondition**: Under `row_align == "top"`, row bboxes flush at the top
+  across all row mates. A no-op under the content default.
 - **Invariants preserved**: Station Ys (only bbox tops move).
 - **Lifecycle:** transient - superseded by Stage 6.15a (flush row tops,
   as Stage 4.7).
@@ -1370,6 +1381,13 @@ in pipeline order.
   section `section_y_padding` below the canvas top and, on a titled map, keeps
   every *drawn* section `TITLE_BAND_CLEARANCE` below it so the header badge
   clears the title band (issue #1273).
+  Two same-family seating steps follow the fit: under `row_align == "top"`
+  `_top_align_side_entered_vertical_to_feeder` grows a side-entered vertical
+  section's top up to its feeder row-mate; under the content default
+  `_align_leaf_terminus_to_feed` instead shifts a single-station terminus fed
+  by one same-row bundle so its entry port meets the feeding exit port,
+  straightening that inter-section run without pinning the box to a taller
+  row-mate.
 - **Helper**: `_fit_bboxes_to_content_top` (`phases/bbox.py`), then
   `_shift_graph_into_canvas`.
 - **Precondition**: All content Ys final (post-6.14).

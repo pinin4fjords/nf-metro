@@ -1351,6 +1351,78 @@ def _top_align_side_entered_vertical_to_feeder(graph: MetroGraph) -> None:
             grow_section_bbox_min_edge(graph, section, "y", neighbour.bbox_y)
 
 
+def _leaf_terminus_feed(
+    graph: MetroGraph, section: Section
+) -> tuple[Station, Station] | None:
+    """The (entry port, feeding exit port) stations when *section* is a leaf
+    terminus fed by one bundle from a single same-row exit port; else ``None``.
+
+    A leaf terminus holds exactly one real (non-port) station and has no
+    outbound inter-section edge.  It qualifies only when every inbound
+    inter-section edge arrives at one entry port from one exit port carrying a
+    multi-line bundle, and that exit port belongs to a section in the same grid
+    row.
+    """
+    reals = [
+        st
+        for st in graph.stations.values()
+        if st.section_id == section.id and not st.is_port
+    ]
+    if len(reals) != 1:
+        return None
+    feeders: dict[str, set[str]] = {}
+    entry_hits: set[str] = set()
+    for edge in graph.edges:
+        src_id = graph.section_for_station(edge.source)
+        tgt_id = graph.section_for_station(edge.target)
+        if src_id == section.id and tgt_id is not None and tgt_id != section.id:
+            return None
+        if tgt_id == section.id and src_id is not None and src_id != section.id:
+            feeders.setdefault(edge.source, set()).add(edge.line_id)
+            entry_hits.add(edge.target)
+    if len(feeders) != 1 or len(entry_hits) != 1:
+        return None
+    ((exit_pid, lines),) = feeders.items()
+    if len(lines) < 2:
+        return None
+    (entry_pid,) = entry_hits
+    exit_sec_id = graph.section_for_station(exit_pid)
+    exit_sec = graph.sections.get(exit_sec_id) if exit_sec_id is not None else None
+    if exit_sec is None or exit_sec.grid_row != section.grid_row:
+        return None
+    entry_st = graph.stations.get(entry_pid)
+    exit_st = graph.stations.get(exit_pid)
+    if entry_st is None or exit_st is None:
+        return None
+    return entry_st, exit_st
+
+
+def _align_leaf_terminus_to_feed(graph: MetroGraph) -> None:
+    """Seat a single-station terminus on the row-mate exit port feeding it.
+
+    A leaf terminus (:func:`_leaf_terminus_feed`) has no content of its own to
+    fix a vertical position to, so plain content-fit leaves its box wherever the
+    station falls.  That can offset its entry port from the feeding exit port by
+    less than a corner's runway, pinching the inter-section bundle into a Z the
+    router cannot corner cleanly.  Shifting the whole terminus so its entry port
+    meets the feeding exit port straightens that run while the box keeps hugging
+    its content.
+
+    Content mode only: ``row_align == "top"`` seats such a box by its flush row
+    top instead.
+    """
+    if graph.row_align != "content":
+        return
+    for section in graph.sections.values():
+        feed = _leaf_terminus_feed(graph, section)
+        if feed is None:
+            continue
+        entry_st, exit_st = feed
+        dy = exit_st.y - entry_st.y
+        if abs(dy) > SAME_COORD_TOLERANCE:
+            shift_section(graph, section, dy=dy)
+
+
 def _tighten_lower_rows_after_shrink(graph: MetroGraph, section_y_gap: float) -> None:
     """Phase 2 of :func:`_shrink_and_tighten_rows`.
 

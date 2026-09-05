@@ -44,6 +44,9 @@ def test_align_exit_ports_reflushes_disturbed_rows(fid, monkeypatch):
     if is_nf:
         text = convert_nextflow_dag(text)
     graph = parse_metro_mermaid(text)
+    # The exit-port row re-flush runs only under the forced-alignment opt-in;
+    # the content default leaves each disturbed row-mate hugging its content.
+    graph.row_align = "top"
 
     real = engine._align_exit_ports
     disturbed: set[str] = set()
