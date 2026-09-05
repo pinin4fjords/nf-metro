@@ -57,8 +57,9 @@ gallery:
       "Grey out optional routes to highlight what actually ran. The two optional
       subworkflows carry the `inactive` fifth field on their `%%metro line:` directive, so they
       (and the stations, labels, and legend swatches only they touch) render muted while the default
-      STAR path stays full colour. Override per-render with `--inactive-lines` (an empty value
-      forces every line active)."
+      STAR path stays full colour. Muting reaches the interchange the two optional routes share and
+      the banner file icon they end at, both greyed to match. Override per-render with
+      `--inactive-lines` (an empty value forces every line active)."
   - id: diagonal_labels
     source_dir: examples
     category: Feature Showcase
