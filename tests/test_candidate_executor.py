@@ -917,7 +917,7 @@ def test_frozen_sources_are_results_not_frozen_stages_across_hash_seeds() -> Non
         )
         run = json.loads(completed.stdout)
         for fixture, record in run.items():
-            if record["status"] == CandidateStatus.TIMEOUT.value:
+            if CandidateStatus(record["status"]) is CandidateStatus.TIMEOUT:
                 pytest.skip(
                     f"oracle run for PYTHONHASHSEED={seed} timed out on fixture "
                     f"{fixture}; machine too loaded to measure determinism, "
