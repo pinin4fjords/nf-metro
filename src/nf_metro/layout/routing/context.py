@@ -37,6 +37,7 @@ from nf_metro.layout.routing.common import (
     bypass_bottom_y,
     compute_bundle_info,
     fan_corridor_band,
+    max_grid_row_with_content,
     merge_trunk_force_cross_row,
     resolve_section,
     resolve_section_colrow,
@@ -1458,9 +1459,10 @@ def _fan_bypass_band(
     the derived exit-turn plan from that row-level geometry.
     """
     from nf_metro.layout.routing.inter_section_handlers import (
-        _bottom_row_climb_corridor_clear,
+        _is_row_level_bottom_row_climb,
     )
 
+    max_content_row = max_grid_row_with_content(graph)
     deepest: float | None = None
     for edge in graph.edges_from(jid):
         if edge.target in merge_junctions:
@@ -1473,15 +1475,14 @@ def _fan_bypass_band(
             graph, src_col, src_row, tgt_col, tgt_row
         ):
             continue
-        tgt_entry = graph.ports.get(edge.target)
-        if (
-            tgt_row is not None
-            and tgt_row != src_row
-            and tgt_entry is not None
-            and tgt_entry.is_entry
-            and _bottom_row_climb_corridor_clear(
-                graph, src_row, tgt_row, src_col, tgt_col
-            )
+        if _is_row_level_bottom_row_climb(
+            graph,
+            edge,
+            src_row,
+            tgt_row,
+            src_col,
+            tgt_col,
+            max_content_row=max_content_row,
         ):
             continue
         by = bypass_bottom_y(

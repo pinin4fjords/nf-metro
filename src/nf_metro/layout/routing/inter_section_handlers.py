@@ -3042,6 +3042,8 @@ def _bottom_row_climb_corridor_clear(
     tgt_row: int,
     src_col: int,
     tgt_col: int,
+    *,
+    max_content_row: int | None = None,
 ) -> bool:
     """Whether a bottommost-row source can climb to a higher-row target by
     running along its own row level instead of diving below it.
@@ -3051,10 +3053,49 @@ def _bottom_row_climb_corridor_clear(
     would cross.  In that case the intervening sections that classified the edge
     as a bypass are all in higher rows (above a run at the source's Y), so the
     canyon below the source row is clear and the dive is gratuitous.
+
+    *max_content_row* lets a per-edge caller pass a single
+    ``max_grid_row_with_content`` result rather than recomputing it each edge.
     """
-    if tgt_row >= src_row or src_row != max_grid_row_with_content(graph):
+    if max_content_row is None:
+        max_content_row = max_grid_row_with_content(graph)
+    if tgt_row >= src_row or src_row != max_content_row:
         return False
     return not _has_intervening_sections(graph, src_col, tgt_col, src_row)
+
+
+def _is_row_level_bottom_row_climb(
+    graph: MetroGraph,
+    edge: Edge,
+    src_row: int | None,
+    tgt_row: int | None,
+    src_col: int | None,
+    tgt_col: int | None,
+    *,
+    max_content_row: int | None = None,
+) -> bool:
+    """Whether *edge* is a bottommost-row branch climbing to a higher-row entry
+    port along a clear row-level corridor.
+
+    True only when the edge lands on a real section entry port -- a merge/fan
+    junction target collects feeders onto a shared trunk below the row instead --
+    and :func:`_bottom_row_climb_corridor_clear` holds.  Such a branch keeps its
+    traverse at the source's own Y rather than diving below it; bypass emission,
+    the fan bypass band, and the row-level climb guards must all agree on which
+    edges qualify, so they share this predicate.
+
+    *max_content_row* is threaded through to
+    :func:`_bottom_row_climb_corridor_clear` so a per-edge caller can reuse one
+    ``max_grid_row_with_content`` result.
+    """
+    if src_row is None or tgt_row is None or src_col is None or tgt_col is None:
+        return False
+    tgt_port = graph.ports.get(edge.target)
+    if tgt_port is None or not tgt_port.is_entry:
+        return False
+    return _bottom_row_climb_corridor_clear(
+        graph, src_row, tgt_row, src_col, tgt_col, max_content_row=max_content_row
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -3152,13 +3193,8 @@ def _bypass_geometry(
     # row, so this only applies to a route landing on a real section entry port.
     src_off = _get_offset(ctx, edge.source, edge.line_id)
     tgt_entry = graph.ports.get(edge.target)
-    if (
-        cross_row
-        and src_row is not None
-        and tgt_row is not None
-        and tgt_entry is not None
-        and tgt_entry.is_entry
-        and _bottom_row_climb_corridor_clear(graph, src_row, tgt_row, src_col, tgt_col)
+    if cross_row and _is_row_level_bottom_row_climb(
+        graph, edge, src_row, tgt_row, src_col, tgt_col
     ):
         # Keep the run on the line's in-section track (its per-line offset), not
         # the bare port-marker row, so it leaves the exit corner straight rather
