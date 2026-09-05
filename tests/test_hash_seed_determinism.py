@@ -18,6 +18,7 @@ from hash_seed_oracle import (
 
 from nf_metro.api import prepare_graph, resolve_theme
 from nf_metro.parser.model import MetroGraph
+from nf_metro.render import svg as svg_module
 from nf_metro.render.svg import render_svg
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,12 +162,18 @@ def _pinned_cairosvg_version() -> str:
     return pinned.pop()
 
 
-def test_seed_72_linux_cairosvg_png_is_frozen() -> None:
+def test_seed_72_linux_cairosvg_png_is_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     if sys.platform != "linux":
         pytest.skip("authoritative PNG lock runs on Linux")
     import cairosvg
 
     assert cairosvg.__version__ == _pinned_cairosvg_version()
+
+    # The attribution watermark is rasterised into the PNG, so the lock pins its
+    # text rather than letting the hash track the package version.
+    monkeypatch.setattr(svg_module, "_version_string", lambda: "v1.1.0+dev")
 
     path = REGRESSIONS / "seed_72.mmd"
     graph = prepare_graph(path.read_text(), source_dir=str(path.parent))
