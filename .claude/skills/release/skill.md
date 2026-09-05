@@ -17,10 +17,11 @@ If the user didn't specify a version, read the current one:
 grep '^version' ~/projects/nf-metro/pyproject.toml
 ```
 
-Before asking, read the `[Unreleased]` section of `CHANGELOG.md` and the
-changes gathered in Step 1. The CHANGELOG preamble defines the public API
-(the CLI, the `.mmd` directive surface, and the embed contract) and says
-semver applies from 1.0.0. Check the gathered entries against that surface:
+Before asking, gather the cycle's changes (Step 1) and read the
+`[Unreleased]` section of `CHANGELOG.md`. The CHANGELOG preamble defines the
+public API (the CLI, the `.mmd` directive surface, and the embed contract)
+and says semver applies from 1.0.0. Check the gathered entries against that
+surface:
 
 - Any entry marked **Breaking** against the public API → propose a major
   bump and say which entry makes it breaking.
