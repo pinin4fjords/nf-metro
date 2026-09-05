@@ -140,3 +140,25 @@ def test_render_publisher_follows_render_workflow_artifact():
     assert 'workflows: ["PR render preview"]' in workflow
     assert "actions/runs/${RUN_ID}/artifacts?name=render-preview" in workflow
     assert "needs.resolve.outputs.artifact == 'true'" in workflow
+
+
+def test_docs_deploy_isolates_release_concurrency_per_tag():
+    """A queued release deploy must not be cancellable by a later push.
+
+    A concurrency group keeps only one pending run, so releases sharing a group
+    with pushes would let a second push evict a pending release deploy (which
+    then runs zero steps). Keying release runs to their own per-tag group, and
+    pushes/dispatches to a single shared dev group, gives each release its own
+    isolated queue while a later push supersedes a stale queued dev rebuild.
+    """
+    workflow = (WORKFLOWS / "docs.yml").read_text()
+    concurrency = re.search(
+        r"^concurrency:\n((?:  .*\n|  .*\Z|    .*\n)+)", workflow, re.MULTILINE
+    )
+    assert concurrency, "docs.yml must declare a concurrency block"
+    block = concurrency.group(1)
+    assert "github.event_name == 'release'" in block
+    assert "gh-pages-docs-release-" in block
+    assert "github.ref_name" in block
+    assert "gh-pages-docs-dev" in block
+    assert "cancel-in-progress: false" in block
