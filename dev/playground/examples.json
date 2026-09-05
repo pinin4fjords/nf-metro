@@ -32,7 +32,7 @@
       },
       {
         "name": "inactive_lines",
-        "mmd": "%%metro title: Inactive Lines\n%%metro style: nfcore\n%%metro line: star | STAR alignment (default) | #2db572\n%%metro line: salmon | Salmon pseudo-alignment (inactive) | #ff8c00 | solid | inactive\n%%metro line: sv | Structural variants (inactive) | #e63946 | dashed | inactive\n\ngraph LR\n    reads[Reads]\n    qc[QC]\n    star_align[STAR]\n    salmon_align[Salmon]\n    manta[Manta]\n    quant[tximport]\n    report[MultiQC]\n\n    reads -->|star,salmon| qc\n    qc -->|star| star_align\n    qc -->|salmon| salmon_align\n    star_align -->|star| quant\n    salmon_align -->|salmon| quant\n    star_align -->|sv| manta\n    manta -->|sv| report\n    quant -->|star,salmon| report\n"
+        "mmd": "%%metro title: Inactive Lines\n%%metro style: nfcore\n%%metro line: star | STAR alignment (default) | #2db572\n%%metro line: salmon | Salmon pseudo-alignment (inactive) | #ff8c00 | solid | inactive\n%%metro line: sv | Structural variants (inactive) | #e63946 | dashed | inactive\n%%metro marker: sortmerge | square, #6a4c93\n%%metro interchange: sortmerge | salmon | sv\n%%metro files: sv_vcf | VCF | | banner\n\ngraph LR\n    reads[Reads]\n    qc[QC]\n    star_align[STAR]\n    salmon_align[Salmon]\n    sortmerge[Samtools sort]\n    manta[Manta]\n    quant[tximport]\n    sv_vcf[ ]\n    report[MultiQC]\n\n    reads -->|star,salmon| qc\n    qc -->|star| star_align\n    qc -->|salmon| salmon_align\n    star_align -->|star| quant\n    star_align -->|sv| sortmerge\n    salmon_align -->|salmon| sortmerge\n    sortmerge -->|salmon| quant\n    sortmerge -->|sv| manta\n    manta -->|sv| sv_vcf\n    quant -->|star,salmon| report\n"
       },
       {
         "name": "diagonal_labels",
