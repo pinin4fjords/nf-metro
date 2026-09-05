@@ -80,7 +80,6 @@ from nf_metro.layout.phases.balancing import (  # noqa: F401
 )
 from nf_metro.layout.phases.bbox import (  # noqa: F401
     _aggregate_bypass_spans,
-    _align_leaf_terminus_to_feed,
     _fit_bboxes_to_content_top,
     _level_column_anchor_edges,
     _lift_would_cause_uturn,
@@ -2178,9 +2177,6 @@ def _finalize_layout(
     # Follows the grow above: a side-entered vertical section beside a
     # row-mate whose top just grew is lifted to that feeder.
     _top_align_side_entered_vertical_to_feeder(graph)
-    # Content mode's sibling: seat a leaf terminus on the row-mate exit port
-    # feeding it so the inter-section bundle runs straight instead of pinching.
-    _align_leaf_terminus_to_feed(graph)
     _distribute_stacked_rows_in_rowspan_band(graph)
     _shift_graph_into_canvas(graph, section_y_padding)
     # Must precede the structural snapshot: the extent counts the exit port and
@@ -2240,11 +2236,6 @@ def _finalize_layout(
     }
     if resnapped:
         refit_tops_after_entry_resnap(graph, resnapped, section_y_padding)
-        # The refit above is a content mover downstream of the Stage 6.15a
-        # structural snapshot: re-snapshot so the recorded height-below-top
-        # matches the settled geometry the fidelity check reads, rather than
-        # the pre-resnap top a vertical section carried at Stage 6.15a.
-        _snapshot_struct_heights_below_top(graph, section_y_padding)
     _apply_planned_fan_port_geometry(graph)
     _position_junctions(graph)
     _snap(graph, "6.16")

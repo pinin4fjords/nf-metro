@@ -6825,13 +6825,9 @@ def test_section1_input_above_trunk(fixture):
     """In ``data_prep`` (the source-stack section) inputs must fill
     the above-trunk band: at least one input sits above the trunk, and
     the topmost input is no more than y_spacing below the bbox top.
-
-    A forced-alignment (``row_align: top``) property: the content default
-    lets the source stack hug its content below the trunk instead of
-    filling a flushed-taller box's above-trunk band.
     """
     y_spacing = 55.0
-    graph = _layout(fixture, y_spacing=y_spacing, row_align="top")
+    graph = _layout(fixture, y_spacing=y_spacing)
     section = graph.sections.get("data_prep")
     assert section is not None
     port_ids = set(section.entry_ports) | set(section.exit_ports)

@@ -791,6 +791,7 @@
   "offsets.py::if len(seed_lines) < 2:::#2",
   "offsets.py::if len(set(feeder_row.values())) < 2:::#1",
   "offsets.py::if len(set(lanes.values())) != len(lanes):::#1",
+  "offsets.py::if len(shared) < 2:::#1",
   "offsets.py::if lid in new_off:::#1",
   "offsets.py::if lid not in seen:::#1",
   "offsets.py::if line_id not in assignments:::#1",

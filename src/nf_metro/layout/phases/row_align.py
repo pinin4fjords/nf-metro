@@ -508,13 +508,7 @@ def _top_align_row_sections(graph: MetroGraph, rows: set[int] | None = None) -> 
     that disturbed a known set of rows (see ``_align_exit_ports``) pass it
     to confine the realign to the rows they moved.  ``None`` realigns every
     row; an empty set realigns none.
-
-    A no-op unless ``graph.row_align == "top"``: the default content-hugging
-    mode leaves each section's bbox top at its own content, so no row-flush
-    runs.
     """
-    if graph.row_align != "top":
-        return
     if rows is not None and not rows:
         return
 
@@ -600,12 +594,7 @@ def _top_align_row_bboxes_only(
     Used after ``_lift_off_track_stations`` so off-track expansion in
     one section doesn't leave other row-mates with misaligned bbox
     tops.
-
-    A no-op unless ``graph.row_align == "top"``: the default content-hugging
-    mode leaves each row-mate's bbox top at its own content.
     """
-    if graph.row_align != "top":
-        return
     for group in _row_contiguous_column_groups(graph):
         if rows is not None and group[0].grid_row not in rows:
             continue
