@@ -1291,10 +1291,6 @@
   "note": "Exit ports are only created when inter-section edges exist: resolve.py `_create_port_stations` iterates `topology.exit_groups`, which parser/route_topology.py builds from its `exit_members` map, populated one entry per resolved inter-section edge. Every TB LEFT/RIGHT exit port therefore has at least one edge from an internal station, so `internal_offs` is never empty when the loop is entered. The false arm is a defensive guard against an impossible empty-feeder state.",
   "status": "defensive"
  },
- "offsets.py::if len(shared) < 2:::#1": {
-  "note": "In _align_flat_tb_exit_to_entry: scopes the flat-seam reconciliation to multi-line bundles, where a constant per-line offset delta means the lines share an order and only the bundle anchoring differs (the auto-folded serpentine case in #1198). A single shared line carries no bundle order to preserve and is left to the single-line corridor passes; no corpus fixture reaches the pass with fewer than two shared lines, so the skip arm is never taken.",
-  "status": "defensive"
- },
  "offsets.py::if lid not in seen:::#1": {
   "note": "The iterator at L554 is `sorted(set(sec_entry_lines), ...)`. The outer `set()` deduplicates the list before iteration, so each `lid` appears exactly once and `seen` never contains it when processed. The false arm (lid already in seen) is logically unreachable \u2014 the dedup happens at set construction, making the `seen` guard dead code. Reclassified candidate-dead -> defensive (#762): corpus instrumentation across 128 fixtures confirms the un-exercised arm is never taken.",
   "status": "defensive"

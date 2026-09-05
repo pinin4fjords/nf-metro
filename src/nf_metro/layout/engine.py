@@ -2240,6 +2240,11 @@ def _finalize_layout(
     }
     if resnapped:
         refit_tops_after_entry_resnap(graph, resnapped, section_y_padding)
+        # The refit above is a content mover downstream of the Stage 6.15a
+        # structural snapshot: re-snapshot so the recorded height-below-top
+        # matches the settled geometry the fidelity check reads, rather than
+        # the pre-resnap top a vertical section carried at Stage 6.15a.
+        _snapshot_struct_heights_below_top(graph, section_y_padding)
     _apply_planned_fan_port_geometry(graph)
     _position_junctions(graph)
     _snap(graph, "6.16")

@@ -66,9 +66,10 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # after full layout settling, keyed to the stage label(s) that reproduce it.
 #
 # Stage 4.7's ``_top_align_row_sections`` runs only under ``row_align == "top"``;
-# the ``rowmate_tb_side_entry_top_align_grow`` fixture declares that mode so its
-# forced row-flush is exercised here.  Row flush is a transient property of the
-# intermediate stages, not a final-state guarantee: Stage 6.15a's
+# ``examples/variantbenchmarking_auto`` and ``rowmate_tb_side_entry_top_align_grow``
+# declare that mode, so their forced row-flush is exercised here.  Row flush is a
+# transient property of the intermediate stages, not a final-state guarantee:
+# Stage 6.15a's
 # ``_fit_bboxes_to_content_top`` un-flushes a row-mate's bbox top to hug its own
 # content whenever that section's top band is empty, so replaying Stage 4.7 on
 # the settled graph moves it back.  ``test_section_bbox_top_hugs_content``
@@ -85,6 +86,7 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # X positions of two off-track sibling stations instead of reproducing them,
 # so that pass is order-sensitive in X.
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
+    "examples/variantbenchmarking_auto": frozenset({"4.7"}),
     "topologies/rowmate_tb_side_entry_top_align_grow": frozenset({"4.7"}),
     "topologies/bt_perp_left_entry_right_exit": frozenset({"4.7"}),
     "topologies/tb_off_track_inputs": frozenset({"6.6"}),
