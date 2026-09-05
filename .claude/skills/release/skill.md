@@ -17,8 +17,19 @@ If the user didn't specify a version, read the current one:
 grep '^version' ~/projects/nf-metro/pyproject.toml
 ```
 
-Ask: "Current version is X.Y.Z — what should the new version be?"
-Wait for confirmation before proceeding.
+Before asking, read the `[Unreleased]` section of `CHANGELOG.md` and the
+changes gathered in Step 1. The CHANGELOG preamble defines the public API
+(the CLI, the `.mmd` directive surface, and the embed contract) and says
+semver applies from 1.0.0. Check the gathered entries against that surface:
+
+- Any entry marked **Breaking** against the public API → propose a major
+  bump and say which entry makes it breaking.
+- Otherwise, new features with no breaking entries → propose a minor bump.
+- Only fixes, no new features → propose a patch bump.
+
+Ask: "Current version is X.Y.Z, based on <reasoning> I'd propose X.Y.Z,
+does that work, or would you like a different version?" Wait for
+confirmation before proceeding either way.
 
 Call the new version `NEW_VERSION` (e.g. `0.8.0`) and find the last
 release tag:
@@ -33,18 +44,42 @@ echo "Last tag: $LAST_TAG"
 
 ## Step 1: Gather changes since last release
 
+For a small patch release, a plain commit log is enough:
+
 ```bash
 git -C ~/projects/nf-metro log ${LAST_TAG}..origin/main --oneline
 ```
 
-Group commits into **Features** (`feat:`), **Fixes** (`fix:`), and
-everything else (docs/chores — omit from release notes unless substantial).
+For anything larger, a commit log does not scale (a cycle can carry
+hundreds of merges), so the primary source is merged PRs, not commits.
+Get the merge commits for an overview and the PR list for the detail:
 
-For commits that look significant, read the full message:
+```bash
+git -C ~/projects/nf-metro log --merges --first-parent ${LAST_TAG}..origin/main --format='%h %s'
+
+# LAST_TAG_DATE is the last tag's commit date, e.g.:
+LAST_TAG_DATE=$(git -C ~/projects/nf-metro log -1 --format=%cs $LAST_TAG)
+gh pr list --repo seqeralabs/nf-metro --state merged \
+    --search "merged:>${LAST_TAG_DATE}" --limit 1000 \
+    --json number,title,labels,mergedAt
+```
+
+Group the PR list by theme, not by commit prefix, for example: layout and
+routing engine, parser and directives, CLI options, render and themes,
+playground and docs site, packaging and CI. A commit-prefix grouping
+(`feat:`/`fix:`) stops being useful once a theme spans dozens of PRs.
+
+Keep the plain `git log` as a fallback for reading the detail of an
+individual change once you know which PR it belongs to:
 
 ```bash
 git -C ~/projects/nf-metro log --format="%B" -1 <sha>
 ```
+
+`CHANGELOG.md`'s `[Unreleased]` section may hold only part of the cycle
+(entries land there only when a PR's author remembered to add one), so
+treat it as a starting draft to reconcile against the PR list, not as the
+complete record.
 
 ## Step 2: Bioconda recipe check
 
@@ -68,7 +103,12 @@ grep -A 20 '^dependencies' ~/projects/nf-metro/pyproject.toml
 - Any package in `pyproject.toml` `dependencies` that is **absent** from
   the recipe `run:` block is a missing dep.
 - Any package in the recipe absent from `pyproject.toml` `dependencies`
-  is an extra — flag it but don't remove it without asking.
+  is an extra — flag it but don't remove it without asking. `fonttools` and
+  `jsonschema` are deliberate extras: the recipe carries them in `run:` even
+  though pyproject only lists them under the `font` and `validate` extras,
+  because conda users get `--font` handling and `nf-metro validate-svg`
+  without a separate install step. Don't flag those two; the "flag but
+  don't remove" rule still applies to any other extra found.
 - Version pins don't need to match exactly, but the recipe should cover
   at least the same lower bound as pyproject.toml.
 
@@ -101,7 +141,42 @@ Then open a bioconda PR:
 
 If the recipe is already in sync, say so and continue.
 
-## Step 3: Worktree setup
+## Step 3: Pre-flight checks
+
+Run these three checks and report the results before touching any files.
+
+**origin/main CI must be green.** Do not proceed if the HEAD commit's checks
+are red or still in progress:
+
+```bash
+gh api repos/seqeralabs/nf-metro/commits/$(git -C ~/projects/nf-metro rev-parse origin/main)/check-runs \
+    --jq '.check_runs[] | "\(.conclusion // .status)\t\(.name)"'
+```
+
+**Open PRs that would change default output.** List open, non-draft PRs and
+check their descriptions for anything that changes default render output or
+a default option value (layout defaults, a new default behaviour, and
+similar):
+
+```bash
+gh pr list --repo seqeralabs/nf-metro --state open --json number,title,isDraft,mergeable
+```
+
+For each PR that qualifies, ask the user for an explicit in-or-out decision:
+merging one of these right after a release means the very next release
+changes default output again, which is worth deciding on purpose rather than
+by accident of merge timing.
+
+**Live strict xfails.** Collect every strict xfail currently in the suite,
+with its reason and any issue number in that reason:
+
+```bash
+grep -rn "pytest.mark.xfail" tests/
+```
+
+Keep this list; it feeds the Known issues subsection in Step 6.
+
+## Step 4: Worktree setup
 
 ```bash
 git -C ~/projects/nf-metro fetch origin main
@@ -111,7 +186,7 @@ git -C ~/projects/nf-metro worktree add /tmp/nf-metro-release-$NEW_VERSION \
 
 All subsequent edits happen inside `/tmp/nf-metro-release-$NEW_VERSION`.
 
-## Step 4: Bump the version
+## Step 5: Bump the version
 
 **`pyproject.toml`** — the `version = "X.Y.Z"` line under `[project]`.
 
@@ -148,7 +223,7 @@ stale refs remain:
 grep -rn "${OLD_VERSION}" docs/automation.mdx README.md action.yml || echo "clean"
 ```
 
-## Step 5: Draft the release page
+## Step 6: Draft the release page
 
 Create `/tmp/nf-metro-release-$NEW_VERSION/docs/releases/$NEW_VERSION.md`.
 
@@ -192,10 +267,18 @@ how to use it>
 - Patch releases with no visual impact (CI fixes, permission fixes) can be
   a single short paragraph with no illustration.
 
+**Known issues subsection:** add a `## Known issues` section listing any
+live strict xfail (from the Step 3 grep) that locks a defect in a shipped
+example map (one from `examples/*.mmd` that appears in
+`scripts/gallery.yaml`). One line per issue, naming the affected example and
+the tracking issue number. Derive this list fresh from the Step 3 grep each
+time; don't carry forward a list from a previous release page, since the set
+of live xfails changes release to release.
+
 Present the draft. Ask: "Does this look right? Any changes before I commit?"
 Wait for approval.
 
-## Step 6: Wire the new page into the index and changelog
+## Step 7: Wire the new page into the index and changelog
 
 ### Sidebar nav — nothing to do
 
@@ -230,7 +313,7 @@ the full account. At the top of
 
 Headings in this file use an em-dash date separator; match it.
 
-## Step 7: Commit and push
+## Step 8: Commit and push
 
 ```bash
 cd /tmp/nf-metro-release-$NEW_VERSION
@@ -249,7 +332,7 @@ git commit -m "chore: release $NEW_VERSION"
 git push -u origin release/$NEW_VERSION
 ```
 
-## Step 8: Open the PR
+## Step 9: Open the PR
 
 ```bash
 gh pr create \
@@ -274,7 +357,7 @@ EOF
 )"
 ```
 
-## Step 9: After the PR merges
+## Step 10: After the PR merges
 
 Remind the user:
 
@@ -298,7 +381,7 @@ Remind the user:
 > the dep-update PR was already merged), that autobump PR needs no
 > intervention — just approve and merge.
 
-## Step 10: Cleanup
+## Step 11: Cleanup
 
 ```bash
 git -C ~/projects/nf-metro worktree remove /tmp/nf-metro-release-$NEW_VERSION
