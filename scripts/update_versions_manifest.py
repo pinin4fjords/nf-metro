@@ -37,7 +37,10 @@ def parse_version_tuple(version: str) -> tuple[int, ...] | None:
 
     Returns None for anything that is not a clean run of dot-separated
     integers (e.g. `dev`, `1.2.0rc1`), signalling callers to skip the ordered
-    comparison for that value.
+    comparison for that value. Deliberately stricter than `version_sort_key`,
+    which must always produce an orderable tuple and so drops non-numeric
+    segments instead of refusing them; this parser feeds the `latest`-alias
+    guard, which must never guess at an ambiguous comparison.
     """
     parts = version.split(".")
     if not parts or not all(p.isdigit() for p in parts):
