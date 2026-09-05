@@ -1340,7 +1340,12 @@ def _top_align_side_entered_vertical_to_feeder(graph: MetroGraph) -> None:
     disturbing routing.  Growth is upward only, so a section already at or
     above its feeder is untouched, and empty-band sections with no side entry
     keep their content-hug.
+
+    A no-op unless ``graph.row_align == "top"``: the default content-hugging
+    mode leaves a side-entered vertical section's badge at its own content top.
     """
+    if graph.row_align != "top":
+        return
     for section, neighbour in _side_entered_vertical_feeder_pairs(graph):
         if section.bbox_y - neighbour.bbox_y > SAME_COORD_TOLERANCE:
             grow_section_bbox_min_edge(graph, section, "y", neighbour.bbox_y)

@@ -18,10 +18,17 @@ from nf_metro.parser.mermaid import parse_metro_mermaid
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
 
-def _load(name: str):
-    """Parse and lay out an example pipeline."""
+def _load(name: str, row_align: str | None = None):
+    """Parse and lay out an example pipeline.
+
+    Pass ``row_align="top"`` to exercise the forced row-top alignment opt-in;
+    the default leaves the graph's declared ``row_align`` (content-hugging)
+    in place.
+    """
     text = (EXAMPLES_DIR / f"{name}.mmd").read_text()
     g = parse_metro_mermaid(text)
+    if row_align is not None:
+        g.row_align = row_align
     compute_layout(g)
     return g
 
@@ -59,7 +66,7 @@ GRID_EXAMPLES = [
 
 @pytest.fixture(params=GRID_EXAMPLES)
 def grid_graph(request):
-    return request.param, _load(request.param)
+    return request.param, _load(request.param, row_align="top")
 
 
 class TestGridInvariants:

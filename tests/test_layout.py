@@ -573,8 +573,13 @@ def test_section_layout_ports_skip_rendering(two_section_graph):
 
 
 def test_sections_top_aligned_in_same_row():
-    """Sections in the same row share the same top, not centered."""
+    """Sections in the same row share the same top, not centered.
+
+    Exercises the ``row_align: top`` opt-in; the content-hugging default lets
+    a shorter row-mate keep its own bbox top instead.
+    """
     graph = parse_metro_mermaid(
+        "%%metro row_align: top\n"
         "%%metro line: main | Main | #ff0000\n"
         "%%metro line: alt | Alt | #0000ff\n"
         "graph LR\n"
@@ -2026,6 +2031,7 @@ class TestPassCBisection:
     # cleanly.
     _MMD_CENTER_PORTS = (
         "%%metro center_ports: true\n"
+        "%%metro row_align: top\n"
         "%%metro line: main | Main | #ff0000\n"
         "graph LR\n"
         "    subgraph s1 [S1]\n"

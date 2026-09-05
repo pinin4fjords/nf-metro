@@ -514,6 +514,7 @@ class MetroGraph:
     cell_packs: dict[tuple[int, int], list[str]] = field(default_factory=dict)
     line_order: str = "definition"  # "definition" or "span"
     diamond_style: str = "straight"  # "straight" or "symmetric"
+    row_align: str = "content"  # "content" (hug) or "top" (flush row tops)
     compact_offsets: bool = False
     center_ports: bool = False
     # None = auto; compute_layout resolves spacing and section gaps.
