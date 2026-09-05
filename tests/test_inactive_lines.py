@@ -246,29 +246,21 @@ RAIL_MARKER_DECLARED_FILL = "#1f4e79"
 def _interchange_interior_colors(svg, station_id):
     """Interior link-bar stroke and knob-core fills of a rail interchange.
 
-    The interior knobs carry the ``nf-metro-rail-knob`` class; the interior link
-    bar is the vertical round-capped path with no class (the outer casing bar is
-    the ``nf-metro-rail-connector``), sharing the knobs' X.
+    The interior link bar carries ``nf-metro-rail-connector-interior`` and the
+    knob cores ``nf-metro-rail-knob`` (distinct from the ``-outline`` casing
+    layers), both tagged with the interchange's station id.
     """
     root = ET.fromstring(svg)
-    knob_fills: set[str] = set()
-    knob_x: set[float] = set()
-    for el in root.iter():
-        cls = el.get("class") or ""
-        if el.tag.endswith("circle") and "nf-metro-rail-knob" in cls.split():
-            if el.get("data-station-id") == station_id:
-                knob_fills.add(el.get("fill"))
-                knob_x.add(float(el.get("cx")))
     bar_strokes: set[str] = set()
+    knob_fills: set[str] = set()
     for el in root.iter():
-        if not el.tag.endswith("path") or el.get("class"):
+        if el.get("data-station-id") != station_id:
             continue
-        if el.get("stroke-linecap") != "round":
-            continue
-        pts = re.findall(r"([\d.]+),[\d.]+", el.get("d", ""))
-        xs = {float(p) for p in pts}
-        if len(xs) == 1 and xs <= knob_x:
+        cls = (el.get("class") or "").split()
+        if "nf-metro-rail-connector-interior" in cls:
             bar_strokes.add(el.get("stroke"))
+        elif "nf-metro-rail-knob" in cls:
+            knob_fills.add(el.get("fill"))
     return bar_strokes, knob_fills
 
 
@@ -278,8 +270,6 @@ def test_muted_rail_interchange_interior_greys_over_marker_fill():
     muted = theme.muted_line_color
     svg = render_svg(graph, theme, inactive_line_ids=frozenset({"line_a", "line_b"}))
     bar_strokes, knob_fills = _interchange_interior_colors(svg, "interchange")
-    # Both the interior bar and both knob cores grey together, overriding the
-    # marker's declared interior tint, so the interchange recedes as one unit.
     assert bar_strokes == {muted}
     assert knob_fills == {muted}
     assert RAIL_MARKER_DECLARED_FILL not in bar_strokes

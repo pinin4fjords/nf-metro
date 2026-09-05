@@ -3859,7 +3859,11 @@ def _draw_interchange_glyph(
             "data-station-id": data_station_id,
         },
     )
-    _link_bar(bar_half * 2, interior_fill)
+    _link_bar(
+        bar_half * 2,
+        interior_fill,
+        **{**station_data, "class_": _ns("nf-metro-rail-connector-interior")},
+    )
     _knobs(
         knob_r,
         interior_fill,
