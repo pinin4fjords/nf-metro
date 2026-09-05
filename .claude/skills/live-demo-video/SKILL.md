@@ -95,23 +95,26 @@ This script (`website/playground-tests/record-live-demo.js`):
 
 1. Starts `nf-metro serve examples/live/pipeline.mmd` itself on a scratch
    port and waits for it to answer.
-2. Opens it in headless Chromium via Playwright, with `recordVideo` set on
-   the browser context - **not** a screen capture, so there's no dependency
-   on the actual screen resolution or window manager.
-3. Waits ~1.5s so the idle map is visible before the run starts (a shorter
+2. Opens a throwaway (non-recording) page against it to measure the page's
+   actual content footprint, then closes that page.
+3. Opens a second, recording page in headless Chromium via Playwright sized
+   to exactly that footprint, with `recordVideo` set on the browser context -
+   **not** a screen capture, so there's no dependency on the actual screen
+   resolution or window manager.
+4. Waits ~1.5s so the idle map is visible before the run starts (a shorter
    pause reads as if the recording started mid-run).
-4. Spawns `nextflow run examples/live/workflow/main.nf -with-weblog ...`
+5. Spawns `nextflow run examples/live/workflow/main.nf -with-weblog ...`
    against the running server.
-5. Polls `/state` until `run.state` is `"complete"` (not `"completed"` -
+6. Polls `/state` until `run.state` is `"complete"` (not `"completed"` -
    that's the literal value the state schema uses) or `"error"`, holds two
    more seconds, then closes the browser context to flush the video and
    tears both processes down.
 
-Two gotchas already fixed in the script, worth knowing if you modify it:
+Three gotchas already fixed in the script, worth knowing if you modify it:
 
 - **`waitUntil: "networkidle"` on `page.goto` never resolves.** The live page
   holds an open SSE connection to `/stream`, so the network is never idle.
-  Wait for the `svg` selector instead.
+  Wait for the `.wrap > svg` selector instead.
 - **`nf-metro serve` bakes one concrete light/dark mode into the map SVG**;
   it isn't `light-dark()`-aware like the page chrome, which does follow
   `prefers-color-scheme`. Playwright's default `colorScheme` is `light`, so
@@ -119,6 +122,19 @@ Two gotchas already fixed in the script, worth knowing if you modify it:
   that isn't how the CLI looks by default in an actual browser tab (which
   usually matches the OS scheme). Force `colorScheme: "dark"` in the browser
   context, or `"light"`, but pick one and make sure the SVG and chrome agree.
+- **A fixed, guessed viewport leaves a huge margin of page background around
+  a small map.** `header` and `.stage` are both plain block-level `<body>`
+  children with no explicit width, so they always stretch to fill whatever
+  viewport you pick - measuring their own bounding rects just reports back
+  the viewport, not the content. Only their non-stretching descendants
+  (`#run`, `.controls`, and `.wrap` - the map card, which carries an inline
+  `width`/`height` set by the server from the map's own rendered size) size
+  to their actual content, so `measureContentSize()` reads *those* instead
+  and sizes the viewport (and hence the recorded video) to match exactly.
+  This is also why the size isn't a constant in this script: a different
+  `.mmd` renders at a different intrinsic size, and the recording should
+  always match whatever that page actually renders, not a number baked in
+  when someone last ran this.
 
 Output is a `.webm` under the directory you passed (Playwright's
 `recordVideo` only produces webm - there's no mp4 option).
@@ -145,9 +161,11 @@ binary the conversion script resolved:
 ffmpeg -y -ss 10 -i /tmp/live_demo.mp4 -vframes 1 -update 1 /tmp/frame.png
 ```
 
-Check dimensions still match the `<video>` embed in `docs/live.mdx`
-(currently 980x640) and that the overlay style/theme match what you intended
-in Step "Before you start".
+`docs/live.mdx`'s `<video>` embed has no fixed width/height of its own
+(`style="width: 100%; max-width: 760px"`), so there's no dimension to match
+there - just confirm the frame is tightly cropped to the map + header (no
+slab of background margin around it) and that the overlay style/theme match
+what you intended in Step "Before you start".
 
 ## Step 5: Replace the asset and clean up
 
@@ -157,8 +175,10 @@ git add website/public/assets/live_demo.mp4
 git commit -m "docs(live): re-record the demo video with the <style> overlay"
 ```
 
-Clean up stray state left in the repo root by the pipeline run before
-committing anything else:
+`work/`, `.nextflow/`, and `.nextflow.log` (left in the repo root by the
+pipeline run) are gitignored, so they won't get staged by accident, but
+clean them up anyway before you start poking around for anything else to
+commit:
 
 ```bash
 rm -rf work .nextflow .nextflow.log

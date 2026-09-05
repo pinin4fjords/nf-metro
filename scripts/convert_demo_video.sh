@@ -20,7 +20,9 @@ else
   # No system ffmpeg (this machine doesn't have one via brew) - use the
   # prebuilt binary pip's imageio-ffmpeg bundles, in a throwaway venv so this
   # doesn't touch the system Python or Homebrew.
-  VENV="$(mktemp -d)/ffmpeg-venv"
+  VENV_PARENT="$(mktemp -d)"
+  trap 'rm -rf "$VENV_PARENT"' EXIT
+  VENV="$VENV_PARENT/ffmpeg-venv"
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install -q imageio-ffmpeg
   FFMPEG="$("$VENV/bin/python" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
