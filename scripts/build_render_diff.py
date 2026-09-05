@@ -566,6 +566,16 @@ def _build_metrics_html(
     )
 
 
+# The renderer stamps its own version into the attribution watermark, so a
+# version bump alone makes every SVG differ while the drawing stays the same.
+_WATERMARK_VERSION_RE = re.compile(rb"(created with nf-metro )v[^<]*")
+
+
+def _comparable_bytes(path: Path) -> bytes:
+    """*path*'s bytes with the watermark version masked, for change detection."""
+    return _WATERMARK_VERSION_RE.sub(rb"\1v", path.read_bytes())
+
+
 def build_diff(
     base_dir: Path,
     pr_dir: Path,
@@ -583,7 +593,7 @@ def build_diff(
         base_path = base_dir / name
         pr_path = pr_dir / name
         if name in base_svgs and name in pr_svgs:
-            if base_path.read_bytes() != pr_path.read_bytes():
+            if _comparable_bytes(base_path) != _comparable_bytes(pr_path):
                 changed.append((name, "changed"))
         elif name in pr_svgs:
             changed.append((name, "added"))

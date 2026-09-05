@@ -243,3 +243,37 @@ def test_build_diff_leaves_corpus_svgs_byte_unchanged(tmp_path):
 
     assert base_svg_path.read_text() == svg_text
     assert pr_svg_path.read_text() == defective_svg_text
+
+
+def test_watermark_version_only_difference_is_not_a_change(tmp_path):
+    """Two renders that differ only in the watermark's version stamp are unchanged."""
+    svg_text = _render_inactive_lines_svg()
+    match = re.search(r"created with nf-metro v[^<]*", svg_text)
+    assert match is not None, "fixture must carry the attribution watermark"
+    bumped_svg_text = svg_text.replace(match.group(0), "created with nf-metro v99.0.0")
+    assert bumped_svg_text != svg_text
+
+    base_dir = tmp_path / "base"
+    pr_dir = tmp_path / "pr"
+    base_dir.mkdir()
+    pr_dir.mkdir()
+    (base_dir / "inactive_lines.svg").write_text(svg_text)
+    (pr_dir / "inactive_lines.svg").write_text(bumped_svg_text)
+
+    assert not build_diff(base_dir, pr_dir, tmp_path / "out")
+
+
+def test_geometry_difference_is_still_a_change_when_versions_also_differ(tmp_path):
+    svg_text = _render_inactive_lines_svg()
+    defective_svg_text = _strip_muted_rule(svg_text).replace(
+        "created with nf-metro v", "created with nf-metro v99.", 1
+    )
+
+    base_dir = tmp_path / "base"
+    pr_dir = tmp_path / "pr"
+    base_dir.mkdir()
+    pr_dir.mkdir()
+    (base_dir / "inactive_lines.svg").write_text(svg_text)
+    (pr_dir / "inactive_lines.svg").write_text(defective_svg_text)
+
+    assert build_diff(base_dir, pr_dir, tmp_path / "out")
