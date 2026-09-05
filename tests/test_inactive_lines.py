@@ -2,6 +2,7 @@
 
 import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
@@ -230,6 +231,69 @@ def test_inactive_only_banner_band_muted_as_a_unit():
     active_fill, active_text = _icon_banner(svg, "b_out")
     assert active_fill == ICON_BANNER_FILL
     assert active_text == ICON_BANNER_TEXT_COLOR
+
+
+RAIL_MARKER_FILL = (
+    Path(__file__).parent / "fixtures" / "rail_marker_fill.mmd"
+).read_text()
+
+# The marker's declared interior tint; the interchange interior must override it
+# when the station is muted, so a shared muted-grey wouldn't falsely satisfy the
+# assertions and the declared colour is pinned to a literal.
+RAIL_MARKER_DECLARED_FILL = "#1f4e79"
+
+
+def _interchange_interior_colors(svg, station_id):
+    """Interior link-bar stroke and knob-core fills of a rail interchange.
+
+    The interior knobs carry the ``nf-metro-rail-knob`` class; the interior link
+    bar is the vertical round-capped path with no class (the outer casing bar is
+    the ``nf-metro-rail-connector``), sharing the knobs' X.
+    """
+    root = ET.fromstring(svg)
+    knob_fills: set[str] = set()
+    knob_x: set[float] = set()
+    for el in root.iter():
+        cls = el.get("class") or ""
+        if el.tag.endswith("circle") and "nf-metro-rail-knob" in cls.split():
+            if el.get("data-station-id") == station_id:
+                knob_fills.add(el.get("fill"))
+                knob_x.add(float(el.get("cx")))
+    bar_strokes: set[str] = set()
+    for el in root.iter():
+        if not el.tag.endswith("path") or el.get("class"):
+            continue
+        if el.get("stroke-linecap") != "round":
+            continue
+        pts = re.findall(r"([\d.]+),[\d.]+", el.get("d", ""))
+        xs = {float(p) for p in pts}
+        if len(xs) == 1 and xs <= knob_x:
+            bar_strokes.add(el.get("stroke"))
+    return bar_strokes, knob_fills
+
+
+def test_muted_rail_interchange_interior_greys_over_marker_fill():
+    graph = prepare_graph(RAIL_MARKER_FILL)
+    theme = resolve_theme(None, graph)
+    muted = theme.muted_line_color
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset({"line_a", "line_b"}))
+    bar_strokes, knob_fills = _interchange_interior_colors(svg, "interchange")
+    # Both the interior bar and both knob cores grey together, overriding the
+    # marker's declared interior tint, so the interchange recedes as one unit.
+    assert bar_strokes == {muted}
+    assert knob_fills == {muted}
+    assert RAIL_MARKER_DECLARED_FILL not in bar_strokes
+    assert RAIL_MARKER_DECLARED_FILL not in knob_fills
+
+
+def test_active_rail_interchange_interior_keeps_marker_fill():
+    graph = prepare_graph(RAIL_MARKER_FILL)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme)
+    bar_strokes, knob_fills = _interchange_interior_colors(svg, "interchange")
+    # With no muting the declared marker tint is retained (the exemption stands).
+    assert bar_strokes == {RAIL_MARKER_DECLARED_FILL}
+    assert knob_fills == {RAIL_MARKER_DECLARED_FILL}
 
 
 # ---------------------------------------------------------------------------

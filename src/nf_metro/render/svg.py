@@ -3764,6 +3764,21 @@ def _rail_marker_fill(marker: MarkerStyle | None, theme: Theme) -> str | None:
     return marker_fill_color(marker.fill, theme)
 
 
+def _interchange_interior_fill(
+    fill_override: str | None, theme: Theme, muted: bool
+) -> str:
+    """Interior fill for an interchange glyph's link bar and knob cores.
+
+    An untinted interchange keeps the background ``station_fill`` (muted or not,
+    fills carry background rather than line identity). A marker tint is a line
+    identity, so when the station is muted it greys with the rest of the map,
+    overriding the marker-fill exemption; otherwise it keeps the declared tint.
+    """
+    if fill_override is None:
+        return theme.station_fill
+    return theme.muted_line_color if muted else fill_override
+
+
 def _draw_interchange_glyph(
     d: draw.Group | draw.Drawing,
     x: float,
@@ -3859,15 +3874,18 @@ def _render_rail_pill(
     theme: Theme,
     r: float,
     fill_override: str | None = None,
+    muted: bool = False,
 ) -> None:
     """Render a rail-mode multi-rail station as the metro interchange glyph.
 
     ``fill_override`` tints the interior (link bar + knobs) with a marker fill
     colour while keeping the interchange shape, so a spanning rail station can
     carry its ``%%metro marker:`` colour; a tinted interchange takes the light
-    marker outline so the fill reads against the dark background.
+    marker outline so the fill reads against the dark background. When ``muted``
+    the marker tint greys to ``muted_line_color`` so the interior recedes with
+    the rest of the muted map rather than keeping its full-strength colour.
     """
-    interior_fill = fill_override if fill_override is not None else theme.station_fill
+    interior_fill = _interchange_interior_fill(fill_override, theme, muted)
     outline = (
         marker_stroke_color(theme)
         if fill_override is not None
@@ -3898,6 +3916,7 @@ def _render_interchange(
     theme: Theme,
     station_offsets: dict[tuple[str, str], float] | None,
     r: float,
+    muted: bool = False,
 ) -> None:
     """Draw a cross-track interchange as one glyph across its member stations.
 
@@ -3925,9 +3944,7 @@ def _render_interchange(
         knobs,
         theme,
         r,
-        interior_fill=fill_override
-        if fill_override is not None
-        else theme.station_fill,
+        interior_fill=_interchange_interior_fill(fill_override, theme, muted),
         outline=(
             marker_stroke_color(theme)
             if fill_override is not None
@@ -4110,7 +4127,7 @@ def _render_station_into(
                 None,
             )
             if ic is not None and ic.member_ids:
-                _render_interchange(d, graph, ic, theme, station_offsets, r)
+                _render_interchange(d, graph, ic, theme, station_offsets, r, muted)
         return
 
     # Rail mode: a blank terminus terminates its converged bundle exactly
@@ -4150,7 +4167,13 @@ def _render_station_into(
         return
     if station.rail_top_y is not None and station.rail_bottom_y is not None:
         _render_rail_pill(
-            d, graph, station, theme, r, _rail_marker_fill(station.marker, theme)
+            d,
+            graph,
+            station,
+            theme,
+            r,
+            _rail_marker_fill(station.marker, theme),
+            muted,
         )
         return
 
