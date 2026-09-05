@@ -4850,27 +4850,21 @@ class _PerpEntryLGeometry:
     seam: _SourceSeam
 
 
-def _leg_direction(
-    start: tuple[float, float],
-    end: tuple[float, float],
-    *,
-    context: str | None = None,
-) -> Direction:
+def _leg_direction(start: tuple[float, float], end: tuple[float, float]) -> Direction:
     """The heading of an axis-aligned leg, read from its own two endpoints.
 
     A caller that can legitimately reach coincident endpoints resolves the
     degenerate leg itself (a turn-less seam, say) before asking here; reaching
     this with a zero-length leg is an unmodelled geometry, so it fails loud with
-    the endpoints and, where the caller supplies it, the source and route family.
+    the endpoints named.
     """
     direction = segment_direction(start, end)
     if direction is None:
         from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
 
-        detail = f" [{context}]" if context else ""
         raise ExitTurnInvariantError(
             f"zero-length route leg {start} -> {end}: cannot read a heading from "
-            f"coincident endpoints{detail}"
+            "coincident endpoints"
         )
     return direction
 
@@ -5785,12 +5779,17 @@ def _entry_wrap_record(
     stagger off that on the turn leg's normal, which is the column
     ``axis_coordinate`` names.
     """
+    from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
+
     src_off = _get_offset(ctx, edge.source, edge.line_id)
-    turn_direction = _leg_direction(
-        (src.x, src.y + src_off + delta),
-        (src.x, channel_y),
-        context=f"entry-wrap drop for source {edge.source!r} line {edge.line_id!r}",
-    )
+    try:
+        turn_direction = _leg_direction(
+            (src.x, src.y + src_off + delta), (src.x, channel_y)
+        )
+    except ExitTurnInvariantError as e:
+        raise ExitTurnInvariantError(
+            f"{e} [entry-wrap drop for source {edge.source!r} line {edge.line_id!r}]"
+        ) from e
     run_direction = segment_direction((src.x, src.y), (corner_x, src.y))
     if run_direction is None:
         # The corner sits on the source's own column, so there is no lead-out
