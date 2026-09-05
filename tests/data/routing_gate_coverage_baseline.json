@@ -76,6 +76,7 @@
   "common.py::while current not in seen:::#1",
   "context.py::for pid in section.entry_ports:::#1",
   "context.py::for sid in section.station_ids:::#1",
+  "context.py::if (::#6",
   "context.py::if edge.line_id in line_pos:::#1",
   "context.py::if ep and ep.is_entry:::#1",
   "context.py::if jst is None:::#1",

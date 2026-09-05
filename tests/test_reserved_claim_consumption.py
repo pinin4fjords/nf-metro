@@ -73,9 +73,6 @@ KNOWN_NOT_RENDERING = frozenset(
         "tests/fixtures/nextflow/unquoted_labels.mmd",
         "tests/fixtures/nextflow/variant_calling.mmd",
         "tests/fixtures/nextflow/with_subworkflows.mmd",
-        # A routing defect, not a category: the bottom-row climb dives below
-        # its own section box and the render aborts (#1889).
-        "tests/fixtures/topologies/twoline_fanout_up.mmd",
     }
 )
 
