@@ -282,6 +282,13 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
     containment alone hides regressions where off-track icons (~16 px half
     height, more under an active ``font_scale``) spill above the bbox top
     while still being technically "in" the section.
+
+    A Stage 4.10 on-track fan-lift can raise a station above its section's
+    bbox top, reconciled only by a later stage and not guaranteed to be
+    enclosed on a superseded intermediate ``_layout_once`` pass.  Deferring
+    the raise while ``_defer_final_guards`` is set (as the sibling
+    settled-geometry guards do) reports only a spill that survives to the
+    ``after final`` checkpoint.
     """
     tol = GUARD_TOLERANCE
     for sid, st, sec in iter_bbox_checkable_stations(graph):
@@ -300,6 +307,8 @@ def _guard_stations_in_sections(graph: MetroGraph, phase: str) -> None:
             and sec.bbox_y - tol <= top
             and bottom <= sec.bbox_y + sec.bbox_h + tol
         ):
+            if graph._defer_final_guards:
+                return
             raise PhaseInvariantError(
                 f"{phase}: station {sid!r} marker bbox "
                 f"(x={st.x:.1f}, y={top:.1f}..{bottom:.1f}, "
@@ -2131,6 +2140,12 @@ def _guard_sparse_loop_station_clears_column_neighbour(
     skipped (issue #1071).  The complementary
     :func:`_guard_no_line_crosses_non_consumer` catches the opposite error
     of skipping a needed shift.
+
+    A superseded intermediate ``_layout_once`` pass can leave a station a
+    partial pitch off its neighbour transiently before the settled pass
+    resolves it.  Deferring the raise while ``_defer_final_guards`` is set (as
+    the sibling settled-geometry guards do) reports only a crowding that
+    survives to the ``after final`` checkpoint.
     """
     from nf_metro.layout.engine import compute_min_y_spacing
 
@@ -2175,6 +2190,8 @@ def _guard_sparse_loop_station_clears_column_neighbour(
                     continue
                 gap = abs(other.y - st.y)
                 if tol < gap < floor:
+                    if graph._defer_final_guards:
+                        return
                     raise PhaseInvariantError(
                         f"{phase}: sparse loop station {st.id!r} (y={st.y:.1f}, "
                         f"x={st.x:.1f}) sits only {gap:.1f}px from same-column "
@@ -5505,6 +5522,11 @@ GUARD_REGISTRY: tuple[GuardSpec, ...] = (
     GuardSpec(_guard_section_bboxes_positive, "A", bisection_safe=True),
     # Stage 5.2 lifts off-track stations above their section's pre-grow bbox
     # top; Stage 5.3's row top-align grows the bbox upward to enclose them.
+    # A Stage 4.10 on-track fan-lift is a second case that can leave a station
+    # above the bbox top, reconciled later (Stage 6.15a) and only guaranteed
+    # on the final settled pass, so this guard (and its sparse-loop sibling)
+    # defers via _defer_final_guards rather than firing on a superseded
+    # intermediate pass.
     GuardSpec(
         _guard_stations_in_sections,
         "A",

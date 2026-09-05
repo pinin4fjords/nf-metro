@@ -1,8 +1,47 @@
-%%metro title: nf-core/riboseq
-%%metro logo: nf-core-riboseq_logo_light.png | nf-core-riboseq_logo_dark.png
-%%metro logo_scale: 1.15
+"""A sibling section's growth must not reorder or de-grid a reconverging fan.
+
+Regression lock for #1929.  Two sections, ``orf_calling`` and ``psite_id``,
+share one authored grid row.  ``psite_id``'s two P-site file sinks are reached
+by lines that cross them, so the sinks go off-track and make ``psite_id``
+taller.  The whole-row top-align (Stage 4.7) then grows ``orf_calling``'s bbox
+above its own content, opening top slack.  Two later passes must stay robust to
+that slack:
+
+- Stage 6.11 ``_balance_one_section`` must not read the grown bbox top as room
+  to lift a below-trunk fan sibling (``price`` jumping to the top of the
+  five-way fan), and
+- Stage 6.1 ``_fan_free_content_upward`` must not lift a fan-in branch
+  (``ribotish``) into that slack, which would drag the ``orf_merge``
+  reconvergence a half slot off the row grid.
+
+The fixture is a frozen snapshot embedded below, not read from
+``examples/riboseq_metro.mmd``: that map's topology has twice changed under this
+lock in a way that removed the trigger, so the shipped map is not a reliable
+carrier.  The snapshot is minimised to the row structure that reproduces the
+bug (its cosmetic directives are dropped); attempts to shrink it further -
+trimming ``te``/``reporting`` from the shared row, thinning ``preprocessing``,
+or removing the title header band - each stop reproducing it, because the
+trigger is the specific slack the full two-row layout opens.  Verified against
+both fixes independently: reverting only the Stage 6.11 gate reorders the fan
+and de-centres ``orf_merge``; reverting only the Stage 6.1 join guard lands the
+reconvergence a half slot off the grid at ``y_spacing=55``.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+import pytest
+from conftest import parse_and_layout
+
+from nf_metro.layout.constants import SAME_COORD_TOLERANCE
+from nf_metro.layout.phases._common import _section_lr_port_anchor_y
+
+# title/center_ports/diamond_style/directional are kept: each feeds the balance
+# passes under test (the title's header band opens the fix-#2 slack; the others
+# gate the fan geometry).  Only the per-line/file cosmetic labels were dropped.
+_FROZEN_MMD = r"""%%metro title: nf-core/riboseq
 %%metro center_ports: true
-%%metro style: nfcore
 %%metro diamond_style: symmetric
 %%metro directional: true
 %%metro file: fastq_in | FASTQ
@@ -22,7 +61,6 @@
 %%metro grid: preprocessing, alignment, novel_transcripts | 0,0
 %%metro grid: orf_calling, psite_id, te, reporting | 0,1
 %%metro x_spacing: 70
-%%metro legend: br | 10,130
 
 graph LR
     subgraph preprocessing [Read pre-processing]
@@ -108,7 +146,7 @@ graph LR
         psite_orf_out[ ]
         psite_gene_out[ ]
 
-        ribowaltz -->|riboseq| plastid_psite
+        ribowaltz -->|riboseq| quantify_orf_psite
         plastid_psite -->|riboseq| plastid_wiggle
         plastid_wiggle -->|riboseq| quantify_orf_psite
         plastid_wiggle -->|riboseq| psite_counts_gene
@@ -152,7 +190,8 @@ graph LR
     umi_dedup -->|riboseq| rpbp
     umi_dedup -->|riboseq| price
     umi_dedup -->|riboseq| ribowaltz
-    orf_merge -->|riboseq| ribowaltz
+    umi_dedup -->|riboseq| plastid_psite
+    orf_merge -->|riboseq| quantify_orf_psite
     salmon_quant -->|rnaseq| te_prep_gene
     salmon_quant -->|rnaseq| te_prep_orf
     psite_counts_gene -->|riboseq| te_prep_gene
@@ -162,3 +201,56 @@ graph LR
     hybrid_merge -->|annotation| ribotish
     hybrid_merge -->|annotation| ribotricer
     hybrid_merge -->|annotation| ribocode
+"""
+
+# The five-way fan-out feeding ``orf_calling``'s reconvergence, and the join.
+_FAN_COLUMN = ("star_hybrid", "ribotish", "ribotricer", "rpbp", "price")
+_RECONVERGENCE = "orf_merge"
+
+
+def _layout(**kwargs):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return parse_and_layout(_FROZEN_MMD, **kwargs)
+
+
+@pytest.fixture(scope="module")
+def frozen_map():
+    return _layout()
+
+
+def test_orf_calling_reconvergence_is_fan_centred(frozen_map) -> None:
+    """``Merge ORF catalogue`` stays at the vertical centre of the five-way fan.
+
+    Reverting the Stage 6.11 trunk-symmetry gate reads the sibling-grown bbox
+    top as room and lifts ``price``, de-centring the join by more than a slot.
+    """
+    fan_ys = [frozen_map.stations[sid].y for sid in _FAN_COLUMN]
+    fan_mid = (min(fan_ys) + max(fan_ys)) / 2
+    assert abs(fan_mid - frozen_map.stations[_RECONVERGENCE].y) <= SAME_COORD_TOLERANCE
+
+
+def test_orf_calling_fan_out_keeps_price_at_the_bottom(frozen_map) -> None:
+    """The below-trunk branch ``price`` is not lifted to the top of the fan.
+
+    Reverting the Stage 6.11 gate lifts ``price`` from the bottom of the fan to
+    the top, reordering the whole fan-out.
+    """
+    fan_ys = [frozen_map.stations[sid].y for sid in _FAN_COLUMN]
+    assert frozen_map.stations["price"].y == max(fan_ys)
+
+
+def test_orf_calling_trunk_stays_on_row_grid() -> None:
+    """``orf_calling``'s trunk sits an integer slot count from its row siblings.
+
+    Reverting the Stage 6.1 join guard fills the sibling-opened top slack by
+    lifting a fan-in branch, dragging the reconvergence a half slot off the row
+    grid.  Exercised at ``y_spacing=55``, where that half slot is not an integer
+    number of slots.
+    """
+    y_spacing = 55.0
+    graph = _layout(y_spacing=y_spacing)
+    orf_port = _section_lr_port_anchor_y(graph, graph.sections["orf_calling"])
+    sibling_port = _section_lr_port_anchor_y(graph, graph.sections["psite_id"])
+    slots = (orf_port - sibling_port) / y_spacing
+    assert abs(slots - round(slots)) * y_spacing <= SAME_COORD_TOLERANCE
