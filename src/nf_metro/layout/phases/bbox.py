@@ -1352,7 +1352,11 @@ def _top_align_side_entered_vertical_to_feeder(graph: MetroGraph) -> None:
 
 
 def _leaf_terminus_feed(
-    graph: MetroGraph, section: Section
+    graph: MetroGraph,
+    section: Section,
+    real_counts: dict[str, int],
+    outbound_sections: set[str],
+    inbound_feeds: dict[str, list[tuple[str, str, str]]],
 ) -> tuple[Station, Station] | None:
     """The (entry port, feeding exit port) stations when *section* is a leaf
     terminus fed by one bundle from a single same-row exit port; else ``None``.
@@ -1362,24 +1366,20 @@ def _leaf_terminus_feed(
     inter-section edge arrives at one entry port from one exit port carrying a
     multi-line bundle, and that exit port belongs to a section in the same grid
     row.
+
+    ``real_counts`` (non-port stations per section), ``outbound_sections``
+    (sections with an outbound inter-section edge) and ``inbound_feeds``
+    (per-target-section ``(source, target, line_id)`` triples of inbound
+    inter-section edges) are built once for the whole graph by
+    :func:`_align_leaf_terminus_to_feed`.
     """
-    reals = [
-        st
-        for st in graph.stations.values()
-        if st.section_id == section.id and not st.is_port
-    ]
-    if len(reals) != 1:
+    if real_counts.get(section.id, 0) != 1 or section.id in outbound_sections:
         return None
     feeders: dict[str, set[str]] = {}
     entry_hits: set[str] = set()
-    for edge in graph.edges:
-        src_id = graph.section_for_station(edge.source)
-        tgt_id = graph.section_for_station(edge.target)
-        if src_id == section.id and tgt_id is not None and tgt_id != section.id:
-            return None
-        if tgt_id == section.id and src_id is not None and src_id != section.id:
-            feeders.setdefault(edge.source, set()).add(edge.line_id)
-            entry_hits.add(edge.target)
+    for source, target, line_id in inbound_feeds.get(section.id, ()):
+        feeders.setdefault(source, set()).add(line_id)
+        entry_hits.add(target)
     if len(feeders) != 1 or len(entry_hits) != 1:
         return None
     ((exit_pid, lines),) = feeders.items()
@@ -1413,8 +1413,23 @@ def _align_leaf_terminus_to_feed(graph: MetroGraph) -> None:
     """
     if graph.row_align != "content":
         return
+    real_counts: dict[str, int] = defaultdict(int)
+    for st in graph.stations.values():
+        if not st.is_port and st.section_id is not None:
+            real_counts[st.section_id] += 1
+    outbound_sections: set[str] = set()
+    inbound_feeds: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    for edge in graph.edges:
+        src_id = graph.section_for_station(edge.source)
+        tgt_id = graph.section_for_station(edge.target)
+        if src_id is None or tgt_id is None or src_id == tgt_id:
+            continue
+        outbound_sections.add(src_id)
+        inbound_feeds[tgt_id].append((edge.source, edge.target, edge.line_id))
     for section in graph.sections.values():
-        feed = _leaf_terminus_feed(graph, section)
+        feed = _leaf_terminus_feed(
+            graph, section, real_counts, outbound_sections, inbound_feeds
+        )
         if feed is None:
             continue
         entry_st, exit_st = feed
