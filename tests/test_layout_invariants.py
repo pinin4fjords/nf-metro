@@ -8302,8 +8302,10 @@ def test_section_bbox_top_hugs_content(fixture):
     empty band.  This is the equality companion to the ``>=`` floor
     invariant ``test_section_bbox_has_top_padding``.
 
-    Packed cells deliberately share the surrounding row's header line, so
-    their contiguous row group is also excluded.
+    Under the ``row_align: top`` opt-in, packed cells deliberately share
+    the surrounding row's header line, so their contiguous row group is
+    held to that shared leveling and excluded from the content-hug check;
+    under the content default they hug their own content like any section.
 
     Ceiling-bound sections (where the row-above grow ceiling raises
     :func:`_section_fit_top` above the ceiling-free
@@ -8329,9 +8331,13 @@ def test_section_bbox_top_hugs_content(fixture):
 
     offenders: list[str] = []
     for sec in graph.sections.values():
+        # Packed cells are excluded from the content-hug equality only under the
+        # forced-alignment opt-in, where the block above holds them to shared
+        # leveling instead; under the content default they hug their own content
+        # like any other section and flow through this check.
         if (
             sec.bbox_h <= 0
-            or sec.id in packed_header_ids
+            or (graph.row_align == "top" and sec.id in packed_header_ids)
             or not _section_band_is_empty(graph, sec)
         ):
             continue
