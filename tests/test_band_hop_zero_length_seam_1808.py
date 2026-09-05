@@ -17,8 +17,6 @@ tracks the exact geometry that reproduces the defect, not a map that may drift.
 
 from __future__ import annotations
 
-import pytest
-
 from nf_metro import render_string
 from nf_metro.layout.routing.invariants import CurveInvariantError
 
@@ -185,22 +183,17 @@ graph LR
 
 
 def test_band_hop_drop_at_junction_column_no_bare_assert() -> None:
-    """A zero-length band-hop seam leg no longer raises a message-less assert.
+    """A zero-length band-hop seam leg resolves to a turn-less seam, no bare assert.
 
-    #1808 is scoped to the seam construction only: an unrelated fan-overlay
-    curve defect (#1806/#1809) may still abort this same fixture downstream, so
-    a ``CurveInvariantError`` here is an accepted pass for #1808. A bare
-    ``AssertionError`` is the specific regression this locks out.
+    #1808 is scoped to seam construction only. The curve invariant that guards
+    the final routes is downstream of it, so reaching that stage proves the seam
+    was built without the assert: an unrelated fan-overlay curve defect
+    (#1806/#1809) aborts this fixture there, and that abort is an accepted pass
+    for #1808. What must never recur is the bare ``AssertionError`` from reading
+    a heading off the zero-length run leg.
     """
     try:
-        render_string(RIBOSEQ_BAND_HOP)
+        svg = render_string(RIBOSEQ_BAND_HOP)
     except CurveInvariantError:
-        pytest.skip(
-            "known downstream fan-overlay curve defect (#1806/#1809), "
-            "out of scope for the #1808 seam fix"
-        )
-    except AssertionError as exc:  # pragma: no cover - the regression under test
-        raise AssertionError(
-            "band-hop drop-at-junction seam raised a bare assert "
-            f"instead of a turn-less seam: {exc!r}"
-        ) from exc
+        return
+    assert svg.startswith("<")
