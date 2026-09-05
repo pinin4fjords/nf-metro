@@ -163,6 +163,15 @@ LAYOUT_OPTIONS: tuple[LayoutOption, ...] = (
         "preserves .mmd order, 'span' gives longest-spanning lines inner tracks.",
     ),
     LayoutOption(
+        name="row_align",
+        kind="choice",
+        choices=("content", "top"),
+        help="Section bbox vertical sizing within a shared grid row: 'content' "
+        "(default) hugs each section's own content, 'top' grows shorter "
+        "row-mates upward so their bbox tops (and header badges) sit flush "
+        "with the tallest section in the row.",
+    ),
+    LayoutOption(
         name="center_ports",
         kind="bool",
         help="Centre inter-section ports on the shorter of the two connected "

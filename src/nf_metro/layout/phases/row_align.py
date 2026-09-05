@@ -624,7 +624,12 @@ def _top_align_packed_row_bboxes(graph: MetroGraph) -> None:
     A packed cell places multiple boxes side by side within one grid column.
     Its header line belongs to the surrounding contiguous row, so content-fit
     compaction must not leave those adjacent badges on a staircase.
+
+    A no-op unless ``graph.row_align == "top"``: the default content-hugging
+    mode lets each packed-cell row-mate keep its own content-fit top.
     """
+    if graph.row_align != "top":
+        return
     for group in _packed_row_header_groups(graph):
         level_group_anchor_edges(graph, group, "y", 1.0)
 

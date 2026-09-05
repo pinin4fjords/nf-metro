@@ -762,7 +762,13 @@ def _guard_side_entered_vertical_top_not_below_feeder(
     internal station, so the content-hug shrink must not lower the top below
     the feeder row-mate that flows into it (which would drop the section badge
     beneath the rest of its grid row).
+
+    Only meaningful under ``row_align == "top"``: the content default lets a
+    section hug its own content, so a badge sitting below a taller feeder
+    row-mate is expected rather than a violation.
     """
+    if graph.row_align != "top":
+        return
     tol = SAME_COORD_TOLERANCE
     for section, neighbour in _side_entered_vertical_feeder_pairs(graph):
         if section.bbox_y - neighbour.bbox_y > tol:

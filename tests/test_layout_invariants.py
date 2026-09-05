@@ -218,12 +218,15 @@ def _layout(fixture: str, *, _cache: bool = True, **kwargs) -> MetroGraph:
     directive directly.
     """
     path = _resolve_fixture(fixture)
-    key = (str(path), tuple(sorted(kwargs.items())))
+    row_align = kwargs.pop("row_align", None)
+    key = (str(path), row_align, tuple(sorted(kwargs.items())))
     if _cache and key in _LAYOUT_CACHE:
         return copy.deepcopy(_LAYOUT_CACHE[key])
     text = path.read_text()
     graph = parse_metro_mermaid(text)
     graph.source_dir = str(path.parent)
+    if row_align is not None:
+        graph.row_align = row_align
     # Legacy fixtures under tests/fixtures/ were authored before the
     # parser parsed center_ports directly; preserve their implicit
     # center_ports=True default.  Examples set the directive in-file.
@@ -8295,8 +8298,10 @@ def test_section_bbox_top_hugs_content(fixture):
     empty band.  This is the equality companion to the ``>=`` floor
     invariant ``test_section_bbox_has_top_padding``.
 
-    Packed cells deliberately share the surrounding row's header line, so
-    their contiguous row group is also excluded.
+    Under the ``row_align: top`` opt-in, packed cells deliberately share
+    the surrounding row's header line, so their contiguous row group is
+    held to that shared leveling and excluded from the content-hug check;
+    under the content default they hug their own content like any section.
 
     Ceiling-bound sections (where the row-above grow ceiling raises
     :func:`_section_fit_top` above the ceiling-free
@@ -8307,21 +8312,28 @@ def test_section_bbox_top_hugs_content(fixture):
     graph = _layout(fixture)
     tol = 1.0
     packed_header_groups = _packed_row_header_groups(graph)
-    for group in packed_header_groups:
-        tops = [section.bbox_y for section in group]
-        assert max(tops) - min(tops) <= tol, (
-            f"{fixture}: packed row header is not level: "
-            + ", ".join(f"{section.id}={section.bbox_y:.1f}" for section in group)
-        )
+    # Packed cells share one header line only under the forced-alignment opt-in;
+    # the content default lets each packed box hug its own content instead.
+    if graph.row_align == "top":
+        for group in packed_header_groups:
+            tops = [section.bbox_y for section in group]
+            assert max(tops) - min(tops) <= tol, (
+                f"{fixture}: packed row header is not level: "
+                + ", ".join(f"{section.id}={section.bbox_y:.1f}" for section in group)
+            )
     packed_header_ids = {
         section.id for group in packed_header_groups for section in group
     }
 
     offenders: list[str] = []
     for sec in graph.sections.values():
+        # Packed cells are excluded from the content-hug equality only under the
+        # forced-alignment opt-in, where the block above holds them to shared
+        # leveling instead; under the content default they hug their own content
+        # like any other section and flow through this check.
         if (
             sec.bbox_h <= 0
-            or sec.id in packed_header_ids
+            or (graph.row_align == "top" and sec.id in packed_header_ids)
             or not _section_band_is_empty(graph, sec)
         ):
             continue
@@ -8358,8 +8370,11 @@ def test_side_entered_vertical_section_top_not_below_feeder_neighbour(fixture):
     (:func:`_section_band_is_empty`) must therefore not lower such a
     section's bbox top below its feeder neighbour's, dropping the section
     number badge beneath the row-mate that flows into it.
+
+    A forced-alignment (``row_align: top``) invariant: the content default
+    lets a side-entered section hug its own content below a taller feeder.
     """
-    graph = _layout(fixture)
+    graph = _layout(fixture, row_align="top")
     tol = 1.0
 
     offenders: list[str] = []

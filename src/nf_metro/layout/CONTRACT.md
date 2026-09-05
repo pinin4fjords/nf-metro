@@ -1370,6 +1370,11 @@ in pipeline order.
   section `section_y_padding` below the canvas top and, on a titled map, keeps
   every *drawn* section `TITLE_BAND_CLEARANCE` below it so the header badge
   clears the title band (issue #1273).
+  Two row-top seating passes run in this stage only under `row_align == "top"`
+  and are a no-op under the content default: `_top_align_packed_row_bboxes`
+  levels a packed cell's header line with its contiguous row, and
+  `_top_align_side_entered_vertical_to_feeder` grows a side-entered vertical
+  section's top up to the feeder row-mate flowing into it.
 - **Helper**: `_fit_bboxes_to_content_top` (`phases/bbox.py`), then
   `_shift_graph_into_canvas`.
 - **Precondition**: All content Ys final (post-6.14).

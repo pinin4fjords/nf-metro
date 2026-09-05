@@ -83,9 +83,16 @@ _CONDITIONAL_STAGES: dict[str, Callable[[MetroGraph], bool]] = {
 # intended divergence: replaying ``_reanchor_off_track_to_consumer`` swaps the
 # X positions of two off-track sibling stations instead of reproducing them,
 # so that pass is order-sensitive in X.
+# Under the ``row_align: content`` default the packed-row header level-off
+# (``_top_align_packed_row_bboxes``) is gated off, so a packed or
+# content-hugging row-mate keeps its own content-fit top, and Stage 4.7's
+# unconditional ``_top_align_row_sections`` replays non-idempotently on that
+# settled top.  ``examples/riboseq_metro`` and the three packed topologies
+# below carry a "4.7" gap for that reason.
 _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "examples/differentialabundance": frozenset({"4.7"}),
     "examples/differentialabundance_default": frozenset({"4.7"}),
+    "examples/riboseq_metro": frozenset({"4.7"}),
     "examples/variantbenchmarking_auto": frozenset({"4.7"}),
     "tests/da_pipeline": frozenset({"4.7"}),
     "tests/trunk_align_matching_bundle": frozenset({"4.7"}),
@@ -99,6 +106,9 @@ _KNOWN_END_OF_LAYOUT_GAPS: dict[str, frozenset[str]] = {
     "topologies/off_track_convergence_multiline": frozenset({"4.7"}),
     "topologies/off_track_input_above_consumer": frozenset({"4.7"}),
     "topologies/out_of_section_retag_fan": frozenset({"4.7"}),
+    "topologies/packed_cell_cellmate_bypass_entry_y": frozenset({"4.7"}),
+    "topologies/packed_cell_cellmate_bypass_no_handoff": frozenset({"4.7"}),
+    "topologies/packed_multiline_serpentine_grid": frozenset({"4.7"}),
     "topologies/port_fed_three_branch_diamond": frozenset({"4.7"}),
     "topologies/ported_symmetric_fan_centreline_trunk": frozenset({"4.7"}),
     "topologies/rl_entry_right_exit_left": frozenset({"4.7"}),
