@@ -10,11 +10,18 @@ on:
 permissions:
   contents: write
 
-# Docs deploys rewrite the shared root versions.json, so they must run one at a
-# time. Nothing else belongs in this group: it holds at most one pending run, so
-# a newer entrant cancels the older pending one.
+# A concurrency group holds at most one pending run, so a newer entrant cancels
+# the older pending one. Release deploys therefore get a per-tag group, isolated
+# from each other and from dev deploys: a push (or another release) can never
+# cancel a pending release deploy, and the monotonic `latest` guard in
+# update_versions_manifest.py keeps two releases racing to gh-pages from
+# demoting `latest`. Dev deploys (push/workflow_dispatch) share one group so a
+# later push supersedes a stale queued dev rebuild.
 concurrency:
-  group: gh-pages-docs
+  group: >-
+    ${{ github.event_name == 'release'
+        && format('gh-pages-docs-release-{0}', github.ref_name)
+        || 'gh-pages-docs-dev' }}
   cancel-in-progress: false
 
 jobs:
