@@ -50,7 +50,7 @@ Gates with an un-exercised arm:
 
 ## `common.py`
 
-207/275 gates fully exercised.
+206/275 gates fully exercised.
 
 Gates with an un-exercised arm:
 
@@ -93,6 +93,7 @@ Gates with an un-exercised arm:
 | 1749 | `if proposed_conflicts - baseline_conflicts:` | `->L1750` | **needs-review** -- Conflict refusal in feasible_same_destination_approach_proposals: the whole bundle is abandoned when moving its tails onto their slots would introduce a crossing or overlap the current geometry does not have. The comparison is live -- same_destination_short_overlap and same_destination_vertical_convergence both reach it with tails genuinely off their slots -- but neither proposal adds a conflict, so the refusal never fires. Covered synthetically by the atomic-refusal test in tests/test_same_destination_vertical_bundle.py; needs-review pending an in-corpus witness whose slot move introduces a fresh crossing. |
 | 1797 | `if any(` | `->L1800` | **defensive** -- Opposing-entry candidates inherit distinct port lanes from station offsets. A duplicate adjacent lane can only arise from inconsistent precomputed geometry, so the skip is a defensive shape guard. |
 | 1801 | `if port_ys[-1] - port_ys[0] > (n - 1) * step + COORD_TOLERANCE:` | `->L1802` |  |
+| 1804 | `if max(peel_xs) - min(peel_xs) > (n - 1) * step + COORD_TOLERANCE:` | `->L1805` |  |
 | 1808 | `if shared_hi - shared_lo < min_common_approach - COORD_TOLERANCE:` | `->L1809` | **defensive** -- Inter-row placement reserves at least the two-corner runway used by side-port peel-off handlers, so complete opposing entry tails share at least min_common_approach vertically. A shorter overlap is malformed settled geometry; test_invalid_opposing_candidate_is_rejected[insufficient-common-approach] exercises the guard. |
 | 1941 | `if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:` | `->L1942` | **needs-review** -- Degenerate single-Y trunk band in iter_port_peeloff_bundles: a peel-off bundle is yielded only when its members ride trunks at distinct depths, so the equal-depth arm guards a same-Y bundle the trunk-slot materialization never leaves; render-diff confirms no visual change. |
 | 2081 | `if pinned_bases and any(` | `->L2084` |  |
@@ -885,7 +886,7 @@ Gates with an un-exercised arm:
 
 ## `offsets.py`
 
-508/612 gates fully exercised.
+509/612 gates fully exercised.
 
 Gates with an un-exercised arm:
 
@@ -952,7 +953,6 @@ Gates with an un-exercised arm:
 | 2834 | `if not fixed_here or not movable:` | `->L2835` |  |
 | 2853 | `for lid in above:` | `->L2854` |  |
 | 2857 | `if not any(` | `->L2860` |  |
-| 2935 | `for _ in range(len(seed_lines)):` | `->L2976` |  |
 | 2949 | `if not changed_lids:` | `->L2950` |  |
 | 2968 | `if pending is None:` | `->L2969` |  |
 | 3097 | `if max_steps <= 0:` | `->L3098` | **defensive** -- max_steps = n_sec_stations * len(graph.lines). The BFS visits each (station_id, line_id) pair at most once (the visited set at L1017 prevents revisits). The total distinct pairs is bounded by n_sec_stations * len(graph.lines) = max_steps. Since max_steps decrements by 1 per loop iteration and the loop exits when the queue is empty (naturally after at most max_steps unique visits), the condition max_steps <= 0 is never True; the while-loop guard already prevents the body from executing when the queue is empty. |
