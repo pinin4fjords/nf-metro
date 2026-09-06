@@ -5,10 +5,8 @@ cross axis, the grid snap can pull that output's flow coordinate onto the exact
 row of a sibling fork branch.  The branch then shares the output icon's row, and
 if it also shares its cross column the two stations occupy one coordinate.
 
-The collision-avoidance bump that keeps an off-track icon clear of contesting
-line bands must therefore also treat a station seated on the icon's own flow row
-as an obstacle: a same-row, same-column station is a direct overlap, not the
-downstream band crossing the bump was originally written for.
+A same-row, same-column station is a direct overlap and must count as an
+obstacle for the collision-avoidance bump even though it isn't downstream.
 """
 
 from __future__ import annotations
