@@ -28,11 +28,6 @@ SEMANTIC_VALID_LAYOUT_BROKEN = [
 
 DEFERRED_ROUTE_GUARD_FAILURES = [
     (
-        "topologies/twoline_fanout_up.mmd",
-        "bottommost-row climb '__junction_3'->'new_tgt__entry_left_2' dives "
-        "to y=346.0 below source box bottom 320.0",
-    ),
-    (
         "hash_seed_determinism/seed_15.mmd",
         "bundle 's8__exit_left_8'->'s10__entry_right_19' corner (623.0,616.0)",
     ),
