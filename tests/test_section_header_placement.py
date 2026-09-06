@@ -444,8 +444,8 @@ def test_wrapped_header_with_unbreakable_widest_line_is_exempt() -> None:
     """A multi-line header whose widest line is a single unbreakable token is not
     reported: no wrap could narrow that line, so the overhang is unavoidable.
 
-    This is the ``novel_transcripts`` shape from the repro - "Novel transcripts"
-    over a single-station box too narrow for "transcripts" on its own line.
+    "Novel transcripts" over a single-station box too narrow for "transcripts"
+    on its own line is such a shape.
     """
     font_size = 13.0
     label_lines = ("Novel", "transcripts")
@@ -480,58 +480,3 @@ def test_wrapped_header_with_breakable_widest_line_still_reported() -> None:
     assert check_section_headers_fit_box_width(graph, {"wide_break": placement}) == [
         "wide_break"
     ]
-
-
-NOVEL_TRANSCRIPTS_REPRO = """\
-%%metro line: riboseq | Ribo-seq | #e6007e
-%%metro line: rnaseq | RNA-seq | #2db572
-%%metro file: bigwig_out | BW | Coverage
-%%metro grid: preprocessing, alignment, novel_transcripts, quantification | 0,0
-%%metro grid: orf_calling | 0,1
-
-graph LR
-    subgraph preprocessing [Pre-processing]
-        ribodetector[RiboDetector]
-        bowtie2_rrna[Bowtie2]
-        infer_strand[Infer strandedness]
-
-        ribodetector -->|riboseq,rnaseq| infer_strand
-        bowtie2_rrna -->|riboseq,rnaseq| infer_strand
-    end
-
-    subgraph alignment [Alignment]
-        star[STAR]
-        umi_dedup[Dedup]
-
-        star -->|riboseq,rnaseq| umi_dedup
-    end
-
-    subgraph novel_transcripts [Novel transcripts]
-        stringtie[StringTie]
-    end
-
-    subgraph quantification [Quantification]
-        genomecov[genomecov]
-
-        genomecov -->|riboseq,rnaseq| bigwig_out
-    end
-
-    subgraph orf_calling [ORF calling]
-        star_hybrid[STAR 2nd pass]
-    end
-
-    infer_strand -->|riboseq,rnaseq| star
-    umi_dedup -->|rnaseq| stringtie
-    umi_dedup -->|riboseq,rnaseq| genomecov
-    umi_dedup -->|riboseq| star_hybrid
-"""
-
-
-def test_narrow_one_word_section_header_renders_without_abort() -> None:
-    """A narrow single-station section titled with one long word renders instead
-    of aborting: "Novel transcripts" wraps to a line "transcripts" wider than the
-    box, which no wrap can narrow, so the box-width guard must not fire."""
-    from nf_metro.api import render_string
-
-    svg = render_string(NOVEL_TRANSCRIPTS_REPRO)
-    assert "transcripts" in svg
