@@ -19,7 +19,8 @@ nf-metro ships eleven commands.
 | [`validate-svg`](#nf-metro-validate-svg)   | Validate a rendered SVG's embedded manifest and drawn geometry |
 | [`embed-script`](#nf-metro-embed-script)   | Print the embed driver JS for a host page                      |
 
-`nf-metro --version` prints the installed version. Every command also takes `--help`.
+`nf-metro --version` prints the installed version.
+Every command also takes `--help`.
 
 ## `nf-metro render`
 
@@ -29,18 +30,19 @@ Render a Mermaid metro map definition to SVG or interactive HTML.
 nf-metro render [OPTIONS] INPUT_FILE...
 ```
 
-Accepts one or more `INPUT_FILE`s. Given more than one, they all render in the
-same process, which amortizes interpreter and import startup across the batch.
-Each writes to its own sibling `<input>.<format>`. Every file is attempted
-even if an earlier one fails. Successful outputs are kept, and the command
-exits non-zero if any file failed.
+Accepts one or more `INPUT_FILE`s.
+Given more than one, they all render in the same process, which amortizes interpreter and import startup across the batch.
+Each writes to its own sibling `<input>.<format>`.
+Every file is attempted even if an earlier one fails.
+Successful outputs are kept, and the command exits non-zero if any file failed.
 
-A rejected input, and any other failure, surfaces as a plain error message
-rather than a traceback. Set `NF_METRO_DEBUG=1` to re-raise the original
-exception instead. An empty file, or one whose `graph` block holds no stations,
-is rejected by name rather than drawn.
+A rejected input, and any other failure, surfaces as a plain error message rather than a traceback.
+Set `NF_METRO_DEBUG=1` to re-raise the original exception instead.
+An empty file, or one whose `graph` block holds no stations, is rejected by name rather than drawn.
 
-Most of the options in this section have a `%%metro` directive twin. An explicit flag overrides the directive. See the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide.
+Most of the options in this section have a `%%metro` directive twin.
+An explicit flag overrides the directive.
+See the [precedence table](/nf-metro/guide/#cli-flags-and-directive-precedence) in the guide.
 
 ### Output and source
 
@@ -61,8 +63,8 @@ Most of the options in this section have a `%%metro` directive twin. An explicit
 | `--title TEXT`                                                                                | from `title:`                | Pipeline title. Directive twin: `%%metro title:`                                                                                                                                                                                                                                                                                                   |
 | `--caption TEXT`                                                                              | none                         | Free-text caption or attribution line rendered bottom-left of the map (for example, `Adapted from Author et al., Journal (Year)`). Directive twin: `%%metro caption:`                                                                                                                                                                              |
 
-`--theme light` is the transparent embed theme rather than a brand. Because it
-has no light/dark pair, `--mode` does not apply to it.
+`--theme light` is the transparent embed theme rather than a brand.
+Because it has no light/dark pair, `--mode` does not apply to it.
 
 ### Legend and logo
 
@@ -95,11 +97,8 @@ has no light/dark pair, `--mode` does not apply to it.
 | `--width INTEGER`                          | auto              | Output width in pixels                                                                                                                                                                                                                                                              |
 | `--height INTEGER`                         | auto              | Output height in pixels                                                                                                                                                                                                                                                             |
 
-Spacings, scales, `--fold-threshold`, and output dimensions must be greater than 0. The section gaps, `--track-gap`, `--legend-min-height`, and
-`--legend-logo-gap` also accept 0. Every numeric option requires a finite
-number, and `nan` and `inf` are refused. A flag given an out-of-range value
-exits with an error, while the equivalent `%%metro` directive warns and keeps
-the default.
+Spacings, scales, `--fold-threshold`, and output dimensions must be greater than 0. The section gaps, `--track-gap`, `--legend-min-height`, and `--legend-logo-gap` also accept 0. Every numeric option requires a finite number, and `nan` and `inf` are refused.
+A flag given an out-of-range value exits with an error, while the equivalent `%%metro` directive warns and keeps the default.
 
 ### Line styling
 
@@ -111,7 +110,8 @@ the default.
 
 ### Live-progress metadata
 
-These carry into the rendered SVG's manifest and drive [live progress](/nf-metro/live/). They do not change the drawn map.
+These carry into the rendered SVG's manifest and drive [live progress](/nf-metro/live/).
+They do not change the drawn map.
 
 | Option                               | Default | Description                                                                                                                                                                                                                                                                                                                |
 | ------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -128,16 +128,16 @@ These carry into the rendered SVG's manifest and drive [live progress](/nf-metro
 
 ### Warnings
 
-A map that parses with complaints, such as an unknown `%%metro` directive or a
-non-LR primary direction, is still written. So is a layout that widens a gap to
-fit its routing. Each complaint appears as a bullet in a `Warnings:` block on
-stderr. A geometry guard that was downgraded rather than enforced gets its own
-block, because those name geometry that was drawn anyway and may be defective.
+A map that parses with complaints, such as an unknown `%%metro` directive or a non-LR primary direction, is still written.
+So is a layout that widens a gap to fit its routing.
+Each complaint appears as a bullet in a `Warnings:` block on stderr.
+A geometry guard that was downgraded rather than enforced gets its own block, because those name geometry that was drawn anyway and may be defective.
 Read them differently from a warning about something ignored or adjusted.
 
 ### Embedding options
 
-Flags for producing an SVG to embed in another page or application. The [Embedding guide](/nf-metro/embedding/) explains when to use each.
+Flags for producing an SVG to embed in another page or application.
+The [Embedding guide](/nf-metro/embedding/) explains when to use each.
 
 | Option                                 | Default | Description                                                                                                                                                                                                                                                 |
 | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -150,28 +150,35 @@ Flags for producing an SVG to embed in another page or application. The [Embeddi
 | `--no-dark-mode-css`                   | off     | Suppress the `prefers-color-scheme: dark` `<style>` block when a host page manages its own theme and the injected media query would conflict                                                                                                                |
 | `--no-chrome-css`                      | off     | Omit the chrome `--nfm-*` CSS custom-property `<style>` block. Colors still render, baked as presentation attributes, and only live host recoloring is dropped. Needed for raster export, because cairosvg and similar rasterizers cannot parse `var()`     |
 
-Every SVG carries the machine-readable [data manifest](/nf-metro/manifest/),
-meaning the `<metadata>` block and the per-node `data-node-*` attributes. Opt
-out per map with `%%metro manifest: false`. A `--manifest`/`--no-manifest` flag
-pair backs that directive but is deliberately absent from `render --help`. It is
-an internal escape hatch for a one-off render, used by nf-metro's own docs-site
-rendering. The directive is the supported control.
+Every SVG carries the machine-readable [data manifest](/nf-metro/manifest/), meaning the `<metadata>` block and the per-node `data-node-*` attributes.
+Opt out per map with `%%metro manifest: false`.
+A `--manifest`/`--no-manifest` flag pair backs that directive but is deliberately absent from `render --help`.
+It is an internal escape hatch for a one-off render, used by nf-metro's own docs-site rendering.
+The directive is the supported control.
 
 ### Interactive HTML output
 
-`--format html` produces a self-contained `.html` file with the SVG inlined and a small JS and CSS layer. It has no external dependencies and needs no network:
+`--format html` produces a self-contained `.html` file with the SVG inlined and a small JS and CSS layer.
+It has no external dependencies and needs no network:
 
 ```bash frame="terminal"
 nf-metro render pipeline.mmd --format html -o pipeline.html
 ```
 
-The page supports drag-to-pan, scroll-to-zoom, station hover tooltips, and a clickable line legend. Clicking a line isolates it. Stations and sections that do not carry that line are hidden, and the view zooms to the bounding box of what remains. Click again, press `Esc`, or select **Reset** to restore the full view.
+The page supports drag-to-pan, scroll-to-zoom, station hover tooltips, and a clickable line legend.
+Clicking a line isolates it.
+Stations and sections that do not carry that line are hidden, and the view zooms to the bounding box of what remains.
+Click again, press `Esc`, or select **Reset** to restore the full view.
 
-The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets. The [Embedding guide](/nf-metro/embedding/) covers responsive sizing, font portability, host theming, and progress overlays.
+The **Embed&hellip;** button opens a panel with copyable inline-HTML, iframe, and static-SVG snippets.
+The [Embedding guide](/nf-metro/embedding/) covers responsive sizing, font portability, host theming, and progress overlays.
 
 ### Validate the rendered geometry
 
-Pass `--validate` to check the _drawn_ SVG after rendering. It exits non-zero if a route is drawn through a station's label or marker, or if two distinct lines collapse into one stroke where they should run parallel. It reads the geometry as it ends up on the page, after the per-line offsets and label shifts the layout applies. It therefore catches defects the pre-render checks cannot see:
+Pass `--validate` to check the _drawn_ SVG after rendering.
+It exits non-zero if a route is drawn through a station's label or marker, or if two distinct lines collapse into one stroke where they should run parallel.
+It reads the geometry as it ends up on the page, after the per-line offsets and label shifts the layout applies.
+It therefore catches defects the pre-render checks cannot see:
 
 ```bash frame="terminal"
 nf-metro render pipeline.mmd -o pipeline.svg --validate
@@ -179,19 +186,24 @@ nf-metro render pipeline.mmd -o pipeline.svg --validate
 
 Because the guards read the drawn SVG through its embedded manifest, `--validate` refuses a map that turns the manifest off with `%%metro manifest: false` rather than reporting a pass it never checked.
 
-`--validate` covers those drawn-geometry guards only. A Tier-A layout-invariant violation, such as two stations landing on the same coordinate, is reported as a warning and the map still renders. Pass `--strict` to exit non-zero on one, or use [`nf-metro validate --with-layout`](#nf-metro-validate) to catch it before rendering at all.
+`--validate` covers those drawn-geometry guards only.
+A Tier-A layout-invariant violation, such as two stations landing on the same coordinate, is reported as a warning and the map still renders.
+Pass `--strict` to exit non-zero on one, or use [`nf-metro validate --with-layout`](#nf-metro-validate) to catch it before rendering at all.
 
 To run the same geometry checks on an already-rendered SVG, use [`nf-metro validate-svg --geometry`](#nf-metro-validate-svg).
 
 ## `nf-metro render-many`
 
-Render multiple metro maps from a JSON manifest in one process, amortizing interpreter and import startup across the whole corpus. Output directories are created as needed. On partial failure, successful outputs are kept and the command exits non-zero.
+Render multiple metro maps from a JSON manifest in one process, amortizing interpreter and import startup across the whole corpus.
+Output directories are created as needed.
+On partial failure, successful outputs are kept and the command exits non-zero.
 
 ```bash frame="terminal"
 nf-metro render-many MANIFEST_FILE
 ```
 
-`MANIFEST_FILE` is a JSON array of render jobs. Each job is an object with the required `input` and `output` keys, plus any subset of the `render` options expressed as JSON keys:
+`MANIFEST_FILE` is a JSON array of render jobs.
+Each job is an object with the required `input` and `output` keys, plus any subset of the `render` options expressed as JSON keys:
 
 | Key                    | Description                                                                                                                                                                  |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -232,7 +244,8 @@ nf-metro render-many MANIFEST_FILE
 
 ## `nf-metro convert`
 
-Convert a Nextflow `-with-dag` Mermaid file to nf-metro `.mmd` format. Render the output with `nf-metro render`, or hand-tune it first.
+Convert a Nextflow `-with-dag` Mermaid file to nf-metro `.mmd` format.
+Render the output with `nf-metro render`, or hand-tune it first.
 
 ```bash frame="terminal"
 nf-metro convert [OPTIONS] INPUT_FILE
@@ -247,7 +260,8 @@ See [Importing from Nextflow](/nf-metro/nextflow/) for details and examples.
 
 ## `nf-metro validate`
 
-Check a `.mmd` file for errors without producing output. The bare command runs graph-semantic checks: that every edge references a defined line, that every section points at stations that exist, and that the graph is acyclic.
+Check a `.mmd` file for errors without producing output.
+The bare command runs graph-semantic checks: that every edge references a defined line, that every section points at stations that exist, and that the graph is acyclic.
 
 ```bash frame="terminal"
 nf-metro validate [OPTIONS] INPUT_FILE
@@ -258,12 +272,12 @@ nf-metro validate [OPTIONS] INPUT_FILE
 | `--with-layout` | off     | Also run the layout engine with its full invariant suite, reporting any layout failure as an error instead of a traceback |
 | `--strict`      | off     | Treat warnings (for example, a non-LR primary direction) as errors                                                        |
 
-A map with no stations is reported as a warning here, because `render` refuses
-to draw one.
+A map with no stations is reported as a warning here, because `render` refuses to draw one.
 
 ## `nf-metro info`
 
-Show information about a parsed map: its sections, lines, stations, and edges. The default output is a stable human-readable summary.
+Show information about a parsed map: its sections, lines, stations, and edges.
+The default output is a stable human-readable summary.
 
 ```bash frame="terminal"
 nf-metro info [OPTIONS] INPUT_FILE
@@ -274,15 +288,16 @@ nf-metro info [OPTIONS] INPUT_FILE
 | `--json`    | off     | Emit the full introspection as JSON, for scripting                                                                                     |
 | `--verbose` | off     | Add the section dependency graph, per-line routes, inferred auto-layout defaults, and synthetic ports and junctions to the text output |
 
-Parse warnings print as a `Warnings:` block on stderr rather than into the
-stdout summary. `--verbose` and `--json` carry them in the report itself
-instead.
+Parse warnings print as a `Warnings:` block on stderr rather than into the stdout summary. `--verbose` and `--json` carry them in the report itself instead.
 
 `Style:` reports the theme the map resolves to, using the same name `render --theme` accepts.
 
 ## `nf-metro explain`
 
-Explain _why_ nf-metro made each layout decision. It names the rule that fired for each inferred choice, covering section direction, port sides, and fold and row layout. It does the same for each synthetic element the engine inserted, such as fan-out junctions and bypass-V stations. It pairs with `nf-metro info`, which shows _what_ was built.
+Explain _why_ nf-metro made each layout decision.
+It names the rule that fired for each inferred choice, covering section direction, port sides, and fold and row layout.
+It does the same for each synthetic element the engine inserted, such as fan-out junctions and bypass-V stations.
+It pairs with `nf-metro info`, which shows _what_ was built.
 
 ```bash frame="terminal"
 nf-metro explain [OPTIONS] INPUT_FILE
@@ -296,13 +311,16 @@ nf-metro explain [OPTIONS] INPUT_FILE
 
 ## `nf-metro serve`
 
-Serve a live-progress view of a metro map. `INPUT_FILE` may be a `.mmd` source or an already-rendered nf-metro SVG. The map is rendered once and served at `http://HOST:PORT/`. Point a Nextflow run's weblog at the events endpoint to light up stations as tasks run.
+Serve a live-progress view of a metro map. `INPUT_FILE` may be a `.mmd` source or an already-rendered nf-metro SVG.
+The map is rendered once and served at `http://HOST:PORT/`.
+Point a Nextflow run's weblog at the events endpoint to light up stations as tasks run.
 
 ```bash frame="terminal"
 nf-metro serve [OPTIONS] INPUT_FILE [-- LAUNCH_CMD...]
 ```
 
-`%%metro process:` directives in the map tie stations to processes, and only mapped stations change state. [Live progress](/nf-metro/live/) covers the event format, the overlay styles, and the endpoints.
+`%%metro process:` directives in the map tie stations to processes, and only mapped stations change state.
+[Live progress](/nf-metro/live/) covers the event format, the overlay styles, and the endpoints.
 
 | Option                                                                                        | Default       | Description                                                                                            |
 | --------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
@@ -332,7 +350,10 @@ nextflow run ... -with-weblog http://localhost:8080/events
 
 ## `nf-metro serve-multi`
 
-Run a persistent live server that many pipelines can report into. It starts with no map, unlike `serve`. A pipeline registers its map by POSTing the `.mmd` to `/maps`, then sends weblog events to the run's `/r/<id>/events` endpoint. The index at `http://HOST:PORT/` lists every run with a live status.
+Run a persistent live server that many pipelines can report into.
+It starts with no map, unlike `serve`.
+A pipeline registers its map by POSTing the `.mmd` to `/maps`, then sends weblog events to the run's `/r/<id>/events` endpoint.
+The index at `http://HOST:PORT/` lists every run with a live status.
 
 ```bash frame="terminal"
 nf-metro serve-multi [OPTIONS]
@@ -346,11 +367,15 @@ nf-metro serve-multi [OPTIONS]
 | `--overlay [ring\|pulse\|dot\|led]`                                                           | `ring`      | Status-overlay style shown until a viewer picks another in the page                                |
 | `--token TEXT`                                                                                | none        | If set, POSTs to `/maps` and `/r/*/events` must supply `?token=...` or an `X-Metro-Token` header   |
 
-The `metro.server` mode of the nf-metro Nextflow plugin does the register-and-emit automatically. See [Live progress](/nf-metro/live/#2b-persistent-server-many-runs).
+The `metro.server` mode of the nf-metro Nextflow plugin does the register-and-emit automatically.
+See [Live progress](/nf-metro/live/#2b-persistent-server-many-runs).
 
 ## `nf-metro check-mapping`
 
-Check a map's `%%metro process:` mapping against the pipeline's real processes. It reports processes the map cannot show, called drift, and station patterns that match nothing, called stale. It exits non-zero if it finds either. CI can therefore gate on map fidelity.
+Check a map's `%%metro process:` mapping against the pipeline's real processes.
+It reports processes the map cannot show, called drift, and station patterns that match nothing, called stale.
+It exits non-zero if it finds either.
+CI can therefore gate on map fidelity.
 
 ```bash frame="terminal"
 nf-metro check-mapping [OPTIONS] INPUT_FILE
@@ -370,8 +395,8 @@ Validate a rendered SVG's embedded manifest against the [manifest JSON Schema](/
 nf-metro validate-svg [OPTIONS] SVG_FILE
 ```
 
-Schema validation needs `jsonschema`, which is not a runtime dependency. It
-ships in the `validate` extra:
+Schema validation needs `jsonschema`, which is not a runtime dependency.
+It ships in the `validate` extra:
 
 ```bash frame="terminal"
 pip install "nf-metro[validate]"
@@ -383,7 +408,8 @@ pip install "nf-metro[validate]"
 
 ## `nf-metro embed-script`
 
-Print the `attachMetroMap()` embed driver JS to stdout. Load it on a host page alongside an nf-metro SVG to get the documented interactive API.
+Print the `attachMetroMap()` embed driver JS to stdout.
+Load it on a host page alongside an nf-metro SVG to get the documented interactive API.
 
 ```bash frame="terminal"
 nf-metro embed-script [OPTIONS]
