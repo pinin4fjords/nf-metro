@@ -239,10 +239,6 @@
   "note": "Defensive in iter_inter_row_gaps (consumed by inter_row_gap_upper_row and _inter_row_gap_band): adjacent rows in the sorted section-row set both contain sections, so row_bottom_edge / row_top_edge resolve; the None skip arm guards a row with no sections that the iteration never yields.",
   "status": "defensive"
  },
- "common.py::if trunk_ys[-1] - trunk_ys[0] <= COORD_TOLERANCE:::#1": {
-  "note": "Degenerate single-Y trunk band in iter_port_peeloff_bundles: a peel-off bundle is yielded only when its members ride trunks at distinct depths, so the equal-depth arm guards a same-Y bundle the trunk-slot materialization never leaves; render-diff confirms no visual change.",
-  "status": "needs-review"
- },
  "common.py::or exit_port is None::#1": {
   "note": "_flow_exit_feeding_route_source returns a station id only after graph.ports.get(id) has already produced a port for it, so the id it hands back is always a key of graph.ports and this second lookup cannot miss. The arm protects a caller that supplies its own exit id.",
   "status": "defensive"
@@ -659,10 +655,6 @@
   "note": "The planner admits this emitter only when branches land in distinct sections, so the duplicate-section arm cannot occur for a valid frozen emission. It remains a materialisation-time drift check.",
   "status": "defensive"
  },
- "inter_section_handlers.py::if self.launch_coordinate is None or self.axis_coordinate is None:::#1": {
-  "note": "_SourceSeam.minimum_runway returns None for a shape whose centreline never turns (everything but run_direction unstated). Production readers only reach it through _SourceTurnRequirement.from_seam and the planner sites that assert non-None first, and those run only for turning families, so the None arm firing would be a family-contract violation.",
-  "status": "defensive"
- },
  "inter_section_handlers.py::if shared_vx is not None:::#1": {
   "note": "_fan_left_entry_descent_x returns None only when col_left<=0; col_left_edge for the target's own column is always >0.",
   "status": "defensive"
@@ -1007,10 +999,6 @@
   "note": "Bounded fixpoint repair for coincident corner radii. The budget is one sweep per bucket plus one, and the pass asserts it always leaves through the early break, so exhausting the range is unreachable by construction. 347 fixtures enter the body; multi-bucket propagation is exercised directly by test_unify_refreshes_a_shared_route_after_changing_one_corner.",
   "status": "defensive"
  },
- "normalize.py::for _step in range(64):::#1": {
-  "note": "No top-level fixture can enter this defensive bisection honestly: production short leads at shared corners are frozen member-plan geometry, so corner_is_owned skips them, while unowned production legs have enough runway to share the preferred radius directly. The direct synthetic test_unify_uses_widest_radius_all_shared_legs_can_resolve exercises both loop completion and the clamp-safe correction.",
-  "status": "defensive"
- },
  "normalize.py::for grp in groups:::#3": {
   "note": "_suboptimal_trunk_bands diagnostic loop: validate-only, not reached by the render-path coverage sweep (see the len(trunks)<2 note).",
   "status": "defensive"
@@ -1026,10 +1014,6 @@
  "normalize.py::if (::#11": {
   "note": "A secondary lane declines to move when it faces no pinned obstacle but the obstacle it would step around already holds a fixed segment, so stepping cannot separate them. Every corpus crowding either pins its obstacle or leaves the obstacle's segments free, so the skip has no fixture; it needs a topology where a non-primary lane meets a fixed-segment obstacle.",
   "status": "needs-review"
- },
- "normalize.py::if (::#6": {
-  "note": "The coincident-corner repair rejects a candidate radius only for synthetic or directly supplied unowned geometry. Production member-owned corners already fit their frozen reference; focused concentric-corner tests cover the repair path.",
-  "status": "defensive"
  },
  "normalize.py::if 0 <= k - 1 < len(rp.curve_radii):::#1": {
   "note": "Bounds guard in _restack_htrunk: trunk index k >= 1 so k-1 >= 0 is always in range; the skip arm is defensive.",
@@ -1147,10 +1131,6 @@
   "note": "The lower bound is constructed from each member's minimum resolvable concentric radius, so at least that bound fits valid route geometry. Failure denotes contradictory synthetic corner inputs.",
   "status": "defensive"
  },
- "normalize.py::if not reference_fits(reference):::#1": {
-  "note": "Production coincident members publish a clamp-safe shared reference. The bisection arm repairs synthetic or future unowned geometry and is covered by focused normalization unit tests.",
-  "status": "defensive"
- },
  "normalize.py::if not verticals:::#1": {
   "note": "Shape guard in _land_feeder_on_run: a merge branch feeder is built as a descent into a tail, so it always has a vertical leg. Reachable in principle only if a feeder's source Y coincides with the trunk channel level, collapsing the descent below COORD_TOLERANCE (#1597).",
   "status": "defensive"
@@ -1161,10 +1141,6 @@
  },
  "normalize.py::if overlap <= COORD_TOLERANCE:::#1": {
   "note": "_clear_merge_trunk_opposite_arm skips an opposite arm within a curve radius of the down-trunk but not overlapping it in Y, since without a shared Y span there is no fold-back to clear. The corpus's qualifying fork overlaps in Y, so the no-overlap skip arm stays un-exercised. Defensive against a near-column opposite arm that clears the trunk vertically.",
-  "status": "defensive"
- },
- "normalize.py::if reference_fits(midpoint):::#2": {
-  "note": "Both bisection decisions belong to the synthetic clamp-repair path. Production member-owned references bypass the search; unit tests exercise convergence on the widest shared radius.",
   "status": "defensive"
  },
  "normalize.py::if rep_x[a] != rep_x[b]:::#1": {
@@ -1221,10 +1197,6 @@
  },
  "normalize.py::if cleared is None:::#1": {
   "note": "The residual-cluster fallback gives up on a fused cluster when neither the up nor the down stack of its movable lanes clears every section, claim band and other lane. The corpus's one residual cluster (riboseq_inter_row_corridor) is stranded against a pinned trunk with room on its open side, so a stack clears and the give-up arm stays un-exercised. Defensive against a cluster boxed on both sides, which has no non-fused seating to reach.",
-  "status": "defensive"
- },
- "normalize.py::if not movable or not anchors:::#1": {
-  "note": "The residual-cluster fallback skips a fused cluster it cannot restack: one with no movable, unpinned lane (nothing to move), or none it can anchor a stack against (every member movable). An all-movable residual is one the one-step cascade already exhausted the room for -- its obstacle-chain reaches every slot the shared section and band limits leave -- so the atomic stack cannot improve it; the corpus produces no all-fixed or all-movable residual, leaving this skip un-exercised.",
   "status": "defensive"
  },
  "offsets.py::elif feeding_exit != edge.source:::#1": {

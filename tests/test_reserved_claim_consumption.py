@@ -73,6 +73,10 @@ KNOWN_NOT_RENDERING = frozenset(
         "tests/fixtures/nextflow/unquoted_labels.mmd",
         "tests/fixtures/nextflow/variant_calling.mmd",
         "tests/fixtures/nextflow/with_subworkflows.mmd",
+        # A fan-overlay curve defect, not a category: the band-hop drop-at-junction
+        # seam this fixture pins for #1808 aborts downstream on the unrelated
+        # fan-overlay curve invariant (#1806/#1809).
+        "tests/fixtures/curve_invariant_repros/riboseq_band_hop_zero_length_seam.mmd",
     }
 )
 
