@@ -1,12 +1,11 @@
-"""A TB off-track output never lands on a same-row fork-branch station (#1390).
+"""A TB off-track output drops clear of a sibling fork branch (#1390).
 
-When a fork's producer emits an ``off_track`` output offset along the section's
-cross axis, the grid snap can pull that output's flow coordinate onto the exact
-row of a sibling fork branch.  The branch then shares the output icon's row, and
-if it also shares its cross column the two stations occupy one coordinate.
-
-A same-row, same-column station is a direct overlap and must count as an
-obstacle for the collision-avoidance bump even though it isn't downstream.
+A fork producer emits an ``off_track`` output plus an on-track branch that fans
+to the same side the output is lifted toward.  The output must not seat in the
+narrow gap between the trunk and that branch column: the branch's onward
+diagonal runs through the gap, and the grid snap can pull the output onto the
+branch's row, so a slot there both clips the diagonal and can collide outright
+with the branch station.  The output drops to the trunk's clear opposite side.
 """
 
 from __future__ import annotations
@@ -25,10 +24,11 @@ FIXTURE = (
 
 OFF_TRACK = "mapped_out"
 BRANCH = "markduplicates"
+TRUNK = "bam_convert"
 
 
 def test_tb_offtrack_output_clears_fork_branch_station():
-    """The off-track output and the sibling fork branch hold distinct cells."""
+    """The off-track output holds a cell distinct from the sibling fork branch."""
     graph = parse_metro_mermaid_file(FIXTURE)
     engine.compute_layout(graph, validate=True)
 
@@ -38,4 +38,19 @@ def test_tb_offtrack_output_clears_fork_branch_station():
     assert separation > 1.0, (
         f"off-track output {OFF_TRACK!r} at ({off.x},{off.y}) collides with fork "
         f"branch {BRANCH!r} at ({branch.x},{branch.y})"
+    )
+
+
+def test_tb_offtrack_output_not_wedged_in_trunk_branch_gap():
+    """The output sits outside the trunk-to-branch gap, not squeezed within it."""
+    graph = parse_metro_mermaid_file(FIXTURE)
+    engine.compute_layout(graph, validate=True)
+
+    off_x = graph.stations[OFF_TRACK].x
+    trunk_x = graph.stations[TRUNK].x
+    branch_x = graph.stations[BRANCH].x
+    gap_lo, gap_hi = sorted((trunk_x, branch_x))
+    assert not (gap_lo + 1.0 < off_x < gap_hi - 1.0), (
+        f"off-track output {OFF_TRACK!r} at x={off_x} is wedged between trunk "
+        f"x={trunk_x} and branch column x={branch_x}, under the branch diagonal"
     )
