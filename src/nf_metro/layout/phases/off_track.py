@@ -1688,12 +1688,19 @@ def _bump_off_track_clear_of_trunks(
             continue
         if st2.off_track or st2.is_terminus:
             continue
-        if flow_sign * (getattr(st2, flow_axis) - off_flow) <= SAME_COORD_TOLERANCE:
-            continue
-        if not _feeding_run_spans_flow_coord(
-            graph, st2, off_flow, flow_axis, in_section
-        ):
-            continue
+        # A station on the icon's own flow row is a direct overlap: it contests
+        # the icon's cross slot at that row rather than crossing the icon's
+        # column from downstream. The downstream/feeding-run gate below models
+        # only the latter, so a same-row station must skip it and always count
+        # as a contesting band.
+        same_row = abs(getattr(st2, flow_axis) - off_flow) <= SAME_COORD_TOLERANCE
+        if not same_row:
+            if flow_sign * (getattr(st2, flow_axis) - off_flow) <= SAME_COORD_TOLERANCE:
+                continue
+            if not _feeding_run_spans_flow_coord(
+                graph, st2, off_flow, flow_axis, in_section
+            ):
+                continue
         # The line-track band spread across the cross axis at this trunk
         # station: each line sits at ``st2_cross + offset(line)``, bounded by
         # ``(n_lines - 1) * OFFSET_STEP`` centred on the station's cross coord.
