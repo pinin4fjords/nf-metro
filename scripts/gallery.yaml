@@ -2374,6 +2374,7 @@ render_only:
     - tb_exit_terminal_on_carrier
     - group_band_over_row_corridor
     - regressions/tb_offtrack_fork_branch_collision_1390
+    - topologies/novel_transcripts_repro
     - topologies/twoline_fanout_up
     - hash_seed_determinism/seed_15
     - hash_seed_determinism/seed_41
