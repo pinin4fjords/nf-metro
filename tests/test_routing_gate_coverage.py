@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -113,6 +114,38 @@ def test_gate_coverage_baseline_in_sync(current_gaps, baseline_gaps):
         "baseline. Regenerate it with "
         "`python scripts/routing_gate_coverage.py --write` to tighten the "
         "ratchet.\nNewly covered:\n  " + "\n  ".join(now_covered)
+    )
+
+
+def _normalize_lines(text: str) -> str:
+    """Blank out source-line numbers so an unrelated line shift is not a diff.
+
+    They appear in two places: the leading ``Line`` column of each gate row, and
+    the ``->L`` arc-destination markers of an un-exercised arm (negative for an
+    exit-arc gate). Everything else in a row - the gate code, the arm structure,
+    the triage note - is content the doc must keep in sync.
+    """
+    text = re.sub(r"(?m)^\| -?\d+ \|", "| N |", text)
+    text = re.sub(r"->L-?\d+", "->LN", text)
+    return text
+
+
+def test_gate_coverage_doc_in_sync(rgc, gates):
+    """The committed matrix doc must match a fresh render of the corpus.
+
+    The baseline JSON pins only the gap *set*, so drift in
+    ``docs/dev/routing_gate_coverage.md`` - a moved gate, a reworded triage note,
+    an arm the corpus covers but the doc marks un-exercised - goes undetected.
+    Comparing a fresh render against the committed file closes that gap;
+    source-line numbers are normalized out first so an unrelated line shift does
+    not red this test.
+    """
+    triage = rgc.load_triage()
+    fresh = rgc._render_markdown(gates, triage)
+    committed = rgc.DOC_PATH.read_text()
+    assert _normalize_lines(fresh) == _normalize_lines(committed), (
+        "docs/dev/routing_gate_coverage.md is out of sync with a fresh render. "
+        "Regenerate it with `python scripts/routing_gate_coverage.py --write`."
     )
 
 
