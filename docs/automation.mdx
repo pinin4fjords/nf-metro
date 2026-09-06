@@ -1,5 +1,5 @@
 ---
-title: "CI & automation"
+title: "CI and automation"
 description: Keep a pipeline's metro-map SVG in sync with its .mmd source using the nf-metro GitHub Action or pre-commit hook.
 ---
 
@@ -26,11 +26,16 @@ The composite action renders the map and reports whether the SVG changed.
 # steps.metro.outputs.changed     — 'true' when it differs from the committed SVG
 ```
 
-Every input is optional: `input` (default `assets/metro_map.mmd`), `output`
-(default: the sibling `.svg` of the input), `theme` (default `nfcore`), `mode`,
-`embed-font` (default `true`), `version` (the nf-metro version to install), and
-`extra-args` for any other `nf-metro render` flag, such as
-`extra-args: "--fold-threshold 20"`.
+Every input is optional:
+
+- `input`: default `assets/metro_map.mmd`.
+- `output`: default is the sibling `.svg` of the input.
+- `theme`: default `nfcore`.
+- `mode`: no default.
+- `embed-font`: default `true`.
+- `version`: the nf-metro version to install.
+- `extra-args`: any other `nf-metro render` flag, such as
+  `extra-args: "--fold-threshold 20"`.
 
 ## Pre-commit hook
 
@@ -45,10 +50,10 @@ repos:
       - id: nf-metro
 ```
 
-The hook matches `*.mmd` and writes the sibling `.svg`, so
+The hook matches `*.mmd` and writes the sibling `.svg`.
 `assets/metro_map.mmd` becomes `assets/metro_map.svg`. It runs with
 `--theme nfcore --embed-font` by default. Setting `args` replaces that whole
-list, so repeat the flags you want to keep alongside the new one:
+list. Repeat the flags you want to keep alongside the new one:
 
 ```yaml
 - id: nf-metro
