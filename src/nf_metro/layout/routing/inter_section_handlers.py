@@ -4851,9 +4851,21 @@ class _PerpEntryLGeometry:
 
 
 def _leg_direction(start: tuple[float, float], end: tuple[float, float]) -> Direction:
-    """The heading of an axis-aligned leg, read from its own two endpoints."""
+    """The heading of an axis-aligned leg, read from its own two endpoints.
+
+    A caller that can legitimately reach coincident endpoints resolves the
+    degenerate leg itself (a turn-less seam, say) before asking here; reaching
+    this with a zero-length leg is an unmodelled geometry, so it fails loud with
+    the endpoints named.
+    """
     direction = segment_direction(start, end)
-    assert direction is not None
+    if direction is None:
+        from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
+
+        raise ExitTurnInvariantError(
+            f"zero-length route leg {start} -> {end}: cannot read a heading from "
+            "coincident endpoints"
+        )
     return direction
 
 
@@ -5767,23 +5779,32 @@ def _entry_wrap_record(
     stagger off that on the turn leg's normal, which is the column
     ``axis_coordinate`` names.
     """
+    from nf_metro.layout.routing.exit_turns import ExitTurnInvariantError
+
     src_off = _get_offset(ctx, edge.source, edge.line_id)
-    turn_direction = _leg_direction(
-        (src.x, src.y + src_off + delta), (src.x, channel_y)
-    )
-    return _EntryWrapGeometry(
-        pos_n,
-        delta,
-        corner_x,
-        channel_y,
-        descent_x,
-        _SourceSeam(
-            _leg_direction((src.x, src.y), (corner_x, src.y)),
+    try:
+        turn_direction = _leg_direction(
+            (src.x, src.y + src_off + delta), (src.x, channel_y)
+        )
+    except ExitTurnInvariantError as e:
+        raise ExitTurnInvariantError(
+            f"{e} [entry-wrap drop for source {edge.source!r} line {edge.line_id!r}]"
+        ) from e
+    run_direction = segment_direction((src.x, src.y), (corner_x, src.y))
+    if run_direction is None:
+        # The corner sits on the source's own column, so there is no lead-out
+        # run before the turn: the branch drops straight down the junction
+        # column.  A centreline that never turns states only the drop it opens
+        # on (the coincident-column bottom-exit seam does the same).
+        seam = _SourceSeam(turn_direction, None, None, None)
+    else:
+        seam = _SourceSeam(
+            run_direction,
             turn_direction,
             src.x,
             corner_x - delta * right_normal_axis_sign(turn_direction),
-        ),
-    )
+        )
+    return _EntryWrapGeometry(pos_n, delta, corner_x, channel_y, descent_x, seam)
 
 
 def _left_entry_wrap_geometry(
