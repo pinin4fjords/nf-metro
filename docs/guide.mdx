@@ -190,7 +190,9 @@ The white document stays visible:
 
 <Metro src="examples/guide/05f_banner_labels.mmd" mmd={false} />
 
-Any `name` caption in the third field still renders below the icon. `| <name> | banner` keeps the caption, and `| | banner` applies the strip with no caption. `banner` is not supported on `dir:` folder icons.
+Any `name` caption in the third field still renders below the icon.
+`| <name> | banner` keeps the caption, and `| | banner` applies the strip with no caption.
+`banner` is not supported on `dir:` folder icons.
 
 ## 6. Per-station markers
 
@@ -361,7 +363,8 @@ These go at the top of the file, before `graph LR`.
 | `%%metro process_scope: <prefix>`                                          | Common fully-qualified-name prefix shared by the pipeline's processes (for example, `NFCORE_RNASEQ:RNASEQ`). Each `process:` value is then the tail under this scope, matched literally and tolerant of intermediate subworkflow nesting (see [Live progress](/nf-metro/live/)). CLI equivalent `--process-scope`.                                                                                     |
 | `%%metro manifest: <bool>`                                                 | Embed the machine-readable data manifest (the `<metadata>` block and per-node `data-node-*` attributes) in the SVG. On by default. `%%metro manifest: false` emits the drawn map only.                                                                                                                                                                                                                 |
 
-**Logos.** `%%metro logo: <path>` bundles one image into the legend, and nf-metro uses that image in every display mode. `%%metro logo: <light-path> | <dark-path>` supplies a pair instead.
+**Logos.** `%%metro logo: <path>` bundles one image into the legend, and nf-metro uses that image in every display mode.
+`%%metro logo: <light-path> | <dark-path>` supplies a pair instead.
 nf-metro embeds both assets, each behind a CSS `light-dark()` mask.
 One rendered SVG then shows the light asset to a viewer whose `color-scheme` is light and the dark asset to one whose scheme is dark.
 This is the same adaptation the palette gets, with no second render:
@@ -371,10 +374,12 @@ This is the same adaptation the palette gets, with no second render:
 ```
 
 `--mode` on its own still ships both assets and pins the SVG's own `color-scheme`, and the matching one shows.
-Baking a concrete palette with `--no-chrome-css`, which a PNG export needs, drops the masks instead and keeps only the asset for the resolved mode. `--mode dark` therefore bakes the dark logo and `--mode light` the light one.
+Baking a concrete palette with `--no-chrome-css`, which a PNG export needs, drops the masks instead and keeps only the asset for the resolved mode.
+`--mode dark` therefore bakes the dark logo and `--mode light` the light one.
 Leave either side of the pair empty, as in `%%metro logo: light.png |`, for an asset that appears in one mode only.
 The other mode then shows no logo.
-Both paths resolve relative to the `.mmd` file, and either one failing to resolve is an error. `--logo` sets the single-path form only, does not replace a pair declared in the file, and takes a path from the working directory rather than from the `.mmd`.
+Both paths resolve relative to the `.mmd` file, and either one failing to resolve is an error.
+`--logo` sets the single-path form only, does not replace a pair declared in the file, and takes a path from the working directory rather than from the `.mmd`.
 
 **Compact offsets.** By default each line reserves a fixed vertical slot across the whole map, based on its declaration order.
 Define three lines and every station carrying even one of them grows to fit all three.
@@ -475,9 +480,13 @@ List the lanes one rail per pipe-group, and use commas to bundle several lines o
 A rail may name a line the node does not carry, and one directive can therefore serve a family of maps.
 nf-metro does not place such a line, and a rail left with no line the node carries drops out.
 A node left with fewer than two live rails is not an interchange, and nf-metro reports that.
-Auto-detection abstains when two lines share a predecessor or successor, as when two callers feed one merge, because there the convergence is doing real work.
-It also abstains when another lane's rail would fall between the interchange's rails, because the connector bar would then cut across that lane's stations.
-nf-metro skips interchanges inside `rails` sections, which already lay every line on its own rail.
+
+Three further cases produce no interchange:
+
+- Auto-detection abstains when two lines share a predecessor or successor, as when two callers feed one merge, because there the convergence is doing real work.
+- It also abstains when another lane's rail would fall between the interchange's rails, because the connector bar would then cut across that lane's stations.
+- nf-metro skips interchanges inside `rails` sections, which already lay every line on its own rail.
+
 The [cross_track_interchange](https://github.com/seqeralabs/nf-metro/blob/main/examples/cross_track_interchange.mmd) example shows a shared MarkDuplicates step across parallel tumour and normal lanes.
 
 ### Section directives
@@ -535,7 +544,9 @@ They share one precedence rule:
 Set the directive in your committed `.mmd` so the map reproduces from the file alone, and use the flag only to change a single render without editing the file.
 One registry generates most pairs.
 The flag is therefore the kebab-cased directive, and neither plane can gain an option the other lacks.
-The following table is the authority on the exceptions. `style:` is spelled `--theme` on the command line. `manifest:` has no flag you should reach for, because it writes a graph field named `embed_manifest` and its flag is an internal escape hatch kept out of `--help`.
+The following table is the authority on the exceptions.
+`style:` is spelled `--theme` on the command line.
+`manifest:` has no flag you should reach for, because it writes a graph field named `embed_manifest` and its flag is an internal escape hatch kept out of `--help`.
 A pair takes the same values, though a flag takes them exactly as documented.
 An unknown or wrong-case value exits with an error, where the directive warns and keeps the default.
 
@@ -575,10 +586,12 @@ An unknown or wrong-case value exits with an error, where the directive warns an
 | `process_scope:`     | `--process-scope`                            | (none)            |
 | `manifest:`          | (internal escape hatch, not in `--help`)     | on                |
 
-`--output`, `--format`, `--from-nextflow`, `--debug`, `--validate`, and the embedding flags (`--responsive`, `--embed-font`, `--text-to-paths`, `--svg-class-prefix`, `--bare`, `--no-self-color-scheme`, `--no-dark-mode-css`, `--no-chrome-css`) have no directive.
-They select the output target, a diagnostic overlay, or how the SVG is packaged for a host, rather than describing the diagram. `--inactive-lines` is the per-render counterpart to the `inactive` field on `%%metro line:`, and replaces that set outright.
+Three groups fall outside that pairing:
 
-The remaining directives have no CLI flag, because they describe the diagram's content rather than a render setting: `line:`, `grid:`, `off_track:`, `process:`, `interchange:`, `legend_combo:`, `group:`, `marker:`, `marker_legend:`, the `file:`/`files:`/`dir:` icons, and the section-scoped `entry:`/`exit:`/`direction:`/`number:`.
+- `--output`, `--format`, `--from-nextflow`, `--debug`, `--validate`, and the embedding flags (`--responsive`, `--embed-font`, `--text-to-paths`, `--svg-class-prefix`, `--bare`, `--no-self-color-scheme`, `--no-dark-mode-css`, `--no-chrome-css`) have no directive.
+  They select the output target, a diagnostic overlay, or how the SVG is packaged for a host, rather than describing the diagram.
+- `--inactive-lines` is the per-render counterpart to the `inactive` field on `%%metro line:`, and replaces that set outright.
+- The remaining directives have no CLI flag, because they describe the diagram's content rather than a render setting: `line:`, `grid:`, `off_track:`, `process:`, `interchange:`, `legend_combo:`, `group:`, `marker:`, `marker_legend:`, the `file:`/`files:`/`dir:` icons, and the section-scoped `entry:`/`exit:`/`direction:`/`number:`.
 
 ## When a layout is broken
 

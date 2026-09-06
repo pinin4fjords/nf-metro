@@ -84,7 +84,8 @@ ARROW: /-->|---|==>/
 NAME:  /[a-zA-Z_][a-zA-Z0-9_]*/
 ```
 
-An edge endpoint may carry an inline shape. `x[X] -->|a| y[Y]` declares node `x` with label "X", node `y` with label "Y", and the edge between them, all in one line.
+An edge endpoint may carry an inline shape.
+`x[X] -->|a| y[Y]` declares node `x` with label "X", node `y` with label "Y", and the edge between them, all in one line.
 The `SHAPE` terminal's inner pattern, `_SHAPE_INNER`, excludes the arrow sequences.
 A source shape like `[X]` therefore stops at the arrow rather than swallowing it.
 
@@ -98,7 +99,8 @@ Three steps:
 1. **Parse.** `_PARSER.parse(text)` turns the whole document into a parse tree using the grammar.
 2. **Transform.** `_StatementTransformer` walks that tree and flattens it into an ordered list of **typed statements**, one small dataclass per source line, from a fixed union of `_GraphHeader`, `_Subgraph`, `_Directive`, `_Node`, `_Edge`, `_End`, `_Comment` and `_Junk`.
    The transformer normalizes as it goes.
-   Each statement carries structured fields rather than raw tokens. `_Subgraph` already splits the section id from its display name, `_Directive` splits the body on the first colon into `key` and `value`, and `_Edge` carries its line ids as a list plus any inline endpoint labels.
+   Each statement carries structured fields rather than raw tokens.
+   `_Subgraph` already splits the section id from its display name, `_Directive` splits the body on the first colon into `key` and `value`, and `_Edge` carries its line ids as a list plus any inline endpoint labels.
 3. **Drive.** `parse_metro_mermaid` iterates those statements _in source order_ and dispatches each by `isinstance`, applying it to the graph while tracking which `subgraph` it is currently inside through `current_section_id`.
    A `_Subgraph` opens a section, an `_End` closes it, and the nodes, edges and directives in between are attached to it.
 
@@ -138,8 +140,10 @@ Two families are dispatched separately because they need more than the value alo
 A key matching none of these is ignored with a `UserWarning`.
 
 The simple scalar, bool and enum settings that also have a CLI flag, such as spacing, gaps, `diamond_style`, the scales, `width`, `height` and `animate`, are not hand-written handlers.
-They are declared once in `nf_metro.options`, as `LayoutOption` entries in `LAYOUT_OPTIONS`. `_make_layout_option_handler` generates a directive handler from each entry, parsing through `coerce` and writing the named `MetroGraph` field, and `nf_metro.cli` generates the matching `click` flag from the same registry.
-Adding such an option means one registry entry rather than a handler plus a flag plus a docs row. `tests/test_options_parity.py` guards that every registry option exists in both planes.
+They are declared once in `nf_metro.options`, as `LayoutOption` entries in `LAYOUT_OPTIONS`.
+`_make_layout_option_handler` generates a directive handler from each entry, parsing through `coerce` and writing the named `MetroGraph` field, and `nf_metro.cli` generates the matching `click` flag from the same registry.
+Adding such an option means one registry entry rather than a handler plus a flag plus a docs row.
+`tests/test_options_parity.py` guards that every registry option exists in both planes.
 The bespoke handlers in the table carry grammar, meaning fields, sections and coordinates, that the generic registry cannot express.
 
 The directives `_apply_directive` recognizes:
@@ -169,7 +173,8 @@ The directives `_apply_directive` recognizes:
 | `marker:` / `marker_legend:`                                            | per-station marker shape/fill styling and its legend caption                                    |
 | `file:` / `files:` / `dir:`                                             | terminus file-icon designation                                                                  |
 
-`entry:` and `exit:` do **not** create `Port` objects at parse time. `_parse_port_hint` records them on the `Section` as `entry_hints` and `exit_hints`, each a `(side, [line_ids])` list.
+`entry:` and `exit:` do **not** create `Port` objects at parse time.
+`_parse_port_hint` records them on the `Section` as `entry_hints` and `exit_hints`, each a `(side, [line_ids])` list.
 Real inter-section edges drive port creation later.
 
 ## Leniency and error policy
@@ -197,7 +202,8 @@ A map declaring no `%%metro line:` directive at all is no exception, since every
 
 A directive may name a node or subgraph that appears further down the file, so the ids a directive references cannot be resolved in its handler.
 A handler that resolved an id itself would report a false unknown for every forward reference.
-Handlers therefore check only payload shape and buffer the ids. `_warn_unresolved_references` and `_resolve_legend_combos` resolve them in `_finalize_graph`, once the whole source has been applied.
+Handlers therefore check only payload shape and buffer the ids.
+`_warn_unresolved_references` and `_resolve_legend_combos` resolve them in `_finalize_graph`, once the whole source has been applied.
 
 The unrecognized-line case is handled in the grammar by a low-priority catch-all:
 
@@ -251,7 +257,8 @@ It is split into three helpers:
   The design rule is **one exit port per source section and side** and **one entry port per target section and side**.
   Lines sharing a boundary leave together for consistent ordering, and topology divergence groups decide where fan-out junctions are required.
 
-After ports and fan junctions exist, topology convergence groups decide where merge junctions are required. `_assign_section_numbers` then numbers any unnumbered sections.
+After ports and fan junctions exist, topology convergence groups decide where merge junctions are required.
+`_assign_section_numbers` then numbers any unnumbered sections.
 
 The result is a `MetroGraph` whose edges all live within a section or run port-to-port, ready for the layout stage.
 
@@ -263,7 +270,8 @@ A parser-local sidecar follows each authored connector through interchange and t
 
 After terminus convergence, `resolve_section_endpoints` settles every boundary side on the production graph.
 It retains the current edge endpoints and their encounter order.
-The topology builder uses those boundary facts to describe the semantic groups. `_resolve_sections` then creates ports and junctions from the topology, while the boundary result preserves the current edge endpoints and output order.
+The topology builder uses those boundary facts to describe the semantic groups.
+`_resolve_sections` then creates ports and junctions from the topology, while the boundary result preserves the current edge endpoints and output order.
 
 The topology contains one connected `LineNetwork` per line component, exact endpoint `BundleRun`s, cross-section connectors, resolved endpoint groups, divergences and resolver-shaped convergences.
 Connector identities derive from source, target, line and an occurrence number among exact duplicates.
@@ -283,7 +291,8 @@ Bypass insertion updates the affected paths when it splits an exit leg.
 
 `RouteTopology` and `RouteResolutionTrace` stay on `MetroGraph` while layout and routing run.
 They identify the authored fan, merge and endpoint group behind each resolver-created port or junction.
-They are excluded from `RenderPlan`, because that plan is created only after geometry has settled and needs no parser provenance to render SVG, HTML or a manifest. `LayoutProvenance` is excluded for the same reason.
+They are excluded from `RenderPlan`, because that plan is created only after geometry has settled and needs no parser provenance to render SVG, HTML or a manifest.
+`LayoutProvenance` is excluded for the same reason.
 
 ### Layout decision provenance
 

@@ -121,7 +121,7 @@ BOUNDARY_RE = re.compile(
     (?P<punct>[.!?]{1,3})
     (?P<close>["'”’)\]]*)
     [ \t]+
-    (?=[A-Z0-9`\[(*_"'“‘<]|(?:"""
+    (?=[A-Z0-9`\[(*_"'“‘<\x00]|(?:"""
     + "|".join(re.escape(name) for name in LOWERCASE_STARTERS)
     + r""")\b)
     """,
@@ -150,10 +150,12 @@ def _is_real_boundary(text: str, match: re.Match[str]) -> bool:
             if len(token) == 1 and standalone:
                 return False
 
-        # A bare number and a period is an ordered-list marker, not a sentence
-        # end. Keeping `4.` attached to the text it introduces lets
-        # `_emit_ordered` recognise and restore the swallowed list item.
-        if re.search(r"(?:^|\s)\d{1,9}$", before):
+        # A number that itself follows a sentence end is an ordered-list
+        # marker a previous reflow swallowed, not a sentence end of its own.
+        # Keeping `4.` attached to the text it introduces lets `_emit_ordered`
+        # restore the list item. A number that merely closes a sentence
+        # ("must be greater than 0.") is a normal boundary.
+        if re.search(r"(?:^|[.!?]\s+)\d{1,9}$", before):
             return False
 
     return True

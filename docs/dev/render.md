@@ -32,7 +32,8 @@ Each measurement carries a semantic role, such as station label, section header,
 That keeps the safety margin for each use explicit while sharing one deterministic measurement path.
 
 The default SVG mode keeps the Helvetica-family output and its conservative per-role reservations.
-Because its proportional advance table is bundled in the package, layout never searches the host for an installed font. `--embed-font` and `--text-to-paths` instead select exact Inter metrics from generated tables shipped in `src/nf_metro/_inter_metrics.py`.
+Because its proportional advance table is bundled in the package, layout never searches the host for an installed font.
+`--embed-font` and `--text-to-paths` instead select exact Inter metrics from generated tables shipped in `src/nf_metro/_inter_metrics.py`.
 Those tables come from the same bundled Inter Regular and Bold WOFF2 files used by the output, and weights 600, 700, and `bold` all select Inter Bold.
 Unsupported characters use the advance, bounds, and outline of the visible `?` replacement.
 
@@ -85,7 +86,8 @@ Width and height come from `_compute_canvas_bounds` plus a margin: `CANVAS_PADDI
 The far edges therefore grow to hold whatever the render draws.
 
 The near edges cannot grow.
-The map moves instead. `_settle_clear_of_the_canvas_margins` measures the ink that lands outside the section-box envelope on the left or top.
+The map moves instead.
+`_settle_clear_of_the_canvas_margins` measures the ink that lands outside the section-box envelope on the left or top.
 That ink is typically an inter-row return band wrapping around the first box of a row, or a bundle rising over the top of one.
 It then moves the whole laid-out graph away from the edge by the shortfall, using `translate_graph` in `layout/phases/canvas.py`.
 That function owns the full set of absolute coordinates a graph carries.
@@ -105,7 +107,8 @@ An authored pin, whether `legend: x,y`, `| canvas`, or `| dx,dy`, is placed as w
 ## Bridges (`bridges.py`)
 
 Two distinct metro lines may cross at a point that is not a shared station, port, junction, or merge.
-Drawn plainly, that reads as an interchange. `compute_bridges` resolves the ambiguity by inserting a short gap in the under-route where it passes beneath the over-route.
+Drawn plainly, that reads as an interchange.
+`compute_bridges` resolves the ambiguity by inserting a short gap in the under-route where it passes beneath the over-route.
 
 `compute_bridges(graph, routes)` takes the assembled polylines, with offsets already applied, and:
 
@@ -138,7 +141,8 @@ The embed snippet scopes CSS under a per-render hash (`.nfmm-<sha1[:8]>`) so mul
 Plan construction maps the final render geometry onto the [embedded-manifest standard](/nf-metro/manifest/): stations become nodes, sections become groups, and visual regions (section bboxes) become regions.
 The manifest is serialized to JSON and injected as a `<metadata>` element inside the SVG, keyed by `MANIFEST_ELEMENT_ID`.
 
-The tool-neutral serialization and deserialization logic lives in `nf_metro.manifest`, a dependency-free package built to be lifted into its own distribution. `render/manifest.py` is the thin nf-metro-specific adapter.
+The tool-neutral serialization and deserialization logic lives in `nf_metro.manifest`, a dependency-free package built to be lifted into its own distribution.
+`render/manifest.py` is the thin nf-metro-specific adapter.
 It imports from `nf_metro.manifest` and re-exports the public API, which keeps existing `nf_metro.render.manifest` import paths working.
 
 `manifest_metadata_svg(manifest)` returns the raw SVG `<metadata>` XML string for cases where the caller assembles the SVG element manually.
@@ -166,7 +170,8 @@ To enable it, call `validate_render(svg, plan=plan)`.
 ## Animation (`animate.py`)
 
 `render_animation(d, graph, routes, station_offsets, theme)` appends animated `<circle>` elements to an existing `drawsvg.Drawing`.
-CSS `offset-path` and `@keyframes` move each circle along its line. `emit_render_plan` calls it when `animate` is `True`.
+CSS `offset-path` and `@keyframes` move each circle along its line.
+`emit_render_plan` calls it when `animate` is `True`.
 
 `animate.py` uses CSS animation rather than SMIL `<animateMotion>` because SMIL does not run when a host page injects an SVG through `innerHTML`, as happens in the playground preview, the inline embed snippet, and any host that inlines an exported map.
 The timeline advances but the motion is never sampled, and every ball freezes at its path start.
@@ -190,11 +195,16 @@ Built-in themes live in `src/nf_metro/themes/`:
 - `light.py` holds `LIGHT_THEME`, the transparent embed theme with `background_color="none"`.
   It belongs to no brand family and has no mode counterpart.
 
-`themes/__init__.py` holds two registries. `THEME_MODES` maps a brand name to its `{light, dark}` pair. `THEMES` is the flat by-name registry that direct selection looks up, covering the bare brand names resolved at `DEFAULT_MODE`, the mode-suffixed names such as `nfcore-light` and `seqera-dark`, and `light`. `resolve_theme(theme, graph, mode)` combines the two axes.
+`themes/__init__.py` holds two registries.
+`THEME_MODES` maps a brand name to its `{light, dark}` pair.
+`THEMES` is the flat by-name registry that direct selection looks up, covering the bare brand names resolved at `DEFAULT_MODE`, the mode-suffixed names such as `nfcore-light` and `seqera-dark`, and `light`.
+`resolve_theme(theme, graph, mode)` combines the two axes.
 Brand comes from the explicit name or the graph's `style`, where `dark` is an alias for `nfcore`, and mode comes from the explicit argument, `%%metro mode:` or `DEFAULT_MODE`.
 
-Because the axes are separable, one render carries both palettes. `mode_pair(theme)` recovers a brand's light and dark variants, and the chrome colors emit as CSS `light-dark(<light>, <dark>)`.
-A single SVG therefore adapts to the viewer's `color-scheme`. `--no-chrome-css` bakes one concrete palette instead, for consumers that cannot parse `light-dark()`.
+Because the axes are separable, one render carries both palettes.
+`mode_pair(theme)` recovers a brand's light and dark variants, and the chrome colors emit as CSS `light-dark(<light>, <dark>)`.
+A single SVG therefore adapts to the viewer's `color-scheme`.
+`--no-chrome-css` bakes one concrete palette instead, for consumers that cannot parse `light-dark()`.
 
 To add a brand, define a light and a dark `Theme` sharing one `brand` value, register the pair under `THEME_MODES`, and add its names to `THEMES`.
 It is then selectable through `%%metro style: <brand>` and `%%metro mode: <mode>`, or the `--theme` and `--mode` options.

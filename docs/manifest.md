@@ -103,7 +103,8 @@ A consumer can therefore go from manifest to element and back without guessing.
   The manifest is therefore a complete inventory rather than only the subset that lights up.
 - `id` is the join key and equals `data-node-id="<id>"` on the element.
 - **Coordinate space.** `x`/`y`/`r` are absolute SVG user units inside `viewBox="0 0 width height"`, and the producer must emit no outer transform.
-  An overlay sharing that viewBox then lines up exactly. `r` is a single nominal marker radius.
+  An overlay sharing that viewBox then lines up exactly.
+  `r` is a single nominal marker radius.
   Coordinates are rounded to one decimal place.
 - `groups` and `regions` are optional metadata.
   A node references them by id through `node.groups` and `node.region`.
@@ -112,7 +113,8 @@ A consumer can therefore go from manifest to element and back without guessing.
 A machine-readable JSON Schema (draft 2020-12) ships with the package as `nf_metro/manifest/schema.json`, and `manifest_schema()` returns it as a dict.
 Its required fields are exactly the [minimum-conforming](#the-minimum-conforming-file) set.
 
-To validate an SVG, read its manifest out and check it against the schema. `jsonschema` is not an nf-metro runtime dependency, and `pip install "nf-metro[validate]"` adds it:
+To validate an SVG, read its manifest out and check it against the schema.
+`jsonschema` is not an nf-metro runtime dependency, and `pip install "nf-metro[validate]"` adds it:
 
 ```python
 import jsonschema
@@ -160,7 +162,8 @@ In another language, extract the `<metadata id="diagram-manifest">` JSON the sam
 ```
 
 The geometry attributes mirror the manifest's `x`/`y`/`r`.
-A consumer can position against either half interchangeably. `data-node-region` is omitted when the node belongs to no region.
+A consumer can position against either half interchangeably.
+`data-node-region` is omitted when the node belongs to no region.
 A producer may add its own attributes or classes alongside these, and nf-metro tags the group `nf-metro-station-group`, but only the `data-node-*` set is part of the contract.
 
 ### Matching semantics
@@ -247,7 +250,8 @@ svg = inject_manifest(svg, manifest)
 ```
 
 Each `nodes` entry requires `id`, `x`, `y`, and `r`, and optionally takes `label` (which defaults to `id`), `groups`, `region`, and `patterns`.
-Coordinates are rounded for you. `groups` and `regions` are optional grouping metadata.
+Coordinates are rounded for you.
+`groups` and `regions` are optional grouping metadata.
 
 A node is addressed as a center point plus a nominal radius, which is overlay-shaped rather than the full glyph outline.
 If your nodes are boxes, pass the box center as `x`/`y` and a representative radius for `r`.
@@ -287,7 +291,8 @@ match_node_ids(manifest, "NFCORE_RNASEQ:RNASEQ:FASTQC")   # -> ["fastqc"]
 `read_manifest` is a plain regex extract and needs no XML library.
 A consumer in another language reproduces the matcher by walking `nodes[].patterns`, testing each regex case-insensitively against the target, and collecting the `id`s that match.
 
-`match_node_ids` takes a whole manifest, keyed on the schema's `nodes`. `matching_node_ids` is the same matcher over a plain `id -> [pattern]` mapping, for a producer whose data is not manifest-shaped.
+`match_node_ids` takes a whole manifest, keyed on the schema's `nodes`.
+`matching_node_ids` is the same matcher over a plain `id -> [pattern]` mapping, for a producer whose data is not manifest-shaped.
 
 ## Drive a live overlay: the state snapshot
 
@@ -366,7 +371,8 @@ A node with one failed task and another still running therefore reads `failed`, 
 ### `done` / `total` semantics
 
 - `total` is the count of tasks submitted so far for this node in the current run, not a fixed denominator.
-  A workflow engine's task count for a node is dynamic, for instance when scattering over samples. `total` therefore reflects only what has been _seen_ so far, and it can still grow after the node starts reporting `running`.
+  A workflow engine's task count for a node is dynamic, for instance when scattering over samples.
+  `total` therefore reflects only what has been _seen_ so far, and it can still grow after the node starts reporting `running`.
 - `done` is the count of tasks that have reached a _successful_ terminal status for this node so far.
   A failed task is not counted in `done`.
 - Both are cumulative across the run and reset only by a fresh `started` event, described later.
@@ -468,7 +474,9 @@ svg = inject_manifest(
 )
 ```
 
-Three functions did the work. `node_data_attrs` produced each node's `data-node-*` attributes, `build_manifest_data` assembled the manifest from the node list, and `inject_manifest` placed that manifest inside the SVG. `svg` is now a self-describing file: three labeled nodes, a `<metadata id="diagram-manifest">` block, and `data-node-*` attributes.
+Three functions did the work.
+`node_data_attrs` produced each node's `data-node-*` attributes, `build_manifest_data` assembled the manifest from the node list, and `inject_manifest` placed that manifest inside the SVG.
+`svg` is now a self-describing file: three labeled nodes, a `<metadata id="diagram-manifest">` block, and `data-node-*` attributes.
 Save it to a `.svg` if you like, because everything later works from that file alone.
 
 ![A three-node pipeline diagram: Fetch, Align, Report](assets/manifest_diagram.svg)
@@ -482,7 +490,8 @@ As it works, it announces each step by a **name**: it might log that a step call
 Those names cause two problems.
 You usually do not choose them, because a tool may call your "Align" step `BWA_MEM` or `STAR_ALIGN`.
 They also rarely equal your node ids.
-Each node's `patterns` exist for exactly this: regexes that match the names _your_ runtime uses. `match_node_ids` answers which node a name belongs to:
+Each node's `patterns` exist for exactly this: regexes that match the names _your_ runtime uses.
+`match_node_ids` answers which node a name belongs to:
 
 ```python
 manifest = read_manifest(svg)
@@ -577,7 +586,8 @@ That page also covers the multi-run dashboard and the optional Nextflow plugin.
 The glowing-LED styling there is its own choice, and yours can differ.
 
 **Doing it yourself in a browser** takes the same three steps client-side: `read_manifest` on the committed SVG, `match_node_ids` per incoming event, then restyle the matched node.
-Keep the overlay as a separate layer over the base so you never redraw the diagram. `overlay_svg` builds one sized to match, and coordinates line up:
+Keep the overlay as a separate layer over the base so you never redraw the diagram.
+`overlay_svg` builds one sized to match, and coordinates line up:
 
 ```python
 from nf_metro.manifest import overlay_svg

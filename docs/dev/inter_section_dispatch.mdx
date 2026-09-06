@@ -25,7 +25,8 @@ The runtime curve guard is a backstop rather than the mechanism that keeps the r
 - **Relative position**: the source and target grid columns and rows (`src_col/row`, `tgt_col/row`), plus the derived `same_y`, `same_x`, `same_col`, `cross_row`, and `needs_bypass`.
   The last of these means a multi-column hop with an intervening section in the source _or_ target row.
 - **Exit side**: whether the source is a LEFT or RIGHT exit port, a TOP or BOTTOM perpendicular exit (`is_perp_exit`), a TB BOTTOM exit (`is_tb_bottom_exit`, or `is_tb_perp_exit_against_flow` when it feeds an entry the flow-direction drop cannot reach), or a junction.
-- **Entry side**: `entry_side` is the target entry port's side, one of LEFT, RIGHT, TOP, or BOTTOM, or `None` when the target is a junction. `merge_ep` is the resolved entry-port station when the target is a merge junction.
+- **Entry side**: `entry_side` is the target entry port's side, one of LEFT, RIGHT, TOP, or BOTTOM, or `None` when the target is a junction.
+  `merge_ep` is the resolved entry-port station when the target is a merge junction.
 - **Spatial queries**: section coordinates and horizontal and vertical crossing checks are resolved through the snapshot, which keeps every predicate and route builder on the same endpoint facts.
 
 ## The rules

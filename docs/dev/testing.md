@@ -27,7 +27,8 @@ Adding a `.mmd` file under the right directory enrolls it in the relevant parame
 
 ## Add a topology test
 
-`tests/test_topology_validation.py` parametrizes over every `examples/topologies/*.mmd` fixture through `TOPOLOGY_FILES`. `test_topology_validation` parses and lays out each fixture, then runs the programmatic checks from `tests/layout_validator.py` against it, covering geometry such as section overlap, station containment, port boundary, edge waypoints, and edge and section crossing.
+`tests/test_topology_validation.py` parametrizes over every `examples/topologies/*.mmd` fixture through `TOPOLOGY_FILES`.
+`test_topology_validation` parses and lays out each fixture, then runs the programmatic checks from `tests/layout_validator.py` against it, covering geometry such as section overlap, station containment, port boundary, edge waypoints, and edge and section crossing.
 
 To add a topology case, drop a new `.mmd` into `examples/topologies/`.
 The parametrization picks it up with no further wiring.
@@ -36,7 +37,8 @@ Add a fixture-specific assertion only if the case needs one beyond the shared ch
 ## Add a layout invariant
 
 `tests/layout_validator.py` holds `check_*` functions that take a laid-out `MetroGraph` and return a list of `Violation`s, each with a `Severity` of `ERROR` or `WARNING`.
-The topology suite gates on `ERROR`s only. `WARNING`s are reported but do not fail CI unless a test promotes them.
+The topology suite gates on `ERROR`s only.
+`WARNING`s are reported but do not fail CI unless a test promotes them.
 To add a check, write a new `check_<thing>` returning `Violation`s, then call it from a test, either the topology suite or a dedicated one.
 
 `tests/test_layout_invariants.py` holds the cross-section bundle-alignment invariants, such as `test_row_trunk_marker_cy_consistent`, symmetric-fan column-mates, and off-track inputs above their consumer.
@@ -79,7 +81,8 @@ The metrics cover crossings, near-horizontal and lone-diagonal segments, bends a
 The table does not gate CI.
 The byte-identical gallery described earlier is the only thing a build fails on, and every changed render needs a human look whatever the numbers say.
 
-The weights `scripts/optimize_layout.py` applies over those metrics were measured rather than guessed. `datasets/layout_preferences/` holds the evidence and the reasoning as a frozen record.
+The weights `scripts/optimize_layout.py` applies over those metrics were measured rather than guessed.
+`datasets/layout_preferences/` holds the evidence and the reasoning as a frozen record.
 
 ## The four validation layers
 
@@ -101,7 +104,10 @@ That context lets it check things a raw SVG parser cannot, such as whether an ed
 
 **What it catches uniquely**: section overlap, a station outside its section box, a station used as an elbow (a geometry invariant that requires knowing which node is a station and which is a port), a port off its boundary, edge waypoints straying out of bounds, and route-crosses-section-box violations.
 
-**How it's wired**: `check_*` functions in `tests/layout_validator.py` take a laid-out graph and return `Violation` objects with `ERROR` or `WARNING` severity. `tests/test_topology_validation.py` runs all of them against every topology fixture. `ERROR`s fail CI. `WARNING`s are reported but do not.
+**How it's wired**: `check_*` functions in `tests/layout_validator.py` take a laid-out graph and return `Violation` objects with `ERROR` or `WARNING` severity.
+`tests/test_topology_validation.py` runs all of them against every topology fixture.
+`ERROR`s fail CI.
+`WARNING`s are reported but do not.
 
 ### Layer 2 - Routing invariants (`src/nf_metro/layout/routing/invariants.py`)
 

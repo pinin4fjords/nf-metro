@@ -73,7 +73,8 @@ Most layout bugs only appear in specific topologies.
 That is what makes a layout engine hard to test.
 A suite that exercises one shape of graph passes indefinitely while the engine fails on every other shape.
 
-[`examples/topologies/`](https://github.com/seqeralabs/nf-metro/tree/main/examples/topologies) answers that with a library of ~285 `.mmd` fixtures, each isolating a specific graph topology such as a fan-out, fan-in, diamond, fold, mixed port sides, or cross-column entries. `tests/test_topology_validation.py` parametrizes over every fixture in that directory and runs the full layout oracle against each one.
+[`examples/topologies/`](https://github.com/seqeralabs/nf-metro/tree/main/examples/topologies) answers that with a library of ~285 `.mmd` fixtures, each isolating a specific graph topology such as a fan-out, fan-in, diamond, fold, mixed port sides, or cross-column entries.
+`tests/test_topology_validation.py` parametrizes over every fixture in that directory and runs the full layout oracle against each one.
 Adding a `.mmd` to that directory enrolls it in the suite with no further wiring.
 
 When a new topology case produces bad output, the workflow is:

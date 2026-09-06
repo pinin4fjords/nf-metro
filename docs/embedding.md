@@ -141,7 +141,8 @@ nf-metro render a.mmd -o a.svg --svg-class-prefix mapA
 nf-metro render b.mmd -o b.svg --svg-class-prefix mapB
 ```
 
-Each prefixed class, such as `mapA-nf-metro-station` and `mapB-nf-metro-station`, then stays independent. `data-*` attributes and the manifest element id are never prefixed, which leaves the [contract](/nf-metro/embed/) unchanged.
+Each prefixed class, such as `mapA-nf-metro-station` and `mapB-nf-metro-station`, then stays independent.
+`data-*` attributes and the manifest element id are never prefixed, which leaves the [contract](/nf-metro/embed/) unchanged.
 
 ### Theme inheritance - `--no-self-color-scheme`
 
@@ -322,7 +323,9 @@ Pass the directory the map was read from, or its `%%metro logo:` paths only reso
 | A user-set `fold_threshold` compresses the grid past what the router can resolve | `nf_metro.layout.FoldThresholdError`                                      | **render step only** | `ValueError` |
 
 The first row sits outside the hierarchy deliberately.
-The parser raises a plain `ValueError` ad hoc for most grammar and directive problems rather than through a dedicated type. `except ValueError` is therefore the right catch-all for "the `.mmd` text itself does not parse". `except NfMetroError` covers every problem detected _after_ parsing succeeds: a graph that parsed fine but cannot be laid out, or, for `FoldThresholdError`, cannot be drawn honestly.
+The parser raises a plain `ValueError` ad hoc for most grammar and directive problems rather than through a dedicated type.
+`except ValueError` is therefore the right catch-all for "the `.mmd` text itself does not parse".
+`except NfMetroError` covers every problem detected _after_ parsing succeeds: a graph that parsed fine but cannot be laid out, or, for `FoldThresholdError`, cannot be drawn honestly.
 
 Catch a specific row instead of the base class when the distinction matters, for example to offer "fix your fold threshold" only for `FoldThresholdError`, or to fall back to `%%metro permissive: true` semantics only for `PhaseInvariantError`.
 

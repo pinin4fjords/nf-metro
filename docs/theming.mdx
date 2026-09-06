@@ -101,7 +101,8 @@ Switch the theme in the nav to see it change, independently of your OS setting:
 
 The two modes are not interchangeable.
 An embedded SVG that declares its own `color-scheme: light dark` ignores a host's forced single value and falls back to the OS preference whatever the host's toggle says.
-Redeclaring `light dark` reopens both options, which reverts the "current preference" it resolves against to the browser or OS signal. `--no-self-color-scheme` exists for that reason.
+Redeclaring `light dark` reopens both options, which reverts the "current preference" it resolves against to the browser or OS signal.
+`--no-self-color-scheme` exists for that reason.
 Leaving the property off the SVG root is what lets a host's manual toggle reach it at all.
 
 The flag only decides _whose_ preference wins.
@@ -186,7 +187,8 @@ Full flag reference: [Embedding](/nf-metro/embedding/).
 ```
 
 `<img>` loads the SVG into its own document, and ordinary CSS stops at that boundary.
-Custom properties, cascade, and inheritance do not cross it, and `var()` overrides never arrive. `color-scheme` is the one deliberate exception.
+Custom properties, cascade, and inheritance do not cross it, and `var()` overrides never arrive.
+`color-scheme` is the one deliberate exception.
 Per [Media Queries Level 5](https://www.w3.org/TR/mediaqueries-5/#prefers-color-scheme), an `<img>`-loaded SVG resolves `prefers-color-scheme` and `light-dark()` against **the used `color-scheme` of the `<img>` element** rather than the OS preference.
 That overrides even the SVG's own `color-scheme: light dark`.
 Chromium and Firefox honor this deterministically, independently of the OS preference.

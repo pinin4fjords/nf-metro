@@ -198,10 +198,12 @@ Fix the cause.
 ## Repository size (`gh-pages`)
 
 Every docs deploy (`dev/`, `latest/`, versioned releases, and each open PR's render-diff preview under `_pr/<N>/`) commits the full built page to the `gh-pages` branch, gallery SVGs and all, inlined directly into the HTML.
-The inlining is deliberate. `<Metro>` and `ZoomableSVG.astro` inline the SVG rather than reference it as an `<img>` because that is what keeps the map's `light-dark()` theming and the zoom/pan lightbox working.
+The inlining is deliberate.
+`<Metro>` and `ZoomableSVG.astro` inline the SVG rather than reference it as an `<img>` because that is what keeps the map's `light-dark()` theming and the zoom/pan lightbox working.
 Read the comments in those two components before "fixing" this by switching to external file references.
 
-Most of a gallery page does not change between any two deploys, but delta compression in git across a multi-MB blob is inconsistent. `gh-pages` history therefore grew to ~1,450 commits (~82 MB) before a one-time cleanup squashed it to a single commit ([#1240](https://github.com/seqeralabs/nf-metro/issues/1240)).
+Most of a gallery page does not change between any two deploys, but delta compression in git across a multi-MB blob is inconsistent.
+`gh-pages` history therefore grew to ~1,450 commits (~82 MB) before a one-time cleanup squashed it to a single commit ([#1240](https://github.com/seqeralabs/nf-metro/issues/1240)).
 That squash was manual.
 Squashing on every deploy would require every `gh-pages` writer to combine a history-discarding push with preserving every other writer's directories.
 The publish, cleanup, and docs jobs are built to avoid exactly that force-push.

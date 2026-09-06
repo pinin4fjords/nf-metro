@@ -31,10 +31,12 @@ nf-metro render [OPTIONS] INPUT_FILE...
 ```
 
 Accepts one or more `INPUT_FILE`s.
-Given more than one, they all render in the same process, which amortizes interpreter and import startup across the batch.
-Each writes to its own sibling `<input>.<format>`.
-Every file is attempted even if an earlier one fails.
-Successful outputs are kept, and the command exits non-zero if any file failed.
+Given more than one:
+
+- They all render in the same process, which amortizes interpreter and import startup across the batch.
+- Each writes to its own sibling `<input>.<format>`.
+- Every file is attempted even if an earlier one fails.
+- Successful outputs are kept, and the command exits non-zero if any file failed.
 
 A rejected input, and any other failure, surfaces as a plain error message rather than a traceback.
 Set `NF_METRO_DEBUG=1` to re-raise the original exception instead.
@@ -97,7 +99,12 @@ Because it has no light/dark pair, `--mode` does not apply to it.
 | `--width INTEGER`                          | auto              | Output width in pixels                                                                                                                                                                                                                                                              |
 | `--height INTEGER`                         | auto              | Output height in pixels                                                                                                                                                                                                                                                             |
 
-Spacings, scales, `--fold-threshold`, and output dimensions must be greater than 0. The section gaps, `--track-gap`, `--legend-min-height`, and `--legend-logo-gap` also accept 0. Every numeric option requires a finite number, and `nan` and `inf` are refused.
+Numeric options are validated as follows:
+
+- Spacings, scales, `--fold-threshold`, and output dimensions must be greater than 0.
+- The section gaps, `--track-gap`, `--legend-min-height`, and `--legend-logo-gap` also accept 0.
+- Every numeric option requires a finite number, and `nan` and `inf` are refused.
+
 A flag given an out-of-range value exits with an error, while the equivalent `%%metro` directive warns and keeps the default.
 
 ### Line styling
@@ -288,7 +295,8 @@ nf-metro info [OPTIONS] INPUT_FILE
 | `--json`    | off     | Emit the full introspection as JSON, for scripting                                                                                     |
 | `--verbose` | off     | Add the section dependency graph, per-line routes, inferred auto-layout defaults, and synthetic ports and junctions to the text output |
 
-Parse warnings print as a `Warnings:` block on stderr rather than into the stdout summary. `--verbose` and `--json` carry them in the report itself instead.
+Parse warnings print as a `Warnings:` block on stderr rather than into the stdout summary.
+`--verbose` and `--json` carry them in the report itself instead.
 
 `Style:` reports the theme the map resolves to, using the same name `render --theme` accepts.
 
@@ -311,7 +319,8 @@ nf-metro explain [OPTIONS] INPUT_FILE
 
 ## `nf-metro serve`
 
-Serve a live-progress view of a metro map. `INPUT_FILE` may be a `.mmd` source or an already-rendered nf-metro SVG.
+Serve a live-progress view of a metro map.
+`INPUT_FILE` may be a `.mmd` source or an already-rendered nf-metro SVG.
 The map is rendered once and served at `http://HOST:PORT/`.
 Point a Nextflow run's weblog at the events endpoint to light up stations as tasks run.
 
@@ -333,7 +342,8 @@ nf-metro serve [OPTIONS] INPUT_FILE [-- LAUNCH_CMD...]
 | `--shutdown-after-complete`                                                                   | off           | Stop the server shortly after the run's completed or error event (or after the launched command exits) |
 | `--shutdown-grace FLOAT`                                                                      | 10            | Seconds to keep the map up after the run finishes, with `--shutdown-after-complete`                    |
 
-With an SVG input the map is served exactly as drawn. `--theme` therefore applies only to a `.mmd` input.
+With an SVG input the map is served exactly as drawn.
+`--theme` therefore applies only to a `.mmd` input.
 
 Passing a `LAUNCH_CMD` after `--` starts the run in one step with the weblog configured automatically:
 

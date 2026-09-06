@@ -89,7 +89,8 @@ At the time of the settlement merge, 12 live compatibility systems occupied 12 f
 A capacity probe ran 168 grants across them and observed zero divergent grants.
 
 A later measurement over all 368 corpus fixtures counted 27 convergence plans on the compatibility path across 12 fixtures, reached through six `ConvergenceConflictKind` conditions.
-Three of those conditions cannot state a case. `CHAINED_SAME_LINE` compared plans that `parser/route_topology.py` cannot produce as a pair, and `UNOWNED_MEMBER_CORRIDOR` and `UNOWNED_MEMBER_GROUP` named a category that `build_route_system_emission_execution(require_member_geometry=True)` leaves empty.
+Three of those conditions cannot state a case.
+`CHAINED_SAME_LINE` compared plans that `parser/route_topology.py` cannot produce as a pair, and `UNOWNED_MEMBER_CORRIDOR` and `UNOWNED_MEMBER_GROUP` named a category that `build_route_system_emission_execution(require_member_geometry=True)` leaves empty.
 A fourth, the second arm of `SHARED_TRUNK_CHANNEL`, was measuring the turn radius as the separation two lanes of one bundle owed each other.
 The corrected arm asks each pair for the clearance its own kind requires.
 The count is now zero by proof rather than by absence of detection, and the renders across that corpus are byte-identical to the ones the six-condition tree drew.
@@ -102,18 +103,23 @@ Its co-traveling arm catches none anywhere, with or without that pass, because c
 With `_settle_opposing_landing_channels` neutralized, `SHARED_APPROACH_CHANNEL` and `OPPOSING_OPENING_CHANNEL` each catch one pair on `merge_bottom_row_bypass` and one on `merge_feeder_shared_channel_gap`.
 The two opening passes account for none of it, and `_settle_shared_opening_pivots` cannot, because its group key partitions by the travel direction of flank 1.
 
-`_landing_trunk_flank_conflict` sees 32 crowded, entirely unexcused pairs across 5 fixtures. `_settle_landing_trunk_flanks` clears every one, and every one sits at `endpoint - landing = 30` against a `clearance + curve_radius = 21` requirement. `MERGE_GAP_MIN = 50` holds that 9px of headroom, not fixture geometry.
-Its three excuse predicates fire nowhere in the corpus. `test_every_corpus_convergence_is_planned_not_left_to_compatibility` in `tests/test_convergence_planner.py` is the live guard.
+`_landing_trunk_flank_conflict` sees 32 crowded, entirely unexcused pairs across 5 fixtures.
+`_settle_landing_trunk_flanks` clears every one, and every one sits at `endpoint - landing = 30` against a `clearance + curve_radius = 21` requirement.
+`MERGE_GAP_MIN = 50` holds that 9px of headroom, not fixture geometry.
+Its three excuse predicates fire nowhere in the corpus.
+`test_every_corpus_convergence_is_planned_not_left_to_compatibility` in `tests/test_convergence_planner.py` is the live guard.
 It asserts the absence rather than any of the totals listed earlier.
 
 The longitudinal-blocker experiment covered 14 out-of-band claims.
 In 13 of them, every blocker on the violated side overlapped or abutted the drawn leg.
 The remaining case, `fan_bypass_shared_band`, had distant blockers, but an abutting section set its violated edge.
-Filtering blockers only by longitudinal overlap dropped boxes beside corridor elbows, changed eight renders, reversed one vertical leg, and raised the out-of-band total from 21 to 32. That rejected the filter as a settlement rule.
+Filtering blockers only by longitudinal overlap dropped boxes beside corridor elbows, changed eight renders, reversed one vertical leg, and raised the out-of-band total from 21 to 32.
+That rejected the filter as a settlement rule.
 
 Shared-trunk laning asked 89px for `merge_around_below_leftmost`, compared with 90px while the planner declined the system and treated the second trunk as a peer.
 The planned result shortened the settled map by 1px.
-The live contract states the formula rather than this snapshot value. `test_a_boundary_is_charged_for_the_unfiled_leg_drawn_in_it` checks the peer width, minimum-width sum, and available-capacity inequality.
+The live contract states the formula rather than this snapshot value.
+`test_a_boundary_is_charged_for_the_unfiled_leg_drawn_in_it` checks the peer width, minimum-width sum, and available-capacity inequality.
 
 That probe also established why dependent coordinates must be re-derived after a grant.
 Leaving junctions behind made five systems appear to reach allocation: `merge_bottom_row_bypass` and `merge_feeder_shared_channel_gap` from 19.5px, `ambiguous_exit_continuation` from 256px, `merge_right_entry` from 576px, and `merge_trunk_out_of_range_section` at 656px.
@@ -129,7 +135,8 @@ The gap is a missing shared-channel planning decision, not a distance settlement
 
 The post-layout label experiment found 38 fixtures that grew a port-bearing edge at render time.
 Four did so during a pass with no later re-observation.
-Repeated re-observation was not a general fixpoint. `top_entry_left_neighbour` moved its producer box 6px per round, while `bypass_fan_in_outer_slot` contracted by half per round.
+Repeated re-observation was not a general fixpoint.
+`top_entry_left_neighbour` moved its producer box 6px per round, while `bypass_fan_in_outer_slot` contracted by half per round.
 That supported one re-observation followed by holding anchored edges.
 
 The caption-band snapshot contained 1224 captions, and every one fit the band stated by its chosen side.
@@ -163,11 +170,14 @@ The render-time push fired for one of 369 fixtures in that snapshot, while five 
 Settlement closed three of them, each by 9px: `manual_rl_row_nonconsumer_bypass`, `packed_cell_cellmate_bypass`, and `packed_cell_cellmate_bypass_adjacent`.
 The two rail cases were excluded, because widening their row boundary turned flat routes into staircases, affecting seven of 91 routes in `sarek_metro` and four of 11 in `rail_pitch_vs_labels`.
 
-`_tighten_lower_rows_after_shrink` was rejected because it decreases separation, which settlement forbids. `_reserve_row_gap_for_top_padding` was rejected because its translation must precede a local box resize, while settlement freezes box size. `_shift_graph_into_canvas` and `_snap_canvas_y_to_grid` were rejected because they translate the whole graph uniformly and so change no pairwise separation.
+`_tighten_lower_rows_after_shrink` was rejected because it decreases separation, which settlement forbids.
+`_reserve_row_gap_for_top_padding` was rejected because its translation must precede a local box resize, while settlement freezes box size.
+`_shift_graph_into_canvas` and `_snap_canvas_y_to_grid` were rejected because they translate the whole graph uniformly and so change no pairwise separation.
 
 Suppressing the two canvas translations left every pairwise facing-box separation identical in all 357 fixtures that reached a settled render graph.
 With bare binary64 deficit subtraction, `differentialabundance_default.mmd` and `da_pipeline.mmd` were the two exceptions: their functional-to-plots gap measured 91px with the canvas translation and 90px without it.
-Both satisfied the 90px reservation, but the result depended on canvas origin. `measured_distance` removed that coupling.
+Both satisfied the 90px reservation, but the result depended on canvas origin.
+`measured_distance` removed that coupling.
 
 ## Late vertical port alignment
 

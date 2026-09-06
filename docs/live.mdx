@@ -57,7 +57,8 @@ Declare it with `%%metro process:` directives, each pairing a station id with a 
 - The whole field after `|` is one regular expression.
   Because nf-metro never splits it at commas, quantifiers like `{1,3}` are safe.
   Repeat the directive to attach several patterns to one station.
-- A bare name matches a scoped one. `FASTQC` matches `NFCORE_RNASEQ:RNASEQ:FASTQC`.
+- A bare name matches a scoped one.
+  `FASTQC` matches `NFCORE_RNASEQ:RNASEQ:FASTQC`.
 - Only stations with a `process:` directive change state.
   nf-metro draws everything else but leaves it neutral.
   Plumbing processes such as versions dumps and samplesheet checks usually stay unmapped on purpose.
@@ -145,15 +146,18 @@ For many pipelines or runs side by side, use the dashboard in §2b instead.
 
 `serve` accepts two input formats:
 
-- **`.mmd`**, the source file. `serve` renders and lays out the map on startup.
+- **`.mmd`**, the source file.
+  `serve` renders and lays out the map on startup.
   Use this during map development, because changing the file and restarting shows the update immediately.
-- **`.svg`**, a pre-rendered SVG with its embedded manifest, which is the default output of `nf-metro render`. `serve` reads station geometry and the process mapping straight from the manifest, with no re-render and no Python graph.
+- **`.svg`**, a pre-rendered SVG with its embedded manifest, which is the default output of `nf-metro render`.
+  `serve` reads station geometry and the process mapping straight from the manifest, with no re-render and no Python graph.
   Use this when you have committed the SVG to a repo and want to serve it without the source.
   It also keeps the layout stable across restarts whatever the tool version.
   The `--theme` option has no effect here, because the SVG is already drawn.
 
 :::tip[SVG must carry a manifest]
-The SVG path requires the manifest embedded in the file. `nf-metro render` embeds it by default.
+The SVG path requires the manifest embedded in the file.
+`nf-metro render` embeds it by default.
 If the map opted out with `%%metro manifest: false`, drop that directive and re-render before serving.
 :::
 
@@ -233,7 +237,8 @@ Animations respect `prefers-reduced-motion`.
 
 ## 2b. Persistent server (many runs)
 
-`serve` reuses one map across re-runs and resets it each time. `serve-multi` is a long-lived **dashboard** instead.
+`serve` reuses one map across re-runs and resets it each time.
+`serve-multi` is a long-lived **dashboard** instead.
 Each registered run gets its own `/r/<id>/` entry, and many pipelines, or a history of runs, sit side by side.
 It starts with **no** map.
 A pipeline registers its map by POSTing the `.mmd` to `/maps`, then sends weblog events to the run's own endpoint:
@@ -247,7 +252,8 @@ curl -s --data-binary @map.mmd "http://localhost:8080/maps?name=myrun"
 ```
 
 `GET /` lists every run with a live status, and `GET /r/<id>/` is that run's live map.
-The endpoints mirror the single-map server under a `/r/<id>/` prefix: `/r/<id>/`, `/r/<id>/state`, `/r/<id>/stream` and `POST /r/<id>/events`. `POST /maps` registers a run.
+The endpoints mirror the single-map server under a `/r/<id>/` prefix: `/r/<id>/`, `/r/<id>/state`, `/r/<id>/stream` and `POST /r/<id>/events`.
+`POST /maps` registers a run.
 
 ### Demo: a shared dashboard
 
@@ -401,7 +407,8 @@ Options:
 | `--processes <file>` | A newline-delimited list of process names, for example captured from a run. An authoritative alternative to `--dag`. |
 | `--ignore <regex>`   | Processes deliberately left unmapped (plumbing such as `.*:DUMPSOFTWAREVERSIONS`). Repeatable.                       |
 
-Stations with no mapping at all never light up. `check-mapping` reports them as a note rather than a failure, because leaving one unmapped is often deliberate.
+Stations with no mapping at all never light up.
+`check-mapping` reports them as a note rather than a failure, because leaving one unmapped is often deliberate.
 
 ## Deployment notes
 
@@ -413,7 +420,8 @@ Stations with no mapping at all never light up. `check-mapping` reports them as 
   Prefer the header where you can, because a URL carrying the token lands in shell history and process listings.
 - **Run lifecycle.** A `started` event resets the map, and re-running a pipeline re-animates a fresh one.
   The server tracks one run at a time.
-  The server accepts and ignores unrecognized or malformed event payloads, and the endpoint always returns 200. A Nextflow version emitting extra event types cannot stall a run.
+  The server accepts and ignores unrecognized or malformed event payloads, and the endpoint always returns 200.
+  A Nextflow version emitting extra event types cannot stall a run.
 - **No denominator.** Nextflow's task count is dynamic.
   The per-station count therefore reads "done / submitted so far" rather than a fixed percentage.
 

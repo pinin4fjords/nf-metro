@@ -40,7 +40,8 @@ Cost alone does not gate Tier-A membership in either family.
 The visibility of the defect does.
 
 Tier C contains checks that run only against the test corpus.
-Two of them check section seams. `check_seam_approach_equals_departure` and `check_seam_segments_meet_at_port` verify that each inter-section approach uses the lane assigned by `lane_x`.
+Two of them check section seams.
+`check_seam_approach_equals_departure` and `check_seam_segments_meet_at_port` verify that each inter-section approach uses the lane assigned by `lane_x`.
 They live in `tests/test_seam_lane_x.py`.
 
 The third is `check_merge_feeders_land_on_trunk`, in `tests/test_merge_branch_trunk_invariant.py`.
@@ -67,11 +68,15 @@ The classification is data rather than prose:
   This is therefore a _classification_ registry rather than a dispatcher, and the runtime chokepoint stays `assert_render_curve_invariants`.
   The registries are unified through the shared schema and this page, **not** by merging the raise-against-return error protocols.
 
-The Tier-A `_guard_*` postconditions across both registries run on the render path through `assert_render_layout_invariants`, the sibling of the routing chokepoint. `render_layout_invariant_specs` selects them: every Tier-A guard except `_RENDER_CHOKEPOINT_AUTHORING_GUARDS`.
+The Tier-A `_guard_*` postconditions across both registries run on the render path through `assert_render_layout_invariants`, the sibling of the routing chokepoint.
+`render_layout_invariant_specs` selects them: every Tier-A guard except `_RENDER_CHOKEPOINT_AUTHORING_GUARDS`.
 That exception holds the two authoring-error guards, `_guard_no_same_row_backward_feed` and `_guard_no_mixed_entry_directions`.
 Both raise a `ValueError` on un-renderable input and stay always-on hard fails in the engine, rather than joining the warn-by-default chokepoint.
 
-Each `GuardSpec` also carries `issue_pin` and `narrow_reason`. `issue_pin` holds the `#NNN` issues a guard was born from, kept as data so consolidation cannot lose the regression trail. `narrow_reason` says why an issue-pinned guard stays scoped to its case rather than stating a general property. `tests/test_guard_registry.py` keeps these honest.
+Each `GuardSpec` also carries `issue_pin` and `narrow_reason`.
+`issue_pin` holds the `#NNN` issues a guard was born from, kept as data so consolidation cannot lose the regression trail.
+`narrow_reason` says why an issue-pinned guard stays scoped to its case rather than stating a general property.
+`tests/test_guard_registry.py` keeps these honest.
 It asserts that:
 
 - every guard and check is registered exactly once
@@ -220,7 +225,8 @@ It cannot join the dispatched Tier-A set the render chokepoint runs.
 ## Consolidation
 
 The consolidation pass (#922) removed the validate-only `_guard_*` wrappers that only raised around a check already in the always-on render chokepoint: `_guard_bundle_order_preserved`, `_guard_concentric_bundle_corners`, `_guard_no_collinear_distinct_lines`, `_guard_no_intra_section_collinear_distinct_lines`, and `_guard_no_same_line_parallel_descents`.
-Each check is the single authority and runs on every render through `assert_render_curve_invariants`, which made the wrapper pure duplication. `test_no_registry_guard_duplicates_an_always_on_check` keeps the duplication from returning.
+Each check is the single authority and runs on every render through `assert_render_curve_invariants`, which made the wrapper pure duplication.
+`test_no_registry_guard_duplicates_an_always_on_check` keeps the duplication from returning.
 
 The remaining issue-pinned guards each express a distinct geometric property, and their docstrings distinguish them from one another.
 Rather than force-merging their bodies, the pass records each guard's originating issue in `issue_pin` and documents its scope in `narrow_reason`.

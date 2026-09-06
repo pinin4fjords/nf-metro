@@ -52,7 +52,8 @@ On the normal routing path, the routing context and semantic scaffold are built 
 Ordinary routing and `observe_route_edges` run the same exit-turn, fan, convergence-classification, route-system, member-geometry and final convergence-settlement stages.
 Each inter-section member is classified once, and each `RouteSystem` receives one emission disposition before any of its members are emitted.
 Ordinary routing returns only the routes.
-It constructs no `RoutePlanObserver`, no emission bindings, no corridor reservations and no final `RoutePlan`. `observe_route_edges` collects and returns those additional records.
+It constructs no `RoutePlanObserver`, no emission bindings, no corridor reservations and no final `RoutePlan`.
+`observe_route_edges` collects and returns those additional records.
 
 `RouteSystemEmissionExecution` follows the scaffold's canonical system order and emits a system once, in that system's canonical member order.
 After preliminary system disposition, a planned non-convergence member's frozen family builds one `RouteMemberGeometryPlan`.
@@ -119,7 +120,8 @@ The final runtime check uses the geometry the renderer draws, verifies structura
 
 ## Member geometry plans
 
-Member geometry planning sits between preliminary route-system disposition and final convergence settlement. `classify_inter_section_family` first assigns every routable inter-section member one stable `RouteFamilyId`.
+Member geometry planning sits between preliminary route-system disposition and final convergence settlement.
+`classify_inter_section_family` first assigns every routable inter-section member one stable `RouteFamilyId`.
 The member planner then walks the scaffold's canonical edge order and calls exactly that family.
 It appends each provisional result to the planning context.
 Later templates then see the same already-built siblings that production order exposes.
@@ -240,7 +242,8 @@ Whole-graph rail routing binds matching inter-section members against the same f
 Per-section rail-internal station-to-port and port-to-station legs never enter the inter-section route-system pipeline.
 They therefore fall outside this schema.
 
-Family identity and binding disposition are separate. `MERGE_SKIP` and `UNROUTED` are not route families, because no production family emitted them.
+Family identity and binding disposition are separate.
+`MERGE_SKIP` and `UNROUTED` are not route families, because no production family emitted them.
 
 Base emission members record only structurally observable roles such as `BYPASS` and `TERMINAL`, because an entry group alone cannot identify a mainline.
 Each exit-turn assignment adds exactly one seam role: `CONTINUATION` for a straight source-lane continuation, or `PEEL_OFF` for a member that turns away.
@@ -283,7 +286,9 @@ Claims and lanes are deliberately separate, because claims preserve full attribu
 Coincident claims share one lane, and non-overlapping claims can reuse a lane.
 Only different coordinates occupied at the same longitudinal position increase the lane count and bundle width.
 
-Blocker selection has an explicit evidence scope. `TOPOLOGY_SPAN` applies to a row or column gap proved by authored connector topology, and measures the worst blockers across the complete connector span, even when a fallback path has escaped that gap. `OBSERVED_RUN` applies to a geometrically observed gap or canvas detour, and considers only sections intersecting that exact final run.
+Blocker selection has an explicit evidence scope.
+`TOPOLOGY_SPAN` applies to a row or column gap proved by authored connector topology, and measures the worst blockers across the complete connector span, even when a fallback path has escaped that gap.
+`OBSERVED_RUN` applies to a geometrically observed gap or canvas detour, and considers only sections intersecting that exact final run.
 That distinction stops an unrelated section elsewhere in the route system from creating a false deficit, without erasing a collapsed topology corridor.
 
 Negative available width is valid evidence, and means the final blocker envelopes overlap.
@@ -300,7 +305,8 @@ Section sizes, a station's place inside its section, plan frames, lane order, po
 
 ### Why a reserved map routes twice
 
-Settlement sits between two routing passes, and only coordinates move between them. `_assert_settlement_decisions_frozen` requires the second pass to reach the same semantic system, member, plan, family, coverage and declared channel ownership decisions as the first.
+Settlement sits between two routing passes, and only coordinates move between them.
+`_assert_settlement_decisions_frozen` requires the second pass to reach the same semantic system, member, plan, family, coverage and declared channel ownership decisions as the first.
 Coordinate-bearing member seeds may follow the settled layout.
 Their fingerprint therefore records structural ownership rather than absolute points.
 
@@ -361,12 +367,14 @@ No reservation exists to consume there.
 
 A canvas-side corridor is bounded on one side by the canvas edge rather than by a grid boundary.
 Closing one means growing a margin, a different translation owner.
-Its content boundary is resolved after header placement, from the final route polylines, overlapping section edges and drawn header keepouts. `assert_canvas_corridors_hold_their_claims` gates canvas-edge slack, content-side slack, and total capacity.
+Its content boundary is resolved after header placement, from the final route polylines, overlapping section edges and drawn header keepouts.
+`assert_canvas_corridors_hold_their_claims` gates canvas-edge slack, content-side slack, and total capacity.
 Historical measurements from the earlier longitudinally blind model are recorded in the [envelope settlement design record](/nf-metro/dev/layout_settlement_design_record/).
 
 ## The router's side of the contract
 
-A translation is only worth making if the re-route lands the corridor in the space it bought. `build_reserved_corridors`, in `layout/routing/reserved_bands.py`, re-measures the ledger settlement was handed against the geometry it left, and turns each row-gap reservation into the clear span its own side clearances leave, from `region_start + negative_side_clearance` to `region_end - positive_side_clearance`.
+A translation is only worth making if the re-route lands the corridor in the space it bought.
+`build_reserved_corridors`, in `layout/routing/reserved_bands.py`, re-measures the ledger settlement was handed against the geometry it left, and turns each row-gap reservation into the clear span its own side clearances leave, from `region_start + negative_side_clearance` to `region_end - positive_side_clearance`.
 Several corridors can claim one boundary over different spans.
 The boundary's band is their intersection, because a channel placed without knowing which corridor it belongs to has to satisfy every claim.
 A boundary whose claims intersect to nothing describes no single corridor and is left unclaimed.
@@ -393,45 +401,55 @@ That is how the region search learns the corridor does not run in that gap.
 
 A boundary is also bounded by a station the corridor's own runs launch from.
 A pre-routing plan that emits its runs out of a station standing in the gap fixes how long the opening leg has to be, and refuses emitted geometry that shortens it.
-The run cannot be drawn any nearer to that station however far the opposite side is pushed. `RouteReservation.launch_anchors` names the station with the runway it owes, and the realization folds it into the region edge on the side of the run it stands on.
+The run cannot be drawn any nearer to that station however far the opposite side is pushed.
+`RouteReservation.launch_anchors` names the station with the runway it owes, and the realization folds it into the region edge on the side of the run it stands on.
 The band the reservation publishes is therefore the band the plan is free to occupy, and the width the boundary is asked for is the width that band needs.
 Reading only the section edges instead states a band behind the launch station, which the plan can never reach.
 
-No deficit is left behind for those reasons, and none is exempt. `assert_reservations_are_settled` fails the strict path for every surviving row- or column-gap deficit, because a route drawn through a clearance it does not have is wrong however the claim arose.
+No deficit is left behind for those reasons, and none is exempt.
+`assert_reservations_are_settled` fails the strict path for every surviving row- or column-gap deficit, because a route drawn through a clearance it does not have is wrong however the claim arose.
 
 Settlement allocates against a plan in which every convergence states its own geometry.
 No convergence plan the corpus produces carries a `legacy_reason`, and `test_every_corpus_convergence_is_planned_not_left_to_compatibility` in `tests/test_convergence_planner.py` holds that over every routable fixture.
 Settlement therefore publishes only its own moves: one non-blocking `envelope-settlement-translation` diagnostic per widened boundary, naming the demand that sized it and the sections it carried.
 
-Reaching that took retiring three conflict conditions that could not state a case, and taking the other three off the compatibility path. `CHAINED_SAME_LINE` fired when two same-line trunks sat further apart than one channel's lanes. `parser/route_topology.py` builds one convergence group per `(entry_group_id, line_id)`.
+Reaching that took retiring three conflict conditions that could not state a case, and taking the other three off the compatibility path.
+`CHAINED_SAME_LINE` fired when two same-line trunks sat further apart than one channel's lanes.
+`parser/route_topology.py` builds one convergence group per `(entry_group_id, line_id)`.
 Two distinct plans never share both keys.
-The pairs it compared were one stroke branching to several destinations, separated by the row pitch between the sections served. `UNOWNED_MEMBER_CORRIDOR` and `UNOWNED_MEMBER_GROUP` called an edge unowned when no convergence plan listed it, which `build_route_system_emission_execution(require_member_geometry=True)` rules out by requiring every member of a planned system to hold exactly one geometry decision.
+The pairs it compared were one stroke branching to several destinations, separated by the row pitch between the sections served.
+`UNOWNED_MEMBER_CORRIDOR` and `UNOWNED_MEMBER_GROUP` called an edge unowned when no convergence plan listed it, which `build_route_system_emission_execution(require_member_geometry=True)` rules out by requiring every member of a planned system to hold exactly one geometry decision.
 
 The four surviving conditions are `SHARED_TRUNK_CHANNEL`, `SHARED_APPROACH_CHANNEL`, `OPPOSING_OPENING_CHANNEL` and `NO_APPROACH_SETTLEMENT_ROOM`.
 Each names two runs of one line that the settlement passes could seat no lane between.
 They are feasibility conditions rather than compatibility families.
 The established templates draw the same two runs in the same gap.
-Reaching one states that the map has no room rather than that the planner declined a decision. `_validate_final_convergence_feasibility` refuses it once every movable decision is frozen.
+Reaching one states that the map has no room rather than that the planner declined a decision.
+`_validate_final_convergence_feasibility` refuses it once every movable decision is frozen.
 Making the room takes a boundary grant that widens the gap between those runs, and no planning decision can supply that.
 Historical population and grant totals from the measurement program are recorded in the [envelope settlement design record](/nf-metro/dev/layout_settlement_design_record/).
 
 `merge_around_below_leftmost` motivates the shared-channel decision that follows.
 Its route system converges twice, and each convergence reads its trunk coordinate off a trial route taken with no knowledge of its sibling.
-Both therefore propose the same lane of one inter-row channel. `SHARED_TRUNK_CHANNEL` names what would otherwise be missing: one shared channel decision.
+Both therefore propose the same lane of one inter-row channel.
+`SHARED_TRUNK_CHANNEL` names what would otherwise be missing: one shared channel decision.
 
 `_settle_shared_trunk_channels` makes it.
 The route system, rather than either plan, assigns each trunk a lane by `cotravelling_lane_clearance`: a full turn radius between a line and its own return leg, and nothing at all between two runs going the same way, which stay one fused stroke.
-That one rule lanes both channels a trunk shares, meaning the channel its central run travels and the channel its flanks turn out into. `ConvergenceTrunkAxis.claimant_member_ids` names the members that travel a trunk, its trunk member and every feeder that lands on it.
+That one rule lanes both channels a trunk shares, meaning the channel its central run travels and the channel its flanks turn out into.
+`ConvergenceTrunkAxis.claimant_member_ids` names the members that travel a trunk, its trunk member and every feeder that lands on it.
 Settlement therefore projects the lane through the translations those members took.
 
 The lane needs room, and the room arrives through the ledger the first routing pass already publishes rather than through a demand of its own.
 A lane is a drawn stroke.
 The boundary carrying it is charged as a peer of the claim beside it, and the reservation's `minimum_width` states the pair.
-On this fixture that is 26 negative + 0 bundle + 11 peer + 52 positive = 89px against a 78px gap, realized at required 89.00 against available 89.00, with the two trunks on 196 and 207. The planner makes the decision on the first pass.
+On this fixture that is 26 negative + 0 bundle + 11 peer + 52 positive = 89px against a 78px gap, realized at required 89.00 against available 89.00, with the two trunks on 196 and 207.
+The planner makes the decision on the first pass.
 Settlement therefore realizes a demand against a plan that already exists, and the disposition does not change across the sweep.
 A lane is measured from the trunk that arrived first rather than from a boundary edge, and widening the boundary does not move it.
 
-A grant widens _and_ re-derives the junctions the widened sections carry. `settle_route_envelopes` translates the whole row or column, and `_resettle` in `render/svg.py` calls `reanchor_junctions` before it observes the routes again.
+A grant widens _and_ re-derives the junctions the widened sections carry.
+`settle_route_envelopes` translates the whole row or column, and `_resettle` in `render/svg.py` calls `reanchor_junctions` before it observes the routes again.
 Widening alone is not enough.
 A junction's coordinates are a function of the ports it joins.
 A section translation that skips the re-anchor therefore strands every junction behind its sections.
@@ -481,4 +499,5 @@ Assignments follow member order.
 Axis cohorts follow the first `(run_direction, turn_direction)` appearance, then lane rank within each cohort.
 Bindings follow member order.
 Reservations, references, demands, realizations and diagnostics then use their documented semantic order.
-All IDs are content derived. `serialize_route_plan` is therefore stable across Python hash seeds.
+All IDs are content derived.
+`serialize_route_plan` is therefore stable across Python hash seeds.

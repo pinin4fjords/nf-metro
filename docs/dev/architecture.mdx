@@ -44,7 +44,8 @@ See [Layout pipeline](/nf-metro/dev/layout_pipeline/) for the full phase-by-phas
 ### Render (`src/nf_metro/render/`)
 
 `render_svg` in `render/svg.py` uses the `drawsvg` library to draw section boxes, routed edges with curved corners, pill-shaped station markers, labels, and the legend.
-Visual properties come from a `Theme` in `render/style.py`, and themes are registered in `themes/__init__.py`. `render/animate.py` adds traveling balls along the routed paths, behind the `--animate` CLI flag.
+Visual properties come from a `Theme` in `render/style.py`, and themes are registered in `themes/__init__.py`.
+`render/animate.py` adds traveling balls along the routed paths, behind the `--animate` CLI flag.
 
 ## Reference docs
 
@@ -99,7 +100,8 @@ The central structure is `MetroGraph` (`parser/model.py`), holding:
 
 - `lines` (`MetroLine`): colored routes, with an optional `style` of `solid`, `dashed`, or `dotted`.
 - `stations` (`Station`): mutable dataclasses.
-  Layout writes `x`, `y`, `layer`, and `track` directly onto them. `is_port` stations take part in layout but are invisible at render time.
+  Layout writes `x`, `y`, `layer`, and `track` directly onto them.
+  `is_port` stations take part in layout but are invisible at render time.
 - `edges` (`Edge`): directed, each tagged with a `line_id`.
 - `sections` (`Section`): subgraph groupings with a `direction` of `LR`, `RL`, or `TB`, plus a grid position and a bbox.
 - `ports` (`Port`): synthetic entry and exit points on section boundaries, created during `_resolve_sections`.

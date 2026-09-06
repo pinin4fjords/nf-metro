@@ -105,7 +105,8 @@ That reverse lookup is deliberately one-to-many, because exact duplicate connect
 The query selects the semantic candidates for fan and merge handling.
 The convergence planner first constructs its own canonical candidates.
 The member-geometry planner then combines semantic identity with settled coordinates and calls the canonical family once.
-Final convergence settlement consumes the frozen member channels as external obstacles. `_classify_merge_edges` supplies geometric measurements and the structural longest-bypass candidate, and the plan freezes the selected trunk, axis, feeder order, join points, continuation and endpoint ownership.
+Final convergence settlement consumes the frozen member channels as external obstacles.
+`_classify_merge_edges` supplies geometric measurements and the structural longest-bypass candidate, and the plan freezes the selected trunk, axis, feeder order, join points, continuation and endpoint ownership.
 Templates and post-passes consume that record rather than selecting another trunk or landing.
 
 Several broad edge scans therefore remain by design:
@@ -131,7 +132,8 @@ A pass asking whether it may move a coordinate reads one of two predicates in `c
   Only the convergence arm reaches a rank either side, because a trunk axis states a run whose two corners it fixes as well.
 - `route_system_owns_segment_boundary(route, rank)` asks whether a convergence or member plan owns a corner at either end of the segment, which is what a pass translating the segment re-forms.
 
-A pass that moves a whole segment reads both, and the guards that close on the result read them the same way. `check_no_fused_cotravelling_lines` attributes a lane to exactly the plan kinds `planner_owns_segment` names.
+A pass that moves a whole segment reads both, and the guards that close on the result read them the same way.
+`check_no_fused_cotravelling_lines` attributes a lane to exactly the plan kinds `planner_owns_segment` names.
 A caller that wants the widening on one side only says which side, as `_corridor_run_band` does for the leg whose length a planned turn's runway fixes.
 
 ## Bundles and offsets
@@ -158,7 +160,8 @@ A channel placed there normally derives its band from the two rows' bbox edges, 
 Those edges are only a proxy for the real obstruction.
 A section spanning the boundary, or one whose box sits outside the run's own reach, moves an edge without bounding the corridor.
 
-Where the corridor carries a `RouteReservation`, that proxy is not used. `_RoutingCtx.reserved_bands` maps a grid-row boundary to the clear span the reservation realizes, measured against the blockers over the corridor's own declared span, and the channel is placed inside that.
+Where the corridor carries a `RouteReservation`, that proxy is not used.
+`_RoutingCtx.reserved_bands` maps a grid-row boundary to the clear span the reservation realizes, measured against the blockers over the corridor's own declared span, and the channel is placed inside that.
 The lookup exists only on a re-route driven by an existing ledger, namely envelope settlement's, which has just widened these boundaries.
 The pass that publishes the ledger is therefore unaffected.
 See the router contract in [route_plan](/nf-metro/dev/route_plan/#the-routers-side-of-the-contract).
@@ -166,9 +169,11 @@ See the router contract in [route_plan](/nf-metro/dev/route_plan/#the-routers-si
 A band says how much room a corridor is left, not which lane inside it the corridor takes.
 Every claim crossing one boundary realizes the same band.
 Several independently placed corridors can therefore each be put in it without any of them seeing the others.
-Two can then settle less than one `OFFSET_STEP` apart, close enough that two distinct lines paint a single two-tone stripe and one of them cannot be read at all. `_separate_fused_cotravelling_runs` is the closing pass that sees every corridor at once and restores the step.
+Two can then settle less than one `OFFSET_STEP` apart, close enough that two distinct lines paint a single two-tone stripe and one of them cannot be read at all.
+`_separate_fused_cotravelling_runs` is the closing pass that sees every corridor at once and restores the step.
 The unit it moves is a _track_, meaning every run of one line drawn on one lane through one corridor.
-Re-seating therefore cannot split a fused fan-out into two parallel same-color runs. `check_no_fused_cotravelling_lines` is that pass's postcondition on the render chokepoint.
+Re-seating therefore cannot split a fused fan-out into two parallel same-color runs.
+`check_no_fused_cotravelling_lines` is that pass's postcondition on the render chokepoint.
 
 Plans seat distinct co-traveling trunks against frozen member corridors before ownership begins.
 The final check includes immutable tracks and attributes a violation to its route system and exact owning plans.
@@ -197,7 +202,8 @@ Among these are the **endpoint guards**, which assert that a routed segment term
   This generalizes the merge-only check to any route family, and the family-specific checks remain as sharper diagnostics.
 
 Both checks allow `2 * CURVE_RADIUS` of slack, because they look for paths that end in open space.
-A smaller gap can still draw a visible stub. `check_merge_feeders_land_on_trunk` therefore applies the tighter `COORD_TOLERANCE` limit in Tier C. Planned feeders consume their exact join during emission, and the corpus oracle holds every emitted path to the same final endpoint constraint.
+A smaller gap can still draw a visible stub.
+`check_merge_feeders_land_on_trunk` therefore applies the tighter `COORD_TOLERANCE` limit in Tier C. Planned feeders consume their exact join during emission, and the corpus oracle holds every emitted path to the same final endpoint constraint.
 
 <Aside type="danger" title="Station-as-elbow constraint">
 
@@ -207,7 +213,8 @@ Never position a port at the same coordinate as an internal station, within the 
 - LEFT and RIGHT ports on vertical-flow (TB or BT) sections must not share Y with any internal station.
 
 In both cases the port is perpendicular to its section's flow.
-The line therefore has to turn 90 degrees to reach it, and the offset is what gives that turn its runway. `check_exit_port_feeder_alignment` exempts perpendicular ports rather than asking them to line up with their feeder, because the two rules would demand opposite geometry.
+The line therefore has to turn 90 degrees to reach it, and the offset is what gives that turn its runway.
+`check_exit_port_feeder_alignment` exempts perpendicular ports rather than asking them to line up with their feeder, because the two rules would demand opposite geometry.
 
 When fixing a routing kink, **do not** move a port onto a station's coordinate to make the line appear straight.
 That creates a station-as-elbow violation where the routed line visually passes through the station marker.
