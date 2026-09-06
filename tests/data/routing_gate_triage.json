@@ -251,6 +251,10 @@
   "note": "Resolved metro graphs are acyclic, so feeder tracing reaches a port or a rejection return before revisiting a connector. Loop exhaustion is the defensive cycle stop.",
   "status": "defensive"
  },
+ "context.py::if _is_row_level_bottom_row_climb(::#1": {
+  "note": "_fan_bypass_band skips a fan's bypass branch that is a bottommost-row climb to a higher-row entry port over a clear row-level corridor: emission keeps that branch at the source's own Y, so pulling the shared bypass band down for it would desync the derived exit-turn plan. tests/fixtures/topologies/twoline_fanout_up.mmd reaches the skip arm, but the sweep's corpus roots do not include tests/fixtures/topologies, so no swept fixture evaluates it.",
+  "status": "needs-review"
+ },
  "context.py::if edge.line_id in line_pos:::#1": {
   "note": "line_pos is built from the line IDs of the very all_outgoing list this loop iterates, so the membership test is always true: the reject/loop-back arm (L684) is an unreachable tautology and the enter-body static arc (L686) is a phantom of the real 685->687. Vestigial tautological guard. The deliberate gap is pinned by test_genuine_dead_arm_not_masked_as_covered (arc normalization must not merge the never-taken branch onto the live one). Reclassified defensive (#762).",
   "status": "defensive"
@@ -661,6 +665,10 @@
  },
  "inter_section_handlers.py::if src_row is None or ep_row is None or src_col is None or ep_col is None:::#1": {
   "note": "_resolve_section_colrow returns (None,None) only for a station with no section; valid entry ports always have a section with non-negative grid coords.",
+  "status": "defensive"
+ },
+ "inter_section_handlers.py::if src_row is None or tgt_row is None or src_col is None or tgt_col is None:::#1": {
+  "note": "_is_row_level_bottom_row_climb's null guard; neither swept caller can pass a None coordinate. _bypass_geometry asserts src_col/tgt_col non-None and only calls it under cross_row, and cross_row is True only when both rows are set: merge_trunk_force_cross_row returns False unless src_row is not None and tgt_row == src_row, and the other disjunct requires both rows non-None. _fan_bypass_band passes non-None src_col/src_row and a checked tgt_col, and any placed target entry-port section resolves a non-negative grid_row. No fixture in the render corpus reaches the None arm.",
   "status": "defensive"
  },
  "inter_section_handlers.py::if src_sec is not None and src_sec.bbox_w > 0:::#1": {

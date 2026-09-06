@@ -37,6 +37,7 @@ from nf_metro.layout.routing.common import (
     bypass_bottom_y,
     compute_bundle_info,
     fan_corridor_band,
+    max_grid_row_with_content,
     merge_trunk_force_cross_row,
     resolve_section,
     resolve_section_colrow,
@@ -1450,7 +1451,18 @@ def _fan_bypass_band(
     reflects the edges the classifier assigns to ``_route_bypass``.  A
     feed into a merge junction is skipped: it converges on the merge's own drop
     level, not this band.
+
+    A bottommost-row branch climbing to a higher-row entry port over a clear
+    corridor is excluded too: emission keeps its run at the source's own Y (see
+    ``_bottom_row_climb_corridor_clear`` in ``inter_section_handlers``), so it
+    never descends onto this band, and pulling the band down for it would desync
+    the derived exit-turn plan from that row-level geometry.
     """
+    from nf_metro.layout.routing.inter_section_handlers import (
+        _is_row_level_bottom_row_climb,
+    )
+
+    max_content_row = max_grid_row_with_content(graph)
     deepest: float | None = None
     for edge in graph.edges_from(jid):
         if edge.target in merge_junctions:
@@ -1461,6 +1473,16 @@ def _fan_bypass_band(
             continue
         if not _intervening_section_obstructs(
             graph, src_col, src_row, tgt_col, tgt_row
+        ):
+            continue
+        if _is_row_level_bottom_row_climb(
+            graph,
+            edge,
+            src_row,
+            tgt_row,
+            src_col,
+            tgt_col,
+            max_content_row=max_content_row,
         ):
             continue
         by = bypass_bottom_y(

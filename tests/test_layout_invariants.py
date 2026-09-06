@@ -53,7 +53,6 @@ from nf_metro.layout.constants import (
 )
 from nf_metro.layout.engine import (
     PhaseInvariantError,
-    SettledRouteValidationError,
     compute_layout,
     compute_min_y_spacing,
     is_loop_side_branch_station,
@@ -134,8 +133,8 @@ from nf_metro.layout.routing import (
 )
 from nf_metro.layout.routing.common import merge_fanout_junctions, resolve_section
 from nf_metro.layout.routing.invariants import (
-    CurveInvariantError,
     assert_render_curve_invariants,
+    check_bottom_row_climb_stays_at_row_level,
     check_bundle_order_preserved,
     check_collinear_distinct_lines,
     check_merge_fanout_pivots_shared,
@@ -1893,6 +1892,29 @@ def test_fan_diamond_siblings_share_rendered_x(fixture):
 
 
 # ---------------------------------------------------------------------------
+# Bottom-row fan branch does not dive below its own section box
+# ---------------------------------------------------------------------------
+
+
+def test_bottom_row_fan_branch_climbs_at_row_level_over_clear_corridor():
+    """A bottommost-row fan branch whose row-level corridor is clear climbs at
+    row level rather than diving below its own section box.
+
+    In ``twoline_fanout_up`` both lines leave one exit junction in the bottom
+    row and rise to sections above.  One line's target sits two columns away
+    past an intervening higher-row section, so it is a bypass branch; but its
+    row-level corridor to that target is clear.  A fan bypass band that ignores
+    the clear corridor drags such a branch below the source box bottom even
+    though it never needs to descend (issue #1889); both the run geometry and
+    the derived exit-turn plan must agree it stays at row level.
+    """
+    graph = _layout("topologies/twoline_fanout_up.mmd", validate=True)
+    offsets = compute_station_offsets(graph)
+    routes = route_edges(graph, station_offsets=offsets)
+    assert not check_bottom_row_climb_stays_at_row_level(graph, routes)
+
+
+# ---------------------------------------------------------------------------
 # Grid snap keeps same-column stations on distinct slots
 # ---------------------------------------------------------------------------
 
@@ -1910,18 +1932,6 @@ def test_grid_snap_keeps_columns_distinct(fixture):
     """
     try:
         _layout(fixture, validate=True)
-    except SettledRouteValidationError as exc:
-        detail = (
-            "bottommost-row climb '__junction_3'->'new_tgt__entry_left_2' dives "
-            "to y=346.0 below source box bottom 320.0 though its row-level "
-            "corridor to the target was clear"
-        )
-        if (
-            fixture != "topologies/twoline_fanout_up.mmd"
-            or not isinstance(exc.__cause__, CurveInvariantError)
-            or detail not in str(exc)
-        ):
-            raise
     except PhaseInvariantError as exc:
         # Only a station-overlap clash indicates the snap collapsed a
         # column; any other invariant failure is out of this test's scope.
