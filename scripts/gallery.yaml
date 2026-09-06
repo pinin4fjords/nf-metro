@@ -2373,6 +2373,7 @@ render_only:
     - target_entry_runway_bypass
     - tb_exit_terminal_on_carrier
     - group_band_over_row_corridor
+    - regressions/tb_offtrack_fork_branch_collision_1390
     - hash_seed_determinism/seed_15
     - hash_seed_determinism/seed_41
     - hash_seed_determinism/seed_72
