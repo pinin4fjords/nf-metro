@@ -31,3 +31,9 @@ package-lock.json
 # Intermediate per-revision geometry vectors (regenerate with datasets/layout_preferences/scripts/replay.py)
 datasets/layout_preferences/scripts/geometry/
 datasets/layout_preferences/geometry_vectors.tar.gz
+
+# Nextflow run state left behind by a local `examples/live/` demo run
+# (e.g. the live-demo-video skill)
+work/
+.nextflow/
+.nextflow.log
