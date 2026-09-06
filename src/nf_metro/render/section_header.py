@@ -1033,12 +1033,25 @@ def check_section_headers_fit_box_width(
     was available (see :func:`_leftmost_clear_band_start`).  A rotated
     (``left``/``right``) header reads down the box height rather than across its
     width, so it is exempt too.  A ``height_capped`` header is exempt as well: it
-    traded extra
-    width for fewer lines to stay clear of whatever bounded its growth
-    direction (see :func:`_wrapped_header_geometry`).  A single line with no
-    space to break at (one word, or a word joined by an existing hyphen the
-    wrap already used) is exempt too: the title is never split mid-word (see
-    :func:`_pack_lines`), so a lone long word has no further way to narrow.
+    traded extra width for fewer lines to stay clear of whatever bounded its
+    growth direction (see :func:`_wrapped_header_geometry`).
+
+    A header whose widest wrapped line is a single unbreakable token is exempt:
+    the title is never split mid-word (see :func:`_pack_lines`), so a line that
+    is one whitespace-and-hyphen-indivisible token has no further way to narrow -
+    wrapping cannot make the header fit, and aborting the render helps no one.
+    Since :func:`_pack_lines` only ever leaves a horizontal line wider than the
+    available width when that line is such a lone token, this exempts every
+    horizontal overflow a correct wrap could not have avoided; a line carrying an
+    unused break point (a space, or a hyphen the wrap left unsplit) is reported,
+    because a proper wrap would have used it.
+
+    This guard therefore does not verify that a permitted unbreakable-token
+    overhang stays clear of a neighbouring section's box or header: it only
+    measures against the section's own ``bbox_w``.  Lateral overlap with a
+    neighbour is not checked anywhere - only route crossings
+    (:func:`check_section_headers_clear_routes`) and the vertical reserved band
+    (:func:`check_section_headers_hold_the_reserved_band`) are.
     """
     overflowing: list[str] = []
     for section_id, placement in placements.items():
@@ -1046,7 +1059,12 @@ def check_section_headers_fit_box_width(
             continue
         if placement.height_capped:
             continue
-        if len(placement.label_lines) == 1 and " " not in placement.label_lines[0]:
+        widest_line = max(
+            placement.label_lines,
+            key=lambda line: estimate_section_label_width(line, 1.0),
+            default="",
+        )
+        if len(_header_wrap_tokens(widest_line)) <= 1:
             continue
         section = graph.sections.get(section_id)
         if section is None:
