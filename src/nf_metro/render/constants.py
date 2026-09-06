@@ -384,6 +384,13 @@ ICON_BANNER_FILL: str = "#222222"
 ICON_BANNER_TEXT_COLOR: str = "#ffffff"
 """Text colour of the bold label on the banner strip (banner style)."""
 
+ICON_BANNER_TEXT_COLOR_MUTED: str = "#eeeeee"
+"""Banner label colour paired with the theme's ``muted_line_color`` band fill.
+
+Near-white rather than pure white keeps the text legible against the grey band
+while reading as muted; a shared grey with the band would erase the label.
+"""
+
 # ---------------------------------------------------------------------------
 # Animation styling
 # ---------------------------------------------------------------------------

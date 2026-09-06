@@ -2,6 +2,7 @@
 
 import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,9 @@ from nf_metro.errors import NfMetroError
 from nf_metro.parser.mermaid import parse_metro_mermaid
 from nf_metro.render.constants import (
     FALLBACK_LINE_COLOR,
+    ICON_BANNER_FILL,
+    ICON_BANNER_TEXT_COLOR,
+    ICON_BANNER_TEXT_COLOR_MUTED,
     effective_line_color,
     station_is_muted,
 )
@@ -179,6 +183,107 @@ def test_inactive_only_terminus_icon_label_muted():
     # satisfy both, so the active fill is pinned to a literal.
     assert active == "#000000"
     assert active != MUTED
+
+
+BANNER_MAP = (
+    "%%metro line: a | Line A | #ff0000 | solid | inactive\n"
+    "%%metro line: b | Line B | #0000ff\n"
+    "%%metro file: a_out | BAM |  | banner\n"
+    "%%metro file: b_out | SAM |  | banner\n"
+    "graph LR\n"
+    "    x[X] -->|a| a_out[ ]\n"
+    "    x -->|b| b_out[ ]\n"
+)
+
+
+def _icon_banner(svg, station_id):
+    """``(band fill, band text fill)`` of ``station_id``'s banner terminus icon.
+
+    The banner band is the icon group's only ``rect`` (the document body is a
+    path), and with no caption its only ``text`` is the banner label.
+    """
+    root = ET.fromstring(svg)
+    for group in root.iter():
+        if group.get("data-station-id") != station_id:
+            continue
+        band_fill = text_fill = None
+        for el in group.iter():
+            if el.tag.endswith("rect") and el.get("stroke") == "none":
+                band_fill = el.get("fill")
+            elif el.tag.endswith("text") and (el.text or "").strip():
+                text_fill = el.get("fill")
+        if band_fill is not None:
+            return band_fill, text_fill
+    return None, None
+
+
+def test_inactive_only_banner_band_muted_as_a_unit():
+    svg = _svg(BANNER_MAP)
+    # The icon touched only by the inactive line mutes both band fill and text,
+    # as one unit -- grey text on an unmuted black band would read worse than
+    # the bug it replaces.
+    muted_fill, muted_text = _icon_banner(svg, "a_out")
+    assert muted_fill == MUTED
+    assert muted_text == ICON_BANNER_TEXT_COLOR_MUTED
+    assert muted_fill != ICON_BANNER_FILL
+    assert muted_text != ICON_BANNER_TEXT_COLOR
+    # The icon touched by the active line keeps the full-strength banner.
+    active_fill, active_text = _icon_banner(svg, "b_out")
+    assert active_fill == ICON_BANNER_FILL
+    assert active_text == ICON_BANNER_TEXT_COLOR
+
+
+RAIL_MARKER_FILL = (
+    Path(__file__).parent / "fixtures" / "rail_marker_fill.mmd"
+).read_text()
+
+# The marker's declared interior tint; the interchange interior must override it
+# when the station is muted, so a shared muted-grey wouldn't falsely satisfy the
+# assertions and the declared colour is pinned to a literal.
+RAIL_MARKER_DECLARED_FILL = "#1f4e79"
+
+
+def _interchange_interior_colors(svg, station_id):
+    """Interior link-bar stroke and knob-core fills of a rail interchange.
+
+    The interior link bar carries ``nf-metro-rail-connector-interior`` and the
+    knob cores ``nf-metro-rail-knob`` (distinct from the ``-outline`` casing
+    layers), both tagged with the interchange's station id.
+    """
+    root = ET.fromstring(svg)
+    bar_strokes: set[str] = set()
+    knob_fills: set[str] = set()
+    for el in root.iter():
+        if el.get("data-station-id") != station_id:
+            continue
+        cls = (el.get("class") or "").split()
+        if "nf-metro-rail-connector-interior" in cls:
+            bar_strokes.add(el.get("stroke"))
+        elif "nf-metro-rail-knob" in cls:
+            knob_fills.add(el.get("fill"))
+    return bar_strokes, knob_fills
+
+
+def test_muted_rail_interchange_interior_greys_over_marker_fill():
+    graph = prepare_graph(RAIL_MARKER_FILL)
+    theme = resolve_theme(None, graph)
+    muted = theme.muted_line_color
+    svg = render_svg(graph, theme, inactive_line_ids=frozenset({"line_a", "line_b"}))
+    bar_strokes, knob_fills = _interchange_interior_colors(svg, "interchange")
+    assert bar_strokes == {muted}
+    assert knob_fills == {muted}
+    assert RAIL_MARKER_DECLARED_FILL not in bar_strokes
+    assert RAIL_MARKER_DECLARED_FILL not in knob_fills
+
+
+def test_active_rail_interchange_interior_keeps_marker_fill():
+    graph = prepare_graph(RAIL_MARKER_FILL)
+    theme = resolve_theme(None, graph)
+    svg = render_svg(graph, theme)
+    bar_strokes, knob_fills = _interchange_interior_colors(svg, "interchange")
+    # With no muting the declared marker tint is retained (the exemption stands).
+    assert bar_strokes == {RAIL_MARKER_DECLARED_FILL}
+    assert knob_fills == {RAIL_MARKER_DECLARED_FILL}
 
 
 # ---------------------------------------------------------------------------

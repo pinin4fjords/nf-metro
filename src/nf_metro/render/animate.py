@@ -6,6 +6,7 @@ __all__ = ["render_animation"]
 
 import math
 import re
+from collections import deque
 
 import drawsvg as draw
 
@@ -309,7 +310,42 @@ def _variant_path(
 ) -> list[Edge]:
     """Build a root-to-sink path that takes forced_edge at fork_node.
 
-    At every other fork, follows the first (canonical) branch.
+    The prefix from *start* to *fork_node* follows the first (canonical)
+    branch at every earlier fork. When that canonical walk cannot reach
+    *fork_node* -- because the only route to it runs through a non-first
+    branch at some earlier fork -- fall back to a breadth-first search over
+    the full adjacency to find any prefix that does. Without the fallback,
+    *forced_edge* is silently never emitted and its branch is dropped from
+    the animation.
+    """
+    prefix = _canonical_prefix_to(start, adj, fork_node)
+    if prefix is None:
+        prefix = _bfs_prefix_to(start, adj, fork_node)
+        if prefix is None:
+            return []
+
+    prefix_edges, visited = prefix
+    path = list(prefix_edges)
+    path.append(forced_edge)
+    current = forced_target
+    while current in adj and current not in visited:
+        visited.add(current)
+        target, edge = adj[current][0]
+        path.append(edge)
+        current = target
+    return path
+
+
+def _canonical_prefix_to(
+    start: str,
+    adj: dict[str, list[tuple[str, Edge]]],
+    fork_node: str,
+) -> tuple[list[Edge], set[str]] | None:
+    """Prefix from *start* to *fork_node* via the first branch at every fork.
+
+    Returns the prefix edges and the set of nodes visited (including
+    *fork_node*), or ``None`` if the canonical walk dead-ends before
+    reaching *fork_node*.
     """
     path: list[Edge] = []
     current = start
@@ -317,13 +353,37 @@ def _variant_path(
     while current in adj and current not in visited:
         visited.add(current)
         if current == fork_node:
-            path.append(forced_edge)
-            current = forced_target
-        else:
-            target, edge = adj[current][0]
-            path.append(edge)
-            current = target
-    return path
+            return path, visited
+        target, edge = adj[current][0]
+        path.append(edge)
+        current = target
+    return None
+
+
+def _bfs_prefix_to(
+    start: str,
+    adj: dict[str, list[tuple[str, Edge]]],
+    fork_node: str,
+) -> tuple[list[Edge], set[str]] | None:
+    """Shortest edge-path from *start* to *fork_node* over the full adjacency.
+
+    Returns the prefix edges and the set of nodes on that path (including
+    *fork_node*), or ``None`` if *fork_node* is unreachable from *start*.
+    """
+    queue: deque[tuple[str, list[Edge]]] = deque([(start, [])])
+    seen: set[str] = {start}
+    while queue:
+        node, edges = queue.popleft()
+        if node == fork_node:
+            visited = {start}
+            for edge in edges:
+                visited.add(edge.target)
+            return edges, visited
+        for target, edge in adj.get(node, []):
+            if target not in seen:
+                seen.add(target)
+                queue.append((target, [*edges, edge]))
+    return None
 
 
 def _chain_edge_points(
