@@ -6024,17 +6024,11 @@ def _iter_bottom_row_climbs(
     gate.
     """
     from nf_metro.layout.routing.inter_section_handlers import (
-        _bottom_row_climb_corridor_clear,
+        _is_row_level_bottom_row_climb,
     )
 
     for r in routes:
         if not r.is_inter_section or len(r.points) < 2:
-            continue
-        tgt_port = graph.ports.get(r.edge.target)
-        if tgt_port is None or not tgt_port.is_entry:
-            # A merge/fan junction target collects feeders onto a shared trunk
-            # below the row; that channel is not the single-line dogleg these
-            # guards police, which always lands on a real section entry port.
             continue
         src_sec = resolve_section(graph, graph.stations.get(r.edge.source))
         tgt_sec = resolve_section(graph, graph.stations.get(r.edge.target))
@@ -6046,8 +6040,9 @@ def _iter_bottom_row_climbs(
             or src_sec.bbox_h <= 0
         ):
             continue
-        if not _bottom_row_climb_corridor_clear(
+        if not _is_row_level_bottom_row_climb(
             graph,
+            r.edge,
             src_sec.grid_row,
             tgt_sec.grid_row,
             src_sec.grid_col,
