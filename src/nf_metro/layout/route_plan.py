@@ -2032,6 +2032,13 @@ class ConvergenceLanding:
     bypass: bool
     long_haul: bool
     multiple_row: bool
+    cross_run_start_coordinate: float | None = None
+    """Perpendicular coordinate where the approach's cross run begins.
+
+    This is the feeder's own turn toward the trunk. It can differ from the
+    source station's row or column, since a feeder may descend past the
+    trunk into an inter-row corridor before climbing back up onto the join.
+    """
 
     def __post_init__(self) -> None:
         if self.approach_axis is DemandAxis.BOTH:
@@ -2047,6 +2054,16 @@ class ConvergenceLanding:
             self.opening_turn_coordinate
         ):
             raise ValueError("convergence feeder opening turn must be finite")
+        if (self.cross_run_start_coordinate is None) != (
+            self.corner_handedness is None
+        ):
+            raise ValueError(
+                "convergence feeder cross run start must accompany its corner"
+            )
+        if self.cross_run_start_coordinate is not None and not math.isfinite(
+            self.cross_run_start_coordinate
+        ):
+            raise ValueError("convergence feeder cross run start must be finite")
         if (self.opening_turn_coordinate is None) != (
             self.opening_turn_segment is None
         ):

@@ -188,7 +188,7 @@
   "convergences.py::if group.line_id not in line_order:::#1",
   "convergences.py::if interval[1] - interval[0] > COORD_TOLERANCE:::#1",
   "convergences.py::if interval_start > covered_until + COORD_TOLERANCE:::#1",
-  "convergences.py::if landing.approach_axis is DemandAxis.X:::#3",
+  "convergences.py::if landing.approach_axis is DemandAxis.X:::#2",
   "convergences.py::if landing.member_id not in member_ids:::#1",
   "convergences.py::if landing.opening_turn_segment is None:::#1",
   "convergences.py::if lane is None:::#1",

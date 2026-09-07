@@ -796,12 +796,75 @@ def test_planned_landing_facts_match_emitted_terminal_geometry() -> None:
         )
         approach = convergence_routing._landing_approach(route, landing.join_point)
         assert approach is not None
-        direction, handedness, runway = approach
+        direction, handedness, runway, _cross_start = approach
         assert direction is landing.approach_direction
         assert handedness is landing.corner_handedness
         assert runway >= landing.minimum_runway
         if landing.member_id != plan.primary_trunk_member_id:
             assert not route.normalize_exempt
+
+
+_OVERSHOOT_LANDING_REPRO = """%%metro title: Repro
+%%metro line: a | A | #e6007e
+
+%%metro grid: s1, s2 | 0,0
+%%metro grid: s3, s4 | 0,1
+
+graph LR
+    subgraph s1 [One]
+        n1[N1]
+        n2[N2]
+    end
+    subgraph s2 [Two]
+        n3[N3]
+        n4[N4]
+    end
+    subgraph s3 [Three]
+        n5[N5]
+    end
+    subgraph s4 [Four]
+        n6[N6]
+    end
+
+    n2 -->|a| n3
+    n4 -->|a| n5
+    n1 -->|a| n6
+    n4 -->|a| n6
+"""
+
+
+@pytest.mark.parametrize(
+    "extra_edge",
+    ["", "    n5 -->|a| n6\n"],
+    ids=["two_cross_section_feeders", "with_n5_feeder"],
+)
+def test_overshooting_feeder_lands_with_the_handedness_it_emits(
+    extra_edge: str,
+) -> None:
+    """A feeder that overshoots the trunk row plans the corner it emits.
+
+    ``n4`` feeds both ``n5`` in another row and ``n6``, so its approach to the
+    ``n6`` convergence descends past the trunk row into the inter-row corridor
+    and climbs back up onto the join.  The planned landing corner must be read
+    from where that cross run actually begins, not from the source row, or it
+    disagrees with the emitted corner and aborts the render.
+    """
+    _graph, _offsets, observed = _observe_text(_OVERSHOOT_LANDING_REPRO + extra_edge)
+
+    for plan in observed.plan.convergence_plans:
+        for landing in plan.landings:
+            route = next(
+                item
+                for item in observed.routes
+                if item.convergence_member_id == str(landing.member_id)
+            )
+            approach = convergence_routing._landing_approach(route, landing.join_point)
+            assert approach is not None
+            direction, handedness, _runway, cross_start = approach
+            assert direction is landing.approach_direction
+            assert handedness is landing.corner_handedness
+            if cross_start is not None:
+                assert landing.cross_run_start_coordinate == pytest.approx(cross_start)
 
 
 def test_runtime_guard_rejects_reduced_planned_landing_runway() -> None:
