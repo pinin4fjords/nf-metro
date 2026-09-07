@@ -2035,9 +2035,9 @@ class ConvergenceLanding:
     cross_run_start_coordinate: float | None = None
     """Perpendicular coordinate where the approach's cross run begins.
 
-    The feeder's own turn toward the trunk, which the source row only
-    approximates when the descent overshoots the trunk into an inter-row
-    corridor before climbing back onto the join.
+    This is the feeder's own turn toward the trunk. It can differ from the
+    source station's row or column, since a feeder may descend past the
+    trunk into an inter-row corridor before climbing back up onto the join.
     """
 
     def __post_init__(self) -> None:
@@ -2058,7 +2058,7 @@ class ConvergenceLanding:
             self.corner_handedness is None
         ):
             raise ValueError(
-                "convergence feeder cross run start accompanies its corner"
+                "convergence feeder cross run start must accompany its corner"
             )
         if self.cross_run_start_coordinate is not None and not math.isfinite(
             self.cross_run_start_coordinate

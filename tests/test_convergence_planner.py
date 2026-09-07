@@ -860,9 +860,11 @@ def test_overshooting_feeder_lands_with_the_handedness_it_emits(
             )
             approach = convergence_routing._landing_approach(route, landing.join_point)
             assert approach is not None
-            direction, handedness, _runway, _cross_start = approach
+            direction, handedness, _runway, cross_start = approach
             assert direction is landing.approach_direction
             assert handedness is landing.corner_handedness
+            if cross_start is not None:
+                assert landing.cross_run_start_coordinate == pytest.approx(cross_start)
 
 
 def test_runtime_guard_rejects_reduced_planned_landing_runway() -> None:
